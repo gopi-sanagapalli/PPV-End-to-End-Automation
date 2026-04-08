@@ -1,0 +1,22 @@
+{
+  "name": "dazn-tests",
+  "version": "1.0.0",
+  "scripts": {
+    "test": "playwright test",
+    "test:setup": "playwright test --grep @setup",
+    "test:report": "playwright show-report",
+    "test:headed": "playwright test --headed",
+    "test:debug": "playwright test --debug"
+  },
+  "devDependencies": {
+    "@playwright/mcp": "^0.0.68",
+    "@playwright/test": "^1.49.0",
+    "ts-node": "^10.0.0",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "exceljs": "^4.4.0",
+    "fs-extra": "^11.3.4",
+    "xlsx": "^0.18.5"
+  }
+}
