@@ -8,19 +8,50 @@ type ValidationResult = {
 };
 
 /**
- * Displays test results in a formatted table
- * @param results - Array of validation results
- * @param variant - Detected variant name
+ * Displays concise summary of validation results
  */
-export function displayResultsTable(results: ValidationResult[], variant: string = 'unknown'): void {
-  console.log('\n' + '═'.repeat(100));
-  console.log('📊 TEST RESULTS SUMMARY');
-  console.log('═'.repeat(100));
+export function displayResultsTable(
+  results: ValidationResult[],
+  variant: string = 'unknown'
+): void {
 
+  const total = results.length;
   const totalPass = results.filter(r => r.status === 'PASS').length;
   const totalFail = results.filter(r => r.status === 'FAIL').length;
 
-  console.log(`Variant: ${variant}`);
-  console.log(`Total: ${results.length} | ✅ Pass: ${totalPass} | ❌ Fail: ${totalFail}`);
-  console.log('═'.repeat(100));
+  const passPercent = total === 0
+    ? 0
+    : ((totalPass / total) * 100).toFixed(2);
+
+  console.log('\n' + '═'.repeat(60));
+  console.log('📊 TEST SUMMARY');
+  console.log('═'.repeat(60));
+
+  console.table([
+    {
+      Variant: variant,
+      Total: total,
+      Passed: totalPass,
+      Failed: totalFail,
+      'Pass %': `${passPercent}%`,
+    }
+  ]);
+
+  console.log('═'.repeat(60));
+
+  // 🔥 OPTIONAL: show failed fields only (high signal)
+  if (totalFail > 0) {
+    console.log('\n❌ FAILED FIELDS:');
+
+    console.table(
+      results
+        .filter(r => r.status === 'FAIL')
+        .map(r => ({
+          Page: r.page,
+          Field: r.field,
+          Expected: r.expected,
+          Actual: r.actual,
+        }))
+    );
+  }
 }

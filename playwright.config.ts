@@ -17,6 +17,9 @@ export default defineConfig({
     baseURL: 'https://www.dazn.com/welcome',
     headless: false,
 
+    // 🔥 APPLY STORED COOKIE STATE (fixes popup issue)
+    storageState: 'auth/dazn-storage-state.json',
+
     viewport: null,
 
     launchOptions: {
@@ -35,7 +38,9 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      use: { browserName: 'chromium' },
+      use: {
+        browserName: 'chromium',
+      },
     },
   ],
 });

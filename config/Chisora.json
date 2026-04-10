@@ -1,0 +1,32 @@
+{
+  "PPV_NAME": "Wardley vs. Dubois",
+  "SECONDARY_PPV": "Wardley vs. Dubois",
+
+  "global": {
+    "PPV_PRICE": "49.99",
+    "PPV_DATE": "Saturday at 11:30 PM",
+    "SECONDARY_PPV_DATE": "Sat 9th May at 11:30 PM"
+  },
+
+  "regions": {
+    "AU": {
+      "CURRENCY": "$",
+      "DAZN_TIER": "DAZN Standard",
+      "MONTHLY_PRICE": "31.99",
+      "ANNUAL_PRICE": "16.99",
+      "BUNDLE_PRICE": "79.99",
+      "BUNDLE_ORIGINAL_PRICE": "99.98"
+    },
+
+    "UK": {
+      "CURRENCY": "£",
+      "DAZN_TIER": "DAZN Standard",
+      "MONTHLY_PRICE": "24.99",
+      "ANNUAL_PRICE": "14.99",
+      "BUNDLE_PRICE": "69.99",
+      "BUNDLE_ORIGINAL_PRICE": "89.99"
+    }
+  },
+
+  "NEXT_PAYMENT_DAYS_OFFSET": 7
+}

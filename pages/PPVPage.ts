@@ -1,68 +1,46 @@
 import { Page } from '@playwright/test';
-import { smartClick } from '../utils/browserHelpers';
+import selectors from '../config/selectors.json';
 
 export class PPVPage {
   constructor(private page: Page) {}
 
-  // ─────────────────────────────────────────────
-  // WAIT FOR PAGE LOAD
-  // ─────────────────────────────────────────────
+  // ─────────────────────────────
+  // CHECK IF ON PPV PAGE
+  // ─────────────────────────────
+  async isPPVPage(): Promise<boolean> {
+    try {
+      const heading = this.page.locator(selectors.ppv.pageTitle).first();
+
+      return await heading.isVisible({ timeout: 5000 });
+    } catch {
+      return false;
+    }
+  }
+
+  // ─────────────────────────────
+  // WAIT FOR PAGE STABLE
+  // ─────────────────────────────
   async waitForLoad() {
-    await this.page.waitForLoadState('load');
+    await this.page.waitForLoadState('domcontentloaded');
+
+    // handle lazy content
+    await this.page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)).catch(() => {});
+    await this.page.waitForTimeout(800);
+    await this.page.evaluate(() => window.scrollTo(0, 0)).catch(() => {});
+    await this.page.waitForTimeout(400);
   }
 
-  // ─────────────────────────────────────────────
-  // DETECT VARIANT
-  // ─────────────────────────────────────────────
-  async detectVariant(): Promise<string> {
-    const text = await this.page.locator('body').innerText();
-    const lower = text.toLowerCase();
-
-    if (lower.includes('bundle')) return 'variant3';
-    if (lower.includes('free trial')) return 'variant2';
-    return 'variant1';
-  }
-
-  // ─────────────────────────────────────────────
-  // ✅ FIX: CHECK VARIANT INDICATORS (MISSING)
-  // ─────────────────────────────────────────────
-  async areVariantIndicatorsVisible(): Promise<boolean> {
+  // ─────────────────────────────
+  // OPTIONAL: VERIFY CORE ELEMENT
+  // ─────────────────────────────
+  async hasBuyCTA(): Promise<boolean> {
     try {
-      const indicators = this.page.locator(
-        'text=/choose your plan|free trial|bundle/i'
-      );
-
-      return await indicators.first().isVisible({ timeout: 2000 });
+      return await this.page
+        .locator(selectors.ppv.buyCTA)
+        .first()
+        .isVisible({ timeout: 3000 });
     } catch {
       return false;
     }
-  }
-
-  // ─────────────────────────────────────────────
-  // CHECK IF ON PLAN PAGE
-  // ─────────────────────────────────────────────
-  async isPlanPage(): Promise<boolean> {
-    try {
-      const header = this.page.locator(
-        'text=/choose your plan|choose your pass/i'
-      );
-
-      return await header.first().isVisible({ timeout: 5000 });
-    } catch {
-      return false;
-    }
-  }
-
-  // ─────────────────────────────────────────────
-  // CLICK CONTINUE CTA
-  // ─────────────────────────────────────────────
-  async clickContinue() {
-    const continueBtn = this.page.getByRole('button', {
-      name: /continue|next|proceed/i
-    }).first();
-
-    await smartClick(this.page, continueBtn, 'PPV Continue CTA');
-
-    console.log('✅ Clicked Continue on PPV page');
   }
 }

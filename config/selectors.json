@@ -1,113 +1,92 @@
 {
   "cookies": {
-    "acceptButton": "button#onetrust-accept-btn-handler, button[name='Accept'], button:has-text('Accept All')",
-    "rejectButton": "button#onetrust-reject-all-handler, button:has-text('Essential cookies only'), button:has-text('Reject All')"
+    "acceptButton": "#onetrust-accept-btn-handler",
+    "rejectButton": "#onetrust-reject-all-handler"
   },
-  "landingPage": {
-    "dontMissSection": "section",
-    "dontMissSectionText": "Don't miss live on DAZN",
-    "eventTileContainers": "article, div, li",
-    "eventTitleRegex": "Chisora\\s+vs\\.?\\s+Wilder",
-    "eventTitle": "section:has(h1:has-text(\"Don't Miss live on DAZN\")) article:has-text('Chisora vs. Wilder') p:has-text('Chisora vs. Wilder')",
-    "eventDate": "section:has(h1:has-text(\"Don't Miss live on DAZN\")) article:has-text('Chisora vs. Wilder') >> text=/Apr\\s*4|Apr\\s*5|Sat/i",
-    "buyNowButton": "button:has-text('Buy now'), button:has-text('Buy Now')",
-    "buyNowLink": "a:has-text('Buy now'), a:has-text('Buy Now')",
-    "eventCardBuyNow": "section:has(h1:has-text(\"Don't Miss live on DAZN\")) article:has-text('Chisora vs. Wilder') button:has-text('Buy now')"
-  },"daznPlan": {
-  "pageTitle": "text=Choose a plan that\\'s right",
-  "pageSubHeader": "text=Pick a plan to go with your",
 
-  "ctaContinue": "[data-test-id=\"plan-details__button\"]",
+  "landing": {
+    "container": "section, article",
 
-  "trialCard": "text=7-day free trial of DAZN",
-  "trialTitle": "text=7-day free trial of DAZN",
-  "trialDescription": "text=Cancel anytime during the",
-  "trialSelected": "role=img[name=\"selected\"]",
-  "trialFeature": "text=7-days free access to DAZN",
+    "eventName": "h2, h3",
+    "date": "text=/\\b(AM|PM)\\b/i",
 
-  "upsellCard": "text=Annual - pay over time",
-  "upsellBadge": "text=FIRST MONTH FREE!",
-  "upsellPlanName": "text=Annual - pay over time",
-  "upsellPrice": "text=$16.99",
-  "upsellSubText": "text=Then $16.99 /month for 11",
-  "upsellSelected": "role=img[name=\"unselected\"]",
-  "upsellRenewal": "text=Annual contract. Auto renews",
-"firstMonthFreeText": "text=+ First month free",
-  "upsellFeature1": "text=185+ fights a year from the",
-  "upsellFeature2": "text=Additional cost for pay-per-",
-  "upsellFeature3": "text=Full HD video resolution."
-},  "ppv": {
-    "title": "text=/Chisora\\s+vs\\.?\\s+Wilder/i",
-    "price": "text=/24\\.99|£24\\.99|GBP\\s*24\\.99|\\$\\d+(\\.\\d{2})?/i",
-    "ctaContinue": "button:has-text('Continue'), button:has-text('continue')",
-    "header": "h1, h2",
-    "pageTitle": "h1:has-text('Choose your plan'), h1:has-text('Choose your pass'), h2:has-text('Choose your plan'), h2:has-text('Choose your pass')",
-    "headerHighlight": "text=/Chisora\\s+vs\\.?\\s+Wilder/i",
-    "headerSubText": "text=/DAZN Standard|DAZN Ultimate/i",
-    "headerUpsellText": "text=/included in DAZN Ultimate|get it included/i",
-    "heroImage": "img[alt*='Chisora'], img[alt*='Wilder'], img[src*='chisora'], img[src*='wilder']",
-    "eventDate": "text=/Sat|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec/i",
-    "eventTime": "text=/\\d{1,2}:\\d{2}/",
-    "ppvCard": "article:has-text('Chisora vs. Wilder'), div:has-text('Chisora vs. Wilder')",
-    "ppvName": "text=/Chisora\\s+vs\\.?\\s+Wilder/i",
-    "ppvPrice": "text=/\\$\\d+(\\.\\d{2})?|£\\d+(\\.\\d{2})?/",
-    "currency": "text=/\\$|£|GBP|AUD/",
-    "daznTier": "text=/DAZN Standard|DAZN Ultimate/i",
-    "radioSelected": "[role='radio'][aria-checked='true'], input[type='radio']:checked",
-    "upsellSection": "section:has-text('Pay-per-views included'), div:has-text('Pay-per-views included')",
+    "buyCTA": "button:has-text('Buy'), button:has-text('Buy now')"
+  },
+
+  "ppv": {
+    "main": "main",
+
+    "pageTitle": "h1",
+
+    "eventName": "h1",
+    "date": "text=/\\b(AM|PM)\\b/i",
+
+    "buyCTA": "button:has-text('Continue'), button:has-text('Buy')",
+
+    "price": "text=/\\$\\d+(\\.\\d{2})?/",
+
+    "image": "img",
+
+    "upsellSection": "section:has-text('DAZN Ultimate')",
     "upsellLabel": "text=/Pay-per-views included/i",
-    "upsellPlanName": "text=/DAZN Ultimate/i",
-    "upsellPrice": "text=/\\$\\d+(\\.\\d{2})?|£\\d+(\\.\\d{2})?/",
-    "upsellBillingText": "text=/Annual contract|Auto renews/i",
-    "upsellIncludedTag": "text=/Included/i",
-    "upsellEventsCount": "text=/\\b2\\b/",
-    "trialCard": "text=/7-day free trial/i",
-    "trialTitle": "text=/7-day free trial/i",
-    "trialPlan": "text=/DAZN Standard/i",
-    "bundleCard": "text=/2 Fight PPV Bundle/i",
-    "bundleTitle": "text=/2 Fight PPV Bundle/i",
-    "bundlePrice": "text=/79\\.99|\\$79\\.99|£79\\.99/i",
-    "bundleOriginalPrice": "text=/99\\.99|\\$99\\.99|£99\\.99/i",
-    "bundleDiscountLabel": "text=/Save 20%/i",
-    "secondaryCta": "button:has-text('Subscribe without a pay-per-view'), a:has-text('Subscribe without a pay-per-view')"
+    "upsellPlan": "text=/DAZN Ultimate/i",
+
+    "bundleCard": "section:has-text('Bundle')",
+    "bundleDiscount": "text=/save/i",
+    "bundleSecondEvent": "text=/vs\\.?/i"
   },
+
+  "daznPlan": {
+    "pageTitle": "h1",
+    "pageSubHeader": "h1 + p",
+
+    "ctaContinue": "button:has-text('Continue')",
+
+    "trialCard": "section:has-text('free trial')",
+    "trialTitle": "text=/free trial/i",
+    "trialDescription": "text=/Cancel anytime/i",
+    "trialSelected": "[aria-checked='true']",
+
+    "upsellCard": "section:has-text('annual'), section:has-text('pay over time')",
+    "upsellPlanName": "text=/annual/i",
+
+    "upsellPrice": "text=/\\$\\d+(\\.\\d{2})?/",
+    "upsellSubText": "text=/month/i",
+    "upsellRenewal": "text=/auto renew/i",
+
+    "upsellFeature1": "li:nth-child(1)",
+    "upsellFeature2": "li:nth-child(2)",
+    "upsellFeature3": "li:nth-child(3)"
+  },
+
+  "payment": {
+    "pageTitle": "h1",
+    "header": "text=/payment/i",
+    "tier": "text=/DAZN/i",
+
+    "changeCTA": "button:has-text('Change')",
+
+    "ppvName": "text=/vs\\.?/i",
+    "priceAll": "text=/\\$\\d+(\\.\\d{2})?/",
+
+    "freeTrial": "text=/free/i",
+
+    "todayText": "text=/Today you pay/i",
+    "todayPrice": "[data-test-id='summary_total_value']",
+
+    "nextPayment": "text=/Next payment/i",
+    "cancellation": "text=/cancel/i"
+  },
+
   "signup": {
-  "email": "[data-test-id=\"EMAIL\"]",
-  "firstName": "[data-test-id=\"FIRST_NAME\"]",
-  "lastName": "[data-test-id=\"LAST_NAME\"]",
-  "password": "input[type='password']",
-  "continueButtonStep1": "button:has-text('Continue'), button:has-text('Next')",
-  "continueButtonStep2": "[data-test-id=\"unified-button-step2\"]"
-},
-"payment": {
-  "pageTitle": "text=Choose how to pay after your",
-  "header": "text=Your payment is encrypted and",
+    "email": "input[type='email']",
+    "firstName": "input[name='firstName']",
+    "lastName": "input[name='lastName']",
+    "password": "input[type='password']",
+    "continueButtonStep2": "button[type='submit']"
+  },
 
-  "tier": "text=DAZN Standard",
-  "changeCTA": "role=button[name=\"Change\"]",
-
-  "ppvName": "text=Chisora vs. Wilder",
-
-  "priceAll": "text=$",
-
-  "freeTrial": "text=-days free",
-
-  "todayPayText": "text=Today you pay",
-  "todayPayPrice": "[data-test-id=\"summary_total_value\"]",
-
-  "nextPaymentSection": "[data-test-id=\"summary_next_payment_header_value_refined\"]",
-
-  "cancellation": "text=Monthly subscription. Cancel"
-},
-  "variants": {
-    "variant1": {
-      "marker": "text=/choose your plan/i"
-    },
-    "variant2": {
-      "marker": "text=/free trial/i"
-    },
-    "variant3": {
-      "marker": "text=/bundle/i"
-    }
+  "schedule": {
+    "buyCTA": "button:has-text('Buy'), button:has-text('Buy now')"
   }
 }

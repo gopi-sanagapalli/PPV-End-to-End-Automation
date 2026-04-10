@@ -1,31 +1,47 @@
-import { validateVariant1 } from '../config/variant1';
-import { validateVariant2 } from '../config/variant2';
-import { validateVariant3 } from '../config/variant3';
+import { resolveExpected } from '../utils/resolveExpected';
+import { getActualValue } from '../utils/getActualValue';
+import { compare } from '../utils/compare';
 
 export const validateVariant = async (
   page: any,
   variant: string,
   data: any[],
-  results: any[]
+  results: any[],
+  eventData: any
 ) => {
-
-  console.log('🚀 Running PPV Validation...');
-  console.log('🧠 Variant:', variant);
-  console.log('📊 Data Length:', data.length);
-
-  if (variant === 'variant1') {
-    await validateVariant1(page, data, results);
+  if (!eventData) {
+    throw new Error('❌ eventData is missing — validation is invalid');
   }
 
-  else if (variant === 'variant2') {
-    await validateVariant2(page, data, results);
-  }
+  // console.log('🚀 Running Validation...');
+  // console.log('🧠 Variant:', variant);
 
-  else if (variant === 'variant3') {
-    await validateVariant3(page, data, results);
-  }
+  const rules = data.filter(r => {
+    return !r.Variant || r.Variant.trim() === variant;
+  });
 
-  else {
-    console.log('❌ Unknown variant');
+  for (const rule of rules) {
+    const actual = await getActualValue(page, rule.Field);
+    const expected = resolveExpected(rule, eventData);
+    const status = compare(rule.Type, actual, expected);
+
+    if (actual === 'N/A' || actual === '') {
+      // console.log(`⚠️ EMPTY ACTUAL for field: ${rule.Field}`);
+    }
+
+    if (!status) {
+      // console.log(`❌ [${variant}] ${rule.Field}`);
+      // console.log(`   Expected: ${expected}`);
+      // console.log(`   Actual  : ${actual}`);
+      // console.log(`   Type    : ${rule.Type}`);
+    }
+
+    results.push({
+      page: variant,
+      field: rule.Field,
+      expected,
+      actual,
+      status: status ? 'PASS' : 'FAIL'
+    });
   }
 };

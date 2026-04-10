@@ -1,4 +1,5 @@
 import { Page, Locator, expect } from '@playwright/test';
+import selectors from '../config/selectors.json';
 
 export class SchedulePage {
   constructor(private page: Page) {}
@@ -11,14 +12,11 @@ export class SchedulePage {
 
     await this.page.goto('https://www.dazn.com/en-AU/schedule');
 
-    // URL must be correct
     await expect(this.page).toHaveURL(/schedule/);
 
-    // SPA readiness (not just HTML load)
     await this.page.waitForLoadState('domcontentloaded');
     await this.page.waitForLoadState('networkidle').catch(() => {});
 
-    // Ensure page actually rendered content
     await this.page.waitForFunction(() => {
       return document.querySelectorAll('article').length > 0;
     });
@@ -27,109 +25,107 @@ export class SchedulePage {
   }
 
   // -------------------------------
-  // SELECT SPORT (BOXING)
+  // SELECT SPORT
   // -------------------------------
-  async selectBoxing() {
-  console.log('🥊 Selecting Boxing...');
+  async selectSport(sport: string = 'Boxing') {
+    console.log(`🥊 Selecting ${sport}...`);
 
-  const filterContainer = this.page.locator('#schedule-filter-container');
-  await expect(filterContainer).toBeVisible({ timeout: 10000 });
+    const filterContainer = this.page.locator('#schedule-filter-container');
+    await expect(filterContainer).toBeVisible({ timeout: 10000 });
 
-  const boxing = filterContainer.getByText('Boxing', { exact: true });
+    const sportEl = filterContainer.getByText(sport, { exact: true });
 
-  await expect(boxing).toBeVisible();
-  await boxing.click();
+    await expect(sportEl).toBeVisible();
+    await sportEl.click();
 
-  // 🔥 WAIT for content to change AFTER click
-  await this.page.waitForFunction(() => {
-    const articles = document.querySelectorAll('article');
-    return articles.length > 0;
-  });
+    await this.page.waitForFunction(() => {
+      return document.querySelectorAll('article').length > 0;
+    });
 
-  // 🔥 Give UI time to stabilize (important for SPA)
-  await this.page.waitForTimeout(1000);
+    await this.page.waitForTimeout(1000);
 
-  console.log('✅ Boxing selected');
-}
-  // -------------------------------
-  // FIND EVENT (SCROLL-BASED)
-  // -------------------------------
-async findEventWithScroll(): Promise<Locator> {
-  console.log('🔍 Searching for event...');
-
-  const nameRegex = /(chisora.*wilder|wilder.*chisora)/i;
-
-  await this.page.evaluate(() => window.scrollTo(0, 0));
-  await this.page.waitForTimeout(500);
-
-  for (let i = 0; i < 25; i++) {
-    const event = this.page.locator('article')
-      .filter({ hasText: nameRegex })
-      .filter({ hasText: /full event replay/i })
-      .first();
-
-    if (await event.isVisible().catch(() => false)) {
-      console.log('✅ Event found');
-      return event;
-    }
-
-    await this.page.mouse.wheel(0, 2000);
-    await this.page.waitForTimeout(400);
+    console.log(`✅ ${sport} selected`);
   }
 
-  throw new Error('❌ Event not found');
-}
+  // -------------------------------
+  // FIND EVENT (GENERIC)
+  // -------------------------------
+  async findEvent(eventName: string): Promise<Locator> {
+    console.log(`🔍 Searching for event: ${eventName}`);
+
+    const regex = new RegExp(
+      eventName.replace(/\s+/g, '.*'),
+      'i'
+    );
+
+    await this.page.evaluate(() => window.scrollTo(0, 0));
+    await this.page.waitForTimeout(500);
+
+    for (let i = 0; i < 25; i++) {
+      const event = this.page.locator('article').filter({
+        hasText: regex
+      }).first();
+
+      if (await event.isVisible().catch(() => false)) {
+        console.log('✅ Event found');
+        return event;
+      }
+
+      await this.page.mouse.wheel(0, 2000);
+      await this.page.waitForTimeout(400);
+    }
+
+    throw new Error(`❌ Event "${eventName}" not found`);
+  }
 
   // -------------------------------
   // CLICK EVENT
   // -------------------------------
-async clickEvent(event: Locator) {
-  console.log('🖱️ Clicking event...');
+  async clickEvent(event: Locator) {
+    console.log('🖱️ Clicking event...');
 
-  await event.scrollIntoViewIfNeeded();
-  await this.page.waitForTimeout(500);
+    await event.scrollIntoViewIfNeeded();
+    await this.page.waitForTimeout(300);
 
-  const box = await event.boundingBox();
-  if (!box) throw new Error('❌ Event not clickable');
+    const box = await event.boundingBox();
+    if (!box) throw new Error('❌ Event not clickable');
 
-  await this.page.mouse.click(
-    box.x + box.width / 2,
-    box.y + box.height / 2
-  );
+    await this.page.mouse.click(
+      box.x + box.width / 2,
+      box.y + box.height / 2
+    );
 
-  // 🔥 REAL validation
-  await expect(this.page.locator('text=Buy now')).toBeVisible({
-    timeout: 7000
-  });
+    // Wait for modal
+    await expect(this.page.locator(selectors.schedule.buyCTA)).toBeVisible({
+      timeout: 7000
+    });
 
-  console.log('✅ Modal opened');
-}
-async clickBuyNow() {
-  console.log('💳 Clicking Buy Now CTA...');
-
-  const buyNow = this.page.locator('button:has-text("Buy now")').first();
-
-  await expect(buyNow).toBeVisible({ timeout: 5000 });
-
-  await this.page.waitForTimeout(500); // allow modal settle
-
-  const box = await buyNow.boundingBox();
-  if (!box) throw new Error('❌ Buy Now not clickable');
-
-  await this.page.mouse.click(
-    box.x + box.width / 2,
-    box.y + box.height / 2
-  );
-
-  console.log('✅ Buy Now clicked');
-
-  // 🔥 verify navigation
-  await this.page.waitForLoadState('domcontentloaded');
-
-  const url = this.page.url();
-  console.log(`🌍 After Buy Now URL: ${url}`);
-
-  if (url.includes('schedule')) {
-    throw new Error('❌ Buy Now did not navigate');
+    console.log('✅ Modal opened');
   }
-}}
+
+  // -------------------------------
+  // CLICK BUY NOW (GENERIC)
+  // -------------------------------
+  async clickBuyNow() {
+    console.log('💳 Clicking Buy Now CTA...');
+
+    const buyNow = this.page.locator(selectors.schedule.buyCTA).first();
+
+    await expect(buyNow).toBeVisible({ timeout: 5000 });
+
+    await this.page.waitForTimeout(300);
+
+    await buyNow.click({ force: true });
+
+    console.log('✅ Buy Now clicked');
+
+    await this.page.waitForLoadState('domcontentloaded');
+
+    const url = this.page.url();
+    console.log(`🌍 After Buy Now URL: ${url}`);
+
+    if (url.includes('schedule')) {
+      throw new Error('❌ Buy Now did not navigate');
+    }
+  }
+}

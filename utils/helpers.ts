@@ -18,7 +18,7 @@ export async function saveCookieState(page: any): Promise<void> {
     fs.writeFileSync(COOKIE_STATE_FILE, JSON.stringify(storageState, null, 2));
     console.log('💾 Cookie state saved');
   } catch (error) {
-    console.log('⚠️ Could not save cookie state:', error.message);
+    console.log('⚠️ Could not save cookie state:', error);
   }
 }
 
@@ -34,7 +34,7 @@ export function loadCookieState(): any {
       return JSON.parse(state);
     }
   } catch (error) {
-    console.log('⚠️ Could not load cookie state:', error.message);
+    console.log('⚠️ Could not load cookie state:', error);
   }
   return null;
 }
