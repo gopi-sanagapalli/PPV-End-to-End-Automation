@@ -49,7 +49,7 @@ export async function scrollIntoViewSmart(page: any, locator: any, label: string
       return true;
     }
   } catch (error) {
-    console.log(`⚠️ Error scrolling ${label}:`, error.message);
+    console.log(`⚠️ Error scrolling ${label}:`, error);
     return false;
   }
 }
@@ -105,7 +105,7 @@ if (!isVisible) {
       return true; // ✅ EXIT IMMEDIATELY ON SUCCESS
 
     } catch (error) {
-      console.log(`⚠️ Attempt ${attempt} failed:`, error.message);
+      console.log(`⚠️ Attempt ${attempt} failed:`, error);
 
       if (attempt === maxRetries) {
         console.log(`🔄 Final attempt: JavaScript click for ${label}...`);

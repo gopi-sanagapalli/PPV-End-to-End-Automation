@@ -21,9 +21,9 @@ export const validateVariant = async (
   });
 
   for (const rule of rules) {
-    const actual = await getActualValue(page, rule.Field);
+    const actual = await getActualValue(page, rule.Field, variant);
     const expected = resolveExpected(rule, eventData);
-    const status = compare(rule.Type, actual, expected);
+    const status = compare(actual, expected, rule.Type);
 
     if (actual === 'N/A' || actual === '') {
       // console.log(`⚠️ EMPTY ACTUAL for field: ${rule.Field}`);

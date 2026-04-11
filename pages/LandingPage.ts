@@ -19,18 +19,34 @@ export class LandingPage {
   // ─────────────────────────────
   // FIND PPV CONTAINER (BANNER OR TILE)
   // ─────────────────────────────
- async findPPVContainer(eventData: any) {
+async findPPVContainer(eventData: any) {
   const name = eventData.PPV_NAME;
+
+  if (!name) {
+    throw new Error('❌ PPV_NAME is undefined');
+  }
 
   console.log(`🔍 Looking for PPV: ${name}`);
 
-  // 🔥 target article card that contains event name
-  const container = this.page
-    .getByRole('article')
-    .filter({ hasText: name })
-    .first();
+  // 🔥 Step 1: locate header (don't wait for visibility yet)
+  const sectionHeader = this.page.getByText(/don't miss live on dazn/i);
 
-  await container.waitFor({ state: 'visible', timeout: 10000 });
+  await sectionHeader.waitFor({ state: 'attached', timeout: 10000 });
+
+  // 🔥 Step 2: bring it into view safely
+  await sectionHeader.scrollIntoViewIfNeeded();
+
+  // small settle (prevents layout shift issues)
+  await this.page.waitForTimeout(300);
+
+  console.log('📍 Scrolled to "Don’t Miss" section');
+
+  // 🔥 Step 3: find PPV inside that section
+  const container = this.page.locator('article').filter({
+  hasText: name
+}).first();
+
+  await container.waitFor({ state: 'visible', timeout: 5000 });
 
   console.log(`✅ PPV found: ${name}`);
 
@@ -40,16 +56,38 @@ export class LandingPage {
   // ─────────────────────────────
   // CLICK BUY NOW
   // ─────────────────────────────
-async clickBuyNow(eventData: any) {
-  const container = await this.findPPVContainer(eventData);
+async clickBuyNow(container: Locator) {
+  console.log('🧠 Clicking Buy Now inside container...');
 
-  const buyBtn = container.getByRole('button', {
-    name: /buy now/i
-  });
+  const buyBtn = container.locator('button').filter({
+    hasText: /buy now/i
+  }).first();
 
-  await buyBtn.waitFor({ state: 'visible', timeout: 5000 });
+  await buyBtn.waitFor({ state: 'attached', timeout: 10000 });
 
-  await buyBtn.click();
+  // 🔥 ensure FULL visibility (not partial)
+  await buyBtn.scrollIntoViewIfNeeded();
+
+  // 🔥 CRITICAL: verify it's actually clickable
+  const box = await buyBtn.boundingBox();
+
+  if (!box || box.width === 0 || box.height === 0) {
+    throw new Error('❌ Buy Now button not interactable (offscreen)');
+  }
+
+  // 🔥 ensure no overlay blocking
+  await this.page.waitForTimeout(300);
+
+  try {
+    await buyBtn.click({ timeout: 5000 });
+  } catch (e) {
+    console.log('⚠️ Click intercepted → forcing JS click');
+    const handle = await buyBtn.elementHandle();
+    if (!handle) {
+      throw new Error('❌ Buy Now button handle not found');
+    }
+    await this.page.evaluate((el: HTMLElement) => el.click(), handle);
+  }
 
   console.log('✅ Clicked Buy Now from correct PPV tile');
 }

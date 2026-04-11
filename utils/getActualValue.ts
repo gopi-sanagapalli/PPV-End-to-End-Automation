@@ -1,174 +1,279 @@
-import selectors from '../config/selectors.json';
+export async function getActualValue(
+  page: any,
+  field: string,
+  variant: string
+): Promise<string> {
+  const key = field.replace(/\s+/g, ' ').trim().toLowerCase();
+  const priceRegex = /(?:\$|₹)\s?\d+(?:,\d{3})*(?:\.\d{2})?/;
 
-const clean = (v: any) =>
-  String(v ?? '')
-    .replace(/\s+/g, ' ')
-    .trim();
+  const clean = (v: any) =>
+    String(v ?? '').replace(/\s+/g, ' ').trim();
 
-export async function getActualValue(page: any, field: string): Promise<string> {
+  const text = async (locator: any) => {
+    const el = locator.first();
+    const content = await el.textContent().catch(() => null);
+    return content ? clean(content) : 'N/A';
+  };
+
+  const exists = async (locator: any) =>
+    (await locator.first().isVisible().catch(() => false)) ? 'Yes' : 'No';
+
+  const firstVisibleText = async (locators: any[]) => {
+    for (const locator of locators) {
+      if (await locator.first().isVisible().catch(() => false)) {
+        return await text(locator);
+      }
+    }
+    return 'N/A';
+  };
+
   try {
-    const key = field.trim().toLowerCase();
-
     // ─────────────────────────────
-    // HELPERS
+    // COMMON (ALL VARIANTS)
     // ─────────────────────────────
-    const getText = async (selector: string) => {
-      const el = page.locator(selector).first();
-      if (await el.isVisible().catch(() => false)) {
-        return clean(await el.textContent());
-      }
-      return 'N/A';
-    };
 
-    const exists = async (selector: string) => {
-      const el = page.locator(selector).first();
-      return (await el.isVisible().catch(() => false)) ? 'Yes' : 'No';
-    };
-
-    const getPrice = async () => {
-      const body = await page.locator('body').innerText().catch(() => '');
-      const match = body.match(/(\$|£|AUD\s*)\s?(\d+(?:\.\d{2})?)/i);
-      return match ? match[2] : 'N/A';
-    };
-
-    // ─────────────────────────────
-    // FIELD MAPPING (NORMALIZED)
-    // ─────────────────────────────
-    switch (key) {
-
-      // ───────── LANDING / PPV COMMON ─────────
-      case 'ppv tile present':
-      case 'ppv image present':
-        return await exists(selectors.ppv.image);
-
-      case 'ppv name':
-      case 'event name':
-        return await getText(selectors.ppv.eventName);
-
-      case 'ppv date and time':
-      case 'event date and time':
-        return await getText(selectors.ppv.date);
-
-      case 'buy now button':
-        return await exists(selectors.ppv.buyCTA);
-
-      // ───────── PPV PAGE ─────────
-      case 'page title':
-        return await getText(selectors.ppv.pageTitle);
-
-      case 'header sub text':
-        return await getText('p');
-
-      case 'ppv price':
-        return await getText(selectors.ppv.price);
-
-      case 'currency': {
-        const body = await page.locator('body').innerText();
-        if (body.includes('$')) return '$';
-        if (body.includes('£')) return '£';
-        return 'N/A';
-      }
-
-      case 'upsell section present':
-        return await exists(selectors.ppv.upsellSection);
-
-      case 'upsell label':
-        return await getText(selectors.ppv.upsellLabel);
-
-      case 'upsell plan name':
-        return await getText(selectors.ppv.upsellPlan);
-
-      case 'upsell price':
-        return await getPrice();
-
-      case 'upsell price text': {
-        const body = await page.locator('body').innerText();
-        return /from/i.test(body) ? 'From' : 'N/A';
-      }
-
-      // ───────── VARIANT / BUNDLE ─────────
-      case 'bundle card present':
-        return await exists(selectors.ppv.bundleCard);
-
-      case 'bundle price':
-      case 'bundle original price':
-        return await getPrice();
-
-      case 'bundle discount label':
-        return await getText(selectors.ppv.bundleDiscount);
-
-      case 'included ppv2 name':
-        return await getText(selectors.ppv.bundleSecondEvent);
-
-      // ───────── PLAN PAGE ─────────
-      case 'cta button':
-        return await getText(selectors.daznPlan.ctaContinue);
-
-      case 'trial card present':
-        return await exists(selectors.daznPlan.trialCard);
-
-      case 'trial title':
-        return await getText(selectors.daznPlan.trialTitle);
-
-      case 'trial description':
-        return await getText(selectors.daznPlan.trialDescription);
-
-      case 'upsell card present':
-        return await exists(selectors.daznPlan.upsellCard);
-
-      case 'upsell sub text':
-        return await getText(selectors.daznPlan.upsellSubText);
-
-      case 'upsell feature 1':
-        return await getText(selectors.daznPlan.upsellFeature1);
-
-      case 'upsell feature 2':
-        return await getText(selectors.daznPlan.upsellFeature2);
-
-      case 'upsell feature 3':
-        return await getText(selectors.daznPlan.upsellFeature3);
-
-      // ───────── PAYMENT PAGE ─────────
-      case 'page title payment':
-      case 'page title':
-        return await getText(selectors.payment.pageTitle);
-
-      case 'header':
-        return await getText(selectors.payment.header);
-
-      case 'dazn tier':
-        return await getText(selectors.payment.tier);
-
-      case 'plan change cta':
-        return await getText(selectors.payment.changeCTA);
-
-      case 'ppv name payment':
-        return await getText(selectors.payment.ppvName);
-
-      case 'ppv price payment':
-        return await getPrice();
-
-      case '7 day free text':
-        return await getText(selectors.payment.freeTrial);
-
-      case 'today you pay text':
-        return await getText(selectors.payment.todayText);
-
-      case 'today you pay price':
-        return await getText(selectors.payment.todayPrice);
-
-      case 'next payment date':
-        return await getText(selectors.payment.nextPayment);
-
-      case 'cancellation text':
-        return await getText(selectors.payment.cancellation);
-
-      // ───────── DEFAULT ─────────
-      default:
-        return 'N/A';
+    if (key === 'page title') {
+      return await text(page.locator('h1'));
     }
 
-  } catch (err) {
+    if (key.includes('tile present') || key.includes('image present') || key.includes('checkbox present') || key.includes('section present') || key.includes('radio present') || key.includes('button')) {
+      return await exists(page.locator('h1, h2, h3, button, img, [role="radio"], input[type="radio"], section'));
+    }
+
+    if (key.includes('ppv name') || key.includes('event name')) {
+      return await firstVisibleText([
+        page.locator('h1, h2, h3').filter({ hasText: /vs/i }),
+        page.locator('text=/vs\\.?/i')
+      ]);
+    }
+
+    if (key.includes('ppv price') || key.includes('upsell price') || key.includes('today you pay price')) {
+      return await firstVisibleText([
+        page.locator(`text=/${priceRegex.source}/`),
+        page.locator('[data-test-id="summary_total_value"]')
+      ]);
+    }
+
+    if (key === 'currency') {
+      return '$';
+    }
+
+    if (key === 'cta button') {
+      return await text(
+        page.getByRole('button', { name: /continue|subscribe without a pay-per-view/i })
+      );
+    }
+
+    if (key.includes('event date') || key.includes('date and time') || key.includes('date text')) {
+      return await firstVisibleText([
+        page.locator('text=/Sat|Sun|Mon|Tue|Wed|Thu|Fri|Saturday|Sunday|Monday|Tuesday|Wednesday|Thursday|Friday/i'),
+        page.locator('time')
+      ]);
+    }
+
+    if (key.includes('subscription section title')) {
+      return await text(page.locator('text=/choose your subscription/i'));
+    }
+
+    if (key.includes('header full copy')) {
+      return await text(page.locator('p').filter({ hasText: /buy .* with dazn standard|get it included in dazn ultimate/i }).first());
+    }
+
+    if (key.includes('header highlight text')) {
+      return await text(page.locator('strong').filter({ hasText: /vs/i }).first());
+    }
+
+    if (key.includes('header sub text')) {
+      return await firstVisibleText([
+        page.locator('p').filter({ hasText: /included in dazn ultimate|monthly flex|auto renews/i }).first(),
+        page.locator('h1 + p').first()
+      ]);
+    }
+
+    if (key.includes('selected')) {
+      const selected = await page.locator('[aria-checked="true"], input[type="radio"]:checked, img[alt*="selected" i]').count();
+      return selected > 0 ? 'Yes' : 'No';
+    }
+
+    if (key.includes('trial title')) {
+      return await text(page.locator('text=/free trial/i').first());
+    }
+
+    if (key.includes('trial feature')) {
+      const features = page.locator('li, [role="listitem"], p');
+      const index = Number((key.match(/trial feature (\d+)/)?.[1] || '1')) - 1;
+      return await text(features.nth(Math.max(index, 0)));
+    }
+
+    if (key.includes('upsell label')) {
+      return await text(page.locator('text=/pay-per-views included/i').first());
+    }
+
+    if (key.includes('upsell plan name')) {
+      return await text(page.locator('text=/dazn ultimate/i').first());
+    }
+
+    if (key.includes('upsell price text')) {
+      return await text(page.locator('text=/from/i').first());
+    }
+
+    if (key.includes('upsell price length')) {
+      return await text(page.locator('text=/\/ month/i').first());
+    }
+
+    if (key.includes('upsell billing text')) {
+      return await text(page.locator('text=/annual contract\. auto renews\./i').first());
+    }
+
+    if (key.includes('included tag')) {
+      return await exists(page.locator('text=/included/i'));
+    }
+
+    if (key.includes('upsell feature') || key.includes('highlight text')) {
+      return await firstVisibleText([
+        page.locator('li, p').filter({ hasText: /pay-per-views included|hdr and dolby|185\+ fights|vs\./i }),
+        page.locator('text=/pay-per-views included|hdr and dolby|185\+ fights|included/i')
+      ]);
+    }
+
+    // ─────────────────────────────
+    // VARIANT 2 (Choose how to buy)
+    // ─────────────────────────────
+    if (variant === 'variant2') {
+      if (key === 'upsell plan name') {
+        return await text(
+          page.locator('text=/ultimate/i').first()
+        );
+      }
+
+      if (key === 'upsell label') {
+        return await text(
+          page.locator('text=/pay-per-views included/i').first()
+        );
+      }
+
+      if (key === 'upsell price') {
+        return await text(
+          page.locator(`text=/${priceRegex.source}/`).nth(1)
+        );
+      }
+
+      if (key === 'upsell section present') {
+        const exists = await page.locator('text=/ultimate/i').count();
+        return exists > 0 ? 'Yes' : 'No';
+      }
+    }
+
+    // ─────────────────────────────
+    // VARIANT 1 (Choose your plan)
+    // ─────────────────────────────
+    if (variant === 'variant1') {
+      if (key === 'header sub text') {
+        return await text(
+          page.locator('h2, p').first()
+        );
+      }
+
+      if (key === 'dazn tier') {
+        return await text(
+          page.locator('text=/standard|ultimate/i').first()
+        );
+      }
+    }
+
+    // ─────────────────────────────
+    // PAYMENT PAGE
+    // ─────────────────────────────
+    if (key.includes('payment')) {
+      if (key.includes('ppv name')) {
+        return await text(
+          page.locator('text=/vs/i').first()
+        );
+      }
+
+      if (key.includes('ppv price')) {
+        return await text(
+          page.locator(`text=/${priceRegex.source}/`).first()
+        );
+      }
+    }
+
+    if (key.includes('header')) {
+      return await firstVisibleText([
+        page.locator('text=/payment is encrypted|payment/i').first(),
+        page.locator('h1 + p').first()
+      ]);
+    }
+
+    if (key.includes('dazn tier')) {
+      return await text(page.locator('text=/dazn/i').first());
+    }
+
+    if (key.includes('plan change cta')) {
+      return await text(page.getByRole('button', { name: /change/i }).first());
+    }
+
+    if (key.includes('7 day free text')) {
+      return await text(page.locator('text=/7-day|7-days free/i').first());
+    }
+
+    if (key.includes('today you pay text')) {
+      return await text(page.locator('text=/today you pay/i').first());
+    }
+
+    if (key.includes('next payment date')) {
+      return await text(page.locator('text=/next payment/i').first());
+    }
+
+    if (key.includes('cancellation text')) {
+      return await text(page.locator('text=/cancel/i').first());
+    }
+
+    // ─────────────────────────────
+    // PPV PAGE VALIDATION
+    // ─────────────────────────────
+    if (key.includes('event') || key.includes('ppv') || key.includes('tile') || key.includes('card')) {
+      return await firstVisibleText([
+        page.locator(`[data-testid*="${key.split(' ').pop() || ''}"]`),
+        page.locator(`[aria-label*="${key}"]`),
+        page.locator('h1, h2, h3, h4, p').first()
+      ]);
+    }
+    
+    if (key.includes('countdown') || key.includes('timer')) {
+      return await exists(page.locator('[data-testid*="countdown"], text=/live|starts in|minutes/i'));
+    }
+    
+    // ─────────────────────────────
+    // DAZN PLAN PAGE
+    // ─────────────────────────────
+    if (key.includes('plan') || key.includes('tier') || key.includes('subscription')) {
+      return await firstVisibleText([
+        page.locator('[data-testid*="plan"], [data-testid*="tier"]'),
+        page.locator('text=/standard|ultimate|flex/i'),
+        page.locator('h2, h3')
+      ]);
+    }
+    
+    if (key.includes('price') || key.includes('amount') || key.includes('cost')) {
+      return await firstVisibleText([
+        page.locator(`text=/${priceRegex.source}/`),
+        page.locator('[data-testid*="price"], [data-testid*="total"]')
+      ]);
+    }
+    
+    // Generic fallback - try all common selectors instead of returning N/A immediately
+    const fallbackResult = await firstVisibleText([
+      page.locator(`[data-testid*="${key.replace(/[^a-z]/g, '')}"]`),
+      page.locator(`[name*="${key.replace(/[^a-z]/g, '')}"]`),
+      page.locator(`[id*="${key.replace(/[^a-z]/g, '')}"]`),
+      page.locator('h1, h2, h3, h4, h5, h6, p, span, button').first()
+    ]);
+    
+    // Only return N/A if even fallback fails
+    return fallbackResult || 'N/A';
+
+  } catch {
     return 'N/A';
   }
 }

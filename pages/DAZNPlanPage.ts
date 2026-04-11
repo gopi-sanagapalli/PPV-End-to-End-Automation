@@ -1,3 +1,4 @@
+import { smartClick } from '../utils/browserHelpers';
 import { Page, Locator } from '@playwright/test';
 import selectors from '../config/selectors.json';
 
@@ -39,11 +40,41 @@ export class DAZNPlanPage {
     return null;
   }
 
+  async ensureTrialPlanSelected(): Promise<void> {
+    const trialPlan = this.page.locator('label:has-text("7-day free trial"), [role="radio"]:has-text("7-day free trial")').first();
+
+    if (!(await trialPlan.isVisible({ timeout: 3000 }).catch(() => false))) {
+      console.log('ℹ️ Trial plan selector not visible, skipping explicit selection');
+      return;
+    }
+
+    const alreadySelected = await trialPlan.locator('[aria-label="selected"], img[alt="selected"], [aria-checked="true"]').first().isVisible().catch(() => false);
+    if (alreadySelected) {
+      console.log('✅ Trial plan already selected');
+      return;
+    }
+
+    console.log('🔁 Ensuring Trial plan is selected before Continue...');
+    await trialPlan.scrollIntoViewIfNeeded().catch(() => {});
+    await trialPlan.click({ force: true });
+    await trialPlan.locator('[aria-label="selected"], img[alt="selected"], [aria-checked="true"]').first().waitFor({ timeout: 5000 }).catch(() => {});
+    console.log('✅ Trial plan confirmed selected');
+  }
+
   // ─────────────────────────────
   // CLICK CONTINUE
   // ─────────────────────────────
   async clickContinue(): Promise<void> {
     console.log('🔍 Clicking Continue CTA...');
+
+    // ✅ AUTO SCROLL DOWN for Continue button that is below fold
+    for (let scrollAttempt = 0; scrollAttempt < 6; scrollAttempt++) {
+      if (await this.getContinueButton()) break;
+      await this.page.keyboard.press('PageDown');
+      await this.page.waitForTimeout(300);
+    }
+
+    await this.ensureTrialPlanSelected();
 
     const btn = await this.getContinueButton();
 
@@ -52,23 +83,21 @@ export class DAZNPlanPage {
     }
 
     await btn.scrollIntoViewIfNeeded().catch(() => {});
- await this.page.waitForLoadState('networkidle').catch(() => {});
-    // Wait if disabled
-    if (!(await btn.isEnabled().catch(() => false))) {
-      console.log('⚠️ Button disabled, waiting...');
-      await this.page.waitForTimeout(1500);
+
+    const enabled = await btn.isEnabled().catch(() => false);
+    if (!enabled) {
+      console.log('⚠️ Plan Continue CTA is disabled, attempting force click fallback');
+      await btn.click({ force: true, timeout: 5000 }).catch(() => {});
+    } else {
+      await smartClick(this.page, btn, 'Plan Continue CTA', {
+        waitForNav: false,
+        maxRetries: 2,
+      });
     }
 
-    // Stable click strategy
-    try {
-      await btn.click({ timeout: 5000 });
-      console.log('✅ Continue clicked');
-    } catch {
-      await btn.click({ force: true });
-      console.log('⚠️ Force click used');
-    }
+    console.log('✅ Continue clicked');
 
-    await this.page.waitForLoadState('domcontentloaded').catch(() => {});
+    await this.page.waitForTimeout(1000).catch(() => {});
     console.log('📍 URL after click:', this.page.url());
   }
 
