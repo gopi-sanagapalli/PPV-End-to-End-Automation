@@ -12,106 +12,122 @@
 # Error details
 
 ```
-Test timeout of 240000ms exceeded.
+Error: 40 validation(s) failed
 ```
 
-# Page snapshot
+# Test source
 
-```yaml
-- generic [active] [ref=e1]:
-  - generic [ref=e9]:
-    - generic [ref=e11]:
-      - button [ref=e13]:
-        - img [ref=e15] [cursor=pointer]
-      - heading "Choose your plan" [level=1] [ref=e17]:
-        - paragraph [ref=e20]: Choose your plan
-    - generic [ref=e28]:
-      - group [ref=e30]:
-        - paragraph [ref=e35]:
-          - text: Buy
-          - strong [ref=e36]: Wardley vs. Dubois
-          - text: with DAZN Standard or
-          - strong [ref=e37]: get it included in DAZN Ultimate.
-        - button "ppv t wardley dubois Sat 9th May at 23:30 Wardley vs. Dubois ₹1,812" [ref=e38]:
-          - generic [ref=e39]:
-            - img "ppv t wardley dubois" [ref=e40]
-            - generic [ref=e41]: Sat 9th May at 23:30
-          - generic [ref=e43]:
-            - generic [ref=e44]:
-              - text: Wardley vs. Dubois
-              - paragraph [ref=e47]: ₹1,812
-            - img [ref=e50] [cursor=pointer]
-        - generic [ref=e54]:
-          - separator [ref=e55]
-          - generic [ref=e56]: Choose your subscription
-        - generic [ref=e57]:
-          - radio "7-day free trial of DAZN Standard selected tick-golden 7-days free access to DAZN Standard. tick-golden Cancel anytime during the trial and only pay for the fight. After the trial you move onto a Monthly Flex plan for ₹799/month. You will not lose access to the pay-per-view[s]." [checked]
-          - generic [ref=e59] [cursor=pointer]:
-            - generic [ref=e60]:
-              - paragraph [ref=e65]:
-                - strong [ref=e66]: 7-day free trial
-                - text: of DAZN Standard
-              - img "selected" [ref=e69]
-            - separator [ref=e70]
-            - list [ref=e71]:
-              - listitem [ref=e72]:
-                - paragraph [ref=e73]:
-                  - img "tick-golden" [ref=e74]
-                - paragraph [ref=e76]:
-                  - strong [ref=e77]: 7-days free access to DAZN Standard
-                  - text: .
-              - listitem [ref=e78]:
-                - paragraph [ref=e79]:
-                  - img "tick-golden" [ref=e80]
-                - paragraph [ref=e82]: Cancel anytime during the trial and only pay for the fight. After the trial you move onto a Monthly Flex plan for ₹799/month. You will not lose access to the pay-per-view[s].
-        - generic [ref=e83] [cursor=pointer]:
-          - radio "DAZN Ultimate From ₹1,775 / month Annual contract. Auto renews. ppv t wardley dubois Wardley vs. Dubois Sat 9th May at 23:30 tick icon Included tick-golden Pay-per-views included at no extra cost. Minimum of 12 events per year including Chisora vs. Wilder & Wardley vs. Dubois. tick-golden HDR and Dolby 5.1 surround sound on select events. tick-golden 185+ fights a year from the best promoters Whats included"
-          - paragraph [ref=e84]:
-            - paragraph [ref=e86]: Pay-per-views included
-          - generic [ref=e88]:
-            - generic [ref=e89]:
-              - paragraph [ref=e94]: DAZN Ultimate
-              - generic [ref=e97]:
-                - generic [ref=e100]:
-                  - generic [ref=e101]: From
-                  - generic [ref=e102]: ₹1,775
-                  - generic [ref=e103]: / month
-                - generic:
-                  - generic:
-                    - paragraph
-                - paragraph [ref=e106]: Annual contract. Auto renews.
-            - generic [ref=e110]:
-              - img "ppv t wardley dubois" [ref=e112]
-              - generic [ref=e113]:
-                - generic [ref=e115]: Wardley vs. Dubois
-                - generic [ref=e116]: Sat 9th May at 23:30
-                - generic [ref=e117]:
-                  - img "tick icon" [ref=e118]
-                  - paragraph [ref=e119]: Included
-            - generic [ref=e120]:
-              - generic [ref=e121]:
-                - img "tick-golden" [ref=e122]
-                - paragraph [ref=e123]:
-                  - paragraph [ref=e125]:
-                    - text: Pay-per-views included at no extra cost. Minimum of 12 events per year including
-                    - strong [ref=e126]: Chisora vs. Wilder & Wardley vs. Dubois.
-              - generic [ref=e127]:
-                - img "tick-golden" [ref=e128]
-                - paragraph [ref=e129]:
-                  - paragraph [ref=e131]: HDR and Dolby 5.1 surround sound on select events.
-              - generic [ref=e132]:
-                - img "tick-golden" [ref=e133]
-                - paragraph [ref=e134]:
-                  - paragraph [ref=e136]: 185+ fights a year from the best promoters
-            - generic [ref=e137]:
-              - heading "Whats included" [level=4] [ref=e138]
-              - img [ref=e140]
-      - button "Continue with PPV + 7-day free trial" [ref=e143] [cursor=pointer]:
-        - paragraph [ref=e146]:
-          - paragraph [ref=e149]:
-            - text: Continue with
-            - strong [ref=e150]: PPV + 7-day
-            - text: free trial
-  - iframe [ref=e151]:
-    
+```ts
+  199 |     console.log('👉 handling DAZN plan page');
+  200 | 
+  201 |     const firstRadio = activePage
+  202 |       .locator('input[type="radio"], [role="radio"]')
+  203 |       .first();
+  204 | 
+  205 |     await firstRadio.click({ force: true });
+  206 |     await sleep(500);
+  207 | 
+  208 |     const continueBtn = activePage.locator('button[type="submit"]');
+  209 | 
+  210 |     await clickAndWaitForNav(activePage, continueBtn, 'Plan Continue');
+  211 |     continue;
+  212 |   }
+  213 | 
+  214 |   break;
+  215 | }
+  216 | }
+  217 | 
+  218 |     activePage = await getLivePage();
+  219 |     console.log('after plan pages:', activePage.url());
+  220 | 
+  221 |     // -- signup --
+  222 |    const signupPage = new SignupPage(activePage);
+  223 |     const emailInput = await signupPage.findEmailInput();
+  224 | 
+  225 |     if (emailInput) {
+  226 |       const testUser = createTestUser();
+  227 |       console.log('📧 email:', testUser.email);
+  228 | 
+  229 |       await signupPage.enterEmail(testUser.email);
+  230 |       await sleep(500);
+  231 |       await signupPage.clickContinue();
+  232 | 
+  233 |       const firstNameField = activePage.locator('[data-test-id="FIRST_NAME"]');
+  234 |       let onPersonalDetails = false;
+  235 | 
+  236 |       for (let attempt = 0; attempt < 3; attempt++) {
+  237 |         if (await firstNameField.isVisible().catch(() => false)) {
+  238 |           onPersonalDetails = true;
+  239 |           break;
+  240 |         }
+  241 |         const step = await signupPage.detectPageType();
+  242 |         if (step === 'password') break;
+  243 | 
+  244 |         console.log(`still on email step, retry ${attempt + 1}`);
+  245 |         await signupPage.clickContinue();
+  246 |         await sleep(1500);
+  247 |       }
+  248 | 
+  249 |       if (onPersonalDetails) {
+  250 |         await signupPage.fillPersonalDetails(testUser);
+  251 |         await signupPage.clickPersonalDetailsContinue();
+  252 |       }
+  253 |     }
+  254 | 
+  255 |     // -- payment --
+  256 |     const paymentReady = activePage.locator('[data-test-id="summary_next_payment_header_value_refined"]');
+  257 |     await paymentReady.waitFor({ state: 'visible', timeout: 15000 })
+  258 |       .catch(() => console.log('payment summary not visible in time'));
+  259 | 
+  260 |     await sleep(1500);
+  261 |     activePage = await getLivePage();
+  262 | 
+  263 |     const paymentPage = new PaymentPage(activePage);
+  264 |     if (await paymentPage.isPaymentPage()) {
+  265 |       console.log('✅ payment page loaded');
+  266 |       const paymentData = readSheet('Monthly Payment page');      if (paymentData?.length) {
+  267 |         await paymentPage.validate(paymentData, results);
+  268 |       }
+  269 |     } else {
+  270 |       throw new Error(`Payment page not detected. URL: ${activePage.url()}`);
+  271 |     }
+  272 | 
+  273 |    displayResultsTable(results, variant);
+  274 | 
+  275 | const filePath = await writeResults(results);
+  276 | 
+  277 | const passed = results.filter(r => r.status === 'PASS').length;
+  278 | const failed = results.filter(r => r.status === 'FAIL').length;
+  279 | const total = results.length;
+  280 | 
+  281 | const passPercent = total > 0
+  282 |   ? ((passed / total) * 100).toFixed(2)
+  283 |   : '0';
+  284 | 
+  285 | console.log(`
+  286 | ═══════════════════════════════════════
+  287 | 🎯 Variant: ${variant}
+  288 | 📊 Total: ${total}
+  289 | ✅ Passed: ${passed}
+  290 | ❌ Failed: ${failed}
+  291 | 📈 Pass %: ${passPercent}%
+  292 | 📁 Report: ${filePath}
+  293 | ═══════════════════════════════════════
+  294 | `);
+  295 | 
+  296 | 
+  297 | // 🔴 THROW ONLY AFTER LOGGING
+  298 | if (failed > 0) {
+> 299 |   throw new Error(`${failed} validation(s) failed`);
+      |         ^ Error: 40 validation(s) failed
+  300 | }
+  301 | 
+  302 |   } catch (error) {
+  303 |     console.error('❌ Test failed with error:', error);
+  304 |     throw error;
+  305 |   } finally {
+  306 |     await context.close();
+  307 |   }
+  308 | });
+  309 | 
 ```

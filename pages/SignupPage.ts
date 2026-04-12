@@ -8,41 +8,57 @@ export class SignupPage {
   // ─────────────────────────────
   // FIND EMAIL INPUT
   // ─────────────────────────────
-  async findEmailInput(): Promise<Locator | null> {
-    const email = this.page.locator(selectors.signup.email).first();
-
-    if (await email.isVisible().catch(() => false)) {
-      return email;
-    }
-
-    return null;
-  }
+  async findEmailInput(): Promise<Locator> {
+  const input = this.page.locator('input[type="email"]');
+  await input.waitFor({ state: 'visible', timeout: 15000 });
+  return input;
+}
 
   // ─────────────────────────────
   // ENTER EMAIL
   // ─────────────────────────────
-  async enterEmail(emailValue: string) {
-    const email = await this.findEmailInput();
+ async enterEmail(emailValue: string) {
+  const input = await this.findEmailInput();
 
-    if (!email) {
-      throw new Error('❌ Email input not found');
-    }
+  await input.click({ force: true });
+  await input.fill('');
+await input.fill(emailValue);
 
-    await email.fill(emailValue);
+// trigger React properly
+await input.dispatchEvent('input');
+await input.dispatchEvent('change');
+
+  const value = await input.inputValue();
+
+  if (!value || value.length < 5) {
+    throw new Error('❌ Email NOT entered properly');
   }
+}
 
   // ─────────────────────────────
   // CLICK CONTINUE (EMAIL PAGE)
   // ─────────────────────────────
-  async clickContinue() {
-    const btn = this.page.getByRole('button', {
-      name: /continue|next|sign up/i
-    }).first();
+async clickContinue() {
+  const btn = this.page.locator('button[type="submit"]');
 
-    await smartClick(this.page, btn, 'Signup Continue CTA', {
-      waitForNav: true
-    });
+  await btn.waitFor({ state: 'visible', timeout: 10000 });
+
+  const before = this.page.url();
+
+  await btn.click({ force: true });
+
+  await this.page.waitForTimeout(2500);
+
+  const stillOnEmail = await this.page
+    .locator('input[type="email"]')
+    .isVisible()
+    .catch(() => false);
+
+  if (stillOnEmail) {
+    console.log('⚠️ retrying submit');
+    await btn.click({ force: true });
   }
+}
 
   // ─────────────────────────────
   // 🔥 WAIT FOR NEXT STEP (FIXES RACE CONDITION)

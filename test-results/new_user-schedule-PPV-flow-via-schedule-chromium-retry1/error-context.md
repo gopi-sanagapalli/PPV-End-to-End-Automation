@@ -12,86 +12,194 @@
 # Error details
 
 ```
-Test timeout of 240000ms exceeded.
+Error: locator.waitFor: Target page, context or browser has been closed
 ```
 
-# Page snapshot
+# Test source
 
-```yaml
-- generic [active] [ref=e1]:
-  - generic [ref=e9]:
-    - generic [ref=e11]:
-      - button [ref=e13]:
-        - img [ref=e15] [cursor=pointer]
-      - heading "Choose how to buy" [level=1] [ref=e17]:
-        - paragraph [ref=e20]: Choose how to buy
-    - generic [ref=e28]:
-      - group [ref=e30]:
-        - paragraph [ref=e35]:
-          - text: Buy
-          - strong [ref=e36]: Wardley vs. Dubois
-          - text: with DAZN Standard or
-          - strong [ref=e37]: get it included in DAZN Ultimate.
-        - generic [ref=e38] [cursor=pointer]:
-          - radio "Wardley vs. Dubois ₹1,812 +DAZN Standard ppv t wardley dubois Wardley vs. Dubois Sat 9th May at 23:30" [checked]
-          - generic [ref=e39]:
-            - generic [ref=e40]:
-              - paragraph [ref=e46]: Wardley vs. Dubois
-              - generic [ref=e48]:
-                - generic [ref=e50]: ₹1,812
-                - generic [ref=e51]: +DAZN Standard
-            - generic [ref=e55]:
-              - img "ppv t wardley dubois" [ref=e57]
-              - generic [ref=e58]:
-                - generic [ref=e60]: Wardley vs. Dubois
-                - generic [ref=e61]: Sat 9th May at 23:30
-        - generic [ref=e62] [cursor=pointer]:
-          - radio "DAZN Ultimate From ₹1,775 / month Annual contract. Auto renews. ppv t wardley dubois Wardley vs. Dubois Sat 9th May at 23:30 tick icon Included tick-golden Pay-per-views included at no extra cost. Minimum of 12 events per year including Chisora vs. Wilder & Wardley vs. Dubois. tick-golden HDR and Dolby 5.1 surround sound on select events. tick-golden 185+ fights a year from the best promoters Whats included"
-          - paragraph [ref=e63]:
-            - paragraph [ref=e65]: Pay-per-views included
-          - generic [ref=e67]:
-            - generic [ref=e68]:
-              - paragraph [ref=e73]: DAZN Ultimate
-              - generic [ref=e76]:
-                - generic [ref=e79]:
-                  - generic [ref=e80]: From
-                  - generic [ref=e81]: ₹1,775
-                  - generic [ref=e82]: / month
-                - generic:
-                  - generic:
-                    - paragraph
-                - paragraph [ref=e85]: Annual contract. Auto renews.
-            - generic [ref=e89]:
-              - img "ppv t wardley dubois" [ref=e91]
-              - generic [ref=e92]:
-                - generic [ref=e94]: Wardley vs. Dubois
-                - generic [ref=e95]: Sat 9th May at 23:30
-                - generic [ref=e96]:
-                  - img "tick icon" [ref=e97]
-                  - paragraph [ref=e98]: Included
-            - generic [ref=e99]:
-              - generic [ref=e100]:
-                - img "tick-golden" [ref=e101]
-                - paragraph [ref=e102]:
-                  - paragraph [ref=e104]:
-                    - text: Pay-per-views included at no extra cost. Minimum of 12 events per year including
-                    - strong [ref=e105]: Chisora vs. Wilder & Wardley vs. Dubois.
-              - generic [ref=e106]:
-                - img "tick-golden" [ref=e107]
-                - paragraph [ref=e108]:
-                  - paragraph [ref=e110]: HDR and Dolby 5.1 surround sound on select events.
-              - generic [ref=e111]:
-                - img "tick-golden" [ref=e112]
-                - paragraph [ref=e113]:
-                  - paragraph [ref=e115]: 185+ fights a year from the best promoters
-            - generic [ref=e116]:
-              - heading "Whats included" [level=4] [ref=e117]
-              - img [ref=e119]
-      - button "Continue" [ref=e122] [cursor=pointer]:
-        - paragraph [ref=e125]:
-          - generic [ref=e126]: Continue
-      - button "Subscribe without a pay-per-view" [ref=e127] [cursor=pointer]:
-        - generic [ref=e128]: Subscribe without a pay-per-view
-  - iframe [ref=e129]:
-    
+```ts
+  1   | import { test } from '@playwright/test';
+  2   | import path from 'path';
+  3   | 
+  4   | import { SchedulePage } from '../../pages/schedulepage';
+  5   | import { SignupPage } from '../../pages/SignupPage';
+  6   | import { PaymentPage } from '../../pages/PaymentPage';
+  7   | import { DAZNPlanPage } from '../../pages/DAZNPlanPage';
+  8   | 
+  9   | import { getPPVDataByVariant, readSheet } from '../../utils/excelReader';
+  10  | import { detectVariant } from '../../flows/detectVariant';
+  11  | import { validateVariant } from '../../flows/validateVariant';
+  12  | import { buildEventData } from '../../utils/buildEventData';
+  13  | import { displayResultsTable } from '../../utils/resultsDisplay';
+  14  | import { writeResults } from '../../utils/excelWriter';
+  15  | import { createTestUser } from '../../utils/testDataBuilder';
+  16  | import { smartClick } from '../../utils/browserHelpers';
+  17  | 
+  18  | const DEFAULT_REGION = process.env.DAZN_REGION || 'AU';
+  19  | const DEFAULT_EVENT_CONFIG = process.env.PPV_CONFIG || 'Chisora.json';
+  20  | 
+  21  | function loadEventConfig() {
+  22  |   const configPath = path.resolve(process.cwd(), 'config', DEFAULT_EVENT_CONFIG);
+  23  |   return require(configPath);
+  24  | }
+  25  | 
+  26  | test('PPV flow via schedule', async ({ browser }) => {
+  27  |   test.setTimeout(240000);
+  28  | 
+  29  |   const context = await browser.newContext({
+  30  |     storageState: path.resolve(process.cwd(), 'auth/dazn-storage-state.json'),
+  31  |   });
+  32  | 
+  33  |   await context.addInitScript(() => {
+  34  |     try {
+  35  |       localStorage.clear();
+  36  |       sessionStorage.clear();
+  37  |       localStorage.setItem('randomABPoint', Math.random().toString());
+  38  |     } catch {}
+  39  |   });
+  40  | 
+  41  |   const page = await context.newPage();
+  42  |   const results: any[] = [];
+  43  | 
+  44  |   const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+  45  | 
+  46  |   // returns the most recently active non-closed page
+  47  |   const getLivePage = async () => {
+  48  |     await sleep(800);
+  49  |     const pages = context.pages().filter(p => !p.isClosed());
+  50  |     if (pages.length === 0) throw new Error('No active page found');
+  51  |     const livePage = pages[pages.length - 1];
+  52  |     await livePage.bringToFront().catch(() => {});
+  53  |     return livePage;
+  54  |   };
+  55  | 
+  56  |   const clickAndWaitForNav = async (p: any, btn: any, label: string) => {
+  57  |     console.log(`clicking: ${label}`);
+  58  |     const beforeUrl = p.url();
+  59  |     await btn.scrollIntoViewIfNeeded().catch(() => {});
+  60  |     await sleep(300);
+  61  |     await btn.click({ force: true });
+  62  |     await p.waitForFunction(
+  63  |       (url) => window.location.href !== url,
+  64  |       beforeUrl,
+  65  |       { timeout: 10000 }
+  66  |     ).catch(() => console.log(`${label}: no url change`));
+  67  |     await sleep(2000);
+  68  |   };
+  69  | 
+  70  |   try {
+  71  |     const json = loadEventConfig();
+  72  |     const eventData = buildEventData(json, DEFAULT_REGION);
+  73  | 
+  74  |     // -- schedule --
+  75  |     const schedule = new SchedulePage(page);
+  76  |     await schedule.navigate();
+  77  | 
+  78  |     const accept = page.locator('#onetrust-accept-btn-handler');
+  79  |     const cookieBanner = page.locator('#onetrust-consent-sdk');
+  80  |     await cookieBanner.waitFor({ state: 'attached', timeout: 10000 }).catch(() => {});
+  81  |     if (await accept.isVisible().catch(() => false)) {
+  82  |       await accept.click();
+> 83  |       await cookieBanner.waitFor({ state: 'hidden', timeout: 10000 });
+      |                          ^ Error: locator.waitFor: Target page, context or browser has been closed
+  84  |     }
+  85  | 
+  86  |     await schedule.selectSport('Boxing');
+  87  |     const eventCard = await schedule.findEvent(eventData.PPV_NAME);
+  88  |     await schedule.clickEvent(eventCard);
+  89  | 
+  90  |     await schedule.clickBuyNow();
+  91  | 
+  92  |     // give DAZN time to navigate -- whether it opens a new tab or navigates in place
+  93  |     await sleep(3000);
+  94  | 
+  95  |     let activePage = await getLivePage();
+  96  |     console.log('landed on:', activePage.url());
+  97  | 
+  98  |     // validate
+  99  |     const variant = await detectVariant(activePage).catch(() => 'unknown');
+  100 |     console.log('🎯 variant:', variant);
+  101 | 
+  102 |     const landingData = readSheet('Landing page');
+  103 |     await validateVariant(activePage, 'landing', landingData, results, eventData).catch(() => {});
+  104 | 
+  105 |     const ppvData = getPPVDataByVariant(variant);
+  106 |     await validateVariant(activePage, variant, ppvData, results, eventData).catch(() => {});
+  107 | 
+  108 |     // -- step through PlanDetails pages --
+  109 |     for (let i = 0; i < 3; i++) {
+  110 |   activePage = await getLivePage();
+  111 | 
+  112 |   const isPPV = await activePage
+  113 |     .getByText(/choose how to buy/i)
+  114 |     .isVisible()
+  115 |     .catch(() => false);
+  116 | 
+  117 | const isPlan = await activePage
+  118 |   .locator('input[type="radio"], [role="radio"]')
+  119 |   .first()
+  120 |   .isVisible()
+  121 |   .catch(() => false);
+  122 | 
+  123 | 
+  124 |   console.log(`step ${i + 1}:`, {
+  125 |     url: activePage.url(),
+  126 |     isPPV,
+  127 |     isPlan
+  128 |   });
+  129 | 
+  130 |   // ───── PPV PAGE ─────
+  131 |   if (isPPV) {
+  132 |     console.log('👉 handling PPV page');
+  133 | 
+  134 |     const selectable = activePage.locator(
+  135 |       'input[type="radio"], input[type="checkbox"], [role="radio"]'
+  136 |     );
+  137 | 
+  138 |     if (await selectable.count() > 0) {
+  139 |       await selectable.first().click({ force: true }).catch(() => {});
+  140 |       await sleep(500);
+  141 |     }
+  142 | 
+  143 |     const continueBtn = activePage.locator('button')
+  144 |       .filter({ hasText: /continue/i })
+  145 |       .last();
+  146 | 
+  147 |     await clickAndWaitForNav(activePage, continueBtn, 'PPV Continue');
+  148 |     continue;
+  149 |   }
+  150 | 
+  151 |   // ───── PLAN PAGE ─────
+  152 | for (let i = 0; i < 3; i++) {
+  153 |   activePage = await getLivePage();
+  154 | 
+  155 |   const isEmailPage = await activePage
+  156 |     .locator('input[type="email"]')
+  157 |     .isVisible()
+  158 |     .catch(() => false);
+  159 | 
+  160 |   if (isEmailPage) {
+  161 |     console.log('✅ reached email page — exiting loop');
+  162 |     break;
+  163 |   }
+  164 | 
+  165 |   const hasRadios = await activePage
+  166 |     .locator('input[type="radio"], [role="radio"]')
+  167 |     .count();
+  168 | 
+  169 |   const hasCheckbox = await activePage
+  170 |     .locator('input[type="checkbox"]')
+  171 |     .count();
+  172 | 
+  173 |   const isPPV = hasCheckbox > 0;
+  174 |   const isPlan = hasRadios > 0 && !isPPV;
+  175 | 
+  176 |   console.log(`step ${i + 1}:`, {
+  177 |     url: activePage.url(),
+  178 |     isPPV,
+  179 |     isPlan
+  180 |   });
+  181 | 
+  182 |   if (isPPV) {
+  183 |     console.log('👉 handling PPV page');
 ```
