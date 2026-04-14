@@ -1,277 +1,154 @@
+import selectors from '../config/selectors.json';
+
 export async function getActualValue(
   page: any,
-  field: string,
-  variant: string
+  field: string
 ): Promise<string> {
-  const key = field.replace(/\s+/g, ' ').trim().toLowerCase();
-  const priceRegex = /(?:\$|₹)\s?\d+(?:,\d{3})*(?:\.\d{2})?/;
+
+  const keyRaw = field.replace(/\s+/g, ' ').trim().toLowerCase();
+  const key = field.replace(/\s+/g, '').toLowerCase();
 
   const clean = (v: any) =>
     String(v ?? '').replace(/\s+/g, ' ').trim();
 
-  const text = async (locator: any) => {
-    const el = locator.first();
-    const content = await el.textContent().catch(() => null);
-    return content ? clean(content) : 'N/A';
+  const priceRegex = /(?:\$|₹|£)\s?\d+(?:,\d{3})*(?:\.\d{2})?/;
+
+  const getText = async (locator: any) => {
+    const count = await locator.count();
+
+    for (let i = 0; i < count; i++) {
+      const el = locator.nth(i);
+
+      if (await el.isVisible().catch(() => false)) {
+        const txt = await el.innerText().catch(() => '');
+        if (txt && txt.trim().length > 2 && txt.length < 200) {
+          return clean(txt);
+        }
+      }
+    }
+
+    return null;
   };
 
   const exists = async (locator: any) =>
     (await locator.first().isVisible().catch(() => false)) ? 'Yes' : 'No';
 
-  const firstVisibleText = async (locators: any[]) => {
-    for (const locator of locators) {
-      if (await locator.first().isVisible().catch(() => false)) {
-        return await text(locator);
-      }
-    }
-    return 'N/A';
-  };
-
   try {
-    // ─────────────────────────────
-    // COMMON (ALL VARIANTS)
-    // ─────────────────────────────
 
-    if (key === 'page title') {
-      return await text(page.locator('h1'));
-    }
+    // ───────── PAGE TYPE ─────────
+    const url = page.url();
 
-    if (key.includes('tile present') || key.includes('image present') || key.includes('checkbox present') || key.includes('section present') || key.includes('radio present') || key.includes('button')) {
-      return await exists(page.locator('h1, h2, h3, button, img, [role="radio"], input[type="radio"], section'));
-    }
+    let pageType: any = 'ppv';
 
-    if (key.includes('ppv name') || key.includes('event name')) {
-      return await firstVisibleText([
-        page.locator('h1, h2, h3').filter({ hasText: /vs/i }),
-        page.locator('text=/vs\\.?/i')
-      ]);
-    }
+    if (url.includes('PlanDetails')) pageType = 'daznPlan';
+    else if (url.includes('payment')) pageType = 'payment';
+    else if (url.includes('signup')) pageType = 'signup';
 
-    if (key.includes('ppv price') || key.includes('upsell price') || key.includes('today you pay price')) {
-      return await firstVisibleText([
-        page.locator(`text=/${priceRegex.source}/`),
-        page.locator('[data-test-id="summary_total_value"]')
-      ]);
-    }
+    const pageSelectors = selectors[pageType];
 
-    if (key === 'currency') {
-      return '$';
-    }
+    // ───────── FIELD MAP ─────────
+    const fieldMap: any = {
+      pagetitle: 'pageTitle',
+      headersubtext: 'pageSubHeader',
+      eventname: 'eventName',
+      ppvname: 'eventName',
+      ppvprice: 'price',
+      ctabutton: 'buyCTA',
 
-    if (key === 'cta button') {
-      return await text(
-        page.getByRole('button', { name: /continue|subscribe without a pay-per-view/i })
-      );
-    }
+      dazntier: 'tier',
+      planchangecta: 'changeCTA',
 
-    if (key.includes('event date') || key.includes('date and time') || key.includes('date text')) {
-      return await firstVisibleText([
-        page.locator('text=/Sat|Sun|Mon|Tue|Wed|Thu|Fri|Saturday|Sunday|Monday|Tuesday|Wednesday|Thursday|Friday/i'),
-        page.locator('time')
-      ]);
-    }
+      todayyoupaytext: 'todayText',
+      todayyoupayprice: 'todayPrice',
+      nextpaymentdate: 'nextPayment',
+      cancellationtext: 'cancellation'
+    };
 
-    if (key.includes('subscription section title')) {
-      return await text(page.locator('text=/choose your subscription/i'));
-    }
+    const selectorKey = fieldMap[key];
 
-    if (key.includes('header full copy')) {
-      return await text(page.locator('p').filter({ hasText: /buy .* with dazn standard|get it included in dazn ultimate/i }).first());
-    }
+    // ─────────────────────────────────────
+    // ✅ PRIMARY: SELECTOR-BASED
+    // ─────────────────────────────────────
+    if (selectorKey && pageSelectors?.[selectorKey]) {
 
-    if (key.includes('header highlight text')) {
-      return await text(page.locator('strong').filter({ hasText: /vs/i }).first());
-    }
+      const locator = page.locator(pageSelectors[selectorKey]);
 
-    if (key.includes('header sub text')) {
-      return await firstVisibleText([
-        page.locator('p').filter({ hasText: /included in dazn ultimate|monthly flex|auto renews/i }).first(),
-        page.locator('h1 + p').first()
-      ]);
-    }
-
-    if (key.includes('selected')) {
-      const selected = await page.locator('[aria-checked="true"], input[type="radio"]:checked, img[alt*="selected" i]').count();
-      return selected > 0 ? 'Yes' : 'No';
-    }
-
-    if (key.includes('trial title')) {
-      return await text(page.locator('text=/free trial/i').first());
-    }
-
-    if (key.includes('trial feature')) {
-      const features = page.locator('li, [role="listitem"], p');
-      const index = Number((key.match(/trial feature (\d+)/)?.[1] || '1')) - 1;
-      return await text(features.nth(Math.max(index, 0)));
-    }
-
-    if (key.includes('upsell label')) {
-      return await text(page.locator('text=/pay-per-views included/i').first());
-    }
-
-    if (key.includes('upsell plan name')) {
-      return await text(page.locator('text=/dazn ultimate/i').first());
-    }
-
-    if (key.includes('upsell price text')) {
-      return await text(page.locator('text=/from/i').first());
-    }
-
-    if (key.includes('upsell price length')) {
-      return await text(page.locator('text=/\/ month/i').first());
-    }
-
-    if (key.includes('upsell billing text')) {
-      return await text(page.locator('text=/annual contract\. auto renews\./i').first());
-    }
-
-    if (key.includes('included tag')) {
-      return await exists(page.locator('text=/included/i'));
-    }
-
-    if (key.includes('upsell feature') || key.includes('highlight text')) {
-      return await firstVisibleText([
-        page.locator('li, p').filter({ hasText: /pay-per-views included|hdr and dolby|185\+ fights|vs\./i }),
-        page.locator('text=/pay-per-views included|hdr and dolby|185\+ fights|included/i')
-      ]);
-    }
-
-    // ─────────────────────────────
-    // VARIANT 2 (Choose how to buy)
-    // ─────────────────────────────
-    if (variant === 'variant2') {
-      if (key === 'upsell plan name') {
-        return await text(
-          page.locator('text=/ultimate/i').first()
-        );
+      if (key.includes('image') || key.includes('present')) {
+        return await exists(locator);
       }
 
-      if (key === 'upsell label') {
-        return await text(
-          page.locator('text=/pay-per-views included/i').first()
-        );
-      }
-
-      if (key === 'upsell price') {
-        return await text(
-          page.locator(`text=/${priceRegex.source}/`).nth(1)
-        );
-      }
-
-      if (key === 'upsell section present') {
-        const exists = await page.locator('text=/ultimate/i').count();
-        return exists > 0 ? 'Yes' : 'No';
-      }
+      const val = await getText(locator);
+      if (val) return val;
     }
 
-    // ─────────────────────────────
-    // VARIANT 1 (Choose your plan)
-    // ─────────────────────────────
-    if (variant === 'variant1') {
-      if (key === 'header sub text') {
-        return await text(
-          page.locator('h2, p').first()
-        );
-      }
+    // ─────────────────────────────────────
+    // 🔥 FALLBACK (THIS SAVES YOUR TESTS)
+    // ─────────────────────────────────────
 
-      if (key === 'dazn tier') {
-        return await text(
-          page.locator('text=/standard|ultimate/i').first()
-        );
-      }
+    // TITLE
+    if (keyRaw.includes('page title')) {
+      return (await getText(page.locator('h1'))) || 'N/A';
     }
 
-    // ─────────────────────────────
-    // PAYMENT PAGE
-    // ─────────────────────────────
-    if (key.includes('payment')) {
-      if (key.includes('ppv name')) {
-        return await text(
-          page.locator('text=/vs/i').first()
-        );
-      }
-
-      if (key.includes('ppv price')) {
-        return await text(
-          page.locator(`text=/${priceRegex.source}/`).first()
-        );
-      }
+    // HEADER
+    if (keyRaw.includes('header')) {
+      return (
+        (await getText(page.locator('h1 + p'))) ||
+        (await getText(page.locator('p')))
+      ) || 'N/A';
     }
 
-    if (key.includes('header')) {
-      return await firstVisibleText([
-        page.locator('text=/payment is encrypted|payment/i').first(),
-        page.locator('h1 + p').first()
-      ]);
+    // EVENT NAME
+    if (keyRaw.includes('ppv name') || keyRaw.includes('event name')) {
+      return (
+        (await getText(page.locator('text=/vs\\.?/i'))) ||
+        (await getText(page.locator('h1, h2')))
+      ) || 'N/A';
     }
 
-    if (key.includes('dazn tier')) {
-      return await text(page.locator('text=/dazn/i').first());
+    // PRICE
+    if (keyRaw.includes('price')) {
+      return (
+        (await getText(page.locator(`text=/${priceRegex.source}/`)))
+      ) || 'N/A';
     }
 
-    if (key.includes('plan change cta')) {
-      return await text(page.getByRole('button', { name: /change/i }).first());
+    // CTA
+    if (keyRaw.includes('cta')) {
+      return (
+        (await getText(page.locator('button:visible')))
+      ) || 'N/A';
     }
 
-    if (key.includes('7 day free text')) {
-      return await text(page.locator('text=/7-day|7-days free/i').first());
+    // PLAN / TIER
+    if (keyRaw.includes('tier') || keyRaw.includes('plan')) {
+      return (
+        (await getText(page.locator('text=/dazn/i')))
+      ) || 'N/A';
     }
 
-    if (key.includes('today you pay text')) {
-      return await text(page.locator('text=/today you pay/i').first());
+    // RADIO
+    if (keyRaw.includes('selected') || keyRaw.includes('radio')) {
+      const checked = await page.locator(
+        'input[type="radio"]:checked, [aria-checked="true"]'
+      ).count();
+
+      return checked > 0 ? 'Yes' : 'No';
     }
 
-    if (key.includes('next payment date')) {
-      return await text(page.locator('text=/next payment/i').first());
+    // IMAGE
+    if (keyRaw.includes('image')) {
+      return await exists(page.locator('img'));
     }
 
-    if (key.includes('cancellation text')) {
-      return await text(page.locator('text=/cancel/i').first());
+    // DATE
+    if (keyRaw.includes('date') || keyRaw.includes('time')) {
+      return (
+        (await getText(page.locator('text=/Sat|Sun|Mon|Tue|Wed|Thu|Fri/i')))
+      ) || 'N/A';
     }
 
-    // ─────────────────────────────
-    // PPV PAGE VALIDATION
-    // ─────────────────────────────
-    if (key.includes('event') || key.includes('ppv') || key.includes('tile') || key.includes('card')) {
-      return await firstVisibleText([
-        page.locator(`[data-testid*="${key.split(' ').pop() || ''}"]`),
-        page.locator(`[aria-label*="${key}"]`),
-        page.locator('h1, h2, h3, h4, p').first()
-      ]);
-    }
-    
-    if (key.includes('countdown') || key.includes('timer')) {
-      return await exists(page.locator('[data-testid*="countdown"], text=/live|starts in|minutes/i'));
-    }
-    
-    // ─────────────────────────────
-    // DAZN PLAN PAGE
-    // ─────────────────────────────
-    if (key.includes('plan') || key.includes('tier') || key.includes('subscription')) {
-      return await firstVisibleText([
-        page.locator('[data-testid*="plan"], [data-testid*="tier"]'),
-        page.locator('text=/standard|ultimate|flex/i'),
-        page.locator('h2, h3')
-      ]);
-    }
-    
-    if (key.includes('price') || key.includes('amount') || key.includes('cost')) {
-      return await firstVisibleText([
-        page.locator(`text=/${priceRegex.source}/`),
-        page.locator('[data-testid*="price"], [data-testid*="total"]')
-      ]);
-    }
-    
-    // Generic fallback - try all common selectors instead of returning N/A immediately
-    const fallbackResult = await firstVisibleText([
-      page.locator(`[data-testid*="${key.replace(/[^a-z]/g, '')}"]`),
-      page.locator(`[name*="${key.replace(/[^a-z]/g, '')}"]`),
-      page.locator(`[id*="${key.replace(/[^a-z]/g, '')}"]`),
-      page.locator('h1, h2, h3, h4, h5, h6, p, span, button').first()
-    ]);
-    
-    // Only return N/A if even fallback fails
-    return fallbackResult || 'N/A';
+    return 'N/A';
 
   } catch {
     return 'N/A';

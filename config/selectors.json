@@ -1,81 +1,41 @@
 {
-  "cookies": {
-    "acceptButton": "#onetrust-accept-btn-handler",
-    "rejectButton": "#onetrust-reject-all-handler"
-  },
-
-  "landing": {
-    "container": "section, article",
-
-    "eventName": "h2, h3",
-    "date": "text=/\\b(AM|PM)\\b/i",
-
+  "schedule": {
     "buyCTA": "button:has-text('Buy'), button:has-text('Buy now')"
   },
 
   "ppv": {
-    "main": "main",
-
     "pageTitle": "h1",
+    "pageSubHeader": "h1 + p",
 
-    "eventName": "h1",
-    "date": "text=/\\b(AM|PM)\\b/i",
+    "eventName": "h1:has-text('vs'), h2:has-text('vs')",
 
-    "buyCTA": "button:has-text('Continue'), button:has-text('Buy')",
+    "price": "[data-testid*='price'], text=/\\$\\d+/",
 
-    "price": "text=/\\$\\d+(\\.\\d{2})?/",
+    "buyCTA": "button[type='submit']",
 
     "image": "img",
 
-    "upsellSection": "section:has-text('DAZN Ultimate')",
-    "upsellLabel": "text=/Pay-per-views included/i",
-    "upsellPlan": "text=/DAZN Ultimate/i",
-
-    "bundleCard": "section:has-text('Bundle')",
-    "bundleDiscount": "text=/save/i",
-    "bundleSecondEvent": "text=/vs\\.?/i"
+    "upsellCard": "section:has-text('Ultimate')",
+    "upsellLabel": "text=/included/i",
+    "upsellPlanName": "text=/Ultimate/i",
+    "upsellPrice": "text=/\\$\\d+/",
+    "upsellSubText": "text=/month|auto renew/i"
   },
 
   "daznPlan": {
     "pageTitle": "h1",
     "pageSubHeader": "h1 + p",
 
-    "ctaContinue": "button:has-text('Continue')",
+    "ctaContinue": "button[type='submit']",
 
     "trialCard": "section:has-text('free trial')",
     "trialTitle": "text=/free trial/i",
-    "trialDescription": "text=/Cancel anytime/i",
     "trialSelected": "[aria-checked='true']",
 
-    "upsellCard": "section:has-text('annual'), section:has-text('pay over time')",
+    "upsellCard": "section:has-text('annual')",
     "upsellPlanName": "text=/annual/i",
-
-    "upsellPrice": "text=/\\$\\d+(\\.\\d{2})?/",
-    "upsellSubText": "text=/month/i",
-    "upsellRenewal": "text=/auto renew/i",
-
-    "upsellFeature1": "li:nth-child(1)",
-    "upsellFeature2": "li:nth-child(2)",
-    "upsellFeature3": "li:nth-child(3)"
-  },
-
-  "payment": {
-    "pageTitle": "h1",
-    "header": "text=/payment/i",
-    "tier": "text=/DAZN/i",
-
-    "changeCTA": "button:has-text('Change')",
-
-    "ppvName": "text=/vs\\.?/i",
-    "priceAll": "text=/\\$\\d+(\\.\\d{2})?/",
-
-    "freeTrial": "text=/free/i",
-
-    "todayText": "text=/Today you pay/i",
-    "todayPrice": "[data-test-id='summary_total_value']",
-
-    "nextPayment": "text=/Next payment/i",
-    "cancellation": "text=/cancel/i"
+    "upsellPrice": "text=/\\$\\d+/",
+    "upsellSubText": "text=/month/i"
   },
 
   "signup": {
@@ -86,7 +46,27 @@
     "continueButtonStep2": "button[type='submit']"
   },
 
-  "schedule": {
-    "buyCTA": "button:has-text('Buy'), button:has-text('Buy now')"
+  "payment": {
+    "pageTitle": "h1",
+
+    "header": "h1 + p",
+
+    "tier": "[data-testid*='plan'], text=/standard|ultimate/i",
+
+    "changeCTA": "button:has-text('Change')",
+
+    "ppvName": "text=/vs\\.?/i",
+
+    "priceAll": "text=/\\$\\d+/",
+
+    "freeTrial": "text=/free/i",
+
+    "todayText": "text=/Today you pay/i",
+
+    "todayPrice": "[data-test-id*='total'], text=/\\$\\d+/",
+
+    "nextPayment": "text=/Next payment/i",
+
+    "cancellation": "text=/cancel/i"
   }
 }

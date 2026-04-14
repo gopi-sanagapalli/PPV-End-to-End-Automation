@@ -14,7 +14,7 @@ export const validateVariant2 = async (
 
   console.log('🚀 Running Variant 2 Validation...');
 
-  // 🔥 Stabilize page (lazy load fix)
+  // 🔥 stabilize lazy content
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)).catch(() => {});
   await page.waitForTimeout(800);
   await page.evaluate(() => window.scrollTo(0, 0)).catch(() => {});
@@ -27,14 +27,14 @@ export const validateVariant2 = async (
 
     if (!field || field === 'Field') continue;
 
-    // 🔥 Build expected dynamically
+    // ✅ resolve expected
     const expected = resolveExpected(
       { Expected: expectedTemplate },
       eventData
     );
 
-    // 🔥 Extract actual (centralized)
-    const actual = await getActualValue(page, field);
+    // 🔥 CRITICAL FIX — pass variant
+    const actual = await getActualValue(page, field, variant);
 
     validateField(
       results,

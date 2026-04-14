@@ -11,20 +11,26 @@ export function buildEventData(json: any, region: string) {
     ...json.global,
     ...regional,
 
-    // 🔥 NORMALIZED KEYS (CRITICAL FIX)
-    eventName: json.PPV_NAME,
-    secondaryEventName: json.SECONDARY_PPV,
-
     PPV_NAME: json.PPV_NAME,
     SECONDARY_PPV: json.SECONDARY_PPV,
 
     NEXT_PAYMENT_DAYS_OFFSET: json.NEXT_PAYMENT_DAYS_OFFSET
   };
 
-  // 🔥 Derived field
+  // 🔥 DERIVED FIELDS
   eventData.NEXT_PAYMENT_DATE = formatNextPaymentDate(
     eventData.NEXT_PAYMENT_DAYS_OFFSET
   );
+
+  eventData.PPV_PRICE_DISPLAY = `${eventData.CURRENCY}${eventData.PPV_PRICE}`;
+
+  // 🔥 NORMALIZE KEYS
+  Object.keys(eventData).forEach(key => {
+    const upperKey = key.toUpperCase();
+    if (!eventData[upperKey]) {
+      eventData[upperKey] = eventData[key];
+    }
+  });
 
   return eventData;
 }

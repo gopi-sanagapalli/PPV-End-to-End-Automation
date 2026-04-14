@@ -1,16 +1,23 @@
 export function resolveExpected(rule: any, eventData: any): string {
   let expected = rule.Expected;
 
-  if (typeof expected !== 'string') return expected;
+  if (!expected) return '';
 
-  return expected.replace(/{{(.*?)}}/g, (_, key) => {
-    const value = eventData[key.trim()];
+  return expected.replace(/\{\{(.*?)\}\}/g, (_, key) => {
+    const k = key.trim().toUpperCase();
+    let value = eventData[k];
 
-    if (value === undefined) {
-      console.warn(`⚠️ Missing value for: ${key}`);
-      return '';
+    if (
+      k.includes('PRICE') &&
+      value &&
+      /^\d+(\.\d+)?$/.test(String(value))
+    ) {
+      const currency = eventData.CURRENCY || '';
+
+      // 🔥 return BOTH formats for flexible compare
+      return `${currency}${value}`;
     }
 
-    return String(value);
+    return value !== undefined ? String(value) : `MISSING_${k}`;
   });
 }

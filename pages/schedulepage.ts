@@ -10,8 +10,7 @@ export class SchedulePage {
     await expect(this.page).toHaveURL(/schedule/);
     await this.page.waitForLoadState('domcontentloaded');
     await this.page.waitForLoadState('networkidle').catch(() => {});
-    await this.page.locator('article').first().waitFor({ state: 'visible', timeout: 15000 });
-    console.log('✅ Schedule page loaded');
+ await this.page.waitForSelector('body', { timeout: 15000 });    console.log('✅ Schedule page loaded');
   }
 
   async selectSport(sport: string = 'Boxing') {

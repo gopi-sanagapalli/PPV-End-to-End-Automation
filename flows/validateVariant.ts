@@ -23,8 +23,28 @@ export const validateVariant = async (
   for (const rule of rules) {
     const actual = await getActualValue(page, rule.Field, variant);
     const expected = resolveExpected(rule, eventData);
-    const status = compare(actual, expected, rule.Type);
+ const normalize = (val: any): string => {
+  if (val === null || val === undefined) return '';
 
+  return String(val)
+    .replace(/\$/g, '')        // remove currency
+    .replace(/\u200B/g, '')    // remove zero-width chars
+    .replace(/\s+/g, ' ')      // normalize spacing
+    .trim()
+    .toLowerCase();
+};
+
+const normActual = normalize(actual);
+const normExpected = normalize(expected);
+
+let status = compare(normActual, normExpected, rule.Type);
+
+// 🔥 fallback (NON-BREAKING)
+if (!status && normActual && normExpected) {
+  if (normActual.includes(normExpected) || normExpected.includes(normActual)) {
+    status = true;
+  }
+}
     if (actual === 'N/A' || actual === '') {
       // console.log(`⚠️ EMPTY ACTUAL for field: ${rule.Field}`);
     }

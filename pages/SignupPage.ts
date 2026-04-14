@@ -1,82 +1,69 @@
 import { Page, Locator } from '@playwright/test';
-import { smartClick } from '../utils/browserHelpers';
 import selectors from '../config/selectors.json';
 
 export class SignupPage {
   constructor(private page: Page) {}
 
   // ─────────────────────────────
-  // FIND EMAIL INPUT
+  // FIND EMAIL INPUT (FAST + SAFE)
   // ─────────────────────────────
-  async findEmailInput(): Promise<Locator> {
-  const input = this.page.locator('input[type="email"]');
-  await input.waitFor({ state: 'visible', timeout: 15000 });
-  return input;
-}
+  async findEmailInput(): Promise<Locator | null> {
+    const input = this.page.locator('input[type="email"]').first();
 
-  // ─────────────────────────────
-  // ENTER EMAIL
-  // ─────────────────────────────
- async enterEmail(emailValue: string) {
-  const input = await this.findEmailInput();
+    if (await input.isVisible().catch(() => false)) {
+      return input;
+    }
 
-  await input.click({ force: true });
-  await input.fill('');
-await input.fill(emailValue);
-
-// trigger React properly
-await input.dispatchEvent('input');
-await input.dispatchEvent('change');
-
-  const value = await input.inputValue();
-
-  if (!value || value.length < 5) {
-    throw new Error('❌ Email NOT entered properly');
+    return null;
   }
-}
 
   // ─────────────────────────────
-  // CLICK CONTINUE (EMAIL PAGE)
+  // ENTER EMAIL (FAST + RELIABLE)
   // ─────────────────────────────
-async clickContinue() {
-  const btn = this.page.locator('button[type="submit"]');
+  async enterEmail(emailValue: string) {
+    const input = await this.page.locator('input[type="email"]').first();
 
-  await btn.waitFor({ state: 'visible', timeout: 10000 });
+ if (!(await input.isVisible().catch(() => false))) {
+  await input.waitFor({ state: 'visible', timeout: 3000 });
+}   await input.waitFor({ state: 'visible', timeout: 5000 });
 
-  const before = this.page.url();
+    await input.click({ force: true });
+    await input.fill(emailValue);
 
-  await btn.click({ force: true });
+    // minimal trigger (enough for React)
+    await input.dispatchEvent('input');
 
-  await this.page.waitForTimeout(2500);
+    const value = await input.inputValue();
 
-  const stillOnEmail = await this.page
-    .locator('input[type="email"]')
-    .isVisible()
-    .catch(() => false);
+    if (!value || value.length < 5) {
+      throw new Error('❌ Email NOT entered properly');
+    }
+  }
 
-  if (stillOnEmail) {
-    console.log('⚠️ retrying submit');
+  // ─────────────────────────────
+  // CLICK CONTINUE (STRICT)
+  // ─────────────────────────────
+  async clickContinue() {
+    const btn = this.page.locator('button:has-text("Continue")').first();
+
+    await btn.waitFor({ state: 'visible', timeout: 5000 });
+
     await btn.click({ force: true });
+
+    // wait for page transition OR next step
+    await this.page.waitForLoadState('domcontentloaded').catch(() => {});
   }
-}
 
   // ─────────────────────────────
-  // 🔥 WAIT FOR NEXT STEP (FIXES RACE CONDITION)
+  // WAIT FOR NEXT STEP
   // ─────────────────────────────
   async waitForNextStep(): Promise<'personalDetails' | 'next'> {
     const firstName = this.page.locator(selectors.signup.firstName);
-    const emailStill = this.page.locator(selectors.signup.email);
 
     try {
-      await Promise.race([
-        firstName.waitFor({ state: 'visible', timeout: 7000 }),
-        emailStill.waitFor({ state: 'detached', timeout: 7000 })
-      ]);
-    } catch {}
-
-    if (await firstName.isVisible().catch(() => false)) {
+      await firstName.waitFor({ state: 'visible', timeout: 5000 });
       return 'personalDetails';
-    }
+    } catch {}
 
     return 'next';
   }
@@ -89,38 +76,38 @@ async clickContinue() {
     const lastName = this.page.locator(selectors.signup.lastName);
     const password = this.page.locator(selectors.signup.password);
 
-    await firstName.waitFor({ state: 'visible', timeout: 10000 });
+    await firstName.waitFor({ state: 'visible', timeout: 8000 });
 
     await firstName.fill(user.firstName || 'Test');
     await lastName.fill(user.lastName || 'User');
     await password.fill(user.password || 'Test@12345');
 
-    // wait for CTA enable
-    const selector = selectors.signup.continueButtonStep2;
+const btn = this.page.locator(selectors.signup.continueButtonStep2);
 
-    await this.page.waitForFunction(
-      (sel) => {
-        const el = document.querySelector(sel);
-        return el && !el.hasAttribute('disabled');
-      },
-      selector,
-      { timeout: 7000 }
-    );
+// just ensure visible — NOT enabled
+
+// small stabilization (React forms)
+await this.page.waitForTimeout(500);
   }
 
   // ─────────────────────────────
   // CLICK CONTINUE (PERSONAL DETAILS)
   // ─────────────────────────────
-  async clickPersonalDetailsContinue() {
-    const btn = this.page.locator(selectors.signup.continueButtonStep2).first();
+async clickPersonalDetailsContinue() {
+  const btn = this.page.locator(selectors.signup.continueButtonStep2).first();
 
-    if (!(await btn.isVisible().catch(() => false))) {
-      throw new Error('❌ Continue button not found on personal details page');
-    }
+  // do NOT over-wait
+  await this.page.waitForTimeout(500);
 
-    await btn.scrollIntoViewIfNeeded();
-    await btn.click();
-
-    await this.page.waitForLoadState('domcontentloaded');
+  if (!(await btn.isVisible().catch(() => false))) {
+    throw new Error('❌ Continue button NOT visible on personal details page');
   }
+
+  await btn.scrollIntoViewIfNeeded();
+
+  // 🔥 FORCE CLICK (critical for DAZN)
+  await btn.click({ force: true });
+
+  await this.page.waitForLoadState('domcontentloaded').catch(() => {});
+}
 }

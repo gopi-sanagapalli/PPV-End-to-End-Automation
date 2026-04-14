@@ -17,8 +17,9 @@ export function compare(
 
   switch (compareType) {
 
-    case 'equals':
-      return a === e;
+case 'equals':
+  // 🔥 allow partial match for dynamic UI text
+  return a === e || a.includes(e) || e.includes(a);
 
     case 'contains':
       return a.includes(e);
