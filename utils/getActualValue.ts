@@ -225,60 +225,159 @@ export async function getActualValue(
     // ════════════════════════════════════════════════════════════
     // SCHEDULE — PPV TIME ON TILE
     // ════════════════════════════════════════════════════════════
-    case 'ppv time on tile': {
-      return snapFind(n =>
-        n.childCount === 0 &&
-        /^\d{1,2}:\d{2}$/.test(n.text)
-      );
+   case 'ppv time on tile': {
+  // Try snapshot first
+  const fromSnap = snapFind(n =>
+    n.childCount === 0 &&
+    /^\d{1,2}:\d{2}$/.test(n.text)
+  );
+  if (fromSnap !== 'N/A') return fromSnap;
+
+  // Fallback — live DOM
+  const firstWord = (eventData?.PPV_NAME || '').toLowerCase().split(' ')[0];
+  const articles  = page.locator('article');
+  const artCount  = await articles.count().catch(() => 0);
+  for (let i = 0; i < artCount; i++) {
+    const art = articles.nth(i);
+    const artText = clean(
+      await art.innerText({ timeout: T }).catch(() => '')
+    ).toLowerCase();
+    if (firstWord && !artText.includes(firstWord)) continue;
+    const inner = art.locator('span, time, p, div');
+    const ic    = await inner.count().catch(() => 0);
+    for (let j = 0; j < ic; j++) {
+      const el = inner.nth(j);
+      if (!await el.isVisible().catch(() => false)) continue;
+      const kids = await el.locator('> *').count().catch(() => 0);
+      if (kids > 1) continue;
+      const t = clean(await el.innerText({ timeout: T }).catch(() => ''));
+      if (/^\d{1,2}:\d{2}$/.test(t)) return t;
     }
+  }
+  return 'N/A';
+}
 
     // ════════════════════════════════════════════════════════════
     // SCHEDULE — PPV PROMOTER ON TILE
     // ════════════════════════════════════════════════════════════
-    case 'ppv promoter on tile': {
-      const promoter  = (eventData?.PPV_PROMOTER || '').toLowerCase();
-      const firstWord = promoter.split(' ')[0];
-      return snapFind(n => {
-        const t = n.text.toLowerCase();
-        return (
-          firstWord &&
-          t.includes(firstWord) &&
-          n.text.length < 80 &&
-          !t.includes('vs')
-        );
-      });
+   case 'ppv promoter on tile': {
+  const promoter  = (eventData?.PPV_PROMOTER || '').toLowerCase();
+  const firstWord = promoter.split(' ')[0];
+
+  // Try snapshot first
+  const fromSnap = snapFind(n => {
+    const t = n.text.toLowerCase();
+    return (
+      firstWord &&
+      t.includes(firstWord) &&
+      n.text.length < 80 &&
+      !t.includes('vs')
+    );
+  });
+  if (fromSnap !== 'N/A') return fromSnap;
+
+  // Fallback — live DOM
+  const ppvFirstWord = (eventData?.PPV_NAME || '').toLowerCase().split(' ')[0];
+  const articles     = page.locator('article');
+  const artCount     = await articles.count().catch(() => 0);
+  for (let i = 0; i < artCount; i++) {
+    const art = articles.nth(i);
+    const artText = clean(
+      await art.innerText({ timeout: T }).catch(() => '')
+    ).toLowerCase();
+    if (ppvFirstWord && !artText.includes(ppvFirstWord)) continue;
+    const inner = art.locator('p, span');
+    const ic    = await inner.count().catch(() => 0);
+    for (let j = 0; j < ic; j++) {
+      const el = inner.nth(j);
+      if (!await el.isVisible().catch(() => false)) continue;
+      const kids = await el.locator('> *').count().catch(() => 0);
+      if (kids > 1) continue;
+      const t = clean(await el.innerText({ timeout: T }).catch(() => ''));
+      if (
+        firstWord &&
+        t.toLowerCase().includes(firstWord) &&
+        t.length < 80 &&
+        !t.toLowerCase().includes('vs')
+      ) return t;
     }
+  }
+  return 'N/A';
+}
 
     // ════════════════════════════════════════════════════════════
     // SCHEDULE — POPUP CLOSE BUTTON
     // ════════════════════════════════════════════════════════════
-    case 'popup close button': {
-      return firstExists(
-        '[role="dialog"] button[aria-label*="close" i]',
-        '[role="dialog"] button[class*="close" i]',
-        '[role="dialog"] [class*="dismiss" i]',
-        '[role="dialog"] button:has(svg)'
-      );
-    }
+   case 'popup close button': {
+  // Try snapshot first
+  const fromSnap = snapFind(n =>
+    n.isInModal &&
+    (n.tag === 'button') &&
+    (n.classes.toLowerCase().includes('close') ||
+     n.classes.toLowerCase().includes('dismiss') ||
+     n.text === '×' ||
+     n.text === '✕' ||
+     n.text === 'Close' ||
+     n.text === '')
+  , true);
+  if (fromSnap !== 'N/A') return 'Yes';
+
+  // Live DOM fallback
+  return firstExists(
+    '[role="dialog"] button[aria-label*="close" i]',
+    '[role="dialog"] button[class*="close" i]',
+    '[role="dialog"] [class*="dismiss" i]',
+    '[role="dialog"] button[class*="icon" i]',
+    '[role="dialog"] button:has(svg)',
+    '[aria-modal="true"] button:has(svg)',
+    '[class*="modal" i] button:has(svg)'
+  );
+}
 
     // ════════════════════════════════════════════════════════════
     // PPV NAME
     // ════════════════════════════════════════════════════════════
     case 'ppv name': {
-      const firstWord = (eventData?.PPV_NAME || '').toLowerCase().split(' ')[0];
-      const fromHeading = snapFind(n =>
-        ['h1','h2','h3','h4'].includes(n.tag) &&
-        n.text.toLowerCase().includes('vs') &&
-        n.text.length < 80
-      );
-      if (fromHeading !== 'N/A') return fromHeading;
-      return snapFind(n =>
-        n.text.toLowerCase().includes('vs') &&
-        n.text.length < 80 &&
-        !n.text.toLowerCase().includes('buy') &&
-        (!firstWord || n.text.toLowerCase().includes(firstWord))
-      );
+  const firstWord = (eventData?.PPV_NAME || '').toLowerCase().split(' ')[0];
+  const ppvName   = (eventData?.PPV_NAME || '').toLowerCase();
+
+  // Try snapshot first
+  const fromHeading = snapFind(n =>
+    ['h1','h2','h3','h4'].includes(n.tag) &&
+    n.text.toLowerCase().includes('vs') &&
+    n.text.length < 80
+  );
+  if (fromHeading !== 'N/A') return fromHeading;
+
+  // Try snapshot spans/p
+  const fromSnap = snapFind(n =>
+    n.text.toLowerCase().includes('vs') &&
+    n.text.length < 80 &&
+    !n.text.toLowerCase().includes('buy') &&
+    (!firstWord || n.text.toLowerCase().includes(firstWord))
+  );
+  if (fromSnap !== 'N/A') return fromSnap;
+
+  // Fallback — live DOM for schedule page articles
+  const articles = page.locator('article');
+  const artCount = await articles.count().catch(() => 0);
+  for (let i = 0; i < artCount; i++) {
+    const art = articles.nth(i);
+    const artText = clean(
+      await art.innerText({ timeout: T }).catch(() => '')
+    ).toLowerCase();
+    if (firstWord && !artText.includes(firstWord)) continue;
+    const inner = art.locator('h2, h3, h4, p, span');
+    const ic    = await inner.count().catch(() => 0);
+    for (let j = 0; j < ic; j++) {
+      const el = inner.nth(j);
+      if (!await el.isVisible().catch(() => false)) continue;
+      const t = clean(await el.innerText({ timeout: T }).catch(() => ''));
+      if (t.toLowerCase().includes('vs') && t.length < 80) return t;
     }
+  }
+  return 'N/A';
+}
 
     // ════════════════════════════════════════════════════════════
     // PPV DATE (schedule page)
@@ -335,27 +434,40 @@ export async function getActualValue(
       );
     }
 
-    case 'popup date': {
-      return snapFind(n => {
-        if (!n.isInModal) return false;
-        const t = n.text;
-        if (t.toLowerCase().includes('vs')) return false;
-        if (isPriceText(t)) return false;
-        if (t.toLowerCase().includes('buy')) return false;
-        if (t.toLowerCase().includes('catch')) return false;
-        if (
-          /^\d{1,2}\s+(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\s+\d{1,2}:\d{2}$/i.test(t)
-        ) return true;
-        if (
-          /\b(MON|TUE|WED|THU|FRI|SAT|SUN)\b/i.test(t) &&
-          /\d{1,2}/.test(t) &&
-          /\b(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\b/i.test(t) &&
-          t.length < 30
-        ) return true;
-        if (isDateText(t) && t.length < 60) return true;
-        return false;
-      }, true);
-    }
+   case 'popup date': {
+  const firstWord = (eventData?.PPV_NAME || '').toLowerCase().split(' ')[0];
+
+  // First verify modal contains our event
+  const modalTexts = snap.filter(n => n.isInModal).map(n => n.text.toLowerCase());
+  const modalHasEvent = firstWord
+    ? modalTexts.some(t => t.includes(firstWord))
+    : true;
+
+  if (!modalHasEvent) {
+    console.log(`⚠️  Modal does not contain "${firstWord}" — wrong modal`);
+    return 'N/A';
+  }
+
+  return snapFind(n => {
+    if (!n.isInModal) return false;
+    const t = n.text;
+    if (t.toLowerCase().includes('vs')) return false;
+    if (isPriceText(t)) return false;
+    if (t.toLowerCase().includes('buy')) return false;
+    if (t.toLowerCase().includes('catch')) return false;
+    if (
+      /^\d{1,2}\s+(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\s+\d{1,2}:\d{2}$/i.test(t)
+    ) return true;
+    if (
+      /\b(MON|TUE|WED|THU|FRI|SAT|SUN)\b/i.test(t) &&
+      /\d{1,2}/.test(t) &&
+      /\b(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\b/i.test(t) &&
+      t.length < 30
+    ) return true;
+    if (isDateText(t) && t.length < 60) return true;
+    return false;
+  }, true);
+}
 
     case 'popup ppv name': {
       const firstWord = (eventData?.PPV_NAME || '').toLowerCase().split(' ')[0];
@@ -582,11 +694,26 @@ export async function getActualValue(
     // UPSELL LABEL
     // ════════════════════════════════════════════════════════════
     case 'upsell label': {
-      return snapFind(n =>
-        n.childCount === 0 &&
-        n.text.toLowerCase() === 'pay-per-views included'
-      );
-    }
+  // Try snapshot
+  const fromSnap = snapFind(n =>
+    n.childCount === 0 &&
+    n.text.toLowerCase() === 'pay-per-views included'
+  );
+  if (fromSnap !== 'N/A') return fromSnap;
+
+  // Live DOM fallback
+  const loc   = page.locator('span, p, div');
+  const count = await loc.count().catch(() => 0);
+  for (let i = 0; i < count; i++) {
+    const el = loc.nth(i);
+    if (!await el.isVisible().catch(() => false)) continue;
+    const kids = await el.locator('> *').count().catch(() => 0);
+    if (kids > 1) continue;
+    const t = clean(await el.innerText({ timeout: T }).catch(() => ''));
+    if (t.toLowerCase() === 'pay-per-views included') return t;
+  }
+  return 'N/A';
+}
 
     // ════════════════════════════════════════════════════════════
     // UPSELL PLAN NAME
@@ -628,35 +755,67 @@ export async function getActualValue(
     // UPSELL PRICE
     // ════════════════════════════════════════════════════════════
     case 'upsell price': {
-      const prices = snapFindAll(n =>
-        n.childCount === 0 &&
-        isPriceText(n.text)
-      );
-      // prices[0] = PPV price, prices[1] = upsell price
-      return prices[1] ?? 'N/A';
-    }
+  const prices = snapFindAll(n =>
+    n.childCount === 0 &&
+    isPriceText(n.text)
+  );
+  // prices[0] = PPV price, prices[1] = upsell price
+  if (prices[1]) return prices[1];
+
+  // DAZN Plan page — price may not have currency symbol
+  // Look for standalone number like "409"
+  const annual = eventData?.ANNUAL_PRICE || '';
+  if (annual) {
+    const found = snapFind(n =>
+      n.childCount === 0 &&
+      (n.text === annual ||
+       n.text === `₹${annual}` ||
+       n.text === `£${annual}` ||
+       n.text === `$${annual}` ||
+       n.text === `€${annual}`)
+    );
+    if (found !== 'N/A') return found;
+  }
+  return prices[0] ?? 'N/A';
+}
 
     // ════════════════════════════════════════════════════════════
     // UPSELL PRICE LENGTH (/ month)
     // ════════════════════════════════════════════════════════════
-    case 'upsell price length': {
-      return snapFind(n =>
-        n.childCount === 0 &&
-        (n.text === '/ month' || n.text === '/month' || n.text === 'per month')
-      );
-    }
+   case 'upsell price length': {
+  // Try snapshot
+  const fromSnap = snapFind(n =>
+    n.childCount === 0 &&
+    (n.text === '/ month' || n.text === '/month' || n.text === 'per month')
+  );
+  if (fromSnap !== 'N/A') return fromSnap;
+
+  // Live DOM fallback
+  const loc   = page.locator('span, p');
+  const count = await loc.count().catch(() => 0);
+  for (let i = 0; i < count; i++) {
+    const el = loc.nth(i);
+    if (!await el.isVisible().catch(() => false)) continue;
+    const kids = await el.locator('> *').count().catch(() => 0);
+    if (kids > 0) continue;
+    const t = clean(await el.innerText({ timeout: T }).catch(() => ''));
+    if (t === '/ month' || t === '/month' || t === 'per month') return t;
+  }
+  return 'N/A';
+} 
 
     // ════════════════════════════════════════════════════════════
     // UPSELL BILLING / RENEWAL TEXT
     // ════════════════════════════════════════════════════════════
-    case 'upsell billing text':
-    case 'upsell renweal text': {
-      return snapFind(n =>
-        n.childCount === 0 &&
-        n.text.toLowerCase().includes('annual contract') &&
-        n.text.length < 80
-      );
-    }
+   case 'upsell billing text':
+case 'upsell renweal text': {
+  return snapFind(n =>
+    n.childCount === 0 &&
+    n.text.toLowerCase().includes('annual contract') &&
+    n.text.toLowerCase().includes('auto renews') &&
+    n.text.length < 80
+  );
+}
 
     // ════════════════════════════════════════════════════════════
     // UPSELL FEATURES
@@ -932,18 +1091,48 @@ export async function getActualValue(
     // ════════════════════════════════════════════════════════════
     // UPSELL BADGE ("FIRST MONTH FREE!")
     // ════════════════════════════════════════════════════════════
-    case 'upsell badge': {
-      return snapFind(n =>
-        (n.classes.toLowerCase().includes('badge') ||
-         n.classes.toLowerCase().includes('tag') ||
-         n.classes.toLowerCase().includes('pill') ||
-         n.classes.toLowerCase().includes('promo')) &&
-        (n.text.toLowerCase().includes('first month') ||
-         n.text.toLowerCase().includes('free month') ||
-         n.text.toLowerCase().includes('month free')) &&
-        n.text.length < 40
-      );
+   case 'upsell badge': {
+  // Try snapshot class-based first
+  const fromSnap = snapFind(n =>
+    (n.classes.toLowerCase().includes('badge') ||
+     n.classes.toLowerCase().includes('tag') ||
+     n.classes.toLowerCase().includes('pill') ||
+     n.classes.toLowerCase().includes('promo') ||
+     n.classes.toLowerCase().includes('label')) &&
+    (n.text.toLowerCase().includes('first month') ||
+     n.text.toLowerCase().includes('free month') ||
+     n.text.toLowerCase().includes('month free') ||
+     n.text.toUpperCase() === n.text) && // ALL CAPS = badge
+    n.text.length < 40
+  );
+  if (fromSnap !== 'N/A') return fromSnap;
+
+  // Live DOM fallback
+  const badgeSels = [
+    '[class*="badge" i]',
+    '[class*="tag" i]',
+    '[class*="pill" i]',
+    '[class*="promo" i]',
+    '[class*="label" i]',
+  ];
+  for (const sel of badgeSels) {
+    const loc   = page.locator(sel);
+    const count = await loc.count().catch(() => 0);
+    for (let i = 0; i < count; i++) {
+      const el = loc.nth(i);
+      if (!await el.isVisible().catch(() => false)) continue;
+      const t = clean(await el.innerText({ timeout: T }).catch(() => ''));
+      if (
+        (t.toLowerCase().includes('first month') ||
+         t.toLowerCase().includes('month free') ||
+         t.toUpperCase() === t) &&
+        t.length < 40 &&
+        t.length > 3
+      ) return t;
     }
+  }
+  return 'N/A';
+}
 
     // ════════════════════════════════════════════════════════════
     // UPSELL BADGE COLOR
@@ -997,12 +1186,22 @@ export async function getActualValue(
     // FIRST MONTH FREE TEXT
     // ════════════════════════════════════════════════════════════
     case 'first month free text': {
-      return snapFind(n =>
-        n.childCount <= 1 &&
-        n.text.toLowerCase().includes('first month free') &&
-        n.text.length < 60
-      );
-    }
+  // Look for "+ First month free" specifically
+  const exact = snapFind(n =>
+    n.childCount <= 1 &&
+    n.text.toLowerCase().includes('first month free') &&
+    n.text.toLowerCase().startsWith('+') &&
+    n.text.length < 60
+  );
+  if (exact !== 'N/A') return exact;
+
+  // Fallback without + prefix
+  return snapFind(n =>
+    n.childCount <= 1 &&
+    n.text.toLowerCase().includes('first month free') &&
+    n.text.length < 60
+  );
+}
 
     // ════════════════════════════════════════════════════════════
     // FIRST MONTH FREE HIGHLIGHT
@@ -1021,24 +1220,39 @@ export async function getActualValue(
     // ════════════════════════════════════════════════════════════
     // UPSELL PRICE PREFIX ("Then")
     // ════════════════════════════════════════════════════════════
-    case 'upsell price prefix': {
-      return snapFind(n =>
-        n.childCount === 0 &&
-        n.text === 'Then'
-      );
-    }
+   case 'upsell price prefix': {
+  // Try snapshot
+  const fromSnap = snapFind(n =>
+    n.childCount === 0 &&
+    n.text === 'Then'
+  );
+  if (fromSnap !== 'N/A') return fromSnap;
+
+  // Live DOM fallback
+  const loc   = page.locator('span, p, small');
+  const count = await loc.count().catch(() => 0);
+  for (let i = 0; i < count; i++) {
+    const el = loc.nth(i);
+    if (!await el.isVisible().catch(() => false)) continue;
+    const kids = await el.locator('> *').count().catch(() => 0);
+    if (kids > 0) continue;
+    const t = clean(await el.innerText({ timeout: T }).catch(() => ''));
+    if (t === 'Then') return t;
+  }
+  return 'N/A';
+}
 
     // ════════════════════════════════════════════════════════════
     // UPSELL SUB TEXT
     // ════════════════════════════════════════════════════════════
-    case 'upsell sub text': {
-      return snapFind(n =>
-        n.childCount <= 1 &&
-        n.text.toLowerCase().startsWith('then') &&
-        n.text.toLowerCase().includes('month') &&
-        n.text.length < 80
-      );
-    }
+ case 'upsell sub text': {
+  return snapFind(n =>
+    n.childCount === 0 &&
+    n.text.toLowerCase().startsWith('then') &&
+    n.text.toLowerCase().includes('month') &&
+    n.text.length < 60  // ← strict limit to avoid grabbing renewal text
+  );
+}
 
     // ════════════════════════════════════════════════════════════
     // PAYMENT PAGE — DAZN TIER

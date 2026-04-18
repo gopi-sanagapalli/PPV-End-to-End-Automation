@@ -2,6 +2,7 @@ import { Page }            from '@playwright/test';
 import { getActualValue }  from '../utils/getActualValue';
 import { resolveExpected } from '../utils/resolveExpected';
 import { compare }         from '../utils/compare';
+import { getPageSnapshot } from '../utils/helpers';
 
 export class PaymentPage {
   constructor(private page: Page) {}
@@ -10,7 +11,6 @@ export class PaymentPage {
   // IS PAYMENT PAGE
   // ─────────────────────────────
   async isPaymentPage(): Promise<boolean> {
-    // Guard — page may be closed
     if (this.page.isClosed()) {
       console.log('⚠️  Page is closed — cannot check payment page');
       return false;
@@ -34,13 +34,25 @@ export class PaymentPage {
     results:   any[],
     eventData: Record<string, string>
   ): Promise<void> {
-    // Guard — page may be closed
     if (this.page.isClosed()) {
       console.log('⚠️  Page is closed — skipping payment validation');
       return;
     }
 
     console.log(`\n🧾 Validating Payment page — ${data.length} fields`);
+
+    // ── Wait for payment page to fully load ──────────────────────
+    await this.page.waitForLoadState('domcontentloaded').catch(() => {});
+
+    // Wait for key payment element to appear
+    await this.page.waitForSelector(
+      'text=/Today you pay|Choose how to pay|encrypted/i',
+      { timeout: 10000 }
+    ).catch(() => console.log('⚠️  Payment content signal not found'));
+
+    // ── Take snapshot ONCE for all fields ────────────────────────
+    const snapshot = await getPageSnapshot(this.page);
+    console.log(`📸 Payment snapshot: ${snapshot.length} nodes`);
 
     for (const row of data) {
       const field = (row['Field'] || '').trim();
@@ -56,7 +68,13 @@ export class PaymentPage {
 
       let actual: string;
       try {
-        actual = await getActualValue(this.page, field, undefined, eventData);
+        actual = await getActualValue(
+          this.page,
+          field,
+          undefined,
+          eventData,
+          snapshot  // ← pass snapshot
+        );
       } catch {
         actual = 'N/A';
       }

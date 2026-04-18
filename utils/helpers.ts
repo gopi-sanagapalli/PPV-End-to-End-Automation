@@ -101,7 +101,6 @@ export async function triggerLazyLoad(page: Page): Promise<void> {
     window.scrollTo(0, target);
   }).catch(() => {});
 
-  // Minimal wait for lazy content
   await sleep(150);
   await page.evaluate(() => window.scrollTo(0, 0)).catch(() => {});
 }
@@ -132,18 +131,21 @@ export async function scrollToCenter(
 }
 
 // ─────────────────────────────────────────────────────────────────
-// PRE-FETCH PAGE SNAPSHOT — bulk DOM read in one JS call
-// Returns all visible text nodes + their metadata
-// Used by getActualValue to avoid repeated DOM queries
+// DOM NODE INTERFACE
 // ─────────────────────────────────────────────────────────────────
 export interface DOMNode {
-  tag:       string;
-  text:      string;
-  classes:   string;
+  tag:        string;
+  text:       string;
+  classes:    string;
   childCount: number;
-  isInModal: boolean;
+  isInModal:  boolean;
 }
 
+// ─────────────────────────────────────────────────────────────────
+// GET PAGE SNAPSHOT — bulk DOM read in one JS call
+// Uses offsetWidth/Height instead of getBoundingClientRect
+// so off-screen elements (schedule articles) are included
+// ─────────────────────────────────────────────────────────────────
 export async function getPageSnapshot(page: Page): Promise<DOMNode[]> {
   if (page.isClosed()) return [];
 
@@ -160,19 +162,19 @@ export async function getPageSnapshot(page: Page): Promise<DOMNode[]> {
         '[class*="popup"]',
       ];
 
-      const isInModal = (el: Element): boolean => {
-        return modalSelectors.some(sel => el.closest(sel) !== null);
-      };
+      const isInModal = (el: Element): boolean =>
+        modalSelectors.some(sel => el.closest(sel) !== null);
 
-      const isVisible = (el: Element): boolean => {
-        const rect = el.getBoundingClientRect();
+      // ── offsetWidth/Height catches off-screen elements too ──────
+      // getBoundingClientRect only returns visible viewport elements
+      const isRendered = (el: HTMLElement): boolean => {
         const style = window.getComputedStyle(el);
         return (
-          rect.width > 0 &&
-          rect.height > 0 &&
+          style.display    !== 'none'   &&
           style.visibility !== 'hidden' &&
-          style.display !== 'none' &&
-          style.opacity !== '0'
+          style.opacity    !== '0'      &&
+          el.offsetWidth   >   0        &&
+          el.offsetHeight  >   0
         );
       };
 
@@ -188,11 +190,12 @@ export async function getPageSnapshot(page: Page): Promise<DOMNode[]> {
       for (const tag of tags) {
         const els = document.querySelectorAll<HTMLElement>(tag);
         for (const el of els) {
-          if (!isVisible(el)) continue;
+          if (!isRendered(el)) continue;
+
           const text = clean(el.innerText || el.textContent || '');
           if (!text || text.length < 2 || text.length > 500) continue;
 
-          // Deduplicate
+          // ── Deduplicate by tag+text ─────────────────────────────
           const key = `${tag}:${text}`;
           if (seen.has(key)) continue;
           seen.add(key);
@@ -205,9 +208,9 @@ export async function getPageSnapshot(page: Page): Promise<DOMNode[]> {
             isInModal:  isInModal(el),
           });
 
-          if (results.length >= 800) break;
+          if (results.length >= 1000) break;
         }
-        if (results.length >= 800) break;
+        if (results.length >= 1000) break;
       }
 
       return results;
