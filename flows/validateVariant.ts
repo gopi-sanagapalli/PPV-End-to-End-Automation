@@ -1,67 +1,79 @@
-import { resolveExpected } from '../utils/resolveExpected';
-import { getActualValue } from '../utils/getActualValue';
-import { compare } from '../utils/compare';
+import { resolveExpected }              from '../utils/resolveExpected';
+import { getActualValue }               from '../utils/getActualValue';
+import { compare }                      from '../utils/compare';
+import { getPageSnapshot, DOMNode }     from '../utils/helpers';
 
 export const validateVariant = async (
-  page: any,
-  variant: string,
-  data: any[],
-  results: any[],
-  eventData: any
+  page:      any,
+  variant:   string,
+  data:      any[],
+  results:   any[],
+  eventData: Record<string, string>,
+  pageName:  string = 'PPV'
 ) => {
-  if (!eventData) {
-    throw new Error('❌ eventData is missing — validation is invalid');
-  }
+  if (!eventData) throw new Error('❌ eventData is missing');
 
-  // console.log('🚀 Running Validation...');
-  // console.log('🧠 Variant:', variant);
+  const normalizedVariant = variant.trim().toLowerCase();
 
   const rules = data.filter(r => {
-    return !r.Variant || r.Variant.trim() === variant;
+    const rv = (r.Variant || '').trim().toLowerCase();
+    return !rv || rv === normalizedVariant;
   });
 
-  for (const rule of rules) {
-    const actual = await getActualValue(page, rule.Field, variant);
-    const expected = resolveExpected(rule, eventData);
- const normalize = (val: any): string => {
-  if (val === null || val === undefined) return '';
-
-  return String(val)
-    .replace(/\$/g, '')        // remove currency
-    .replace(/\u200B/g, '')    // remove zero-width chars
-    .replace(/\s+/g, ' ')      // normalize spacing
-    .trim()
-    .toLowerCase();
-};
-
-const normActual = normalize(actual);
-const normExpected = normalize(expected);
-
-let status = compare(normActual, normExpected, rule.Type);
-
-// 🔥 fallback (NON-BREAKING)
-if (!status && normActual && normExpected) {
-  if (normActual.includes(normExpected) || normExpected.includes(normActual)) {
-    status = true;
+  if (!rules.length) {
+    throw new Error(`❌ No rules for variant: "${variant}"`);
   }
-}
-    if (actual === 'N/A' || actual === '') {
-      // console.log(`⚠️ EMPTY ACTUAL for field: ${rule.Field}`);
+
+  console.log(`\n🔍 Validating ${pageName} — ${rules.length} fields`);
+
+  // ── Pre-fetch DOM snapshot ONCE — avoids repeated DOM queries ──
+  const snapshot = await getPageSnapshot(page);
+
+  // ── Run ALL field validations in parallel ──────────────────────
+  const validations = rules.map(async (rule) => {
+    const field = (rule.Field || '').trim();
+    if (!field) return null;
+
+    let expected: string;
+    try {
+      expected = resolveExpected(rule, eventData);
+    } catch (e: any) {
+      expected = String(rule.Expected ?? '');
     }
 
-    if (!status) {
-      // console.log(`❌ [${variant}] ${rule.Field}`);
-      // console.log(`   Expected: ${expected}`);
-      // console.log(`   Actual  : ${actual}`);
-      // console.log(`   Type    : ${rule.Type}`);
+    let actual: string;
+    try {
+      actual = await getActualValue(page, field, variant, eventData, snapshot);
+    } catch {
+      actual = 'N/A';
     }
+
+    const status = compare(actual, expected, rule.Type) ? 'PASS' : 'FAIL';
+
+    return { field, expected, actual, status };
+  });
+
+  // Wait for all validations to complete
+  const validationResults = await Promise.all(validations);
+
+  // Log and push results in order
+  for (const result of validationResults) {
+    if (!result) continue;
+
+    const { field, expected, actual, status } = result;
+
+    console.log(
+      `  ${status === 'PASS' ? '✅' : '❌'} [${field}]` +
+      `  expected="${expected}"  actual="${actual}"`
+    );
 
     results.push({
-      page: variant,
-      field: rule.Field,
+      page:    pageName,
+      variant,
+      field,
       expected,
       actual,
-      status: status ? 'PASS' : 'FAIL'
+      status,
     });
   }
 };

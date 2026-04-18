@@ -1,6 +1,6 @@
-import { smartClick } from '../utils/browserHelpers';
+import { smartClick }    from '../utils/browserHelpers';
 import { Page, Locator } from '@playwright/test';
-import selectors from '../config/selectors.json';
+import selectors         from '../config/selectors.json';
 
 export class DAZNPlanPage {
   constructor(private page: Page) {}
@@ -18,7 +18,7 @@ export class DAZNPlanPage {
   }
 
   // ─────────────────────────────
-  // GET CONTINUE BUTTON (SINGLE SOURCE)
+  // GET CONTINUE BUTTON
   // ─────────────────────────────
   async getContinueButton(): Promise<Locator | null> {
     const btn = this.page.locator(selectors.daznPlan.ctaContinue).first();
@@ -27,7 +27,7 @@ export class DAZNPlanPage {
       return btn;
     }
 
-    // 🔥 Controlled fallback (NOT chaos)
+    // Fallback
     const fallback = this.page.getByRole('button', {
       name: /continue|next|proceed/i
     }).first();
@@ -40,35 +40,52 @@ export class DAZNPlanPage {
     return null;
   }
 
+  // ─────────────────────────────
+  // ENSURE TRIAL PLAN SELECTED
+  // ─────────────────────────────
   async ensureTrialPlanSelected(): Promise<void> {
-    const trialPlan = this.page.locator('label:has-text("7-day free trial"), [role="radio"]:has-text("7-day free trial")').first();
+    const trialPlan = this.page
+      .locator(
+        'label:has-text("7-day free trial"), ' +
+        '[role="radio"]:has-text("7-day free trial")'
+      )
+      .first();
 
     if (!(await trialPlan.isVisible({ timeout: 3000 }).catch(() => false))) {
-      console.log('ℹ️ Trial plan selector not visible, skipping explicit selection');
+      console.log('ℹ️ Trial plan selector not visible, skipping');
       return;
     }
 
-    const alreadySelected = await trialPlan.locator('[aria-label="selected"], img[alt="selected"], [aria-checked="true"]').first().isVisible().catch(() => false);
+    const alreadySelected = await trialPlan
+      .locator(
+        '[aria-label="selected"], ' +
+        'img[alt="selected"], ' +
+        '[aria-checked="true"]'
+      )
+      .first()
+      .isVisible()
+      .catch(() => false);
+
     if (alreadySelected) {
       console.log('✅ Trial plan already selected');
       return;
     }
 
-    console.log('🔁 Ensuring Trial plan is selected before Continue...');
+    console.log('🔁 Selecting Trial plan...');
     await trialPlan.scrollIntoViewIfNeeded().catch(() => {});
     await trialPlan.click({ force: true });
-    await trialPlan.locator('[aria-label="selected"], img[alt="selected"], [aria-checked="true"]').first().waitFor({ timeout: 5000 }).catch(() => {});
-    console.log('✅ Trial plan confirmed selected');
+    await this.page.waitForTimeout(500);
+    console.log('✅ Trial plan selected');
   }
 
   // ─────────────────────────────
   // CLICK CONTINUE
   // ─────────────────────────────
   async clickContinue(): Promise<void> {
-    console.log('🔍 Clicking Continue CTA...');
+    console.log('🔍 Finding Continue CTA...');
 
-    // ✅ AUTO SCROLL DOWN for Continue button that is below fold
-    for (let scrollAttempt = 0; scrollAttempt < 6; scrollAttempt++) {
+    // Scroll down to find button if below fold
+    for (let i = 0; i < 6; i++) {
       if (await this.getContinueButton()) break;
       await this.page.keyboard.press('PageDown');
       await this.page.waitForTimeout(300);
@@ -79,14 +96,17 @@ export class DAZNPlanPage {
     const btn = await this.getContinueButton();
 
     if (!btn) {
-      throw new Error('❌ Continue button not found');
+      throw new Error('❌ Continue button not found on Plan page');
     }
 
+    // Scroll CTA into view before clicking
     await btn.scrollIntoViewIfNeeded().catch(() => {});
+    await this.page.waitForTimeout(300);
 
     const enabled = await btn.isEnabled().catch(() => false);
+
     if (!enabled) {
-      console.log('⚠️ Plan Continue CTA is disabled, attempting force click fallback');
+      console.log('⚠️ Plan Continue CTA disabled — force clicking');
       await btn.click({ force: true, timeout: 5000 }).catch(() => {});
     } else {
       await smartClick(this.page, btn, 'Plan Continue CTA', {
@@ -96,7 +116,6 @@ export class DAZNPlanPage {
     }
 
     console.log('✅ Continue clicked');
-
     await this.page.waitForTimeout(1000).catch(() => {});
     console.log('📍 URL after click:', this.page.url());
   }

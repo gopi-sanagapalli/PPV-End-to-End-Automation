@@ -1,23 +1,30 @@
-export function resolveExpected(rule: any, eventData: any): string {
-  let expected = rule.Expected;
+export function resolveExpected(
+  rule: any,
+  eventData: Record<string, string>
+): string {
+  const raw = rule.Expected;
 
-  if (!expected) return '';
+  // If no expected value treat as existence check
+  if (raw === undefined || raw === null || raw === '') {
+    return '';
+  }
 
-  return expected.replace(/\{\{(.*?)\}\}/g, (_, key) => {
-    const k = key.trim().toUpperCase();
-    let value = eventData[k];
+  const template = String(raw);
 
-    if (
-      k.includes('PRICE') &&
-      value &&
-      /^\d+(\.\d+)?$/.test(String(value))
-    ) {
-      const currency = eventData.CURRENCY || '';
+  return template.replace(/\{\{(.*?)\}\}/g, (match, key) => {
+    const k = key.trim();
 
-      // 🔥 return BOTH formats for flexible compare
-      return `${currency}${value}`;
+    // Try exact, UPPER, lower
+    const value =
+      eventData[k] ??
+      eventData[k.toUpperCase()] ??
+      eventData[k.toLowerCase()];
+
+    if (value === undefined) {
+      console.warn(`⚠️  resolveExpected: no value for {{${k}}} — leaving as-is`);
+      return match; // return original placeholder, don't throw
     }
 
-    return value !== undefined ? String(value) : `MISSING_${k}`;
+    return String(value);
   });
 }

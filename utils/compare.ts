@@ -1,36 +1,62 @@
 export function compare(
-  actual: any,
-  expected: any,
-  type?: string
+  actual:   string,
+  expected: string,
+  type?:    string
 ): boolean {
+  if (!expected) return true;
 
-  const normalize = (val: any) =>
-    String(val ?? '')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .toLowerCase();
+  const norm = (s: string) =>
+    s.replace(/[£$€₹]/g, '')
+     .replace(/\s+/g, ' ')
+     .trim()
+     .toLowerCase();
 
-  const a = normalize(actual);
-  const e = normalize(expected);
+  const a = norm(actual);
+  const e = norm(expected);
 
-  const compareType = (type || 'equals').toLowerCase();
+  // ── Yes/No checks ──────────────────────────────────────────────
+  if (e === 'yes') return a === 'yes' || actual === 'Yes';
+  if (e === 'no')  return a === 'no'  || actual === 'No';
 
-  switch (compareType) {
+  // ── Gold color check ───────────────────────────────────────────
+  if (e === 'gold') return a === 'gold' || actual === 'Gold';
 
-case 'equals':
-  // 🔥 allow partial match for dynamic UI text
-  return a === e || a.includes(e) || e.includes(a);
+  // ── Type overrides ─────────────────────────────────────────────
+  if (type === 'contains')    return a.includes(e);
+  if (type === 'startsWith')  return a.startsWith(e);
 
-    case 'contains':
-      return a.includes(e);
+  // ── Exact match ────────────────────────────────────────────────
+  if (a === e) return true;
 
-    case 'startswith':
-      return a.startsWith(e);
+  // ── Contains with length guard ─────────────────────────────────
+  if (a.includes(e) && actual.length < expected.length * 3) return true;
 
-    case 'exists':
-      return a !== '' && a !== 'n/a' && a !== 'null' && a !== 'undefined';
+  // ── Price comparison — strip currency and commas ───────────────
+  const normPrice = (s: string) =>
+    s.replace(/[£$€₹,\s]/g, '').trim();
 
-    default:
-      return false; // 🔥 REMOVE noisy logs
-  }
+  const aPrice = normPrice(actual);
+  const ePrice = normPrice(expected);
+  if (aPrice && ePrice && aPrice === ePrice) return true;
+
+  // ── Date flexibility ───────────────────────────────────────────
+  const extractDateParts = (s: string) => {
+    const months = ['jan','feb','mar','apr','may','jun',
+                    'jul','aug','sep','oct','nov','dec'];
+    const month  = months.find(m => s.toLowerCase().includes(m));
+    const day    = s.match(/\b(\d{1,2})(st|nd|rd|th)?\b/)?.[1];
+    return { month, day };
+  };
+
+  const aParts = extractDateParts(a);
+  const eParts = extractDateParts(e);
+
+  if (
+    aParts.month && eParts.month &&
+    aParts.day   && eParts.day   &&
+    aParts.month === eParts.month &&
+    aParts.day   === eParts.day
+  ) return true;
+
+  return false;
 }

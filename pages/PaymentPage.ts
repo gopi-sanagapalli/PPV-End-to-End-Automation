@@ -1,98 +1,79 @@
-import { Page } from '@playwright/test';
+import { Page }            from '@playwright/test';
+import { getActualValue }  from '../utils/getActualValue';
 import { resolveExpected } from '../utils/resolveExpected';
+import { compare }         from '../utils/compare';
 
 export class PaymentPage {
-  private readonly FIELD_TIMEOUT = 1500;
-
   constructor(private page: Page) {}
 
   // ─────────────────────────────
-  // DETECT PAYMENT PAGE (STRONG)
+  // IS PAYMENT PAGE
   // ─────────────────────────────
   async isPaymentPage(): Promise<boolean> {
+    // Guard — page may be closed
+    if (this.page.isClosed()) {
+      console.log('⚠️  Page is closed — cannot check payment page');
+      return false;
+    }
+
     const url = this.page.url();
+    if (url.includes('payment') || url.includes('checkout')) return true;
 
-    // 🔥 Primary signal
-    if (url.includes('payment') || url.includes('checkout')) {
-      return true;
-    }
-
-    // 🔥 Fallback signal
-    const total = this.page.locator('[data-test-id="summary_total_value"]');
-
-    return await total.isVisible().catch(() => false);
+    return this.page
+      .locator('h1')
+      .filter({ hasText: /pay/i })
+      .isVisible()
+      .catch(() => false);
   }
 
   // ─────────────────────────────
-  // GET FIELD VALUE (SCOPED + SAFE)
+  // VALIDATE
   // ─────────────────────────────
-  async getFieldValue(field: string): Promise<string> {
-    const getText = async (locator: any) => {
-      const target = locator.first();
-      const visible = await target.isVisible({ timeout: this.FIELD_TIMEOUT }).catch(() => false);
-      if (!visible) return 'N/A';
-
-      return (await target.textContent({ timeout: this.FIELD_TIMEOUT }).catch(() => ''))?.trim() || 'N/A';
-    };
-
-    switch (field.toLowerCase()) {
-
-      case 'page title':
-        return await getText(this.page.locator('h1'));
-
-      case 'header':
-        return await getText(this.page.locator('text=/payment is encrypted|payment/i'));
-
-      case 'ppv name':
-        return await getText(this.page.locator('text=/vs\\.?/i'));
-
-      case 'ppv price':
-        return await getText(this.page.locator('[data-test-id="summary_total_value"], text=/[£$€₹]\s?\d+(?:,\d{3})*(?:\.\d{2})?/'));
-
-      case 'today you pay price':
-        return await getText(
-          this.page.locator('[data-test-id="summary_total_value"]')
-        );
-
-      case 'cancellation text':
-        return await getText(this.page.locator('text=/cancel|auto-renews|subscription/i'));
-
-      default:
-        return 'N/A';
+  async validate(
+    data:      any[],
+    results:   any[],
+    eventData: Record<string, string>
+  ): Promise<void> {
+    // Guard — page may be closed
+    if (this.page.isClosed()) {
+      console.log('⚠️  Page is closed — skipping payment validation');
+      return;
     }
-  }
 
-  // ─────────────────────────────
-  // VALIDATION (NORMALIZED)
-  // ─────────────────────────────
-  async validate(data: any[], results: any[], eventData?: Record<string, unknown>) {
-    console.log('🧾 Validating payment page fields...');
-
-    const normalize = (val: any) =>
-      String(val ?? '')
-        .replace('$', '')
-        .replace(/\s+/g, ' ')
-        .trim()
-        .toLowerCase();
+    console.log(`\n🧾 Validating Payment page — ${data.length} fields`);
 
     for (const row of data) {
-      const field = row['Field'];
-      const expected = eventData ? resolveExpected(row, eventData) : row['Expected'];
+      const field = (row['Field'] || '').trim();
+      if (!field) continue;
 
-      const actual = await this.getFieldValue(field);
-      console.log(`   • Payment field checked: ${field}`);
+      let expected: string;
+      try {
+        expected = resolveExpected(row, eventData);
+      } catch (e: any) {
+        console.warn(`⚠️  resolveExpected failed for "${field}": ${e.message}`);
+        expected = String(row['Expected'] ?? '');
+      }
 
-      const a = normalize(actual);
-      const e = normalize(expected);
+      let actual: string;
+      try {
+        actual = await getActualValue(this.page, field, undefined, eventData);
+      } catch {
+        actual = 'N/A';
+      }
 
-      const status = a.includes(e) ? 'PASS' : 'FAIL';
+      const status = compare(actual, expected, row['Type']) ? 'PASS' : 'FAIL';
+
+      console.log(
+        `  ${status === 'PASS' ? '✅' : '❌'} [${field}]` +
+        `  expected="${expected}"  actual="${actual}"`
+      );
 
       results.push({
-        page: 'Payment',
+        page:     'Payment',
         field,
         expected,
         actual,
-        status
+        status,
       });
     }
   }

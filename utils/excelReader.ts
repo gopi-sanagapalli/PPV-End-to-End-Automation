@@ -1,32 +1,36 @@
 import * as XLSX from 'xlsx';
 
 // =========================
-// CONFIG (single source of truth)
+// CONFIG
 // =========================
 const FILE_PATH = 'data/PPV_Input.xlsx';
 
 // =========================
-// READ SHEET (COMMON)
+// READ SHEET
 // =========================
 export const readSheet = (sheetName: string) => {
   const workbook = XLSX.readFile(FILE_PATH);
-  const sheet = workbook.Sheets[sheetName];
+  const sheet    = workbook.Sheets[sheetName];
 
   if (!sheet) {
-    throw new Error(`❌ Sheet not found: ${sheetName}`);
+    const available = workbook.SheetNames.join(', ');
+    throw new Error(
+      `❌ Sheet not found: "${sheetName}"\n` +
+      `   Available sheets: ${available}`
+    );
   }
 
   const rawData: any[] = XLSX.utils.sheet_to_json(sheet);
 
   if (!rawData.length) {
-    throw new Error(`❌ Sheet is empty: ${sheetName}`);
+    throw new Error(`❌ Sheet is empty: "${sheetName}"`);
   }
 
   return rawData;
 };
 
 // =========================
-// 🔹 LANDING DATA (Field → Expected)
+// LANDING DATA
 // =========================
 export const getLandingData = () => {
   const data = readSheet('Landing page');
@@ -35,7 +39,7 @@ export const getLandingData = () => {
 
   data.forEach((row: any) => {
     const field = row.Field?.toString().trim();
-    const value = row.Expected; // ✅ FIXED
+    const value = row.Expected;
 
     if (!field) {
       throw new Error(`❌ Missing 'Field' in Landing page row`);
@@ -45,12 +49,11 @@ export const getLandingData = () => {
   });
 
   console.log('📊 Landing Data:', result);
-
   return result;
 };
 
 // =========================
-// 🔹 PPV DATA (Variant based)
+// PPV DATA BY VARIANT
 // =========================
 export const getPPVDataByVariant = (variant: string) => {
   const data = readSheet('PPV page');
@@ -58,19 +61,25 @@ export const getPPVDataByVariant = (variant: string) => {
   const normalize = (val: any) =>
     val?.toString().trim().toLowerCase();
 
-  const variantData = data.filter(d => {
-    if (!d.Variant) {
-      throw new Error(`❌ Missing 'Variant' column in PPV page`);
-    }
-    return normalize(d.Variant) === normalize(variant);
-  });
-
-  if (!variantData.length) {
-    throw new Error(`❌ No data found for variant: ${variant}`);
+  // Validate variant column exists
+  if (data.length > 0 && !('Variant' in data[0])) {
+    throw new Error(`❌ Missing 'Variant' column in PPV page sheet`);
   }
 
-  console.log('🧠 Variant:', variant);
-  console.log('📊 FINAL DATA:', variantData.length);
+  const variantData = data.filter(
+    (d: any) => normalize(d.Variant) === normalize(variant)
+  );
+
+  if (!variantData.length) {
+    const available = [...new Set(data.map((d: any) => d.Variant))].join(', ');
+    throw new Error(
+      `❌ No data found for variant: "${variant}"\n` +
+      `   Available variants: ${available}`
+    );
+  }
+
+  console.log(`🧠 Variant: ${variant}`);
+  console.log(`📊 FINAL DATA: ${variantData.length} rows`);
 
   return variantData;
 };
