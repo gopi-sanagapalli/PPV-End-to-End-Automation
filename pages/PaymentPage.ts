@@ -7,18 +7,13 @@ import { getPageSnapshot } from '../utils/helpers';
 export class PaymentPage {
   constructor(private page: Page) {}
 
-  // ─────────────────────────────
-  // IS PAYMENT PAGE
-  // ─────────────────────────────
   async isPaymentPage(): Promise<boolean> {
     if (this.page.isClosed()) {
       console.log('⚠️  Page is closed — cannot check payment page');
       return false;
     }
-
     const url = this.page.url();
     if (url.includes('payment') || url.includes('checkout')) return true;
-
     return this.page
       .locator('h1')
       .filter({ hasText: /pay/i })
@@ -26,9 +21,6 @@ export class PaymentPage {
       .catch(() => false);
   }
 
-  // ─────────────────────────────
-  // VALIDATE
-  // ─────────────────────────────
   async validate(
     data:      any[],
     results:   any[],
@@ -44,13 +36,34 @@ export class PaymentPage {
     // ── Wait for payment page to fully load ──────────────────────
     await this.page.waitForLoadState('domcontentloaded').catch(() => {});
 
-    // Wait for key payment element to appear
+    // Wait for key payment element
     await this.page.waitForSelector(
       'text=/Today you pay|Choose how to pay|encrypted/i',
       { timeout: 10000 }
     ).catch(() => console.log('⚠️  Payment content signal not found'));
 
-    // ── Take snapshot ONCE for all fields ────────────────────────
+    // ── Slow scroll to trigger all lazy content ───────────────────
+    await this.page.evaluate(async () => {
+      await new Promise<void>(resolve => {
+        let scrolled = 0;
+        const step   = 300;
+        const delay  = 50;
+        const timer  = setInterval(() => {
+          window.scrollBy(0, step);
+          scrolled += step;
+          if (scrolled >= document.body.scrollHeight) {
+            clearInterval(timer);
+            resolve();
+          }
+        }, delay);
+      });
+    }).catch(() => {});
+
+    await this.page.waitForTimeout(300);
+    await this.page.evaluate(() => window.scrollTo(0, 0)).catch(() => {});
+    await this.page.waitForTimeout(100);
+
+    // ── Take snapshot ONCE ────────────────────────────────────────
     const snapshot = await getPageSnapshot(this.page);
     console.log(`📸 Payment snapshot: ${snapshot.length} nodes`);
 
@@ -73,7 +86,7 @@ export class PaymentPage {
           field,
           undefined,
           eventData,
-          snapshot  // ← pass snapshot
+          snapshot
         );
       } catch {
         actual = 'N/A';
