@@ -1,6 +1,6 @@
 {
   "PPV_NAME": "Wardley vs. Dubois",
-  "SECONDARY_PPV": "Usyk vs. Fury",
+  "SECONDARY_PPV": "Chisora vs. Wilder ",
   "SPORT": "Boxing",
   "flow": "landing",
   "TIER": "ultimate",
@@ -66,7 +66,6 @@
     }
   },
 
-  "NEXT_PAYMENT_DAYS_OFFSET": 7,
 
   "variants": {
     "variant1": {

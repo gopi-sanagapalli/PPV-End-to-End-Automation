@@ -28,7 +28,7 @@ import {
 
 const REGION       = process.env.DAZN_REGION || 'IN';
 const EVENT_CONFIG = process.env.PPV_CONFIG  ||
-  'Wardley_schedule_standard_monthly.json';
+  'Wardley_landing_ultimate_apm.json';
 
 function findConfig(dir: string, filename: string): string | null {
   if (!fs.existsSync(dir)) return null;
@@ -88,21 +88,29 @@ const safeScrollToElement = async (page: any, locator: any) => {
   }
 };
 
-test('PPV flow', async ({ browser }) => {
+test('PPV flow via landing page', async ({ browser }) => {
   test.setTimeout(300_000);
 
-  const context = await browser.newContext({
-    storageState: path.resolve(
-      process.cwd(), 'auth/dazn-storage-state.json'
-    ),
-    viewport:     null,
-    colorScheme:  'dark',
-    reducedMotion:'no-preference',
+  const json = loadEventConfig();
+  const flow = (json.flow || 'schedule').toLowerCase();
+
+  const contextOptions: any = {
+    viewport:      null,
+    colorScheme:   'dark',
+    reducedMotion: 'no-preference',
     recordVideo: {
       dir:  'test-results/videos/',
       size: { width: 1920, height: 1080 },
     },
-  });
+  };
+
+  if (flow === 'schedule') {
+    contextOptions.storageState = path.resolve(
+      process.cwd(), 'auth/dazn-storage-state.json'
+    );
+  }
+
+  const context = await browser.newContext(contextOptions);
 
   await context.addInitScript(() => {
     try {
@@ -175,12 +183,10 @@ test('PPV flow', async ({ browser }) => {
   };
 
   try {
-    const json      = loadEventConfig();
     const eventData = buildEventData(json, REGION);
 
-    const flow     = (json.flow      || 'schedule').toLowerCase();
     const tier     = (json.TIER      || 'standard').toLowerCase();
-    const ratePlan = (json.RATE_PLAN || 'monthly').toLowerCase();
+const ratePlan = (json.RATE_PLAN || 'monthly').toLowerCase();
 
     const baseUrl       = eventData.BASE_URL;
     const sport         = json.SPORT;
@@ -231,24 +237,47 @@ test('PPV flow', async ({ browser }) => {
     // ══════════════════════════════════════════════════════════
     // FLOW: LANDING
     // ══════════════════════════════════════════════════════════
-    } else if (flow === 'landing') {
+} else if (flow === 'landing') {
 
-      const landing = new LandingPage(page);
-      await landing.navigate(baseUrl);
+  const landing = new LandingPage(page);
+  await landing.navigate(baseUrl);
 
-      await page.waitForLoadState('domcontentloaded').catch(() => {});
-      await handleCookies(page);
-      await stabilisePage(page);
+  // ✅ FREEZE scroll during validation
+  await page.evaluate(() => {
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden';
+  });
 
-      const container = await landing.findPPVContainer(eventData);
+  console.log('\n📋 Validating Landing page...');
+  const landingData = readSheet('Landing page');
+  await validateVariant(
+    page, 'landing', landingData, results, eventData, 'Landing'
+  );
 
-      console.log('\n📋 Validating Landing page...');
-      const landingData = readSheet('Landing page');
-      await validateVariant(
-        page, 'landing', landingData, results, eventData, 'Landing'
-      );
+  // ✅ UNFREEZE scroll
+  await page.evaluate(() => {
+    document.documentElement.style.overflow = '';
+    document.body.style.overflow = '';
+  });
 
-      await landing.clickBuyNow(container);
+  // ✅ Fix date result — article is off-screen during snapshot
+  // Use live DOM after findPPVContainer scrolls to section
+  const container = await landing.findPPVContainer(eventData);
+
+  // ✅ Re-validate date using live DOM from container
+  const dateResult = results.find(r =>
+    r.page === 'Landing' && r.field === 'PPV Date and time'
+  );
+  if (dateResult && dateResult.actual === 'N/A') {
+    const date = await landing.getEventDate(container);
+    if (date !== 'N/A') {
+      dateResult.actual = date;
+      dateResult.status = date === eventData.PPV_DATE ? 'PASS' : 'FAIL';
+      console.log(`🔄 Re-validated date: ${date}`);
+    }
+  }
+
+  await landing.clickBuyNow(container);
 
       await page.waitForURL(
         (url) => url.toString().includes('PlanDetails'),
@@ -260,7 +289,12 @@ test('PPV flow', async ({ browser }) => {
         ).catch(() => {});
       });
 
-      await setupPage(page);
+      // ✅ setupPage only after navigating away from landing
+      await page.waitForLoadState('domcontentloaded', { timeout: 10000 })
+        .catch(() => {});
+      if (!page.isClosed()) {
+        await setupPage(page);
+      }
 
     } else {
       throw new Error(`❌ Unknown flow: "${flow}"`);

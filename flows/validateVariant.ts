@@ -15,36 +15,51 @@ export const validateVariant = async (
 
   const normalizedVariant = variant.trim().toLowerCase();
 
+  // ── Read tier & ratePlan from eventData ───────────────────────
+  const tier     = (eventData.TIER      || 'standard').toLowerCase();
+  const ratePlan = (eventData.RATE_PLAN || 'monthly').toLowerCase();
+
   const rules = data.filter(r => {
     const rv = (r.Variant || '').trim().toLowerCase();
-    return !rv || rv === normalizedVariant;
+    const rt = (r.Tier    || '').trim().toLowerCase();
+
+    // If row has Variant column — filter by variant
+    if (rv) return rv === normalizedVariant;
+
+    // If row has Tier column — filter by tier
+    if (rt) return rt === tier || rt === 'common';
+
+    // No filter column — include all rows (Landing, Schedule)
+    return true;
   });
 
   if (!rules.length) {
-    throw new Error(`❌ No rules for variant: "${variant}"`);
+    throw new Error(`❌ No rules for variant: "${variant}" / tier: "${tier}"`);
   }
 
   console.log(`\n🔍 Validating ${pageName} — ${rules.length} fields`);
+  console.log(`   💎 Tier: ${tier} | 📋 Rate Plan: ${ratePlan}`);
 
   // ── Scroll to trigger lazy load before snapshot ───────────────
-  const url = page.url();
-  if (!url.includes('/schedule')) {
-    // Scroll down slowly to trigger all lazy content
-    await page.evaluate(async () => {
-      await new Promise<void>(resolve => {
-        let scrolled = 0;
-        const step   = 300;
-        const delay  = 50;
-        const timer  = setInterval(() => {
-          window.scrollBy(0, step);
-          scrolled += step;
-          if (scrolled >= document.body.scrollHeight) {
-            clearInterval(timer);
-            resolve();
-          }
-        }, delay);
-      });
-    }).catch(() => {});
+ // ── Scroll to trigger lazy load before snapshot ───────────────
+// ── Scroll to trigger lazy load before snapshot ───────────────
+const url = page.url();
+if (!url.includes('/schedule')) {
+  await page.evaluate(async () => {
+    await new Promise<void>(resolve => {
+      let scrolled = 0;
+      const step   = 300;
+      const delay  = 50;
+      const timer  = setInterval(() => {
+        window.scrollBy(0, step);  // ← SCROLLS TO BOTTOM
+        scrolled += step;
+        if (scrolled >= document.body.scrollHeight) {
+          clearInterval(timer);
+          resolve();
+        }
+      }, delay);
+    });
+  }).catch(() => {});
 
     await page.waitForTimeout(300);
     await page.evaluate(() => window.scrollTo(0, 0)).catch(() => {});
@@ -75,6 +90,17 @@ export const validateVariant = async (
     const field = (rule.Field || '').trim();
     if (!field) return null;
 
+    // ── Skip rate plan rows that don't match current rate plan ──
+    const rowRatePlan = (rule['Rate Plan'] || '').trim().toLowerCase();
+    if (
+      rowRatePlan &&
+      rowRatePlan !== 'all' &&
+      rowRatePlan !== ratePlan
+    ) {
+      console.log(`  ⏭️  Skipping [${field}] — rate plan "${rowRatePlan}" != "${ratePlan}"`);
+      return null;
+    }
+
     let expected: string;
     try {
       expected = resolveExpected(rule, eventData);
@@ -102,9 +128,13 @@ export const validateVariant = async (
       `  ${status === 'PASS' ? '✅' : '❌'} [${field}]` +
       `  expected="${expected}"  actual="${actual}"`
     );
+
+    // ── Push result with tier & ratePlan for excelWriter ────────
     results.push({
-      page:    pageName,
+      page:     pageName,
       variant,
+      tier,
+      ratePlan,
       field,
       expected,
       actual,

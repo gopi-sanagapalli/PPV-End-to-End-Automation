@@ -83,3 +83,99 @@ export const getPPVDataByVariant = (variant: string) => {
 
   return variantData;
 };
+
+// =========================
+// PLAN DATA BY TIER
+// =========================
+export const getPlanDataByTier = (tier: string) => {
+  const data = readSheet('Dazn Plan page');
+
+  const normalize = (val: any) =>
+    val?.toString().trim().toLowerCase();
+
+  // Validate Tier column exists
+  if (data.length > 0 && !('Tier' in data[0])) {
+    throw new Error(`❌ Missing 'Tier' column in Dazn Plan page sheet`);
+  }
+
+  const tierData = data.filter(
+    (d: any) => normalize(d.Tier) === normalize(tier)
+  );
+
+  if (!tierData.length) {
+    const available = [...new Set(
+      data
+        .map((d: any) => d.Tier)
+        .filter(Boolean)
+    )].join(', ');
+    throw new Error(
+      `❌ No data found for tier: "${tier}"\n` +
+      `   Available tiers: ${available}`
+    );
+  }
+
+  console.log(`💎 Tier     : ${tier}`);
+  console.log(`📊 Plan rows: ${tierData.length}`);
+
+  return tierData;
+};
+
+// =========================
+// PAYMENT DATA BY TIER & RATE PLAN
+// =========================
+export const getPaymentDataByTierAndPlan = (
+  tier:     string,
+  ratePlan: string
+) => {
+  const data = readSheet('Payment page');
+
+  const normalize = (val: any) =>
+    val?.toString().trim().toLowerCase();
+
+  // Validate columns exist
+  if (data.length > 0 && !('Tier' in data[0])) {
+    throw new Error(`❌ Missing 'Tier' column in Payment page sheet`);
+  }
+  if (data.length > 0 && !('Rate Plan' in data[0])) {
+    throw new Error(`❌ Missing 'Rate Plan' column in Payment page sheet`);
+  }
+
+  // Always include Common rows
+  const commonData = data.filter(
+    (d: any) =>
+      normalize(d.Tier)        === 'common' &&
+      normalize(d['Rate Plan']) === 'all'
+  );
+
+  // Filter by Tier + Rate Plan
+  const tierPlanData = data.filter(
+    (d: any) =>
+      normalize(d.Tier)        === normalize(tier) &&
+      normalize(d['Rate Plan']) === normalize(ratePlan)
+  );
+
+  if (!tierPlanData.length) {
+    const available = [
+      ...new Set(
+        data
+          .filter((d: any) => d.Tier && d['Rate Plan'])
+          .map((d: any) => `${d.Tier} - ${d['Rate Plan']}`)
+      ),
+    ].join(', ');
+    throw new Error(
+      `❌ No data found for tier: "${tier}" + rate plan: "${ratePlan}"\n` +
+      `   Available combinations: ${available}`
+    );
+  }
+
+  // Combine Common + Tier/Plan specific rows
+  const combined = [...commonData, ...tierPlanData];
+
+  console.log(`💎 Tier          : ${tier}`);
+  console.log(`📋 Rate Plan     : ${ratePlan}`);
+  console.log(`📊 Common rows   : ${commonData.length}`);
+  console.log(`📊 Specific rows : ${tierPlanData.length}`);
+  console.log(`📊 Total rows    : ${combined.length}`);
+
+  return combined;
+};

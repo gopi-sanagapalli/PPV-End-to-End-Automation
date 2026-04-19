@@ -1,10 +1,10 @@
 {
   "PPV_NAME": "Wardley vs. Dubois",
-  "SECONDARY_PPV": "Usyk vs. Fury",
+  "SECONDARY_PPV": "Chisora vs. Wilder",
   "SPORT": "Boxing",
-  "flow": "landing",
+  "flow": "schedule",
   "TIER": "ultimate",
-  "RATE_PLAN": "annual pay monthly",
+  "RATE_PLAN": "annual pay upfront",
 
   "global": {
     "PPV_DATE": "Sat 9th May at 23:30",
@@ -28,7 +28,7 @@
       "ANNUAL_PAY_MONTHLY_PRICE": "1,775",
       "ANNUAL_UPFRONT_PRICE": "17,800",
       "UPFRONT_SAVE_AMOUNT": "3,500",
-      "NEXT_PAYMENT_PRICE": "₹1,775",
+      "NEXT_PAYMENT_PRICE": "₹17,800",
       "BUNDLE_PRICE": "₹2,999",
       "BUNDLE_ORIGINAL_PRICE": "₹3,906"
     },
@@ -66,8 +66,7 @@
     }
   },
 
-  "NEXT_PAYMENT_DAYS_OFFSET": 7,
-
+  "NEXT_PAYMENT_DAYS_OFFSET": 365,
   "variants": {
     "variant1": {
       "detection": "subscribe without a pay-per-view",

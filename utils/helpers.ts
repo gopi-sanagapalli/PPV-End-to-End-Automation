@@ -64,14 +64,18 @@ export async function handleCookies(page: Page): Promise<void> {
 export async function stabilisePage(page: Page): Promise<void> {
   if (page.isClosed()) return;
   await page.evaluate(() => {
-    ['#onetrust-banner-sdk',
-     '#onetrust-consent-sdk',
-     '[class*="cookie-banner" i]',
-     '[class*="consent-banner" i]']
-      .forEach(sel =>
-        document.querySelectorAll<HTMLElement>(sel)
-          .forEach(el => { el.style.display = 'none'; })
-      );
+    // ✅ Remove OneTrust completely from DOM
+    [
+      '#onetrust-banner-sdk',
+      '#onetrust-consent-sdk',
+      '#onetrust-pc-sdk',
+      '.onetrust-pc-dark-filter',
+      '[class*="cookie-banner" i]',
+      '[class*="consent-banner" i]',
+    ].forEach(sel =>
+      document.querySelectorAll<HTMLElement>(sel)
+        .forEach(el => el.remove())  // ✅ remove() not display:none
+    );
     window.scrollTo(0, 0);
   }).catch(() => {});
 }
@@ -91,7 +95,9 @@ export async function triggerLazyLoad(page: Page): Promise<void> {
   if (page.isClosed()) return;
 
   const url = page.url();
-  if (url.includes('/schedule')) return;
+
+  // ✅ Only run on schedule page
+  if (!url.includes('/schedule')) return;
 
   await page.evaluate(() => {
     const target = Math.min(
@@ -143,8 +149,7 @@ export interface DOMNode {
 
 // ─────────────────────────────────────────────────────────────────
 // GET PAGE SNAPSHOT — bulk DOM read in one JS call
-// Uses offsetWidth/Height instead of getBoundingClientRect
-// so off-screen elements (schedule articles) are included
+// ✅ Saves and restores scroll position to prevent page jumping
 // ─────────────────────────────────────────────────────────────────
 export async function getPageSnapshot(page: Page): Promise<DOMNode[]> {
   if (page.isClosed()) return [];
@@ -165,16 +170,12 @@ export async function getPageSnapshot(page: Page): Promise<DOMNode[]> {
       const isInModal = (el: Element): boolean =>
         modalSelectors.some(sel => el.closest(sel) !== null);
 
-      // ── offsetWidth/Height catches off-screen elements too ──────
-      // getBoundingClientRect only returns visible viewport elements
       const isRendered = (el: HTMLElement): boolean => {
         const style = window.getComputedStyle(el);
         return (
           style.display    !== 'none'   &&
           style.visibility !== 'hidden' &&
-          style.opacity    !== '0'      &&
-          el.offsetWidth   >   0        &&
-          el.offsetHeight  >   0
+          style.opacity    !== '0'
         );
       };
 
@@ -192,10 +193,12 @@ export async function getPageSnapshot(page: Page): Promise<DOMNode[]> {
         for (const el of els) {
           if (!isRendered(el)) continue;
 
-          const text = clean(el.innerText || el.textContent || '');
+          // ✅ textContent instead of innerText
+          // innerText forces layout recalculation → triggers scroll
+          // textContent reads raw DOM text → no layout → no scroll
+          const text = clean(el.textContent || '');
           if (!text || text.length < 2 || text.length > 500) continue;
 
-          // ── Deduplicate by tag+text ─────────────────────────────
           const key = `${tag}:${text}`;
           if (seen.has(key)) continue;
           seen.add(key);

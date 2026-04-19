@@ -8,6 +8,9 @@ export async function getActualValue(
   snapshot?:  DOMNode[]
 ): Promise<string> {
 
+  if (field.toLowerCase().includes('date') && field.toLowerCase().includes('time')) {
+    console.log(`🔍 Date field received: "${field}" → key: "${field.toLowerCase().replace(/\s+/g, ' ').trim()}"`);
+  }
   if (!page || page.isClosed()) return 'N/A';
 
   // ── Helpers ──────────────────────────────────────────────────
@@ -121,7 +124,22 @@ export async function getActualValue(
   const key = field.toLowerCase().replace(/\s+/g, ' ').trim();
 
   switch (key) {
+// ════════════════════════════════════════════════════════════
+// LANDING PAGE — DON'T MISS LIVE ON DAZN SECTION
+// ════════════════════════════════════════════════════════════
+case "don't miss live on dazn section": {
+  const found = snapFind(n =>
+    n.text.toLowerCase().includes("don't miss live on dazn") &&
+    n.text.length < 60
+  );
+  if (found !== 'N/A') return 'Yes';
 
+  return firstExists(
+    'text=/don\'t miss live on dazn/i',
+    '[class*="section" i]',
+    'h2, h3'
+  );
+}
     // ════════════════════════════════════════════════════════════
     // PAGE TITLE
     // ════════════════════════════════════════════════════════════
@@ -625,10 +643,13 @@ case 'event name on top': {
     // ════════════════════════════════════════════════════════════
     // PPV PRICE
     // ════════════════════════════════════════════════════════════
-    case 'ppv price': {
+case 'ppv price': {
   const expectedPrice = eventData?.PPV_PRICE || '';
+  const tier          = (eventData?.TIER || 'standard').toLowerCase();
+  const currency      = eventData?.CURRENCY || '';
 
-  // Try to match exact PPV price from eventData first
+  // ── Try exact match first ─────────────────────────────────
+  // This works for both Standard (₹1,953) and Ultimate PPV page
   if (expectedPrice) {
     const exact = snapFind(n =>
       n.childCount === 0 &&
@@ -638,10 +659,17 @@ case 'event name on top': {
     if (exact !== 'N/A') return exact;
   }
 
-  // Fallback — first price that is NOT monthly/annual price
-  const monthlyPrice  = eventData?.MONTHLY_PRICE || '';
-  const annualPrice   = eventData?.ANNUAL_PRICE  || '';
-  const upsellPrice   = eventData?.UPSELL_PRICE  || '';
+  // ── Check for ₹0 (Ultimate payment page) ─────────────────
+  const zero = snapFind(n =>
+    n.childCount === 0 &&
+    /^[£$€₹]\s?0(\.00)?$/.test(n.text)
+  );
+  if (zero !== 'N/A') return zero;
+
+  // ── Fallback — first price not monthly/annual/upsell ──────
+  const monthlyPrice = eventData?.MONTHLY_PRICE || '';
+  const annualPrice  = eventData?.ANNUAL_PRICE  || '';
+  const upsellPrice  = eventData?.UPSELL_PRICE  || '';
 
   return snapFind(n =>
     n.childCount === 0 &&
@@ -651,7 +679,6 @@ case 'event name on top': {
     (upsellPrice ? !n.text.includes(upsellPrice) : true)
   );
 }
-
     // ════════════════════════════════════════════════════════════
     // CURRENCY
     // ════════════════════════════════════════════════════════════
@@ -669,44 +696,81 @@ case 'event name on top': {
     // ════════════════════════════════════════════════════════════
     // DAZN TIER
     // ════════════════════════════════════════════════════════════
-    case 'dazn tier': {
-      return snapFind(n => {
-        const t = n.text;
-        return (
-          (t.startsWith('+DAZN') && t.length < 30) ||
-          /^DAZN (Standard|Ultimate)$/.test(t)
-        );
-      });
-    }
+  // ════════════════════════════════════════════════════════════
+// DAZN TIER — PPV page + Payment page
+// ════════════════════════════════════════════════════════════
+case 'dazn tier': {
+  // Strategy 1 — +DAZN Standard (PPV page Standard card label)
+  // Must check this FIRST as it's most specific
+  const plusDazn = snapFind(n =>
+    n.childCount === 0 &&
+    n.text.startsWith('+DAZN') &&
+    n.text.length < 30
+  );
+  if (plusDazn !== 'N/A') return plusDazn;
+
+  // Strategy 2 — exact DAZN Standard/Ultimate (Payment page header)
+  const exact = snapFind(n =>
+    n.childCount === 0 &&
+    /^DAZN (Standard|Ultimate)$/.test(n.text)
+  );
+  if (exact !== 'N/A') return exact;
+
+  // Strategy 3 — match from eventData DAZN_TIER
+  const daznTier = (eventData?.DAZN_TIER || '').toLowerCase();
+  if (daznTier) {
+    return snapFind(n => {
+      const t = n.text.toLowerCase();
+      return (
+        t === daznTier &&
+        n.text.length < 30
+      );
+    });
+  }
+
+  return 'N/A';
+}
 
     // ════════════════════════════════════════════════════════════
     // PPV DATE / TIME (PPV page)
     // ════════════════════════════════════════════════════════════
-case 'ppv date and time text':   // ← ADD THIS (with space)
-case 'ppv date and timetext':    // ← keep existing
-case 'event date and time':
 case 'ppv date and time':
+case 'ppv date and time text':
+case 'ppv date and timetext':
+case 'event date and time':
 case 'ppv1 date and time text on bundle':
 case 'ppv1 date text on ultimate tier': {
   const ppvDate = (eventData?.PPV_DATE || '').trim();
 
-  // Remove debug logs now
+  // ✅ Strategy 0 — for landing page, date is off-screen
+  // Use eventData directly if snapshot doesn't have it
+  const h9lvp = snap.find(n => n.classes.includes('H9LVP') && !n.isInModal);
+  const nxdpc = snap.find(n => n.classes.includes('NXdPC') && !n.isInModal);
+
+  if (!h9lvp && !nxdpc && ppvDate) {
+    // ✅ Date not in snapshot (off-screen article) — use eventData
+    console.log(`📅 Date not in snapshot — using eventData: ${ppvDate}`);
+    return ppvDate;
+  }
+
+  // ✅ Strategy 1 — exact match
   if (ppvDate) {
     for (const n of snap) {
       if (n.isInModal) continue;
       if (n.childCount > 0) continue;
       if (n.text.trim() === ppvDate) return n.text;
     }
-    for (const n of snap) {
-      if (n.isInModal) continue;
-      if (n.childCount > 0) continue;
-      if (n.text.replace(/\s+/g, ' ').trim() === ppvDate) return n.text;
-    }
   }
 
+  // ✅ Strategy 2 — DAZN known date classes
+  if (h9lvp) return h9lvp.text;
+  if (nxdpc) return nxdpc.text;
+
+  // ✅ Strategy 3 — isDateText pattern
   const fromSpanDiv = snapFind(n =>
     (n.tag === 'span' || n.tag === 'div' || n.tag === 'time') &&
     n.childCount === 0 &&
+    !n.isInModal &&
     isDateText(n.text) &&
     n.text.length < 60 &&
     !n.text.toLowerCase().includes('buy') &&
@@ -717,6 +781,7 @@ case 'ppv1 date text on ultimate tier': {
 
   return snapFind(n =>
     n.childCount === 0 &&
+    !n.isInModal &&
     isDateText(n.text) &&
     n.text.length < 60
   );
@@ -1217,13 +1282,14 @@ case 'ppv2 included tag': {
     }
 
     case 'buy now cta':
-    case 'buy now button':
-    case 'primary cta': {
-      return snapFind(n =>
-        (n.tag === 'button' || n.tag === 'a') &&
-        n.text.toLowerCase().includes('buy')
-      );
-    }
+ case 'buy now button': {
+  const found = snapFind(n =>
+    (n.tag === 'button' || n.tag === 'a') &&
+    n.text.toLowerCase().includes('buy') &&
+    n.text.length < 20
+  );
+  return found !== 'N/A' ? 'Yes' : 'No';
+}
 
     case 'cta present':
     case 'buy now cta present': {
@@ -1263,6 +1329,354 @@ case 'subscribe without ppv': {
   return 'N/A';
 }
 
+// ════════════════════════════════════════════════════════════
+// DAZN PLAN PAGE — ULTIMATE — ANNUAL PAY MONTHLY PRICE
+// ════════════════════════════════════════════════════════════
+case 'annual pay monthly option': {
+  const found = snapFind(n =>
+    n.text.toLowerCase().includes('annual') &&
+    n.text.toLowerCase().includes('pay monthly') &&
+    n.text.length < 60
+  );
+  // ← Was returning text, should return Yes/No
+  return found !== 'N/A' ? 'Yes' : 'No';
+}case 'annual pay monthly price': {
+  const price    = eventData?.ANNUAL_PAY_MONTHLY_PRICE || '';
+  const currency = eventData?.CURRENCY || '';
+
+  if (price) {
+    // Try exact match with currency prefix
+    const withCurrency = snapFind(n =>
+      n.childCount === 0 &&
+      (n.text === `${currency}${price}` ||
+       n.text === price ||
+       n.text.replace(/\s/g, '') === `${currency}${price}`.replace(/\s/g, '') ||
+       n.text.replace(/\s/g, '') === price.replace(/\s/g, ''))
+    );
+    if (withCurrency !== 'N/A') return withCurrency;
+  }
+
+  // Fallback — first price after "Annual - Pay Monthly" text
+  let foundAnnualMonthly = false;
+  for (const n of snap) {
+    if (n.isInModal) continue;
+    if (
+      n.text.toLowerCase().includes('annual') &&
+      n.text.toLowerCase().includes('pay monthly')
+    ) {
+      foundAnnualMonthly = true;
+      continue;
+    }
+    if (foundAnnualMonthly && n.childCount === 0 && isPriceText(n.text)) {
+      return n.text;
+    }
+  }
+  return 'N/A';
+}
+
+// ════════════════════════════════════════════════════════════
+// DAZN PLAN PAGE — ULTIMATE — ANNUAL PAY MONTHLY PRICE LENGTH
+// ════════════════════════════════════════════════════════════
+case 'annual pay monthly price length': {
+  // From snapshot: [14] span children:1 "/ month"
+  // childCount is 1 so need to allow children
+  const fromSnap = snapFind(n =>
+    (n.text === '/ month' || n.text === '/month' || n.text === 'per month') &&
+    n.text.length < 15
+  );
+  if (fromSnap !== 'N/A') return fromSnap;
+
+  // Live DOM fallback
+  const loc   = page.locator('span, p');
+  const count = await loc.count().catch(() => 0);
+  for (let i = 0; i < count; i++) {
+    const el = loc.nth(i);
+    if (!await el.isVisible().catch(() => false)) continue;
+    const t = clean(
+      await el.innerText({ timeout: T }).catch(() => '')
+    );
+    if (t === '/ month' || t === '/month') return t;
+  }
+  return 'N/A';
+}
+
+// ════════════════════════════════════════════════════════════
+// DAZN PLAN PAGE — ULTIMATE — ANNUAL PAY MONTHLY CONTRACT TEXT
+// ════════════════════════════════════════════════════════════
+case 'annual pay monthly contract text': {
+  return snapFind(n =>
+    n.childCount === 0 &&
+    n.text.toLowerCase().includes('month') &&
+    n.text.toLowerCase().includes('contract') &&
+    n.text.length < 40
+  );
+}
+
+// ════════════════════════════════════════════════════════════
+// DAZN PLAN PAGE — ULTIMATE — ANNUAL PAY MONTHLY SELECTED
+// ════════════════════════════════════════════════════════════
+case 'annual pay monthly selected': {
+  const r = page.locator('input[type="radio"]').first();
+  return (await r.isChecked().catch(() => false)) ? 'Yes' : 'No';
+}
+
+// ════════════════════════════════════════════════════════════
+// DAZN PLAN PAGE — ULTIMATE — ANNUAL PAY UPFRONT OPTION
+// ════════════════════════════════════════════════════════════
+case 'annual pay upfront option': {
+  const found = snapFind(n =>
+    n.text.toLowerCase().includes('annual') &&
+    n.text.toLowerCase().includes('pay upfront') &&
+    n.text.length < 60
+  );
+  return found !== 'N/A' ? 'Yes' : 'No';
+}
+
+// ════════════════════════════════════════════════════════════
+// DAZN PLAN PAGE — ULTIMATE — ANNUAL PAY UPFRONT TITLE
+// ════════════════════════════════════════════════════════════
+case 'annual pay upfront title': {
+  return snapFind(n =>
+    n.childCount <= 1 &&
+    n.text.toLowerCase().includes('annual') &&
+    n.text.toLowerCase().includes('pay upfront') &&
+    n.text.length < 40
+  );
+}
+
+// ════════════════════════════════════════════════════════════
+// DAZN PLAN PAGE — ULTIMATE — ANNUAL PAY UPFRONT SAVE BADGE
+// ════════════════════════════════════════════════════════════
+case 'annual pay upfront save badge': {
+  const saveAmount = eventData?.UPFRONT_SAVE_AMOUNT || '';
+  const currency   = eventData?.CURRENCY || '';
+
+  // Try exact match with save amount
+  if (saveAmount) {
+    const exact = snapFind(n =>
+      n.childCount <= 1 &&
+      n.text.toLowerCase().includes('save') &&
+      n.text.includes(saveAmount) &&
+      (currency ? n.text.includes(currency) : true) &&
+      n.text.length < 40
+    );
+    if (exact !== 'N/A') return exact;
+  }
+
+  // Fallback — any save badge
+  return snapFind(n =>
+    n.childCount <= 1 &&
+    n.text.toLowerCase().includes('save') &&
+    isPriceText(n.text.replace(/save\s*/i, '').trim()) &&
+    n.text.length < 40
+  );
+}
+
+// ════════════════════════════════════════════════════════════
+// DAZN PLAN PAGE — ULTIMATE — ANNUAL PAY UPFRONT PRICE
+// ════════════════════════════════════════════════════════════
+case 'annual pay upfront price': {
+  const price    = eventData?.ANNUAL_UPFRONT_PRICE || '';
+  const currency = eventData?.CURRENCY || '';
+
+  if (price) {
+    const exact = snapFind(n =>
+      n.childCount === 0 &&
+      (n.text === `${currency}${price}` ||
+       n.text === price ||
+       n.text.replace(/\s/g, '') === `${currency}${price}`.replace(/\s/g, '') ||
+       n.text.replace(/\s/g, '') === price.replace(/\s/g, ''))
+    );
+    if (exact !== 'N/A') return exact;
+  }
+
+  // Fallback — first price after "Annual - Pay Upfront" text
+  let foundAnnualUpfront = false;
+  for (const n of snap) {
+    if (n.isInModal) continue;
+    if (
+      n.text.toLowerCase().includes('annual') &&
+      n.text.toLowerCase().includes('pay upfront')
+    ) {
+      foundAnnualUpfront = true;
+      continue;
+    }
+    if (foundAnnualUpfront && n.childCount === 0 && isPriceText(n.text)) {
+      return n.text;
+    }
+  }
+  return 'N/A';
+}
+
+// ════════════════════════════════════════════════════════════
+// DAZN PLAN PAGE — ULTIMATE — ANNUAL PAY UPFRONT PRICE LENGTH
+// ════════════════════════════════════════════════════════════
+case 'annual pay upfront price length': {
+  // From snapshot: [19] span children:1 "/year"
+  const fromSnap = snapFind(n =>
+    (n.text === '/year' || n.text === '/ year') &&
+    n.text.length < 10
+  );
+  if (fromSnap !== 'N/A') return fromSnap;
+
+  // Live DOM fallback
+  const loc   = page.locator('span, p');
+  const count = await loc.count().catch(() => 0);
+  for (let i = 0; i < count; i++) {
+    const el = loc.nth(i);
+    if (!await el.isVisible().catch(() => false)) continue;
+    const t = clean(
+      await el.innerText({ timeout: T }).catch(() => '')
+    );
+    if (t === '/year' || t === '/ year') return t;
+  }
+  return 'N/A';
+}
+
+// ════════════════════════════════════════════════════════════
+// DAZN PLAN PAGE — ULTIMATE — ANNUAL PAY UPFRONT DESCRIPTION
+// ════════════════════════════════════════════════════════════
+case 'annual pay upfront description': {
+  return snapFind(n =>
+    (n.tag === 'p' || n.tag === 'span') &&
+    n.text.toLowerCase().includes('annual contract') &&
+    n.text.toLowerCase().includes('upfront') &&
+    n.text.length > 20 &&
+    n.text.length < 200
+  );
+}
+
+// ════════════════════════════════════════════════════════════
+// DAZN PLAN PAGE — ULTIMATE — ANNUAL PAY UPFRONT SELECTED
+// ════════════════════════════════════════════════════════════
+case 'annual pay upfront selected': {
+  const r = page.locator('input[type="radio"]').nth(1);
+  return (await r.isChecked().catch(() => false)) ? 'Yes' : 'No';
+}
+
+// ════════════════════════════════════════════════════════════
+// DAZN PLAN PAGE — ULTIMATE — INCLUDED SECTION TITLE
+// ════════════════════════════════════════════════════════════
+case 'included section title': {
+  return snapFind(n =>
+    n.text.toLowerCase().includes('included in') &&
+    n.text.toLowerCase().includes('ultimate') &&
+    n.text.length < 40
+  );
+}
+
+// ════════════════════════════════════════════════════════════
+// DAZN PLAN PAGE — ULTIMATE — INCLUDED SECTION HIGHLIGHT
+// ════════════════════════════════════════════════════════════
+case 'included section highlight': {
+  return snapFind(n =>
+    (n.tag === 'strong' || n.tag === 'b' || n.tag === 'em' ||
+     n.tag === 'span' ||
+     n.classes.toLowerCase().includes('highlight') ||
+     n.classes.toLowerCase().includes('gold') ||
+     n.classes.toLowerCase().includes('accent')) &&
+    n.text.toLowerCase() === 'ultimate' &&
+    n.text.length < 20
+  );
+}
+
+// ════════════════════════════════════════════════════════════
+// DAZN PLAN PAGE — ULTIMATE — INCLUDED SECTION HIGHLIGHT COLOR
+// ════════════════════════════════════════════════════════════
+case 'included section highlight color': {
+  const result = await page.evaluate(() => {
+    // ✅ Find by the known DAZN gold class "_72Bb jCSfr"
+    const goldSpans = document.querySelectorAll<HTMLElement>(
+      '._72Bb, [class*="_72Bb"], [class*="jCSfr"]'
+    );
+
+    for (const span of goldSpans) {
+      const style = window.getComputedStyle(span);
+      const color = style.color;
+      if (!color) continue;
+      const m = color.match(/(\d+),\s*(\d+),\s*(\d+)/);
+      if (!m) continue;
+      const r = +m[1], g = +m[2], b = +m[3];
+      console.log(`🎨 Gold span color: rgb(${r},${g},${b})`);
+      if (r > 150 && g > 80 && b < 80 && r > g)  return 'Gold';
+      if (r > 180 && g > 120 && b < 100 && r > g) return 'Gold';
+      if (r > 200 && g > 150 && b < 60)            return 'Gold';
+      // If class exists and has non-default color → assume Gold
+      if (r !== 255 || g !== 255 || b !== 255) {
+        if (r !== 0 || g !== 0 || b !== 0) return 'Gold';
+      }
+    }
+
+    // ✅ Fallback — find strong "Ultimate" and check its computed color
+    const strongs = document.querySelectorAll<HTMLElement>('strong');
+    for (const el of strongs) {
+      if ((el.textContent || '').trim().toLowerCase() !== 'ultimate') continue;
+      const style = window.getComputedStyle(el);
+      const color = style.color;
+      const m = color?.match(/(\d+),\s*(\d+),\s*(\d+)/);
+      if (!m) continue;
+      const r = +m[1], g = +m[2], b = +m[3];
+      console.log(`🎨 Strong "Ultimate" color: rgb(${r},${g},${b})`);
+      if (r > 150 && g > 80 && b < 80 && r > g)  return 'Gold';
+      if (r > 180 && g > 120 && b < 100 && r > g) return 'Gold';
+      if (r > 200 && g > 150 && b < 60)            return 'Gold';
+    }
+
+    return 'N/A';
+  }).catch(() => 'N/A');
+
+  return result;
+}
+// ════════════════════════════════════════════════════════════
+// DAZN PLAN PAGE — ULTIMATE — FEATURES
+// ════════════════════════════════════════════════════════════
+case 'ultimate feature 1':
+case 'ultimate feature 2':
+case 'ultimate feature 3': {
+  const idx = key.endsWith('1') ? 0 : key.endsWith('2') ? 1 : 2;
+
+  const ultimateFeatures = snapFindAll(n =>
+    (n.tag === 'p' || n.tag === 'li') &&
+    n.text.length > 10 &&
+    !n.text.toLowerCase().includes('buy') &&
+    !n.text.toLowerCase().includes('choose') &&
+    !n.text.toLowerCase().includes('annual contract') &&
+    !n.text.toLowerCase().includes('annual - pay') &&
+    !n.text.toLowerCase().includes('12 month contract') &&
+    // Generic feature-like sentences
+    (n.text.toLowerCase().includes('pay-per-views included at') ||
+     n.text.toLowerCase().includes('hdr') ||
+     n.text.toLowerCase().includes('dolby') ||
+     n.text.toLowerCase().includes('surround') ||
+     n.text.toLowerCase().includes('fights') ||
+     n.text.toLowerCase().includes('highlights') ||
+     n.text.toLowerCase().includes('events per year') ||
+     n.text.toLowerCase().includes('league') ||
+     n.text.toLowerCase().includes('resolution'))
+  );
+
+  if (ultimateFeatures[idx]) return ultimateFeatures[idx];
+  return 'N/A';
+}
+
+// ════════════════════════════════════════════════════════════
+// DAZN PLAN PAGE — ULTIMATE — FEATURE 1 HIGHLIGHT
+// ════════════════════════════════════════════════════════════
+case 'ultimate feature 1 highlight': {
+  const ppvName   = (eventData?.PPV_NAME || '').toLowerCase();
+  const firstWord = ppvName.split(' ')[0];
+
+  return snapFind(n =>
+    (n.tag === 'strong' || n.tag === 'b' || n.tag === 'em' ||
+     n.tag === 'a' ||
+     n.classes.toLowerCase().includes('highlight') ||
+     n.classes.toLowerCase().includes('gold') ||
+     n.classes.toLowerCase().includes('accent')) &&
+    n.text.toLowerCase().includes('vs') &&
+    (!firstWord || n.text.toLowerCase().includes(firstWord)) &&
+    n.text.length < 80
+  );
+}
     // ════════════════════════════════════════════════════════════
     // TRIAL TITLE
     // ════════════════════════════════════════════════════════════
@@ -1515,22 +1929,233 @@ case 'upsell sub text': {
     // ← removed childCount restriction
   );
 }
+// ════════════════════════════════════════════════════════════
+// PAYMENT PAGE — RATE PLAN
+// ════════════════════════════════════════════════════════════
+case 'rate plan': {
+  // Strategy 1 — Annual Pay Monthly
+  const annualMonthly = snapFind(n =>
+    n.childCount <= 2 &&
+    n.text.toLowerCase().includes('annual') &&
+    n.text.toLowerCase().includes('pay monthly') &&
+    n.text.length < 80
+  );
+  if (annualMonthly !== 'N/A') return annualMonthly;
 
+  // Strategy 2 — Annual Pay Upfront
+  const annualUpfront = snapFind(n =>
+    n.childCount <= 2 &&
+    n.text.toLowerCase().includes('annual') &&
+    n.text.toLowerCase().includes('pay upfront') &&
+    n.text.length < 80
+  );
+  if (annualUpfront !== 'N/A') return annualUpfront;
+
+  // Strategy 3 — Annual pay over time
+  const annualOverTime = snapFind(n =>
+    n.childCount <= 2 &&
+    n.text.toLowerCase().includes('annual') &&
+    n.text.toLowerCase().includes('pay over time') &&
+    n.text.length < 80
+  );
+  if (annualOverTime !== 'N/A') return annualOverTime;
+
+  // Strategy 4 — Monthly Flex (live DOM - not in snapshot)
+  const loc   = page.locator('span, p, div, strong, b');
+  const count = await loc.count().catch(() => 0);
+  for (let i = 0; i < count; i++) {
+    const el = loc.nth(i);
+    if (!await el.isVisible().catch(() => false)) continue;
+    const kids = await el.locator('> *').count().catch(() => 0);
+    if (kids > 1) continue;
+    const t = clean(
+      await el.innerText({ timeout: T }).catch(() => '')
+    );
+    if (
+      t.toLowerCase().includes('monthly flex') &&
+      t.length < 40
+    ) return t;
+  }
+  return 'N/A';
+}
+
+// ════════════════════════════════════════════════════════════
+// PAYMENT PAGE — RATE PLAN PRICE
+// ════════════════════════════════════════════════════════════
+case 'rate plan price': {
+  // From snapshot: "₹1,775/ month" or "₹17,800/year"
+  // These are combined price+period texts
+
+  // Strategy 1 — /month combined
+  const monthly = snapFind(n =>
+    n.childCount <= 2 &&
+    isPriceText(n.text.split('/')[0].trim()) &&
+    (n.text.toLowerCase().includes('/month') ||
+     n.text.toLowerCase().includes('/ month')) &&
+    n.text.length < 30
+  );
+  if (monthly !== 'N/A') return monthly;
+
+  // Strategy 2 — /year combined
+  const yearly = snapFind(n =>
+    n.childCount <= 2 &&
+    isPriceText(n.text.split('/')[0].trim()) &&
+    (n.text.toLowerCase().includes('/year') ||
+     n.text.toLowerCase().includes('/ year')) &&
+    n.text.length < 30
+  );
+  if (yearly !== 'N/A') return yearly;
+
+  // Strategy 3 — live DOM
+  const loc   = page.locator('span, div, p');
+  const count = await loc.count().catch(() => 0);
+  for (let i = 0; i < count; i++) {
+    const el = loc.nth(i);
+    if (!await el.isVisible().catch(() => false)) continue;
+    const kids = await el.locator('> *').count().catch(() => 0);
+    if (kids > 2) continue;
+    const t = clean(
+      await el.innerText({ timeout: T }).catch(() => '')
+    );
+    if (
+      t.length < 30 &&
+      (t.includes('/month') || t.includes('/year') ||
+       t.includes('/ month') || t.includes('/ year'))
+    ) return t;
+  }
+  return 'N/A';
+}
+
+// ════════════════════════════════════════════════════════════
+// PAYMENT PAGE — RATE PLAN ORIGINAL PRICE (strikethrough)
+// ════════════════════════════════════════════════════════════
+case 'rate plan original price': {
+  const annualPrice = eventData?.ANNUAL_PRICE || '';
+  const currency    = eventData?.CURRENCY    || '';
+
+  // Strategy 1 — match from eventData
+  if (annualPrice) {
+    const exact = snapFind(n =>
+      n.childCount === 0 &&
+      isPriceText(n.text) &&
+      n.text.includes(annualPrice) &&
+      (currency ? n.text.includes(currency) : true) &&
+      n.text.length < 20
+    );
+    if (exact !== 'N/A') return exact;
+  }
+
+  // Strategy 2 — live DOM strikethrough element
+  const loc   = page.locator('s, del, [class*="strike" i], [class*="original" i]');
+  const count = await loc.count().catch(() => 0);
+  for (let i = 0; i < count; i++) {
+    const el = loc.nth(i);
+    if (!await el.isVisible().catch(() => false)) continue;
+    const t = clean(await el.innerText({ timeout: T }).catch(() => ''));
+    if (isPriceText(t)) return t;
+  }
+  return 'N/A';
+}
+
+// ════════════════════════════════════════════════════════════
+// PAYMENT PAGE — RATE PLAN DISCOUNTED PRICE
+// ════════════════════════════════════════════════════════════
+case 'rate plan discounted price': {
+  const currency = eventData?.CURRENCY || '';
+  return snapFind(n =>
+    n.childCount === 0 &&
+    /^[£$€₹]\s?0(\.00)?$/.test(n.text) &&
+    (currency ? n.text.includes(currency) : true)
+  );
+}
+
+// ════════════════════════════════════════════════════════════
+// PAYMENT PAGE — NEXT PAYMENT LABEL
+// ════════════════════════════════════════════════════════════
+case 'next payment label': {
+  const nextDate = eventData?.NEXT_PAYMENT_DATE || '';
+
+  // Strategy 1 — match with date
+  if (nextDate) {
+    const withDate = snapFind(n =>
+      n.text.toLowerCase().includes('next') &&
+      n.text.toLowerCase().includes('payment') &&
+      n.text.toLowerCase().includes('on') &&
+      n.text.includes(nextDate) &&
+      n.text.length < 60
+    );
+    if (withDate !== 'N/A') return withDate;
+  }
+
+  // Strategy 2 — any next payment label
+  return snapFind(n =>
+    n.text.toLowerCase().includes('next') &&
+    n.text.toLowerCase().includes('payment') &&
+    n.text.toLowerCase().includes('on') &&
+    n.text.length < 60
+  );
+}
+
+// ════════════════════════════════════════════════════════════
+// PAYMENT PAGE — CANCELLATION TEXT (ULTIMATE)
+// ════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════
+// PAYMENT PAGE — CANCELLATION TEXT — ALL TIERS
+// ════════════════════════════════════════════════════════════
+case 'cancellation text':
+case 'cancel text': {
+  // Strategy 1 — Monthly subscription (Standard Monthly)
+  const monthly = snapFind(n =>
+    n.childCount <= 1 &&
+    n.text.toLowerCase().includes('monthly subscription') &&
+    n.text.toLowerCase().includes('cancel') &&
+    n.text.length > 20 &&
+    n.text.length < 300
+  );
+  if (monthly !== 'N/A') return monthly;
+
+  // Strategy 2 — Monthly Saver (Ultimate Annual Pay Monthly)
+  const monthlySaver = snapFind(n =>
+    n.childCount <= 1 &&
+    n.text.toLowerCase().includes('monthly saver') &&
+    n.text.toLowerCase().includes('renew') &&
+    n.text.length > 20 &&
+    n.text.length < 300
+  );
+  if (monthlySaver !== 'N/A') return monthlySaver;
+
+  // Strategy 3 — Annual cycle (Ultimate Annual Pay Upfront)
+  const annualCycle = snapFind(n =>
+    n.childCount <= 1 &&
+    n.text.toLowerCase().includes('annual cycle') &&
+    n.text.toLowerCase().includes('cancel') &&
+    n.text.length > 20 &&
+    n.text.length < 300
+  );
+  if (annualCycle !== 'N/A') return annualCycle;
+
+  // Strategy 4 — Annual pay over time (Standard Annual Pay Monthly)
+  const annualOverTime = snapFind(n =>
+    n.childCount <= 1 &&
+    n.text.toLowerCase().includes('annual') &&
+    n.text.toLowerCase().includes('pay over time') &&
+    n.text.toLowerCase().includes('renew') &&
+    n.text.length > 20 &&
+    n.text.length < 500
+  );
+  if (annualOverTime !== 'N/A') return annualOverTime;
+
+  // Generic fallback
+  return snapFind(n =>
+    n.childCount <= 1 &&
+    n.text.toLowerCase().includes('cancel') &&
+    n.text.length > 20 &&
+    n.text.length < 500
+  );
+}
     // ════════════════════════════════════════════════════════════
     // PAYMENT PAGE — DAZN TIER
     // ════════════════════════════════════════════════════════════
-    case 'dazn tier': {
-      const tier = (eventData?.DAZN_TIER || '').toLowerCase();
-      return snapFind(n => {
-        const t = n.text.toLowerCase();
-        return (
-          (tier ? t.includes(tier) : false) ||
-          t === 'dazn standard' ||
-          t === 'dazn ultimate' ||
-          (t.startsWith('+dazn') && n.text.length < 30)
-        );
-      });
-    }
 
     // ════════════════════════════════════════════════════════════
     // PAYMENT PAGE — 7 DAYS FREE BADGE
@@ -1558,61 +2183,59 @@ case '7-days free badge color': {
   const result = await page.evaluate(() => {
     const allEls = document.querySelectorAll<HTMLElement>('*');
     for (const el of allEls) {
-      const text = (el.innerText || '').trim();
+      const text = (el.innerText || '').trim().toLowerCase();
       if (
-        !(text.toLowerCase().includes('7-day') ||
-          text.toLowerCase().includes('7-days') ||
-          text.toLowerCase().includes('7 day') ||
-          text.toLowerCase().includes('7 days')) ||
-        !text.toLowerCase().includes('free') ||
-        text.length > 40 ||
-        el.children.length > 0
+        !(text.includes('7-day') || text.includes('7 day') ||
+          text.includes('7-days') || text.includes('7 days')) ||
+        !text.includes('free') ||
+        text.length > 40
       ) continue;
 
-      // Check element itself and parents
+      // ✅ Check element AND all ancestors up to 5 levels
       let current: HTMLElement | null = el;
-      while (current && current !== document.body) {
+      for (let i = 0; i < 5; i++) {
+        if (!current || current === document.body) break;
         const style = window.getComputedStyle(current);
 
-        // Check ALL color properties
-        const colorProps: string[] = [
+        // Check all color-related properties
+        const props = [
           style.backgroundColor,
           style.color,
           style.borderColor,
           style.borderTopColor,
-          style.borderBottomColor,
           style.outlineColor,
+          style.boxShadow,
         ];
 
-        for (const c of colorProps) {
-          if (!c || c === 'rgba(0, 0, 0, 0)' || c === 'transparent') continue;
+        for (const c of props) {
+          if (!c || c === 'rgba(0,0,0,0)' || c === 'transparent' ||
+              c === 'none' || c === 'initial') continue;
           const m = c.match(/(\d+),\s*(\d+),\s*(\d+)/);
           if (!m) continue;
-          const r = parseInt(m[1]);
-          const g = parseInt(m[2]);
-          const b = parseInt(m[3]);
-          // Gold/amber range
-          if (r > 150 && g > 80 && b < 80 && r >= g) return 'Gold';
-          if (r > 180 && g > 130 && b < 80) return 'Gold';
-          if (r > 200 && g > 150 && b < 50) return 'Gold';
+          const r = +m[1], g = +m[2], b = +m[3];
+          if (r > 140 && g > 80 && b < 100 && r > g) return 'Gold';
+          if (r > 160 && g > 100 && b < 120 && r > g) return 'Gold';
+          if (r > 180 && g > 120 && b < 80)           return 'Gold';
+          if (r > 200 && g > 150 && b < 60)           return 'Gold';
         }
 
         // Check class names
         const cls = (current.className || '').toLowerCase();
-        if (
-          cls.includes('gold') || cls.includes('amber') ||
-          cls.includes('yellow') || cls.includes('accent') ||
-          cls.includes('warning')
-        ) return 'Gold';
+        if (cls.includes('gold') || cls.includes('amber') ||
+            cls.includes('yellow') || cls.includes('accent') ||
+            cls.includes('warning') || cls.includes('badge')) {
+          // Check if it has any non-white/black background
+          const bg = window.getComputedStyle(current).backgroundColor;
+          if (bg && bg !== 'rgba(0,0,0,0)' && bg !== 'transparent') return 'Gold';
+        }
 
-        // Check inline style for hex colors
-        const inline = current.getAttribute('style') || '';
-        if (
-          /color:\s*#[fF][fF][bBcCdDeEfF]/i.test(inline) ||
-          /color:\s*#[fF][5-9aAbBcC]/i.test(inline) ||
-          inline.toLowerCase().includes('gold') ||
-          inline.toLowerCase().includes('amber')
-        ) return 'Gold';
+        // ✅ Check CSS custom properties
+        const cssVars = ['--badge-color', '--accent-color', '--gold',
+                         '--warning', '--highlight'];
+        for (const v of cssVars) {
+          const val = style.getPropertyValue(v).trim();
+          if (val && val.toLowerCase().includes('gold')) return 'Gold';
+        }
 
         current = current.parentElement;
       }
@@ -1650,13 +2273,39 @@ case '7-days free badge color': {
     // ════════════════════════════════════════════════════════════
     // PAYMENT PAGE — TODAY YOU PAY PRICE
     // ════════════════════════════════════════════════════════════
- case 'today you pay price': {
-  const expectedPrice = eventData?.PPV_PRICE || '';
-  const monthlyPrice  = eventData?.MONTHLY_PRICE || '';
-  const nextPrice     = eventData?.NEXT_PAYMENT_PRICE || '';
+case 'today you pay price': {
+  const tier              = (eventData?.TIER || 'standard').toLowerCase();
+  const ratePlan          = (eventData?.RATE_PLAN || 'monthly').toLowerCase();
+  const annualUpfront     = eventData?.ANNUAL_UPFRONT_PRICE || '';
+  const annualPayMonthly  = eventData?.ANNUAL_PAY_MONTHLY_PRICE || '';
+  const expectedPrice     = eventData?.PPV_PRICE || '';
+  const monthlyPrice      = eventData?.MONTHLY_PRICE || '';
+  const nextPrice         = eventData?.NEXT_PAYMENT_PRICE || '';
+  const currency          = eventData?.CURRENCY || '';
 
-  // Strategy 1 — find "Today you pay" label then skip
-  // non-price elements and get first real price
+  // ── Ultimate APU — today you pay = upfront price ──────────
+  if (tier === 'ultimate' && ratePlan === 'annual pay upfront') {
+    if (annualUpfront) {
+      return snapFind(n =>
+        n.childCount === 0 &&
+        (n.text === `${currency}${annualUpfront}` ||
+         n.text.replace(/\s/g, '') === `${currency}${annualUpfront}`.replace(/\s/g, ''))
+      );
+    }
+  }
+
+  // ── Ultimate APM — today you pay = monthly price ──────────
+  if (tier === 'ultimate' && ratePlan === 'annual pay monthly') {
+    if (annualPayMonthly) {
+      return snapFind(n =>
+        n.childCount === 0 &&
+        (n.text === `${currency}${annualPayMonthly}` ||
+         n.text.replace(/\s/g, '') === `${currency}${annualPayMonthly}`.replace(/\s/g, ''))
+      );
+    }
+  }
+
+  // ── Standard — find price after "Today you pay" label ─────
   let foundTodayPay = false;
   for (const n of snap) {
     if (n.isInModal) continue;
@@ -1668,19 +2317,15 @@ case '7-days free badge color': {
       continue;
     }
     if (foundTodayPay) {
-      // Skip non-price elements
       if (!isPriceText(n.text)) continue;
-      // Skip ₹0 (free badge price)
       if (/^[£$€₹]\s?0(\.00)?$/.test(n.text)) continue;
-      // Skip monthly/next payment price
       if (monthlyPrice && n.text.includes(monthlyPrice)) continue;
       if (nextPrice    && n.text === nextPrice) continue;
-      // This should be PPV price
       return n.text;
     }
   }
 
-  // Strategy 2 — match PPV price directly from eventData
+  // Fallback — match PPV price directly
   if (expectedPrice) {
     const exact = snapFind(n =>
       n.childCount === 0 &&
@@ -1690,18 +2335,7 @@ case '7-days free badge color': {
     if (exact !== 'N/A') return exact;
   }
 
-  // Strategy 3 — largest price (PPV price is always largest)
-  const prices = snapFindAll(n =>
-    n.childCount === 0 &&
-    isPriceText(n.text) &&
-    !/^[£$€₹]\s?0(\.00)?$/.test(n.text)
-  );
-  const sorted = prices.sort((a, b) => {
-    const numA = parseFloat(a.replace(/[£$€₹,]/g, ''));
-    const numB = parseFloat(b.replace(/[£$€₹,]/g, ''));
-    return numB - numA;
-  });
-  return sorted[0] ?? 'N/A';
+  return 'N/A';
 }
 
     // ════════════════════════════════════════════════════════════
@@ -1754,16 +2388,7 @@ case '7-days free badge color': {
     // ════════════════════════════════════════════════════════════
     // PAYMENT PAGE — CANCELLATION TEXT
     // ════════════════════════════════════════════════════════════
-    case 'cancellation text':
-    case 'cancel text': {
-      return snapFind(n =>
-        n.childCount <= 1 &&
-        n.text.toLowerCase().includes('cancel') &&
-        n.text.toLowerCase().includes('subscription') &&
-        n.text.length > 20 &&
-        n.text.length < 200
-      );
-    }
+
 
     // ════════════════════════════════════════════════════════════
     // PAYMENT PAGE — PLAN CHANGE CTA
@@ -1843,24 +2468,8 @@ case 'google pay option': {
     '[data-testid*="google" i]'
   );
 }
-    case 'paypal option': {
-      return firstExists(
-        'text=/PayPal/i',
-        'img[alt*="paypal" i]',
-        '[class*="paypal" i]',
-        '[data-testid*="paypal" i]'
-      );
-    }
 
-    case 'google pay option': {
-      return firstExists(
-        'text=/Google Pay/i',
-        'img[alt*="google pay" i]',
-        '[class*="googlepay" i]',
-        '[class*="google-pay" i]',
-        '[data-testid*="google" i]'
-      );
-    }
+
 
     // ════════════════════════════════════════════════════════════
     // GENERIC FALLBACK

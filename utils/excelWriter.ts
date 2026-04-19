@@ -5,8 +5,8 @@ import * as path from 'path';
 // ── Column name maps — matches PPV_Input sheet names exactly ─────
 const SCHEDULE_HEADERS  = ['Field', 'Expected', 'Actual', 'Status'];
 const PPV_HEADERS       = ['Variant', 'Field', 'Expected', 'Actual', 'Status'];
-const PLAN_HEADERS      = ['Field', 'Expected', 'Actual', 'Status'];
-const PAYMENT_HEADERS   = ['Field', 'Expected', 'Actual', 'Status'];
+const PLAN_HEADERS      = ['Tier', 'Field', 'Expected', 'Actual', 'Status'];
+const PAYMENT_HEADERS   = ['Tier', 'Rate Plan', 'Field', 'Expected', 'Actual', 'Status'];
 const LANDING_HEADERS   = ['Field', 'Expected', 'Actual', 'Status'];
 const SUMMARY_HEADERS   = ['Metric', 'Value'];
 const PAGE_SUM_HEADERS  = ['Page', 'Total', 'Passed', 'Failed', 'Pass %'];
@@ -65,30 +65,55 @@ export const writeResults = async (
     const validRows = results.filter((r: any) => r?.field);
 
     // ── Map results to sheet rows ────────────────────────────
-    const toRow = (r: any, includeVariant = false) => {
+    const toRow = (r: any, includeVariant = false, includeTier = false, includeRatePlan = false) => {
       const base: any = {
         Field:    r.field    ?? '',
         Expected: r.expected ?? '',
         Actual:   r.actual   ?? '',
         Status:   r.status   ?? '',
       };
+
+      // Add Tier column if needed
+      if (includeTier) {
+        return {
+          Tier: r.tier ?? '',
+          ...base,
+        };
+      }
+
+      // Add Tier + Rate Plan columns if needed
+      if (includeRatePlan) {
+        return {
+          Tier:        r.tier     ?? '',
+          'Rate Plan': r.ratePlan ?? '',
+          ...base,
+        };
+      }
+
+      // Add Variant column if needed
       if (includeVariant) {
         return { Variant: r.variant ?? '', ...base };
       }
+
       return base;
     };
 
     // ── Filter by page ───────────────────────────────────────
-    const byPage = (pattern: RegExp, includeVariant = false) =>
+    const byPage = (
+      pattern:        RegExp,
+      includeVariant  = false,
+      includeTier     = false,
+      includeRatePlan = false
+    ) =>
       validRows
         .filter((r: any) => pattern.test(String(r.page ?? '')))
-        .map((r: any) => toRow(r, includeVariant));
+        .map((r: any) => toRow(r, includeVariant, includeTier, includeRatePlan));
 
     const scheduleRows = byPage(/^schedule$/i);
     const landingRows  = byPage(/^landing$/i);
-    const ppvRows      = byPage(/^ppv$/i, true);
-    const planRows     = byPage(/^dazn plan$/i);
-    const paymentRows  = byPage(/^payment$/i);
+    const ppvRows      = byPage(/^ppv$/i,       true,  false, false);
+    const planRows     = byPage(/^dazn plan$/i, false, true,  false);
+    const paymentRows  = byPage(/^payment$/i,   false, false, true);
 
     // ── Overall summary ──────────────────────────────────────
     const allRows   = [...scheduleRows, ...landingRows, ...ppvRows, ...planRows, ...paymentRows];
@@ -166,11 +191,11 @@ export const writeResults = async (
     addSheet('Page Summary', pageSummary,    PAGE_SUM_HEADERS);
 
     // ── Page sheets — only if data exists ───────────────────
-    if (scheduleRows.length) addSheet('Schedule page',    scheduleRows, SCHEDULE_HEADERS);
-    if (landingRows.length)  addSheet('Landing page',     landingRows,  LANDING_HEADERS);
-    if (ppvRows.length)      addSheet('PPV page',         ppvRows,      PPV_HEADERS);
-    if (planRows.length)     addSheet('Dazn Plan page',   planRows,     PLAN_HEADERS);
-    if (paymentRows.length)  addSheet('Monthly Payment page', paymentRows, PAYMENT_HEADERS);
+    if (scheduleRows.length) addSheet('Schedule page',  scheduleRows, SCHEDULE_HEADERS);
+    if (landingRows.length)  addSheet('Landing page',   landingRows,  LANDING_HEADERS);
+    if (ppvRows.length)      addSheet('PPV page',       ppvRows,      PPV_HEADERS);
+    if (planRows.length)     addSheet('Dazn Plan page', planRows,     PLAN_HEADERS);
+    if (paymentRows.length)  addSheet('Payment page',   paymentRows,  PAYMENT_HEADERS);
 
     // ── Write file ───────────────────────────────────────────
     const timestamp = new Date()
