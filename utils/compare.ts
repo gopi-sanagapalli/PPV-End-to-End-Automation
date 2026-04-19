@@ -26,6 +26,16 @@ export function compare(
   // ── Gold ───────────────────────────────────────────────────────
   if (e === 'gold') return a === 'gold' || actual === 'Gold';
 
+  // ── Pipe-separated multiple valid values ───────────────────────
+  // e.g. "Choose how to buy|Choose your plan"
+  if (expected.includes('|')) {
+    const options = expected.split('|').map(o => norm(o.trim()));
+    return options.some(opt =>
+      a === opt ||
+      a.replace(/\.$/, '') === opt.replace(/\.$/, '')
+    );
+  }
+
   // ── Type overrides ─────────────────────────────────────────────
   if (type === 'contains')   return a.includes(e);
   if (type === 'startsWith') return a.startsWith(e);

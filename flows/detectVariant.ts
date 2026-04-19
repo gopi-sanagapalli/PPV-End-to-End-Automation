@@ -28,8 +28,12 @@ export const detectVariant = async (
 
   // ── Config-driven detection ──────────────────────────────────
   // If variantConfig is passed (from JSON), use it
+  // Order matters — check variant3 first, then variant2, then variant1
   if (variantConfig) {
-    for (const [variantName, config] of Object.entries(variantConfig)) {
+    // Check variant3 first (most specific)
+    for (const variantName of ['variant3', 'variant2', 'variant1']) {
+      const config = variantConfig[variantName];
+      if (!config) continue;
       if (bodyText.includes(config.detection.toLowerCase())) {
         console.log(`✅ ${variantName} (config-driven)`);
         return variantName;
@@ -38,13 +42,14 @@ export const detectVariant = async (
   }
 
   // ── Fallback detection (if no config passed) ─────────────────
-  // variant3 — 2 fight bundle
+
+  // variant3 — bundle page
   if (bodyText.includes('2 fight') || bodyText.includes('bundle')) {
     console.log('✅ variant3 (fallback)');
     return 'variant3';
   }
 
-  // variant2 — checkbox + subscription section
+  // variant2 — has subscription section
   if (
     bodyText.includes('choose your subscription') ||
     bodyText.includes('continue with ppv')
@@ -53,9 +58,15 @@ export const detectVariant = async (
     return 'variant2';
   }
 
-  // variant1 — radio only
-  if (bodyText.includes('subscribe without a pay-per-view') || bodyText.length > 0) {
+  // variant1 — has "choose how to buy" title
+  if (bodyText.includes('choose how to buy')) {
     console.log('✅ variant1 (fallback)');
+    return 'variant1';
+  }
+
+  // Final fallback
+  if (bodyText.length > 0) {
+    console.log('✅ variant1 (final fallback)');
     return 'variant1';
   }
 

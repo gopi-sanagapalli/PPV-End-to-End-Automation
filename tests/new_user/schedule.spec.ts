@@ -82,9 +82,9 @@ test('PPV flow via schedule', async ({ browser }) => {
     const url = p.url();
 
     // URL signals are instant — check these first
-    if (url.includes('paymentDetails'))        return 'payment';
-    if (url.includes('emailDetails'))          return 'email';
-    if (url.includes('upsellTierShown=true'))  return 'ppv';
+    if (url.includes('paymentDetails'))         return 'payment';
+    if (url.includes('emailDetails'))           return 'email';
+    if (url.includes('upsellTierShown=true'))   return 'ppv';
     if (url.includes('upsellTierSkipped=true')) return 'plan';
 
     // Email — DOM check
@@ -100,11 +100,12 @@ test('PPV flow via schedule', async ({ browser }) => {
       .catch(() => '');
 
     const ppvDetection = pagesConfig?.ppv?.detection?.toLowerCase() || '';
-    if (ppvDetection && lower.includes(ppvDetection))     return 'ppv';
+    if (ppvDetection && lower.includes(ppvDetection))      return 'ppv';
     if (lower.includes('subscribe without a pay-per-view')) return 'ppv';
-    if (lower.includes('choose your plan'))               return 'ppv';
-    if (lower.includes("choose a plan that's right"))     return 'plan';
-    if (lower.includes('pick a plan to go with'))         return 'plan';
+    if (lower.includes('choose your plan'))                return 'ppv';
+    if (lower.includes('choose how to buy'))               return 'ppv';
+    if (lower.includes("choose a plan that's right"))      return 'plan';
+    if (lower.includes('pick a plan to go with'))          return 'plan';
 
     return 'unknown';
   };
@@ -131,10 +132,9 @@ test('PPV flow via schedule', async ({ browser }) => {
 
       const schedule = new SchedulePage(page);
       await schedule.navigate(baseUrl);
-      await setupPage(page);                    // ← once after navigate
+      await setupPage(page);
 
       await schedule.selectSport(sport);
-      await sleep(300);                         // filter animation only
 
       const eventCard = await schedule.findEvent(eventData.PPV_NAME);
       await schedule.clickEvent(eventCard);
@@ -146,11 +146,20 @@ test('PPV flow via schedule', async ({ browser }) => {
       );
 
       await schedule.clickBuyNow();
+
+      // ── Wait for PlanDetails — skip addon/purchase redirect ──
       await page.waitForURL(
-        (url) => !url.toString().includes('/schedule'),
-        { timeout: 10000 }
-      ).catch(() => {});
-      await setupPage(page);                    // ← once after navigation
+        (url) => url.toString().includes('PlanDetails'),
+        { timeout: 15000 }
+      ).catch(async () => {
+        // Fallback — wait for any non-schedule URL
+        await page.waitForURL(
+          (url) => !url.toString().includes('/schedule'),
+          { timeout: 5000 }
+        ).catch(() => {});
+      });
+
+      await setupPage(page);
 
     // ══════════════════════════════════════════════════════════
     // FLOW: LANDING
@@ -160,7 +169,7 @@ test('PPV flow via schedule', async ({ browser }) => {
       const landingUrl = `${baseUrl}/welcome`;
       console.log(`📅 Navigating to: ${landingUrl}`);
       await page.goto(landingUrl);
-      await setupPage(page);                    // ← once after navigate
+      await setupPage(page);
 
       console.log('\n📋 Validating Landing page...');
       const landingData = readSheet('Landing page');
@@ -177,11 +186,18 @@ test('PPV flow via schedule', async ({ browser }) => {
       await buyNow.scrollIntoViewIfNeeded().catch(() => {});
       await buyNow.click({ force: true });
 
+      // ── Wait for PlanDetails — skip intermediate redirects ───
       await page.waitForURL(
-        (url) => !url.toString().includes('/welcome'),
-        { timeout: 10000 }
-      ).catch(() => {});
-      await setupPage(page);                    // ← once after navigation
+        (url) => url.toString().includes('PlanDetails'),
+        { timeout: 15000 }
+      ).catch(async () => {
+        await page.waitForURL(
+          (url) => !url.toString().includes('/welcome'),
+          { timeout: 5000 }
+        ).catch(() => {});
+      });
+
+      await setupPage(page);
 
     } else {
       throw new Error(`❌ Unknown flow: "${flow}"`);
@@ -226,7 +242,6 @@ test('PPV flow via schedule', async ({ browser }) => {
         stuckCount = 0;
 
         if (!ppvValidated) {
-          // setupPage already ran — just validate
           try {
             const ppvData = getPPVDataByVariant(variant);
             console.log(`📊 FINAL DATA: ${ppvData.length}`);
@@ -254,7 +269,6 @@ test('PPV flow via schedule', async ({ browser }) => {
         });
         await clickAndWaitForNav(page, btn, `PPV Continue (${variant})`);
 
-        // setupPage after navigation — lazy load new page content
         await setupPage(page);
         continue;
       }
@@ -287,13 +301,16 @@ test('PPV flow via schedule', async ({ browser }) => {
           await trialRadio.click({ force: true }).catch(() => {});
         }
 
-        const btn = page.locator('button:has-text("Continue")').first();
-        await btn.waitFor({ state: 'visible', timeout: 8000 }).catch(() => {
+        // ── Use CTA text from config if available ─────────────
+        const planCtaText = 'Continue with PPV';
+        const planBtn = page.locator(
+          `button:has-text("${planCtaText}"), button:has-text("Continue")`
+        ).first();
+        await planBtn.waitFor({ state: 'visible', timeout: 8000 }).catch(() => {
           console.warn('⚠️  Plan Continue not visible after 8s');
         });
-        await clickAndWaitForNav(page, btn, 'Plan Continue');
+        await clickAndWaitForNav(page, planBtn, 'Plan Continue');
 
-        // setupPage after navigation
         await setupPage(page);
         continue;
       }
@@ -314,7 +331,6 @@ test('PPV flow via schedule', async ({ browser }) => {
     // ══════════════════════════════════════════════════════════
     if (page.isClosed()) throw new Error('❌ Page closed before email step');
 
-    // No setupPage here — already called after last navigation
     const signup = new SignupPage(page);
     const user   = createTestUser();
     await signup.enterEmail(user.email);

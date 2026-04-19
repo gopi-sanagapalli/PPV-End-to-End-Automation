@@ -682,18 +682,29 @@ case 'event name on top': {
     // ════════════════════════════════════════════════════════════
     // PPV DATE / TIME (PPV page)
     // ════════════════════════════════════════════════════════════
-case 'ppv date and timetext':
+case 'ppv date and time text':   // ← ADD THIS (with space)
+case 'ppv date and timetext':    // ← keep existing
 case 'event date and time':
 case 'ppv date and time':
 case 'ppv1 date and time text on bundle':
 case 'ppv1 date text on ultimate tier': {
-  // snapshot [18] span classes:"NXdPC" children:0 "Sat 9th May at 23:30"
-  // snapshot [48] div classes:"H9LVP" children:0 "Sat 9th May at 23:30"
-  // Both have childCount=0 and isDateText=true
-  // But something before is matching — let's be very strict
+  const ppvDate = (eventData?.PPV_DATE || '').trim();
 
-  // Strategy 1 — span or div with childCount=0 and ONLY date text
-  const strict = snapFind(n =>
+  // Remove debug logs now
+  if (ppvDate) {
+    for (const n of snap) {
+      if (n.isInModal) continue;
+      if (n.childCount > 0) continue;
+      if (n.text.trim() === ppvDate) return n.text;
+    }
+    for (const n of snap) {
+      if (n.isInModal) continue;
+      if (n.childCount > 0) continue;
+      if (n.text.replace(/\s+/g, ' ').trim() === ppvDate) return n.text;
+    }
+  }
+
+  const fromSpanDiv = snapFind(n =>
     (n.tag === 'span' || n.tag === 'div' || n.tag === 'time') &&
     n.childCount === 0 &&
     isDateText(n.text) &&
@@ -702,9 +713,8 @@ case 'ppv1 date text on ultimate tier': {
     !n.text.toLowerCase().includes('standard') &&
     !n.text.toLowerCase().includes('dazn')
   );
-  if (strict !== 'N/A') return strict;
+  if (fromSpanDiv !== 'N/A') return fromSpanDiv;
 
-  // Strategy 2 — any element with ONLY date
   return snapFind(n =>
     n.childCount === 0 &&
     isDateText(n.text) &&
@@ -942,21 +952,33 @@ case 'ppv2 date and time text on bundle': {
     // UPSELL BILLING / RENEWAL TEXT
     // ════════════════════════════════════════════════════════════
 case 'upsell billing text':
+case 'upsell renewal text':    // ← correct spelling
 case 'upsell renweal text': {
-  // snapshot [8] p children:0 "Annual contract. Auto renews" ← no trailing "."
-  // compare.ts strips trailing period so this should pass!
-  // But it's returning N/A — let's check why
-
-  // Strategy 1 — exact match
-  const exact = snapFind(n =>
+  // On DAZN Plan page - "Annual contract" only appears combined with "Then"
+  // Strategy 1 — standalone short text
+  const standalone = snapFind(n =>
     n.text.toLowerCase().includes('annual contract') &&
     (n.text.toLowerCase().includes('auto renews') ||
      n.text.toLowerCase().includes('auto-renews')) &&
-    n.text.length < 80
+    !n.text.toLowerCase().startsWith('then') &&
+    n.text.length < 50
   );
-  if (exact !== 'N/A') return exact;
+  if (standalone !== 'N/A') return standalone;
 
-  // Strategy 2 — live DOM
+  // Strategy 2 — extract from combined text
+  // "Then ₹409 /month for 11 months. Annual contract. Auto renews"
+  const combined = snapFind(n =>
+    n.text.toLowerCase().includes('annual contract') &&
+    (n.text.toLowerCase().includes('auto renews') ||
+     n.text.toLowerCase().includes('auto-renews'))
+  );
+  if (combined !== 'N/A') {
+    // Extract just "Annual contract. Auto renews" part
+    const match = combined.match(/(Annual contract\.?\s*Auto renews\.?)/i);
+    if (match) return match[1].trim();
+  }
+
+  // Strategy 3 — live DOM
   const loc   = page.locator('p, span, div');
   const count = await loc.count().catch(() => 0);
   for (let i = 0; i < count; i++) {
@@ -968,7 +990,8 @@ case 'upsell renweal text': {
     if (
       t.toLowerCase().includes('annual contract') &&
       t.toLowerCase().includes('auto renews') &&
-      t.length < 80
+      !t.toLowerCase().startsWith('then') &&
+      t.length < 50
     ) return t;
   }
   return 'N/A';
@@ -1360,49 +1383,44 @@ case 'trial feature 1 highlight': {
     // UPSELL BADGE COLOR
     // ════════════════════════════════════════════════════════════
     case 'upsell badge color': {
-      // Find badge element via live DOM for color check
-      const badgeSels = [
-        '[class*="badge" i]',
-        '[class*="tag" i]',
-        '[class*="pill" i]',
-        '[class*="promo" i]',
-      ];
-      for (const sel of badgeSels) {
-        const loc   = page.locator(sel);
-        const count = await loc.count().catch(() => 0);
-        for (let i = 0; i < count; i++) {
-          const el = loc.nth(i);
-          if (!await el.isVisible().catch(() => false)) continue;
-          const t = clean(await el.innerText({ timeout: T }).catch(() => ''));
-          if (
-            !t.toLowerCase().includes('first month') &&
-            !t.toLowerCase().includes('month free') &&
-            !t.toLowerCase().includes('free!')
-          ) continue;
-          const color = await el.evaluate((node: Element) => {
-            const style = window.getComputedStyle(node);
-            return style.backgroundColor || style.color || '';
-          }).catch(() => '');
-          if (
-            color.includes('255, 193') ||
-            color.includes('255, 215') ||
-            color.includes('ffd700') ||
-            color.includes('f5a623') ||
-            color.includes('ffb800')
-          ) return 'Gold';
-          const className = await el.evaluate(
-            (node: Element) => node.className || ''
-          ).catch(() => '');
-          if (
-            className.toLowerCase().includes('gold') ||
-            className.toLowerCase().includes('yellow') ||
-            className.toLowerCase().includes('amber') ||
-            className.toLowerCase().includes('accent')
-          ) return 'Gold';
-        }
-      }
-      return 'N/A';
+  const result = await page.evaluate(() => {
+    const allEls = document.querySelectorAll<HTMLElement>('*');
+    for (const el of allEls) {
+      const text = (el.innerText || '').trim();
+      if (
+        !(text.toLowerCase().includes('first month') ||
+          text.toLowerCase().includes('month free') ||
+          (text === text.toUpperCase() && text.length > 3)) ||
+        text.length > 40
+      ) continue;
+
+      const style = window.getComputedStyle(el);
+      const bg    = style.backgroundColor;
+      if (!bg || bg === 'rgba(0, 0, 0, 0)' || bg === 'transparent') continue;
+
+      const m = bg.match(/(\d+),\s*(\d+),\s*(\d+)/);
+      if (!m) continue;
+
+      const r = parseInt(m[1]);
+      const g = parseInt(m[2]);
+      const b = parseInt(m[3]);
+
+      if (r > 150 && g > 100 && b < 100 && r >= g) return 'Gold';
+      if (r > 180 && g > 130 && b < 80) return 'Gold';
+
+      const cls = el.className.toLowerCase();
+      if (
+        cls.includes('gold') ||
+        cls.includes('amber') ||
+        cls.includes('yellow') ||
+        cls.includes('accent')
+      ) return 'Gold';
     }
+    return 'N/A';
+  }).catch(() => 'N/A');
+
+  return result;
+}
 
     // ════════════════════════════════════════════════════════════
     // FIRST MONTH FREE TEXT
@@ -1535,52 +1553,75 @@ case 'upsell sub text': {
     // ════════════════════════════════════════════════════════════
     // PAYMENT PAGE — 7 DAYS FREE BADGE COLOR
     // ════════════════════════════════════════════════════════════
-    case '7 days free badge color':
-    case '7-days free badge color': {
-      const badgeSels = [
-        '[class*="badge" i]',
-        '[class*="tag" i]',
-        '[class*="pill" i]',
-        '[class*="chip" i]',
-      ];
-      for (const sel of badgeSels) {
-        const loc   = page.locator(sel);
-        const count = await loc.count().catch(() => 0);
-        for (let i = 0; i < count; i++) {
-          const el = loc.nth(i);
-          if (!await el.isVisible().catch(() => false)) continue;
-          const t = clean(await el.innerText({ timeout: T }).catch(() => ''));
-          if (
-            !(t.toLowerCase().includes('7-day') ||
-              t.toLowerCase().includes('7 day') ||
-              t.toLowerCase().includes('7-days') ||
-              t.toLowerCase().includes('7 days')) ||
-            !t.toLowerCase().includes('free')
-          ) continue;
-          const color = await el.evaluate((node: Element) => {
-            const style = window.getComputedStyle(node);
-            return style.backgroundColor || style.color || '';
-          }).catch(() => '');
-          if (
-            color.includes('255, 193') ||
-            color.includes('255, 215') ||
-            color.includes('ffd700') ||
-            color.includes('f5a623') ||
-            color.includes('ffb800')
-          ) return 'Gold';
-          const className = await el.evaluate(
-            (node: Element) => node.className || ''
-          ).catch(() => '');
-          if (
-            className.toLowerCase().includes('gold') ||
-            className.toLowerCase().includes('yellow') ||
-            className.toLowerCase().includes('amber') ||
-            className.toLowerCase().includes('accent')
-          ) return 'Gold';
+case '7 days free badge color':
+case '7-days free badge color': {
+  const result = await page.evaluate(() => {
+    const allEls = document.querySelectorAll<HTMLElement>('*');
+    for (const el of allEls) {
+      const text = (el.innerText || '').trim();
+      if (
+        !(text.toLowerCase().includes('7-day') ||
+          text.toLowerCase().includes('7-days') ||
+          text.toLowerCase().includes('7 day') ||
+          text.toLowerCase().includes('7 days')) ||
+        !text.toLowerCase().includes('free') ||
+        text.length > 40 ||
+        el.children.length > 0
+      ) continue;
+
+      // Check element itself and parents
+      let current: HTMLElement | null = el;
+      while (current && current !== document.body) {
+        const style = window.getComputedStyle(current);
+
+        // Check ALL color properties
+        const colorProps: string[] = [
+          style.backgroundColor,
+          style.color,
+          style.borderColor,
+          style.borderTopColor,
+          style.borderBottomColor,
+          style.outlineColor,
+        ];
+
+        for (const c of colorProps) {
+          if (!c || c === 'rgba(0, 0, 0, 0)' || c === 'transparent') continue;
+          const m = c.match(/(\d+),\s*(\d+),\s*(\d+)/);
+          if (!m) continue;
+          const r = parseInt(m[1]);
+          const g = parseInt(m[2]);
+          const b = parseInt(m[3]);
+          // Gold/amber range
+          if (r > 150 && g > 80 && b < 80 && r >= g) return 'Gold';
+          if (r > 180 && g > 130 && b < 80) return 'Gold';
+          if (r > 200 && g > 150 && b < 50) return 'Gold';
         }
+
+        // Check class names
+        const cls = (current.className || '').toLowerCase();
+        if (
+          cls.includes('gold') || cls.includes('amber') ||
+          cls.includes('yellow') || cls.includes('accent') ||
+          cls.includes('warning')
+        ) return 'Gold';
+
+        // Check inline style for hex colors
+        const inline = current.getAttribute('style') || '';
+        if (
+          /color:\s*#[fF][fF][bBcCdDeEfF]/i.test(inline) ||
+          /color:\s*#[fF][5-9aAbBcC]/i.test(inline) ||
+          inline.toLowerCase().includes('gold') ||
+          inline.toLowerCase().includes('amber')
+        ) return 'Gold';
+
+        current = current.parentElement;
       }
-      return 'N/A';
     }
+    return 'N/A';
+  }).catch(() => 'N/A');
+
+  return result;
+}
 
     // ════════════════════════════════════════════════════════════
     // PAYMENT PAGE — 7 DAYS FREE PRICE (₹0)

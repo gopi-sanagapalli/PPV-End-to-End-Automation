@@ -109,4 +109,4 @@ export class SignupPage {
     await this.page.waitForLoadState('domcontentloaded').catch(() => {});
     console.log('✅ Personal details Continue clicked');
   }
-}
+} 
