@@ -1,4 +1,5 @@
 import { Page, Locator, expect } from '@playwright/test';
+import { handleCookies, stabilisePage } from '../utils/helpers';
 
 export class SchedulePage {
   constructor(private page: Page) {}
@@ -12,17 +13,24 @@ export class SchedulePage {
     await this.page.waitForLoadState('domcontentloaded');
     await this.page.waitForLoadState('networkidle').catch(() => {});
     await this.page.waitForSelector('body', { timeout: 15000 });
+
+    // Accept cookies immediately after page load
+    await handleCookies(this.page);
+    await stabilisePage(this.page);
+
     console.log('✅ Schedule page loaded');
   }
 
   // ── SELECT SPORT ──────────────────────────────────────────────
   async selectSport(sport: string) {
+    if (!sport) {
+      throw new Error('❌ selectSport() called with undefined — check config has SPORT field');
+    }
     console.log(`🥊 Selecting ${sport}...`);
 
     const filterContainer = this.page.locator('#schedule-filter-container');
     await expect(filterContainer).toBeVisible({ timeout: 10000 });
 
-    // Use getByText — this is what worked originally
     const sportEl = filterContainer.getByText(sport, { exact: true });
     await expect(sportEl).toBeVisible({ timeout: 8000 });
     await sportEl.click();
@@ -31,6 +39,9 @@ export class SchedulePage {
       () => document.querySelectorAll('article').length > 0
     );
     await this.page.waitForTimeout(1000);
+
+    // Reset scroll to top after sport filter applied
+    await this.page.evaluate(() => window.scrollTo(0, 0));
     console.log(`✅ ${sport} selected`);
   }
 
@@ -43,9 +54,8 @@ export class SchedulePage {
       'i'
     );
 
-    // Start from top
     await this.page.evaluate(() => window.scrollTo(0, 0));
-    await this.page.waitForTimeout(500);
+    await this.page.waitForTimeout(300);
 
     for (let i = 0; i < 25; i++) {
       const event = this.page
@@ -58,8 +68,10 @@ export class SchedulePage {
         return event;
       }
 
-      await this.page.mouse.wheel(0, 2000);
-      await this.page.waitForTimeout(400);
+      await this.page.evaluate(() => {
+        window.scrollBy({ top: window.innerHeight, behavior: 'instant' });
+      });
+      await this.page.waitForTimeout(300);
     }
 
     throw new Error(`❌ Event "${eventName}" not found on schedule page`);
@@ -69,10 +81,16 @@ export class SchedulePage {
   async clickEvent(event: Locator) {
     console.log('🖱️ Clicking event...');
 
-    await event.scrollIntoViewIfNeeded();
-    await this.page.waitForTimeout(300);
+    // Save scroll position BEFORE any scrolling
+    const scrollY = await this.page.evaluate(() => window.scrollY);
 
-    // Get bounding box and click center
+    // Scroll into view only if not already visible
+    const box0 = await event.boundingBox();
+    if (!box0 || box0.y < 0 || box0.y > 700) {
+      await event.scrollIntoViewIfNeeded();
+      await this.page.waitForTimeout(300);
+    }
+
     const box = await event.boundingBox();
     if (!box) throw new Error('❌ Event not clickable — no bounding box');
 
@@ -81,7 +99,6 @@ export class SchedulePage {
       box.y + box.height / 2
     );
 
-    // Buy now button
     const buyNowButton = this.page.locator(
       'a:has-text("Buy now"), '      +
       'button:has-text("Buy now"), ' +
@@ -89,15 +106,16 @@ export class SchedulePage {
       'button:has-text("Buy Now")'
     ).first();
 
-    // Scroll down if needed to find button
-    for (let i = 0; i < 5; i++) {
-      if (await buyNowButton.isVisible().catch(() => false)) break;
-      await this.page.keyboard.press('PageDown');
-      await this.page.waitForTimeout(300);
-    }
+    await expect(buyNowButton).toBeVisible({ timeout: 15000 });
 
-    await expect(buyNowButton).toBeVisible({ timeout: 10000 });
-    await buyNowButton.scrollIntoViewIfNeeded({ timeout: 5000 });
+    // Restore scroll + lock background
+    await this.page.evaluate((y) => {
+      window.scrollTo(0, y);
+      document.body.style.overflow = 'hidden';
+      document.documentElement.style.overflow = 'hidden';
+    }, scrollY);
+
+    console.log('🔒 Background scroll locked');
     console.log('✅ Modal opened & Buy button located');
   }
 
@@ -112,7 +130,6 @@ export class SchedulePage {
     ).first();
 
     await expect(buyNow).toBeVisible({ timeout: 8000 });
-    await buyNow.scrollIntoViewIfNeeded().catch(() => {});
     await buyNow.click({ force: true });
     console.log('✅ Buy Now clicked');
   }

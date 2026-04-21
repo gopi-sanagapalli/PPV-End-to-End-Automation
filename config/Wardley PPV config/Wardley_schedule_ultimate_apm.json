@@ -5,7 +5,6 @@
   "flow": "schedule",
   "TIER": "ultimate",
   "RATE_PLAN": "annual pay monthly",
-
   "global": {
     "PPV_DATE": "Sat 9th May at 23:30",
     "SECONDARY_PPV_DATE": "Sat 9th May at 23:30",
@@ -14,7 +13,6 @@
     "PPV_DESCRIPTION": "Catch the biggest moment of the year. Select a DAZN plan to pair with your pay-per-view.",
     "ANNUAL_MONTHS": "11"
   },
-
   "regions": {
     "IN": {
       "BASE_URL": "https://www.dazn.com/en-IN",
@@ -52,21 +50,25 @@
       "BASE_URL": "https://www.dazn.com/en-GB",
       "CURRENCY": "£",
       "DAZN_TIER": "DAZN Ultimate",
-      "PPV_PRICE": "£29.99",
-      "UPSELL_PRICE": "£14.99",
-      "MONTHLY_PRICE": "24.99",
-      "ANNUAL_PRICE": "14.99",
+      "PPV_PRICE": "£24.99",
+      "UPSELL_PRICE": "£24.99",
+      "MONTHLY_PRICE": "25.99",
+      "ANNUAL_PRICE": "15.99",
       "ANNUAL_TOTAL": "",
-      "ANNUAL_PAY_MONTHLY_PRICE": "",
-      "ANNUAL_UPFRONT_PRICE": "",
-      "UPFRONT_SAVE_AMOUNT": "",
-      "NEXT_PAYMENT_PRICE": "£24.99",
+      "ANNUAL_PAY_MONTHLY_PRICE": "24.99",
+      "ANNUAL_UPFRONT_PRICE": "249.99",
+      "UPFRONT_SAVE_AMOUNT": "49.89",
+      "NEXT_PAYMENT_PRICE": "£25.99",
       "BUNDLE_PRICE": "£49.99",
-      "BUNDLE_ORIGINAL_PRICE": "£59.98"
+      "BUNDLE_ORIGINAL_PRICE": "£59.98",
+      "UPSELL_PLAN_NAME": "Annual - Pay Monthly",
+      "FIRST_MONTH_FREE_TEXT": "+ one month free",
+      "ANNUAL_PAY_MONTHLY_CONTRACT_TEXT": "Annual contract. Auto renews",
+      "ULTIMATE_FEATURE_2": "HDR and Dolby 5.1 surround sound on select events.",
+      "ULTIMATE_FEATURE_3": "Every match from Lega Serie A, and highlights from LALIGA, Bundesliga and the Saudi Pro League.",
+      "TRIAL_MONTHLY_PRICE": "£25.99"
     }
   },
-
-
   "variants": {
     "variant1": {
       "detection": "subscribe without a pay-per-view",
@@ -84,7 +86,6 @@
       "ctaText": "Continue"
     }
   },
-
   "pages": {
     "ppv": {
       "detection": "subscribe without a pay-per-view"

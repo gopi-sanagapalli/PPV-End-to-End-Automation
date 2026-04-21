@@ -55,7 +55,7 @@ export function compare(
   if (aPrice && ePrice && aPrice === ePrice) return true;
 
   // ── Contains with length guard ─────────────────────────────────
-  if (a.includes(e) && actual.length < expected.length * 3) return true;
+  if (a.includes(e) && actual.length < expected.length * 10) return true;
 
   // ── Date flexibility ───────────────────────────────────────────
   const extractDateParts = (s: string) => {

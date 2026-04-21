@@ -24,6 +24,7 @@ import {
   setupPage,
   handleCookies,
   stabilisePage,
+  triggerLazyLoad,
 }                                      from '../../utils/helpers';
 
 const REGION       = process.env.DAZN_REGION || 'IN';

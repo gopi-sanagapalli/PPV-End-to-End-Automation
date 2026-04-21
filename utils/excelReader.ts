@@ -61,7 +61,6 @@ export const getPPVDataByVariant = (variant: string) => {
   const normalize = (val: any) =>
     val?.toString().trim().toLowerCase();
 
-  // Validate variant column exists
   if (data.length > 0 && !('Variant' in data[0])) {
     throw new Error(`❌ Missing 'Variant' column in PPV page sheet`);
   }
@@ -93,7 +92,6 @@ export const getPlanDataByTier = (tier: string) => {
   const normalize = (val: any) =>
     val?.toString().trim().toLowerCase();
 
-  // Validate Tier column exists
   if (data.length > 0 && !('Tier' in data[0])) {
     throw new Error(`❌ Missing 'Tier' column in Dazn Plan page sheet`);
   }
@@ -132,7 +130,6 @@ export const getPaymentDataByTierAndPlan = (
   const normalize = (val: any) =>
     val?.toString().trim().toLowerCase();
 
-  // Validate columns exist
   if (data.length > 0 && !('Tier' in data[0])) {
     throw new Error(`❌ Missing 'Tier' column in Payment page sheet`);
   }
@@ -140,14 +137,12 @@ export const getPaymentDataByTierAndPlan = (
     throw new Error(`❌ Missing 'Rate Plan' column in Payment page sheet`);
   }
 
-  // Always include Common rows
   const commonData = data.filter(
     (d: any) =>
       normalize(d.Tier)        === 'common' &&
       normalize(d['Rate Plan']) === 'all'
   );
 
-  // Filter by Tier + Rate Plan
   const tierPlanData = data.filter(
     (d: any) =>
       normalize(d.Tier)        === normalize(tier) &&
@@ -168,7 +163,6 @@ export const getPaymentDataByTierAndPlan = (
     );
   }
 
-  // Combine Common + Tier/Plan specific rows
   const combined = [...commonData, ...tierPlanData];
 
   console.log(`💎 Tier          : ${tier}`);
@@ -176,6 +170,74 @@ export const getPaymentDataByTierAndPlan = (
   console.log(`📊 Common rows   : ${commonData.length}`);
   console.log(`📊 Specific rows : ${tierPlanData.length}`);
   console.log(`📊 Total rows    : ${combined.length}`);
+
+  return combined;
+};
+
+// =========================
+// MY ACCOUNT DATA
+// =========================
+export const getMyAccountData = () => {
+  const data = readSheet('My Account page');
+  console.log(`📊 My Account rows: ${data.length}`);
+  return data;
+};
+
+// =========================
+// CHOOSE HOW TO BUY DATA
+// =========================
+export const getChooseHowToBuyData = () => {
+  const data = readSheet('Choose How To Buy page');
+  console.log(`📊 Choose How To Buy rows: ${data.length}`);
+  return data;
+};
+
+// =========================
+// PPV PAYMENT DATA
+// =========================
+export const getPPVPaymentData = () => {
+  const data = readSheet('PPV Payment page');
+  console.log(`📊 PPV Payment rows: ${data.length}`);
+  return data;
+};
+
+// =========================
+// UPGRADE CONFIRMATION DATA BY RATE PLAN
+// =========================
+export const getUpgradeConfirmationData = (ratePlan: string) => {
+  const data = readSheet('Upgrade Confirmation page');
+
+  const normalize = (val: any) =>
+    val?.toString().trim().toLowerCase();
+
+  // ── Always include common rows ─────────────────────────────
+  const commonData = data.filter(
+    (d: any) => normalize(d.Tier) === 'common'
+  );
+
+  // ── Filter by rate plan ────────────────────────────────────
+  const ratePlanData = data.filter(
+    (d: any) => normalize(d.Tier) === normalize(ratePlan)
+  );
+
+  if (!ratePlanData.length) {
+    const available = [...new Set(
+      data
+        .map((d: any) => d.Tier)
+        .filter(Boolean)
+    )].join(', ');
+    throw new Error(
+      `❌ No data found for rate plan: "${ratePlan}"\n` +
+      `   Available: ${available}`
+    );
+  }
+
+  const combined = [...commonData, ...ratePlanData];
+
+  console.log(`📋 Rate Plan              : ${ratePlan}`);
+  console.log(`📊 Common rows            : ${commonData.length}`);
+  console.log(`📊 Rate Plan rows         : ${ratePlanData.length}`);
+  console.log(`📊 Total rows             : ${combined.length}`);
 
   return combined;
 };

@@ -67,6 +67,30 @@
       "ULTIMATE_FEATURE_2": "HDR and Dolby 5.1 surround sound on select events.",
       "ULTIMATE_FEATURE_3": "Every match from Lega Serie A, and highlights from LALIGA, Bundesliga and the Saudi Pro League.",
       "TRIAL_MONTHLY_PRICE": "£25.99"
+    },
+    "US": {
+      "BASE_URL": "https://www.dazn.com/en-US",
+      "CURRENCY": "$",
+      "DAZN_TIER": "DAZN Standard",
+      "PPV_PRICE": "$79.99",
+      "UPSELL_PRICE": "$44.99",
+      "MONTHLY_PRICE": "30.99",
+      "ANNUAL_PRICE": "20.99",
+      "ANNUAL_PAY_MONTHLY_PRICE": "20.99",
+      "NEXT_PAYMENT_PRICE": "$20.99",
+      "BUNDLE_PRICE": "$79.99",
+      "BUNDLE_ORIGINAL_PRICE": "$99.98",
+      "PPV_CTA_TEXT": "Continue",
+      "PLAN_CTA_BUTTON": "Continue with PPV + 7-day free trial",
+      "UPSELL_PLAN_NAME": "Annual - Pay Monthly",
+      "FIRST_MONTH_FREE_TEXT": "+ First month free",
+      "ANNUAL_PAY_MONTHLY_CONTRACT_TEXT": "Annual contract. Auto renews",
+      "RATE_PLAN_LABEL": "Annual - Pay Monthly - First Month Free",
+      "UPSELL_FEATURE_1": "Pay-per-views included at no extra cost. Minimum of 12 events per year including {{PPV_NAME}}.",
+      "TODAY_YOU_PAY_PRICE": "$79.99",
+      "NEXT_PAYMENT_DATE": "05/22/2026",
+      "RENEWAL_DATE": "04/22/2027",
+      "CANCELLATION_TEXT": "Your subscription is paid in x12 monthly instalments. The total plan yearly amount is $230.89 (1 month at $0/month, then 11 months at $20.99). Minimum term 12 months. Your plan will renew automatically on 04/22/2027 at the existing price at the moment of the renewal. You can cancel this auto-renewal in My Account."
     }
   },
   "variants": {
@@ -93,5 +117,10 @@
     "plan": {
       "detection": "choose a plan that's right for you"
     }
-  }
+  },
+  "PPV_CTA_TEXT": "Continue with Wardley vs. Dubois only",
+  "PLAN_PAGE_TITLE": "Choose a plan that's right for you",
+  "ANNUAL_PAY_MONTHLY_CONTRACT_TEXT": "12 month contract",
+  "ULTIMATE_FEATURE_2": "Highlights from LALIGA, Bundesliga and Saudi Pro League.",
+  "ULTIMATE_FEATURE_3": "HDR and Dolby 5.1 surround sound on select events."
 }

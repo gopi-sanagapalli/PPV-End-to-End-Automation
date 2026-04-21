@@ -24,11 +24,17 @@ import {
   setupPage,
   handleCookies,
   stabilisePage,
+  triggerLazyLoad,
 }                                      from '../../utils/helpers';
 
 const REGION       = process.env.DAZN_REGION || 'IN';
 const EVENT_CONFIG = process.env.PPV_CONFIG  ||
   'Wardley_landing_ultimate_apm.json';
+
+// ── No FLOW constant here ─────────────────────────────────────────────
+// New users never see "Hi, welcome back!" personalisation.
+// Welcome Back rows in Excel have Flow='myaccount' and are
+// automatically excluded when no flow param is passed to validateVariant.
 
 function findConfig(dir: string, filename: string): string | null {
   if (!fs.existsSync(dir)) return null;
@@ -66,7 +72,7 @@ function loadEventConfig() {
   );
 }
 
-// ── Safe scroll helper ────────────────────────────────────────────────────────
+// ── Safe scroll helper ────────────────────────────────────────────────
 const safeScrollToElement = async (page: any, locator: any) => {
   try {
     const handle = await locator.elementHandle({ timeout: 3000 });
@@ -186,7 +192,7 @@ test('PPV flow via landing page', async ({ browser }) => {
     const eventData = buildEventData(json, REGION);
 
     const tier     = (json.TIER      || 'standard').toLowerCase();
-const ratePlan = (json.RATE_PLAN || 'monthly').toLowerCase();
+    const ratePlan = (json.RATE_PLAN || 'monthly').toLowerCase();
 
     const baseUrl       = eventData.BASE_URL;
     const sport         = json.SPORT;
@@ -208,7 +214,6 @@ const ratePlan = (json.RATE_PLAN || 'monthly').toLowerCase();
 
       const schedule = new SchedulePage(page);
       await schedule.navigate(baseUrl);
-      await setupPage(page);
       await schedule.selectSport(sport);
 
       const eventCard = await schedule.findEvent(eventData.PPV_NAME);
@@ -232,52 +237,47 @@ const ratePlan = (json.RATE_PLAN || 'monthly').toLowerCase();
         ).catch(() => {});
       });
 
-      await setupPage(page);
+      await setupPage(page, 1500);
 
     // ══════════════════════════════════════════════════════════
     // FLOW: LANDING
     // ══════════════════════════════════════════════════════════
-} else if (flow === 'landing') {
+    } else if (flow === 'landing') {
 
-  const landing = new LandingPage(page);
-  await landing.navigate(baseUrl);
+      const landing = new LandingPage(page);
+      await landing.navigate(baseUrl);
 
-  // ✅ FREEZE scroll during validation
-  await page.evaluate(() => {
-    document.documentElement.style.overflow = 'hidden';
-    document.body.style.overflow = 'hidden';
-  });
+      await page.evaluate(() => {
+        document.documentElement.style.overflow = 'hidden';
+        document.body.style.overflow = 'hidden';
+      });
 
-  console.log('\n📋 Validating Landing page...');
-  const landingData = readSheet('Landing page');
-  await validateVariant(
-    page, 'landing', landingData, results, eventData, 'Landing'
-  );
+      console.log('\n📋 Validating Landing page...');
+      const landingData = readSheet('Landing page');
+      await validateVariant(
+        page, 'landing', landingData, results, eventData, 'Landing'
+      );
 
-  // ✅ UNFREEZE scroll
-  await page.evaluate(() => {
-    document.documentElement.style.overflow = '';
-    document.body.style.overflow = '';
-  });
+      await page.evaluate(() => {
+        document.documentElement.style.overflow = '';
+        document.body.style.overflow = '';
+      });
 
-  // ✅ Fix date result — article is off-screen during snapshot
-  // Use live DOM after findPPVContainer scrolls to section
-  const container = await landing.findPPVContainer(eventData);
+      const container = await landing.findPPVContainer(eventData);
 
-  // ✅ Re-validate date using live DOM from container
-  const dateResult = results.find(r =>
-    r.page === 'Landing' && r.field === 'PPV Date and time'
-  );
-  if (dateResult && dateResult.actual === 'N/A') {
-    const date = await landing.getEventDate(container);
-    if (date !== 'N/A') {
-      dateResult.actual = date;
-      dateResult.status = date === eventData.PPV_DATE ? 'PASS' : 'FAIL';
-      console.log(`🔄 Re-validated date: ${date}`);
-    }
-  }
+      const dateResult = results.find(r =>
+        r.page === 'Landing' && r.field === 'PPV Date and time'
+      );
+      if (dateResult && dateResult.actual === 'N/A') {
+        const date = await landing.getEventDate(container);
+        if (date !== 'N/A') {
+          dateResult.actual = date;
+          dateResult.status = date === eventData.PPV_DATE ? 'PASS' : 'FAIL';
+          console.log(`🔄 Re-validated date: ${date}`);
+        }
+      }
 
-  await landing.clickBuyNow(container);
+      await landing.clickBuyNow(container);
 
       await page.waitForURL(
         (url) => url.toString().includes('PlanDetails'),
@@ -289,11 +289,13 @@ const ratePlan = (json.RATE_PLAN || 'monthly').toLowerCase();
         ).catch(() => {});
       });
 
-      // ✅ setupPage only after navigating away from landing
       await page.waitForLoadState('domcontentloaded', { timeout: 10000 })
         .catch(() => {});
       if (!page.isClosed()) {
-        await setupPage(page);
+        // FIX: Use stabilisePage instead of setupPage
+        // setupPage calls handleCookies which waits 8s for banner that won't appear
+        // Cookies already accepted on landing page
+        await page.waitForLoadState('domcontentloaded').catch(() => {});
       }
 
     } else {
@@ -309,7 +311,7 @@ const ratePlan = (json.RATE_PLAN || 'monthly').toLowerCase();
       .catch(() => 'variant1');
     console.log('🎯 variant:', variant);
 
-    const currentVariantConfig = variantConfig[variant];
+    const currentVariantConfig = variantConfig?.[variant] || {};
 
     // ══════════════════════════════════════════════════════════
     // STEP 3 — FLOW LOOP  PPV → Plan → Email
@@ -323,6 +325,8 @@ const ratePlan = (json.RATE_PLAN || 'monthly').toLowerCase();
       if (page.isClosed()) throw new Error('❌ Page closed unexpectedly');
 
       const pageType = await detectPageType(page, pagesConfig);
+      if (step === 0) { await handleCookies(page); } else { await handleCookies(page, 1500); }
+      await stabilisePage(page);
       console.log(`\nstep ${step + 1} → pageType: ${pageType} | url: ${page.url()}`);
 
       // ── EMAIL ──────────────────────────────────────────────
@@ -340,6 +344,9 @@ const ratePlan = (json.RATE_PLAN || 'monthly').toLowerCase();
           try {
             const ppvData = getPPVDataByVariant(variant);
             console.log(`📊 PPV rows: ${ppvData.length}`);
+
+            // ✅ No flow param — Welcome Back rows (Flow='myaccount'
+            // in Excel) are automatically excluded for new user flow
             await validateVariant(
               page, variant, ppvData, results, eventData, 'PPV'
             );
@@ -408,7 +415,7 @@ const ratePlan = (json.RATE_PLAN || 'monthly').toLowerCase();
         });
         await clickAndWaitForNav(page, btn, `PPV Continue (${variant})`);
 
-        await setupPage(page);
+        await setupPage(page, 1500);
         continue;
       }
 
@@ -467,11 +474,9 @@ const ratePlan = (json.RATE_PLAN || 'monthly').toLowerCase();
           await clickAndWaitForNav(page, planBtn, 'Ultimate Plan Continue');
 
         } else {
-          // ── Standard tier ─────────────────────────────────
           console.log(`📋 Selecting Standard - ${ratePlan}...`);
 
           if (ratePlan === 'annual pay monthly') {
-            // ✅ Click Annual card by label text
             const annualCard = page.locator(
               'label:has-text("Annual - pay over time"), ' +
               'label:has-text("Annual - Pay Monthly")'
@@ -482,7 +487,6 @@ const ratePlan = (json.RATE_PLAN || 'monthly').toLowerCase();
               await annualCard.click({ force: true }).catch(() => {});
               console.log('✅ Clicked Annual card');
             } else {
-              // Fallback — annual is nth(1)
               console.log('⚠️  Annual card not found — using radio nth(1)');
               const radio = page.locator('input[type="radio"]').nth(1);
               if (await radio.isVisible({ timeout: 1500 }).catch(() => false)) {
@@ -492,7 +496,6 @@ const ratePlan = (json.RATE_PLAN || 'monthly').toLowerCase();
               }
             }
 
-            // ✅ Wait for CTA to update after selection
             await page.waitForTimeout(500);
 
             const planBtn = page.locator(
@@ -508,7 +511,6 @@ const ratePlan = (json.RATE_PLAN || 'monthly').toLowerCase();
             await clickAndWaitForNav(page, planBtn, 'Standard Annual Plan Continue');
 
           } else {
-            // ✅ Monthly / trial — first radio
             const trialRadio = page.locator('input[type="radio"]').first();
             if (await trialRadio.isVisible({ timeout: 1500 })
               .catch(() => false)) {
@@ -529,7 +531,7 @@ const ratePlan = (json.RATE_PLAN || 'monthly').toLowerCase();
           }
         }
 
-        await setupPage(page);
+        await setupPage(page, 1500);
         continue;
       }
 
@@ -585,8 +587,7 @@ const ratePlan = (json.RATE_PLAN || 'monthly').toLowerCase();
       console.log('✅ Payment page detected');
       const paymentData = getPaymentDataByTierAndPlan(tier, ratePlan);
       console.log(`📊 Payment rows: ${paymentData.length}`);
-      await payment.validate(paymentData, results, eventData);
-    } else {
+await payment.validate(paymentData, results, eventData, 'newuser');    } else {
       console.log('❌ Not on payment page — URL:', page.url());
     }
 

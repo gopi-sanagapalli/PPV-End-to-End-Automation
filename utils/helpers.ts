@@ -39,8 +39,9 @@ export function loadCookieState(): any {
 
 // ─────────────────────────────────────────────────────────────────
 // HANDLE COOKIES
+// ── Wait for banner, accept it, move on. Same for all flows/regions
 // ─────────────────────────────────────────────────────────────────
-export async function handleCookies(page: Page): Promise<void> {
+export async function handleCookies(page: Page, timeout: number = 8000): Promise<void> {
   if (page.isClosed()) return;
   try {
     const btn = page.locator(
@@ -50,10 +51,13 @@ export async function handleCookies(page: Page): Promise<void> {
       'button:has-text("Agree"), '      +
       'button:has-text("Allow all")'
     ).first();
-    if (await btn.isVisible({ timeout: 1500 })) {
+
+    if (await btn.isVisible({ timeout }).catch(() => false)) {
       await btn.click({ force: true });
-      await btn.waitFor({ state: 'hidden', timeout: 1500 }).catch(() => {});
+      await btn.waitFor({ state: 'hidden', timeout: 3000 }).catch(() => {});
       console.log('🍪 Cookies accepted');
+    } else {
+      console.log('ℹ️  No cookie banner found');
     }
   } catch {}
 }
@@ -64,7 +68,7 @@ export async function handleCookies(page: Page): Promise<void> {
 export async function stabilisePage(page: Page): Promise<void> {
   if (page.isClosed()) return;
   await page.evaluate(() => {
-    // ✅ Remove OneTrust completely from DOM
+    if (window.location.href.includes('/myaccount')) return;
     [
       '#onetrust-banner-sdk',
       '#onetrust-consent-sdk',
@@ -74,7 +78,7 @@ export async function stabilisePage(page: Page): Promise<void> {
       '[class*="consent-banner" i]',
     ].forEach(sel =>
       document.querySelectorAll<HTMLElement>(sel)
-        .forEach(el => el.remove())  // ✅ remove() not display:none
+        .forEach(el => el.remove())
     );
     window.scrollTo(0, 0);
   }).catch(() => {});
@@ -89,16 +93,12 @@ export async function waitForSPAReady(page: Page): Promise<void> {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// TRIGGER LAZY LOAD — single scroll, no sleep
+// TRIGGER LAZY LOAD — only called explicitly after selectSport()
 // ─────────────────────────────────────────────────────────────────
 export async function triggerLazyLoad(page: Page): Promise<void> {
   if (page.isClosed()) return;
-
   const url = page.url();
-
-  // ✅ Only run on schedule page
   if (!url.includes('/schedule')) return;
-
   await page.evaluate(() => {
     const target = Math.min(
       document.body.scrollHeight,
@@ -106,7 +106,6 @@ export async function triggerLazyLoad(page: Page): Promise<void> {
     );
     window.scrollTo(0, target);
   }).catch(() => {});
-
   await sleep(150);
   await page.evaluate(() => window.scrollTo(0, 0)).catch(() => {});
 }
@@ -114,12 +113,11 @@ export async function triggerLazyLoad(page: Page): Promise<void> {
 // ─────────────────────────────────────────────────────────────────
 // SETUP PAGE — single call after every navigation
 // ─────────────────────────────────────────────────────────────────
-export async function setupPage(page: Page): Promise<void> {
+export async function setupPage(page: Page, cookieTimeout: number = 8000): Promise<void> {
   if (page.isClosed()) return;
   await page.waitForLoadState('domcontentloaded').catch(() => {});
-  await handleCookies(page);
+  await handleCookies(page, cookieTimeout);
   await stabilisePage(page);
-  await triggerLazyLoad(page);
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -149,11 +147,9 @@ export interface DOMNode {
 
 // ─────────────────────────────────────────────────────────────────
 // GET PAGE SNAPSHOT — bulk DOM read in one JS call
-// ✅ Saves and restores scroll position to prevent page jumping
 // ─────────────────────────────────────────────────────────────────
 export async function getPageSnapshot(page: Page): Promise<DOMNode[]> {
   if (page.isClosed()) return [];
-
   try {
     return await page.evaluate((): any[] => {
       const clean = (s: string) =>
@@ -192,17 +188,11 @@ export async function getPageSnapshot(page: Page): Promise<DOMNode[]> {
         const els = document.querySelectorAll<HTMLElement>(tag);
         for (const el of els) {
           if (!isRendered(el)) continue;
-
-          // ✅ textContent instead of innerText
-          // innerText forces layout recalculation → triggers scroll
-          // textContent reads raw DOM text → no layout → no scroll
           const text = clean(el.textContent || '');
           if (!text || text.length < 2 || text.length > 500) continue;
-
           const key = `${tag}:${text}`;
           if (seen.has(key)) continue;
           seen.add(key);
-
           results.push({
             tag,
             text,
@@ -210,12 +200,10 @@ export async function getPageSnapshot(page: Page): Promise<DOMNode[]> {
             childCount: el.children.length,
             isInModal:  isInModal(el),
           });
-
           if (results.length >= 1000) break;
         }
         if (results.length >= 1000) break;
       }
-
       return results;
     });
   } catch {

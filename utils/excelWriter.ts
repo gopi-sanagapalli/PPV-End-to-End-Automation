@@ -2,20 +2,22 @@ import * as XLSX from 'xlsx';
 import * as fs   from 'fs';
 import * as path from 'path';
 
-// ── Column name maps — matches PPV_Input sheet names exactly ─────
-const SCHEDULE_HEADERS  = ['Field', 'Expected', 'Actual', 'Status'];
-const PPV_HEADERS       = ['Variant', 'Field', 'Expected', 'Actual', 'Status'];
-const PLAN_HEADERS      = ['Tier', 'Field', 'Expected', 'Actual', 'Status'];
-const PAYMENT_HEADERS   = ['Tier', 'Rate Plan', 'Field', 'Expected', 'Actual', 'Status'];
-const LANDING_HEADERS   = ['Field', 'Expected', 'Actual', 'Status'];
-const SUMMARY_HEADERS   = ['Metric', 'Value'];
-const PAGE_SUM_HEADERS  = ['Page', 'Total', 'Passed', 'Failed', 'Pass %'];
+// ── Column name maps ─────────────────────────────────────────────
+const SCHEDULE_HEADERS       = ['Field', 'Expected', 'Actual', 'Status'];
+const PPV_HEADERS            = ['Variant', 'Field', 'Expected', 'Actual', 'Status'];
+const PLAN_HEADERS           = ['Tier', 'Field', 'Expected', 'Actual', 'Status'];
+const PAYMENT_HEADERS        = ['Tier', 'Rate Plan', 'Field', 'Expected', 'Actual', 'Status'];
+const LANDING_HEADERS        = ['Field', 'Expected', 'Actual', 'Status'];
+const MY_ACCOUNT_HEADERS     = ['Field', 'Expected', 'Actual', 'Status'];
+const CHOOSE_BUY_HEADERS     = ['Field', 'Expected', 'Actual', 'Status'];
+const PPV_PAYMENT_HEADERS    = ['Tier', 'Rate Plan', 'Field', 'Expected', 'Actual', 'Status'];
+const CONFIRMATION_HEADERS   = ['Tier', 'Field', 'Expected', 'Actual', 'Status'];
+const SUMMARY_HEADERS        = ['Metric', 'Value'];
+const PAGE_SUM_HEADERS       = ['Page', 'Total', 'Passed', 'Failed', 'Pass %'];
 
 // ── Style helpers ────────────────────────────────────────────────
 const applyStyles = (ws: XLSX.WorkSheet, data: any[]) => {
   if (!data.length) return;
-
-  // Column widths
   const colWidths = Object.keys(data[0]).map(k => ({
     wch: Math.max(
       k.length,
@@ -64,8 +66,13 @@ export const writeResults = async (
 
     const validRows = results.filter((r: any) => r?.field);
 
-    // ── Map results to sheet rows ────────────────────────────
-    const toRow = (r: any, includeVariant = false, includeTier = false, includeRatePlan = false) => {
+    // ── Row mapper ───────────────────────────────────────────
+    const toRow = (
+      r:              any,
+      includeVariant  = false,
+      includeTier     = false,
+      includeRatePlan = false
+    ) => {
       const base: any = {
         Field:    r.field    ?? '',
         Expected: r.expected ?? '',
@@ -73,15 +80,6 @@ export const writeResults = async (
         Status:   r.status   ?? '',
       };
 
-      // Add Tier column if needed
-      if (includeTier) {
-        return {
-          Tier: r.tier ?? '',
-          ...base,
-        };
-      }
-
-      // Add Tier + Rate Plan columns if needed
       if (includeRatePlan) {
         return {
           Tier:        r.tier     ?? '',
@@ -90,7 +88,10 @@ export const writeResults = async (
         };
       }
 
-      // Add Variant column if needed
+      if (includeTier) {
+        return { Tier: r.tier ?? '', ...base };
+      }
+
       if (includeVariant) {
         return { Variant: r.variant ?? '', ...base };
       }
@@ -98,7 +99,8 @@ export const writeResults = async (
       return base;
     };
 
-    // ── Filter by page ───────────────────────────────────────
+    // ── Filter by page name ──────────────────────────────────
+    // Matches ALL page names used across both specs
     const byPage = (
       pattern:        RegExp,
       includeVariant  = false,
@@ -109,14 +111,38 @@ export const writeResults = async (
         .filter((r: any) => pattern.test(String(r.page ?? '')))
         .map((r: any) => toRow(r, includeVariant, includeTier, includeRatePlan));
 
-    const scheduleRows = byPage(/^schedule$/i);
-    const landingRows  = byPage(/^landing$/i);
-    const ppvRows      = byPage(/^ppv$/i,       true,  false, false);
-    const planRows     = byPage(/^dazn plan$/i, false, true,  false);
-    const paymentRows  = byPage(/^payment$/i,   false, false, true);
+    // ── New user spec pages ───────────────────────────────────
+    const scheduleRows     = byPage(/^schedule$/i);
+    const landingRows      = byPage(/^landing$/i);
 
-    // ── Overall summary ──────────────────────────────────────
-    const allRows   = [...scheduleRows, ...landingRows, ...ppvRows, ...planRows, ...paymentRows];
+    // ── Both specs — PPV page ─────────────────────────────────
+    const ppvRows          = byPage(/^ppv$/i,                  true,  false, false);
+
+    // ── Both specs — Plan page ────────────────────────────────
+    const planRows         = byPage(/^dazn plan$/i,            false, true,  false);
+
+    // ── New user spec — Payment page ──────────────────────────
+    const paymentRows      = byPage(/^payment$/i,              false, false, true);
+
+    // ── Existing user spec pages ──────────────────────────────
+    const myAccountRows    = byPage(/^my account$/i);
+    const chooseBuyRows    = byPage(/^choose how to buy$/i);
+    const ppvPaymentRows   = byPage(/^ppv payment$/i,          false, false, true);
+    const confirmationRows = byPage(/^upgrade confirmation$/i, false, true,  false);
+
+    // ── All rows for summary ──────────────────────────────────
+    const allRows = [
+      ...scheduleRows,
+      ...landingRows,
+      ...ppvRows,
+      ...planRows,
+      ...paymentRows,
+      ...myAccountRows,
+      ...chooseBuyRows,
+      ...ppvPaymentRows,
+      ...confirmationRows,
+    ];
+
     const total     = allRows.length;
     const passCount = allRows.filter(r => r.Status === 'PASS').length;
     const failCount = allRows.filter(r => r.Status === 'FAIL').length;
@@ -134,11 +160,15 @@ export const writeResults = async (
 
     // ── Per-page summary ─────────────────────────────────────
     const pageGroups = [
-      { name: 'Schedule', rows: scheduleRows },
-      { name: 'Landing',  rows: landingRows  },
-      { name: 'PPV',      rows: ppvRows      },
-      { name: 'DAZN Plan',rows: planRows     },
-      { name: 'Payment',  rows: paymentRows  },
+      { name: 'Schedule',            rows: scheduleRows     },
+      { name: 'Landing',             rows: landingRows      },
+      { name: 'My Account',          rows: myAccountRows    },
+      { name: 'Choose How To Buy',   rows: chooseBuyRows    },
+      { name: 'PPV',                 rows: ppvRows          },
+      { name: 'DAZN Plan',           rows: planRows         },
+      { name: 'Payment',             rows: paymentRows      },
+      { name: 'PPV Payment',         rows: ppvPaymentRows   },
+      { name: 'Upgrade Confirmation',rows: confirmationRows },
     ].filter(g => g.rows.length > 0);
 
     const pageSummary = pageGroups.map(p => ({
@@ -159,8 +189,10 @@ export const writeResults = async (
       data:    any[],
       headers: string[]
     ) => {
-      const rows    = data.length ? data : [Object.fromEntries(headers.map(h => [h, '']))];
-      const ws      = XLSX.utils.json_to_sheet(rows, { header: headers });
+      const rows = data.length
+        ? data
+        : [Object.fromEntries(headers.map(h => [h, '']))];
+      const ws = XLSX.utils.json_to_sheet(rows, { header: headers });
       applyStyles(ws, rows);
 
       // Colour PASS/FAIL cells
@@ -174,7 +206,9 @@ export const writeResults = async (
         cell.s = {
           fill: {
             patternType: 'solid',
-            fgColor: { rgb: cell.v === 'PASS' ? 'C6EFCE' : 'FFC7CE' },
+            fgColor: {
+              rgb: cell.v === 'PASS' ? 'C6EFCE' : 'FFC7CE',
+            },
           },
           font: {
             color: { rgb: cell.v === 'PASS' ? '276221' : '9C0006' },
@@ -186,16 +220,33 @@ export const writeResults = async (
       XLSX.utils.book_append_sheet(wb, ws, name);
     };
 
-    // ── Always add summary sheets first ─────────────────────
+    // ── Summary sheets — always first ────────────────────────
     addSheet('Summary',      overallSummary, SUMMARY_HEADERS);
     addSheet('Page Summary', pageSummary,    PAGE_SUM_HEADERS);
 
-    // ── Page sheets — only if data exists ───────────────────
-    if (scheduleRows.length) addSheet('Schedule page',  scheduleRows, SCHEDULE_HEADERS);
-    if (landingRows.length)  addSheet('Landing page',   landingRows,  LANDING_HEADERS);
-    if (ppvRows.length)      addSheet('PPV page',       ppvRows,      PPV_HEADERS);
-    if (planRows.length)     addSheet('Dazn Plan page', planRows,     PLAN_HEADERS);
-    if (paymentRows.length)  addSheet('Payment page',   paymentRows,  PAYMENT_HEADERS);
+    // ── New user spec sheets ─────────────────────────────────
+    if (scheduleRows.length)
+      addSheet('Schedule page',  scheduleRows,  SCHEDULE_HEADERS);
+    if (landingRows.length)
+      addSheet('Landing page',   landingRows,   LANDING_HEADERS);
+
+    // ── Existing user spec sheets ────────────────────────────
+    if (myAccountRows.length)
+      addSheet('My Account',         myAccountRows,    MY_ACCOUNT_HEADERS);
+    if (chooseBuyRows.length)
+      addSheet('Choose How To Buy',  chooseBuyRows,    CHOOSE_BUY_HEADERS);
+
+    // ── Shared sheets ────────────────────────────────────────
+    if (ppvRows.length)
+      addSheet('PPV page',       ppvRows,       PPV_HEADERS);
+    if (planRows.length)
+      addSheet('Dazn Plan page', planRows,      PLAN_HEADERS);
+    if (paymentRows.length)
+      addSheet('Payment page',   paymentRows,   PAYMENT_HEADERS);
+    if (ppvPaymentRows.length)
+      addSheet('PPV Payment',    ppvPaymentRows, PPV_PAYMENT_HEADERS);
+    if (confirmationRows.length)
+      addSheet('Confirmation',   confirmationRows, CONFIRMATION_HEADERS);
 
     // ── Write file ───────────────────────────────────────────
     const timestamp = new Date()
