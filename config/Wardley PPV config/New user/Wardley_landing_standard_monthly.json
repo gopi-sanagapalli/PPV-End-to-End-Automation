@@ -28,7 +28,8 @@
       "ANNUAL_PAY_MONTHLY_CONTRACT_TEXT": "Annual contract. Auto renews",
       "ULTIMATE_FEATURE_2": "HDR and Dolby 5.1 surround sound on select events.",
       "ULTIMATE_FEATURE_3": "Every match from Lega Serie A, and highlights from LALIGA, Bundesliga and the Saudi Pro League.",
-      "TRIAL_MONTHLY_PRICE": "£25.99"
+      "TRIAL_MONTHLY_PRICE": "£25.99",
+      "CANCELLATION_TEXT": "Monthly subscription. Cancel with 30 days' notice. Your subscription auto-renews unless you cancel."
     },
     "AU": {
       "DAZN_TIER": "DAZN Standard",

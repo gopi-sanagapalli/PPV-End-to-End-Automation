@@ -28,7 +28,10 @@
       "UPFRONT_SAVE_AMOUNT": "3,500",
       "NEXT_PAYMENT_PRICE": "₹17,800",
       "BUNDLE_PRICE": "₹2,999",
-      "BUNDLE_ORIGINAL_PRICE": "₹3,906"
+      "BUNDLE_ORIGINAL_PRICE": "₹3,906",
+      "TODAY_YOU_PAY_PRICE": "₹17,800",
+      "CANCELLATION_TEXT": "You can cancel the renewal to this subscription in My Account. You will still have full access to DAZN until the end of your annual cycle.",
+      "PPV_CTA_TEXT": "Continue"
     },
     "AU": {
       "BASE_URL": "https://www.dazn.com/en-AU",

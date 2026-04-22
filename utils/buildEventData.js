@@ -114,6 +114,13 @@ function buildEventData(json, region) {
         'TODAY_YOU_PAY_PRICE',
         'CANCELLATION_TEXT',
         'RATE_PLAN_LABEL',
+        'INCLUDED_PPV2_NAME',
+        'PPV2_IMAGE_PRESENT_ULTIMATE',
+        'PPV2_INCLUDED_TAG_ULTIMATE',
+        'PPV2_DATE_TEXT_ULTIMATE',
+        'UPSELL_HIGHLIGHT_TEXT',
+        'ULTIMATE_FEATURE_1',
+        'ULTIMATE_FEATURE_1_HIGHLIGHT',
     ];
     for (const field of directFields) {
         const val = regional[field] !== undefined ? regional[field] : merged[field];

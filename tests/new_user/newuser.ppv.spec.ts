@@ -3,6 +3,7 @@ import path                            from 'path';
 import fs                              from 'fs';
 
 import { SchedulePage }                from '../../pages/schedulepage';
+import { SearchPage }                  from '../../pages/SearchPage';
 import { LandingPage }                 from '../../pages/LandingPage';
 import { SignupPage }                  from '../../pages/SignupPage';
 import { PaymentPage }                 from '../../pages/PaymentPage';
@@ -297,6 +298,36 @@ test('PPV flow via landing page', async ({ browser }) => {
         // Cookies already accepted on landing page
         await page.waitForLoadState('domcontentloaded').catch(() => {});
       }
+
+    // ══════════════════════════════════════════════════════════
+    // FLOW: SEARCH
+    // ══════════════════════════════════════════════════════════
+    } else if (flow === 'search') {
+
+      const search = new SearchPage(page);
+      await search.navigate(baseUrl);
+      await search.searchForEvent(eventData.PPV_NAME);
+      await search.clickPPVTile(eventData.PPV_NAME);
+
+      console.log('\n📋 Validating Search page...');
+      const scheduleData = readSheet('Schedule page');
+      await validateVariant(
+        page, 'schedule', scheduleData, results, eventData, 'Schedule'
+      );
+
+      await search.clickBuyNow();
+
+      await page.waitForURL(
+        (url) => url.toString().includes('PlanDetails'),
+        { timeout: 15000 }
+      ).catch(async () => {
+        await page.waitForURL(
+          (url) => !url.toString().includes('/search'),
+          { timeout: 5000 }
+        ).catch(() => {});
+      });
+
+      await setupPage(page, 1500);
 
     } else {
       throw new Error(`❌ Unknown flow: "${flow}"`);

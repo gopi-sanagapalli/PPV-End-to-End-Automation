@@ -113,7 +113,7 @@ export async function getActualValue(
   };
 
   const isPriceText = (t: string) =>
-    /^[£$$€₹]\s?[\d,]+(\.\d{2})?$$/.test(t);
+    /^(AED\s?|[£$€₹]\s?)[\d,]+(\.\d{2})?$/.test(t);
 
   const isDateText = (t: string) =>
     (/\b(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\b/i.test(t) &&
@@ -792,6 +792,8 @@ export async function getActualValue(
         n.childCount === 0 && isPriceText(n.text)
       );
       if (priceNode) {
+        // Handle multi-char currencies (AED) and single-char (£$€₹)
+        if (priceNode.text.startsWith('AED')) return 'AED';
         const match = priceNode.text.match(/^[£$€₹]/);
         if (match) return match[0];
       }
@@ -1534,7 +1536,7 @@ case 'upsell card present': {
       if (price) {
         const exact = snapFind(n =>
           n.childCount === 0 &&
-          (n.text === `${currency}${price}` ||
+          (n.text === `${currency}${price}` || n.text === `${currency} ${price}` ||
            n.text === price ||
            n.text.replace(/[^0-9.]/g, '') === price.replace(/[^0-9.]/g, '')) &&
           n.text.length < 15
