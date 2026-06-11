@@ -2,6 +2,7 @@ import { Page } from '@playwright/test';
 import { BasePage } from './BasePage';
 import { resolveExpected } from '../utils/resolveExpected';
 import { compare } from '../utils/compare';
+import { captureFailures } from '../utils/failureCapture';
 
 export class PaymentPage extends BasePage {
   constructor(page: Page) {
@@ -50,36 +51,33 @@ export class PaymentPage extends BasePage {
 
     console.log(`\n🧾 Validating Payment page — ${data.length} fields`);
 
-    // Wait for payment page to fully load
+    // Wait for payment page to fully load — single smart wait, max 6s total
     await this.page.waitForLoadState('domcontentloaded').catch(() => {});
+    await Promise.race([
+      this.page.waitForFunction(() => {
+        const body = document.body.innerText.toLowerCase();
+        return (
+          body.includes('choose how to pay') ||
+          body.includes('payment method') ||
+          body.includes('purchase summary') ||
+          body.includes('today you pay')
+        );
+      }).catch(() => {}),
+      this.page.waitForTimeout(4000),
+    ]);
 
-    await this.page.waitForFunction(() => {
-      const body = document.body.innerText.toLowerCase();
-      return (
-        body.includes('choose how to pay') ||
-        body.includes('payment method') ||
-        body.includes('purchase summary') ||
-        body.includes('today you pay')
-      );
-    }, { timeout: 3000 }).catch(() => console.log('⚠️  Payment page elements not found'));
-
-    // Wait for payment accordion sections to load (any of the options/accs)
-    await this.page.waitForSelector('section[id*="Credit"], p.accordion-cta-refined___3csKv, section[id="PayPal"], section[id="Google Pay"]', { timeout: 3000 }).catch(() => {});
-    // Wait for at least one of the payment option texts to be visible (skeleton loader finished)
-    await this.page.locator('text=/Credit.*Debit/i, text=/PayPal/i, text=/Google Pay/i').first().waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});
-
-    // Dynamically extract name from page if available to keep eventData in sync
+    // Dynamically extract name from page — fast targeted selector
     let signedInText = '';
-    const candidates = this.page.locator('p, span, div');
-    const count = await candidates.count().catch(() => 0);
-    for (let i = 0; i < count; i++) {
-      const txt = (await candidates.nth(i).textContent().catch(() => '')) || '';
-      const trimmed = txt.trim().replace(/\s+/g, ' ');
-      if (/^signed in as/i.test(trimmed) && trimmed.length < 100) {
-        signedInText = trimmed;
-        break;
+    try {
+      const signedInEl = this.page.locator('text=/signed in as/i').first();
+      if (await signedInEl.isVisible({ timeout: 1000 }).catch(() => false)) {
+        const txt = (await signedInEl.textContent({ timeout: 1000 }).catch(() => '')) || '';
+        const trimmed = txt.trim().replace(/\s+/g, ' ');
+        if (/signed in as/i.test(trimmed) && trimmed.length < 100) {
+          signedInText = trimmed;
+        }
       }
-    }
+    } catch { }
 
     if (signedInText) {
       console.log(`👤 [PaymentPage] Found live signed-in text: "${signedInText}"`);
@@ -100,9 +98,7 @@ export class PaymentPage extends BasePage {
 
     // Get full page text once
     const bodyText = (await this.page.locator('body').innerText().catch(() => '')).replace(/\u200B/g, '');
-    console.log("=== DEBUG: PAYMENT PAGE BODY TEXT ===");
-    console.log(bodyText);
-    console.log("======================================");
+    // Debug log removed for performance
 
     // Normalise flow for filtering
     const normalizedFlow = (flow || '').trim().toLowerCase();
@@ -152,7 +148,13 @@ export class PaymentPage extends BasePage {
     }
 
     const region = eventData.REGION || eventData.region || process.env.DAZN_REGION || 'GB';
+    // Capture red-boxed screenshots BEFORE validateNextPaymentDetails navigates away
+    await captureFailures(this.page, results, 'Payment');
+
     await this.validateNextPaymentDetails(region, planType, results, eventData);
+
+    // Capture any new failures from validateNextPaymentDetails
+    await captureFailures(this.page, results, 'Payment');
   }
 
   // ─────────────────────────────

@@ -29,6 +29,7 @@ import { buildEventData } from '../../utils/buildEventData';
 import { detectPageType } from '../../utils/flowHelpers';
 import { displayResultsTable } from '../../utils/resultsDisplay';
 import { writeResults } from '../../utils/excelWriter';
+import { generateReports } from '../../utils/reportGenerator';
 import { createTestUser } from '../../utils/testDataBuilder';
 import {
   sleep,
@@ -41,6 +42,7 @@ import {
   safeScrollToElement,
   clickAndWaitForNav,
   handlePopupModal,
+  assertCountryMatch,
 } from '../../utils/testHelpers';
 
 const REGION = process.env.DAZN_REGION || 'GB';
@@ -51,6 +53,21 @@ const SOURCE = process.env.SOURCE || 'landing-page-banner';
 // ═══════════════════════════════════════════════════════════════
 // RUN A SINGLE FLOW
 // ═══════════════════════════════════════════════════════════════
+
+// ── Screenshot helper for failed fields ─────────────────────────
+async function captureFailShot(page: Page, field: string): Promise<string | undefined> {
+  try {
+    const dir = path.resolve(process.cwd(), 'test-results', 'screenshots');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const safe = field.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 40);
+    const shotPath = path.join(dir, `FAIL_${safe}_${Date.now()}.jpg`);
+    await page.screenshot({ path: shotPath, type: 'jpeg', quality: 75, fullPage: false });
+    return shotPath;
+  } catch {
+    return undefined;
+  }
+}
+
 async function runFlow(
   browser: any,
   json: any,
@@ -205,6 +222,7 @@ async function runFlow(
       const searchPage = new SearchPage(page);
       await searchPage.navigate(baseUrl);
       await setupPage(page, 8000);
+      assertCountryMatch(page, region);
       let searchQuery = eventData.PPV_NAME;
       if (eventData.PPV_NAME && eventData.PPV_NAME.includes(':')) {
         searchQuery = eventData.PPV_NAME.split(':').pop()?.trim() || eventData.PPV_NAME;
@@ -247,6 +265,7 @@ async function runFlow(
             : new LandingPage(page);
       await landing.navigate(baseUrl, source, eventData);
       await setupPage(page, 8000);
+      assertCountryMatch(page, region);
 
       // If it's a bundle flow, check if the bundle section/product is present on the page.
       // Staging or certain environments/configurations may not have the bundle product active/configured.
@@ -453,7 +472,8 @@ async function runFlow(
               expectedNorm.includes(actualNorm)) ? 'PASS' : 'FAIL';
 
             console.log(`  ${status === 'PASS' ? '✅' : '❌'} [${field}]  expected="${expected}"  actual="${actual}"`);
-            results.push({ page: 'OTP Verification', field, expected, actual, status });
+            const _shotOTP = status === 'FAIL' ? await captureFailShot(page, field) : undefined;
+            results.push({ page: 'OTP Verification', field, expected, actual, status, screenshot: _shotOTP });
           }
         } catch (e: any) {
           console.warn('⚠️  OTP page validation error:', e.message);
@@ -522,7 +542,8 @@ async function runFlow(
               expectedNorm.includes(actualNorm)) ? 'PASS' : 'FAIL';
 
             console.log(`  ${status === 'PASS' ? '✅' : '❌'} [${field}]  expected="${expected}"  actual="${actual}"`);
-            results.push({ page: 'Phone Number', field, expected, actual, status });
+            const _shotPhone = status === 'FAIL' ? await captureFailShot(page, field) : undefined;
+            results.push({ page: 'Phone Number', field, expected, actual, status, screenshot: _shotPhone });
           }
         } catch (e: any) {
           console.warn('⚠️  Phone page validation error:', e.message);
@@ -575,12 +596,14 @@ async function runFlow(
             try {
               await page.screenshot({ path: `test-results/payment_fill_error_${Date.now()}.png`, fullPage: true });
             } catch { }
+            const _shotPay = await captureFailShot(page, 'Payment Completed').catch(() => undefined);
             results.push({
               page: 'Payment Success',
               field: 'Payment Completed',
               expected: 'Success page reached',
               actual: `Failed: ${paymentErr.message}`,
               status: 'FAIL',
+              screenshot: _shotPay,
             });
             throw paymentErr;
           }
@@ -1106,6 +1129,7 @@ async function runFlow(
 // ═══════════════════════════════════════════════════════════════
 test('PPV flow for new user', async ({ browser }) => {
   test.setTimeout(180_000);
+  const runStart = new Date();
 
   const json = loadEventConfig(EVENT_CONFIG);
 
@@ -1179,6 +1203,25 @@ test('PPV flow for new user', async ({ browser }) => {
     excelPath,
     videoPath,
   });
+
+  // Generate HTML + PDF run report (country, surfacing point, rate plan, per-page pass/fail, totals)
+  const { htmlPath, pdfPath } = await generateReports(results, {
+    event: json.PPV_NAME,
+    region: REGION,
+    source: flowConfig.source,
+    ratePlan: flowConfig.ratePlan,
+    tier: flowConfig.tier,
+    env: process.env.DAZN_ENV || 'prod',
+    flowName: flowConfig.name,
+    startTime: runStart,
+    endTime: new Date(),
+    excelPath,
+    videoPath,
+  });
+  if (htmlPath) console.log(`\n📊 Report: ${htmlPath}${pdfPath ? `\n📊 Report: ${pdfPath}` : ''}`);
+
+  // Close browser after test completes
+  await browser.close().catch(() => {});
 
   const passed = results.filter(r => r.status === 'PASS').length;
   const failed = results.filter(r => r.status === 'FAIL').length;
