@@ -11,12 +11,15 @@
   "devDependencies": {
     "@playwright/mcp": "^0.0.70",
     "@playwright/test": "^1.49.0",
+    "@types/dotenv": "^6.1.1",
     "ts-node": "^10.0.0",
     "typescript": "^5.0.0"
   },
   "dependencies": {
+    "dotenv": "^17.4.2",
     "exceljs": "^4.4.0",
     "fs-extra": "^11.3.4",
+    "playwright-mcp": "^0.0.19",
     "xlsx": "^0.18.5"
   }
 }

@@ -17,8 +17,8 @@ export class SchedulePage {
     await this.page.goto(this.SCHEDULE_URL, { waitUntil: 'domcontentloaded' });
     await expect(this.page).toHaveURL(/schedule/, { timeout: this.DEFAULT_TIMEOUT });
 
-    // Wait for network idle with safe timeout
-    await this.page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
+    // Wait for load state with safe timeout
+    await this.page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => {});
 
     // Wait for content to render properly
     await this.page.waitForSelector('article', {

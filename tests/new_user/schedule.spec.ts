@@ -1,71 +1,39 @@
-import { test }                        from '@playwright/test';
-import path                            from 'path';
-import fs                              from 'fs';
+import { test } from '@playwright/test';
+import path from 'path';
+import fs from 'fs';
 
-import { SchedulePage }                from '../../pages/schedulepage';
-import { LandingPage }                 from '../../pages/LandingPage';
-import { SignupPage }                  from '../../pages/SignupPage';
-import { PaymentPage }                 from '../../pages/PaymentPage';
+import { SchedulePage } from '../../pages/schedulepage';
+import { LandingPage } from '../../pages/LandingPage';
+import { SignupPage } from '../../pages/SignupPage';
+import { PaymentPage } from '../../pages/PaymentPage';
+import { StandalonePPVPage } from '../../pages/StandalonePPVPage';
 
 import {
   readSheet,
   getPPVDataByVariant,
   getPlanDataByTier,
   getPaymentDataByTierAndPlan,
-}                                      from '../../utils/excelReader';
-import { detectVariant }               from '../../flows/detectVariant';
-import { validateVariant }             from '../../flows/validateVariant';
-import { buildEventData }              from '../../utils/buildEventData';
-import { displayResultsTable }         from '../../utils/resultsDisplay';
-import { writeResults }                from '../../utils/excelWriter';
-import { createTestUser }              from '../../utils/testDataBuilder';
+  configureExcelPathForEvent,
+} from '../../utils/excelReader';
+import { detectVariant } from '../../flows/detectVariant';
+import { validateVariant } from '../../flows/validateVariant';
+import { buildEventData } from '../../utils/buildEventData';
+import { displayResultsTable } from '../../utils/resultsDisplay';
+import { writeResults } from '../../utils/excelWriter';
+import { createTestUser } from '../../utils/testDataBuilder';
 import {
   sleep,
   setupPage,
   handleCookies,
   stabilisePage,
   triggerLazyLoad,
-}                                      from '../../utils/helpers';
+} from '../../utils/helpers';
 
-const REGION       = process.env.DAZN_REGION || 'IN';
-const EVENT_CONFIG = process.env.PPV_CONFIG  ||
-  'Wardley_schedule_standard_monthly.json';
+import { loadEventConfig, handlePopupModal } from '../../utils/testHelpers';
 
-function findConfig(dir: string, filename: string): string | null {
-  if (!fs.existsSync(dir)) return null;
-  const entries = fs.readdirSync(dir, { withFileTypes: true });
-  for (const entry of entries) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      const found = findConfig(full, filename);
-      if (found) return found;
-    } else if (entry.name === filename) {
-      return full;
-    }
-  }
-  return null;
-}
+const REGION = process.env.DAZN_REGION || 'IN';
+const EVENT_CONFIG = process.env.PPV_CONFIG || 'beauty_and_beast';
 
-function loadEventConfig() {
-  const configDir = path.resolve(process.cwd(), 'config');
-
-  const directPath = path.join(configDir, EVENT_CONFIG);
-  if (fs.existsSync(directPath)) {
-    console.log(`📁 Config: ${EVENT_CONFIG}`);
-    return require(directPath);
-  }
-
-  const found = findConfig(configDir, EVENT_CONFIG);
-  if (found) {
-    console.log(`📁 Config found: ${found}`);
-    return require(found);
-  }
-
-  throw new Error(
-    `❌ Config not found: "${EVENT_CONFIG}"\n` +
-    `   Searched in: ${configDir}`
-  );
-}
 
 // ── Safe scroll helper ────────────────────────────────────────────────────────
 const safeScrollToElement = async (page: any, locator: any) => {
@@ -75,10 +43,10 @@ const safeScrollToElement = async (page: any, locator: any) => {
     await page.evaluate((el: HTMLElement) => {
       const rect = el.getBoundingClientRect();
       const inView =
-        rect.top    >= 0 &&
+        rect.top >= 0 &&
         rect.bottom <= window.innerHeight &&
-        rect.left   >= 0 &&
-        rect.right  <= window.innerWidth;
+        rect.left >= 0 &&
+        rect.right <= window.innerWidth;
       if (!inView) {
         const scrollTop = window.scrollY + rect.top - 150;
         window.scrollTo({ top: Math.max(0, scrollTop), behavior: 'instant' });
@@ -96,11 +64,11 @@ test('PPV flow', async ({ browser }) => {
     storageState: path.resolve(
       process.cwd(), 'auth/dazn-storage-state.json'
     ),
-    viewport:     null,
-    colorScheme:  'dark',
-    reducedMotion:'no-preference',
+    viewport: null,
+    colorScheme: 'dark',
+    reducedMotion: 'no-preference',
     recordVideo: {
-      dir:  'test-results/videos/',
+      dir: 'test-results/videos/',
       size: { width: 1920, height: 1080 },
     },
   });
@@ -110,22 +78,22 @@ test('PPV flow', async ({ browser }) => {
       localStorage.clear();
       sessionStorage.clear();
       localStorage.setItem('randomABPoint', Math.random().toString());
-    } catch {}
+    } catch { }
   });
 
-  const page    = await context.newPage();
+  const page = await context.newPage();
   const results: any[] = [];
 
   // ── clickAndWaitForNav ────────────────────────────────────────
   const clickAndWaitForNav = async (
-    p:     any,
-    btn:   any,
+    p: any,
+    btn: any,
     label: string
   ) => {
     console.log(`clicking: ${label}`);
     const before = p.url();
     await safeScrollToElement(p, btn);
-    await btn.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
+    await btn.waitFor({ state: 'visible', timeout: 5000 }).catch(() => { });
     await btn.click({ force: true });
     try {
       await p.waitForURL(
@@ -135,58 +103,72 @@ test('PPV flow', async ({ browser }) => {
       console.log(`navigated to: ${p.url()}`);
     } catch {
       await p.waitForLoadState('domcontentloaded', { timeout: 3000 })
-        .catch(() => {});
+        .catch(() => { });
       console.log(`navigated to: ${p.url()}`);
     }
   };
 
   // ── detectPageType ────────────────────────────────────────────
   const detectPageType = async (
-    p:           any,
+    p: any,
     pagesConfig: Record<string, { detection: string }>
-  ): Promise<'ppv' | 'plan' | 'email' | 'payment' | 'unknown'> => {
+  ): Promise<'ppv' | 'plan' | 'email' | 'payment' | 'standalone-ppv' | 'unknown'> => {
     if (!p || p.isClosed()) return 'unknown';
 
     const url = p.url();
 
-    if (url.includes('paymentDetails'))         return 'payment';
-    if (url.includes('emailDetails'))           return 'email';
-    if (url.includes('upsellTierShown=true'))   return 'ppv';
+    if (url.includes('paymentDetails')) return 'payment';
+    if (url.includes('emailDetails')) return 'email';
+    if (url.includes('upsellTierShown=true')) return 'ppv';
     if (url.includes('upsellTierSkipped=true')) return 'plan';
+
+    // Standalone check before standard plan
+    if (url.includes('page=PlanDetails') && (
+      url.toLowerCase().includes('standalone') ||
+      (await p.locator('input[type="checkbox"], button[class*="ni7RX"]').count().catch(() => 0)) > 0
+    )) {
+      return 'standalone-ppv';
+    }
 
     try {
       const n = await p.locator('input[type="email"]').count();
       if (n > 0) return 'email';
-    } catch {}
+    } catch { }
 
     const lower = await p.locator('body')
       .innerText({ timeout: 2000 })
       .then((t: string) => t.toLowerCase())
       .catch(() => '');
 
+    if (lower.includes("choose a plan") && lower.includes("choose your subscription")) {
+      const checkboxCount = await p.locator('input[type="checkbox"]').count().catch(() => 0);
+      if (checkboxCount > 0) return 'standalone-ppv';
+    }
+
     const ppvDetection = pagesConfig?.ppv?.detection?.toLowerCase() || '';
-    if (ppvDetection && lower.includes(ppvDetection))       return 'ppv';
+    if (ppvDetection && lower.includes(ppvDetection)) return 'ppv';
     if (lower.includes('subscribe without a pay-per-view')) return 'ppv';
-    if (lower.includes('choose your plan'))                 return 'ppv';
-    if (lower.includes('choose how to buy'))                return 'ppv';
-    if (lower.includes("choose a plan that's right"))       return 'plan';
-    if (lower.includes('pick a plan to go with'))           return 'plan';
+    if (lower.includes('choose your plan')) return 'ppv';
+    if (lower.includes('choose how to buy')) return 'ppv';
+    if (lower.includes("choose a plan that's right")) return 'plan';
+    if (lower.includes('pick a plan to go with')) return 'plan';
 
     return 'unknown';
   };
 
   try {
-    const json      = loadEventConfig();
+    const json = loadEventConfig(EVENT_CONFIG);
+    configureExcelPathForEvent(json.eventKey || '');
     const eventData = buildEventData(json, REGION);
 
-    const flow     = (json.flow      || 'schedule').toLowerCase();
-    const tier     = (json.TIER      || 'standard').toLowerCase();
+    const flow = (json.flow || 'schedule').toLowerCase();
+    const tier = (json.TIER || 'standard').toLowerCase();
     const ratePlan = (json.RATE_PLAN || 'monthly').toLowerCase();
 
-    const baseUrl       = eventData.BASE_URL;
-    const sport         = json.SPORT;
+    const baseUrl = eventData.BASE_URL;
+    const sport = json.SPORT;
     const variantConfig = json.variants;
-    const pagesConfig   = json.pages;
+    const pagesConfig = json.pages;
 
     console.log(`\n🔀 Flow      : ${flow}`);
     console.log(`🌍 Region    : ${REGION}`);
@@ -217,6 +199,9 @@ test('PPV flow', async ({ browser }) => {
 
       await schedule.clickBuyNow();
 
+      // Handle generic popup validations and click-through
+      await handlePopupModal(page, results, eventData, 'schedule', true);
+
       await page.waitForURL(
         (url) => url.toString().includes('PlanDetails'),
         { timeout: 15000 }
@@ -224,20 +209,20 @@ test('PPV flow', async ({ browser }) => {
         await page.waitForURL(
           (url) => !url.toString().includes('/schedule'),
           { timeout: 5000 }
-        ).catch(() => {});
+        ).catch(() => { });
       });
 
       await setupPage(page);
 
-    // ══════════════════════════════════════════════════════════
-    // FLOW: LANDING
-    // ══════════════════════════════════════════════════════════
+      // ══════════════════════════════════════════════════════════
+      // FLOW: LANDING
+      // ══════════════════════════════════════════════════════════
     } else if (flow === 'landing') {
 
       const landing = new LandingPage(page);
       await landing.navigate(baseUrl);
 
-      await page.waitForLoadState('domcontentloaded').catch(() => {});
+      await page.waitForLoadState('domcontentloaded').catch(() => { });
       await handleCookies(page);
       await stabilisePage(page);
 
@@ -251,6 +236,9 @@ test('PPV flow', async ({ browser }) => {
 
       await landing.clickBuyNow(container);
 
+      // Handle generic popup validations and click-through
+      await handlePopupModal(page, results, eventData, 'landing-page-tile', true);
+
       await page.waitForURL(
         (url) => url.toString().includes('PlanDetails'),
         { timeout: 15000 }
@@ -258,7 +246,7 @@ test('PPV flow', async ({ browser }) => {
         await page.waitForURL(
           (url) => !url.toString().includes('/welcome'),
           { timeout: 5000 }
-        ).catch(() => {});
+        ).catch(() => { });
       });
 
       await setupPage(page);
@@ -281,9 +269,9 @@ test('PPV flow', async ({ browser }) => {
     // ══════════════════════════════════════════════════════════
     // STEP 3 — FLOW LOOP  PPV → Plan → Email
     // ══════════════════════════════════════════════════════════
-    let ppvValidated  = false;
+    let ppvValidated = false;
     let planValidated = false;
-    let stuckCount    = 0;
+    let stuckCount = 0;
 
     for (let step = 0; step < 10; step++) {
 
@@ -296,6 +284,36 @@ test('PPV flow', async ({ browser }) => {
       if (pageType === 'email') {
         console.log('✅ Reached email page');
         break;
+      }
+
+      // ── STANDALONE PPV PAGE ───────────────────────────────────
+      if (pageType === 'standalone-ppv') {
+        console.log('👉 Standalone PPV page');
+        stuckCount = 0;
+
+        const standalonePPVPage = new StandalonePPVPage(page);
+
+        if (!ppvValidated) {
+          try {
+            const ppvData = readSheet('PPV page');
+            console.log(`📊 Standalone PPV rows: ${ppvData.length}`);
+            // Validate checked state
+            await standalonePPVPage.validatePPVPageChecked(ppvData, results, eventData);
+            // Validate unchecked state
+            await standalonePPVPage.validatePPVPageUnchecked(ppvData, results, eventData);
+            ppvValidated = true;
+          } catch (err: any) {
+            console.warn('⚠️ Standalone PPV page validation error:', err.message);
+          }
+        }
+
+        // Select plan
+        await standalonePPVPage.selectPlan(ratePlan === 'monthly' ? 'flex' : 'annual');
+        // Click Continue
+        await standalonePPVPage.clickContinue();
+
+        await page.waitForLoadState('domcontentloaded').catch(() => { });
+        continue;
       }
 
       // ── PPV PAGE ───────────────────────────────────────────
@@ -329,13 +347,13 @@ test('PPV flow', async ({ browser }) => {
           if (await ultimateCard.isVisible({ timeout: 3000 })
             .catch(() => false)) {
             await safeScrollToElement(page, ultimateCard);
-            await ultimateCard.click({ force: true }).catch(() => {});
+            await ultimateCard.click({ force: true }).catch(() => { });
             console.log('✅ Clicked Ultimate card');
           } else {
             const radios = page.locator('input[type="radio"]');
-            const count  = await radios.count().catch(() => 0);
+            const count = await radios.count().catch(() => 0);
             for (let i = 0; i < count; i++) {
-              const radio      = radios.nth(i);
+              const radio = radios.nth(i);
               const radioLabel = await radio
                 .locator('xpath=ancestor::label | xpath=ancestor::div[1]')
                 .first();
@@ -344,7 +362,7 @@ test('PPV flow', async ({ browser }) => {
                 .catch(() => '');
               if (text.toLowerCase().includes('ultimate')) {
                 await safeScrollToElement(page, radio);
-                await radio.click({ force: true }).catch(() => {});
+                await radio.click({ force: true }).catch(() => { });
                 console.log(`✅ Clicked Ultimate radio at index ${i}`);
                 break;
               }
@@ -357,7 +375,7 @@ test('PPV flow', async ({ browser }) => {
           if (await ppvInput.isVisible({ timeout: 1500 })
             .catch(() => false)) {
             await safeScrollToElement(page, ppvInput);
-            await ppvInput.click({ force: true }).catch(() => {});
+            await ppvInput.click({ force: true }).catch(() => { });
           }
         }
 
@@ -389,7 +407,7 @@ test('PPV flow', async ({ browser }) => {
             await page.waitForSelector(
               'input[type="radio"]',
               { timeout: 5000 }
-            ).catch(() => {});
+            ).catch(() => { });
 
             const planData = getPlanDataByTier(tier);
             console.log(`📊 Plan rows: ${planData.length}`);
@@ -410,7 +428,7 @@ test('PPV flow', async ({ browser }) => {
             if (await radio.isVisible({ timeout: 1500 })
               .catch(() => false)) {
               await safeScrollToElement(page, radio);
-              await radio.click({ force: true }).catch(() => {});
+              await radio.click({ force: true }).catch(() => { });
               console.log('✅ Selected Annual Pay Monthly');
             }
           } else if (ratePlan === 'annual pay upfront') {
@@ -418,7 +436,7 @@ test('PPV flow', async ({ browser }) => {
             if (await radio.isVisible({ timeout: 1500 })
               .catch(() => false)) {
               await safeScrollToElement(page, radio);
-              await radio.click({ force: true }).catch(() => {});
+              await radio.click({ force: true }).catch(() => { });
               console.log('✅ Selected Annual Pay Upfront');
             }
           }
@@ -446,7 +464,7 @@ test('PPV flow', async ({ browser }) => {
 
             if (await annualCard.isVisible({ timeout: 3000 }).catch(() => false)) {
               await safeScrollToElement(page, annualCard);
-              await annualCard.click({ force: true }).catch(() => {});
+              await annualCard.click({ force: true }).catch(() => { });
               console.log('✅ Clicked Annual card');
             } else {
               // Fallback — annual is nth(1)
@@ -454,7 +472,7 @@ test('PPV flow', async ({ browser }) => {
               const radio = page.locator('input[type="radio"]').nth(1);
               if (await radio.isVisible({ timeout: 1500 }).catch(() => false)) {
                 await safeScrollToElement(page, radio);
-                await radio.click({ force: true }).catch(() => {});
+                await radio.click({ force: true }).catch(() => { });
                 console.log('✅ Selected Annual radio at index 1');
               }
             }
@@ -463,9 +481,9 @@ test('PPV flow', async ({ browser }) => {
             await page.waitForTimeout(500);
 
             const planBtn = page.locator(
-              'button:has-text("Continue with Annual"), '       +
+              'button:has-text("Continue with Annual"), ' +
               'button:has-text("Continue with PPV + Annual"), ' +
-              'button:has-text("Continue with PPV"), '          +
+              'button:has-text("Continue with PPV"), ' +
               'button:has-text("Continue")'
             ).first();
             await planBtn.waitFor({ state: 'visible', timeout: 8000 })
@@ -480,7 +498,7 @@ test('PPV flow', async ({ browser }) => {
             if (await trialRadio.isVisible({ timeout: 1500 })
               .catch(() => false)) {
               await safeScrollToElement(page, trialRadio);
-              await trialRadio.click({ force: true }).catch(() => {});
+              await trialRadio.click({ force: true }).catch(() => { });
               console.log('✅ Selected Trial radio');
             }
 
@@ -517,14 +535,14 @@ test('PPV flow', async ({ browser }) => {
     if (page.isClosed()) throw new Error('❌ Page closed before email step');
 
     const signup = new SignupPage(page);
-    const user   = createTestUser();
+    const user = createTestUser();
     await signup.enterEmail(user.email);
     await signup.clickContinue();
 
     // ══════════════════════════════════════════════════════════
     // STEP 5 — PERSONAL DETAILS
     // ══════════════════════════════════════════════════════════
-    await page.waitForLoadState('domcontentloaded').catch(() => {});
+    await page.waitForLoadState('domcontentloaded').catch(() => { });
     await sleep(500);
 
     const firstNameEl = page.locator('[data-test-id="FIRST_NAME"]');
@@ -539,7 +557,7 @@ test('PPV flow', async ({ browser }) => {
     // ══════════════════════════════════════════════════════════
     // STEP 6 — PAYMENT PAGE
     // ══════════════════════════════════════════════════════════
-    await page.waitForLoadState('domcontentloaded').catch(() => {});
+    await page.waitForLoadState('domcontentloaded').catch(() => { });
     await page.waitForSelector(
       'text=/Today you pay|Next payment|free trial|payment/i',
       { timeout: 12000 }
@@ -562,8 +580,8 @@ test('PPV flow', async ({ browser }) => {
     // ══════════════════════════════════════════════════════════
     const { excelPath, videoPath } = await writeResults(results);
     displayResultsTable(results, variant, {
-      event:     eventData.PPV_NAME,
-      region:    REGION,
+      event: eventData.PPV_NAME,
+      region: REGION,
       excelPath,
       videoPath,
     });
@@ -577,10 +595,10 @@ test('PPV flow', async ({ browser }) => {
       await page.waitForTimeout(300);
       const videoPath = await page.video()?.path();
       if (videoPath) console.log(`🎥 Video saved: ${videoPath}`);
-      else           console.log('⚠️  No video found');
+      else console.log('⚠️  No video found');
     } catch (e: any) {
       console.log('⚠️  Video path error:', e.message);
     }
-    await context.close();
+    await context.close().catch(() => { });
   }
 });

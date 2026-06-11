@@ -114,6 +114,7 @@ export const writeResults = async (
     // ── New user spec pages ───────────────────────────────────
     const scheduleRows     = byPage(/^schedule$/i);
     const landingRows      = byPage(/^landing$/i);
+    const homeOfBoxingRows = byPage(/^home of boxing$/i);
 
     // ── Both specs — PPV page ─────────────────────────────────
     const ppvRows          = byPage(/^ppv$/i,                  true,  false, false);
@@ -134,6 +135,7 @@ export const writeResults = async (
     const allRows = [
       ...scheduleRows,
       ...landingRows,
+      ...homeOfBoxingRows,
       ...ppvRows,
       ...planRows,
       ...paymentRows,
@@ -162,6 +164,7 @@ export const writeResults = async (
     const pageGroups = [
       { name: 'Schedule',            rows: scheduleRows     },
       { name: 'Landing',             rows: landingRows      },
+      { name: 'Home of Boxing',      rows: homeOfBoxingRows },
       { name: 'My Account',          rows: myAccountRows    },
       { name: 'Choose How To Buy',   rows: chooseBuyRows    },
       { name: 'PPV',                 rows: ppvRows          },
@@ -229,6 +232,8 @@ export const writeResults = async (
       addSheet('Schedule page',  scheduleRows,  SCHEDULE_HEADERS);
     if (landingRows.length)
       addSheet('Landing page',   landingRows,   LANDING_HEADERS);
+    if (homeOfBoxingRows.length)
+      addSheet('Home of Boxing', homeOfBoxingRows, LANDING_HEADERS);
 
     // ── Existing user spec sheets ────────────────────────────
     if (myAccountRows.length)

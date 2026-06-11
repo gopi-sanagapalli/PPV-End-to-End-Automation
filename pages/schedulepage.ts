@@ -11,7 +11,7 @@ export class SchedulePage {
     await this.page.goto(url);
     await expect(this.page).toHaveURL(/schedule/);
     await this.page.waitForLoadState('domcontentloaded');
-    await this.page.waitForLoadState('networkidle').catch(() => {});
+    await this.page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => {});
     await this.page.waitForSelector('body', { timeout: 15000 });
 
     // Accept cookies immediately after page load
@@ -54,18 +54,39 @@ export class SchedulePage {
       'i'
     );
 
+    // Non-PPV event keywords to skip
+    const skipKeywords = [
+      'press conference', 'weigh-in', 'weigh in',
+      'preview', 'undercard', 'open workout',
+    ];
+
     await this.page.evaluate(() => window.scrollTo(0, 0));
     await this.page.waitForTimeout(300);
 
     for (let i = 0; i < 25; i++) {
-      const event = this.page
+      const articles = this.page
         .locator('article')
-        .filter({ hasText: regex })
-        .first();
+        .filter({ hasText: regex });
 
-      if (await event.isVisible().catch(() => false)) {
-        console.log('✅ Event found');
-        return event;
+      const count = await articles.count().catch(() => 0);
+
+      for (let j = 0; j < count; j++) {
+        const article = articles.nth(j);
+        if (await article.isVisible().catch(() => false)) {
+          const text = await article.innerText().catch(() => '');
+          const lower = text.toLowerCase();
+
+          // Skip non-PPV events (press conferences, weigh-ins, etc.)
+          const isNonPPV = skipKeywords.some(kw => lower.includes(kw));
+          if (isNonPPV) {
+            const label = text.split('\n').find(l => l.trim()) || text.slice(0, 40);
+            console.log(`⏭️  Skipping non-PPV: "${label.trim()}"`);
+            continue;
+          }
+
+          console.log('✅ Event found');
+          return article;
+        }
       }
 
       await this.page.evaluate(() => {
