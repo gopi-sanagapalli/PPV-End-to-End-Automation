@@ -1,15 +1,26 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-export async function loadEventConfig(
+export function loadEventConfig(
   configFile: string,
   region: string
-): Promise<Record<string, any>> {
+): Record<string, any> {
 
-  // 1 Load base config
-  const basePath = path.resolve(
-    'config/Wardley PPV config/Wardley_base.json'
-  );
+  // 1 Load base config — auto-detect base.json in the same directory or sibling
+  const configPath = path.resolve('config', configFile);
+  const configDir = path.dirname(configPath);
+  
+  // Look for base.json in the same directory, then in config root
+  let basePath = path.join(configDir, 'base.json');
+  if (!fs.existsSync(basePath)) {
+    basePath = path.resolve('config/base.json');
+  }
+  
+  if (!fs.existsSync(basePath)) {
+    console.warn('⚠️  No base config found — using flow config as-is');
+    return JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+  }
+  
   const base = JSON.parse(fs.readFileSync(basePath, 'utf-8'));
 
   // 2 Load flow config

@@ -101,5 +101,7 @@ function pageIcon(page: string): string {
   if (p.includes('ppv'))      return '🥊';
   if (p.includes('plan'))     return '📋';
   if (p.includes('payment'))  return '💳';
+  if (p.includes('otp'))      return '🔑';
+  if (p.includes('phone'))    return '📱';
   return '📄';
 }

@@ -92,5 +92,9 @@
     "creditDebitCard": "text=/Credit/i",
     "paypal": "text=/PayPal/i",
     "googlePay": "text=/Google Pay/i"
+  },
+  "banner": {
+    "activeSlide": ".swiper-slide-active:not(.swiper-slide-duplicate), [class*='swiper-slide-active']:not([class*='duplicate'])",
+    "nextButton": ".swiper-button-next, [class*='swiper-button-next']"
   }
 }

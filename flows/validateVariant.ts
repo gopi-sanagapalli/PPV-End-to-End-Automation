@@ -12,6 +12,7 @@ export const validateVariant = async (
   pageName:  string = 'PPV',
   flow?:     string   // ← new optional param: 'myaccount' | 'landing' | undefined
 ) => {
+  console.log(`🔍 validateVariant entry: pageName = "${pageName}", variant = "${variant}", hasEventData = ${!!eventData}, typeof eventData = ${typeof eventData}, keys = ${eventData ? Object.keys(eventData).join(', ') : 'none'}`);
   if (!eventData) throw new Error('❌ eventData is missing');
 
   const normalizedVariant = variant.trim().toLowerCase();
@@ -59,36 +60,42 @@ export const validateVariant = async (
   const needsScroll =
     url.includes('/schedule') ||
     url.includes('/addon/purchase') ||     // Choose How To Buy
-    url.includes('page=PlanDetails');      // DAZN Plan page
+    (url.includes('page=PlanDetails') && !url.includes('upsellTierShown=true'));      // DAZN Plan page (exclude PPV)
 
   if (needsScroll) {
-    await page.evaluate(async () => {
-      await new Promise<void>(resolve => {
-        let scrolled = 0;
-        const step   = 300;
-        const delay  = 50;
-        const timer  = setInterval(() => {
-          window.scrollBy(0, step);
-          scrolled += step;
-          if (scrolled >= document.body.scrollHeight) {
-            clearInterval(timer);
-            resolve();
-          }
-        }, delay);
-      });
-    }).catch(() => {});
+    // Multiple scroll passes to trigger all lazy-loaded content
+    for (let pass = 0; pass < 3; pass++) {
+      await page.evaluate(async () => {
+        await new Promise<void>(resolve => {
+          let scrolled = 0;
+          const step   = 300;
+          const delay  = 50;
+          const timer  = setInterval(() => {
+            window.scrollBy(0, step);
+            scrolled += step;
+            if (scrolled >= document.body.scrollHeight) {
+              clearInterval(timer);
+              resolve();
+            }
+          }, delay);
+        });
+      }).catch(() => {});
 
-    await page.waitForTimeout(200);
+      // Wait for lazy content to render between passes
+      await page.waitForTimeout(300);
+    }
+
+    // Scroll back to top and stabilize
     await page.evaluate(() => window.scrollTo(0, 0)).catch(() => {});
-    await page.waitForTimeout(100);
+    await page.waitForTimeout(500);
   }
 
-  // ── Wait for page content if on plan/upgrade pages ──────────
+  // ── Wait for page content if on plan/upgrade/PPV pages ──────
   const snapUrl = page.url();
-  if (snapUrl.includes('PlanDetails')) {
-    // Wait for plan page to load — look for radio buttons
-    await page.waitForSelector('input[type="radio"]', 
-      { state: 'visible', timeout: 3000 }
+  if (snapUrl.includes('PlanDetails') || pageName.toLowerCase().includes('ppv')) {
+    // Wait for page to load — look for radio buttons or continue button
+    await page.waitForSelector('input[type="radio"], button:has-text("Continue"), [data-test-id*="radio" i]', 
+      { state: 'visible', timeout: 5000 }
     ).catch(() => {});
 
     // FIX: If upgrade tier flow — wait for h1 to update from stale value
@@ -122,7 +129,7 @@ export const validateVariant = async (
   console.log(`📸 ${pageName} snapshot: ${snapshot.length} nodes`);
 
   // ── DEBUG — log all snapshot texts ───────────────────────────
-  if (pageName === 'PPV' || pageName === 'DAZN Plan' || pageName === 'Upgrade Confirmation') {
+  if (pageName === 'Schedule' || pageName === 'Home of Boxing' || pageName === 'PPV' || pageName === 'DAZN Plan' || pageName === 'Upgrade Confirmation' || pageName === 'Payment' || pageName === 'Bundle PPV' || pageName === 'Boxing') {
     console.log(`\n📋 Snapshot contents for ${pageName}:`);
     snapshot.forEach((n, i) => {
       console.log(
@@ -140,6 +147,11 @@ export const validateVariant = async (
   const validations = rules.map(async (rule) => {
     const field = (rule.Field || '').trim();
     if (!field) return null;
+    // Skip welcome back banner fields because there is no welcome back banner in the new UI
+    if (field.toLowerCase().includes('welcome back')) {
+      console.log(`  ⏭️  Skipping welcome back banner field validation: "${field}"`);
+      return null;
+    }
 
     // ── Skip rate plan rows that don't match current rate plan ───
     const rowRatePlan = (rule['Rate Plan'] || '').trim().toLowerCase();
@@ -156,8 +168,10 @@ export const validateVariant = async (
 
     let expected: string;
     try {
+      console.log(`🔍 validateVariant loop: field = "${field}", typeof eventData = ${typeof eventData}, eventData =`, eventData ? "defined" : "undefined");
       expected = resolveExpected(rule, eventData);
     } catch (e: any) {
+      console.error(`❌ resolveExpected threw error for ${field}:`, e);
       expected = String(rule.Expected ?? '');
     }
 

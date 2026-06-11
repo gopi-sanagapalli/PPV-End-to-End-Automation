@@ -1,18 +1,23 @@
 import { Page, Locator } from '@playwright/test';
+import { BasePage } from './BasePage';
 import selectors from '../config/selectors.json';
 
-export class SignupPage {
-  constructor(private page: Page) {}
+export class SignupPage extends BasePage {
+  constructor(page: Page) {
+    super(page);
+  }
 
   // ─────────────────────────────
   // FIND EMAIL INPUT
   // ─────────────────────────────
   async findEmailInput(): Promise<Locator | null> {
     const input = this.page.locator('input[type="email"]').first();
-    if (await input.isVisible().catch(() => false)) {
+    try {
+      await input.waitFor({ state: 'visible', timeout: 15000 });
       return input;
+    } catch {
+      return null;
     }
-    return null;
   }
 
   // ─────────────────────────────
@@ -25,17 +30,31 @@ export class SignupPage {
     await input.waitFor({ state: 'visible', timeout: 10000 });
 
     await input.click({ force: true });
+    await input.press('Meta+A').catch(() => {});
+    await input.press('Backspace').catch(() => {});
     await input.fill(emailValue);
 
     // Trigger React onChange
     await input.dispatchEvent('input');
+    await input.dispatchEvent('change');
 
-    const value = await input.inputValue();
+    let value = await input.inputValue();
+    if (value !== emailValue) {
+      console.log(`⚠️ Email fill mismatch (expected "${emailValue}", got "${value}"). Retrying with pressSequentially...`);
+      await input.click({ force: true });
+      await input.press('Meta+A').catch(() => {});
+      await input.press('Backspace').catch(() => {});
+      await input.pressSequentially(emailValue, { delay: 20 });
+      await input.dispatchEvent('input');
+      await input.dispatchEvent('change');
+      value = await input.inputValue();
+    }
+
     if (!value || value.length < 5) {
       throw new Error('❌ Email NOT entered properly');
     }
 
-    console.log(`✅ Email entered: ${emailValue}`);
+    console.log(`✅ Email entered: ${value}`);
   }
 
   // ─────────────────────────────
@@ -75,15 +94,97 @@ export class SignupPage {
 
     // Wait for form to be ready
     await firstName.waitFor({ state: 'visible', timeout: 10000 });
+    
+    // Stabilize and wait for React / MobX form stores to bind
+    await this.page.waitForTimeout(1000);
 
     // Ensure page is not closed before filling
     if (this.page.isClosed()) {
       throw new Error('❌ Page closed before filling personal details');
     }
 
+    // Fill firstName
+    await firstName.click({ force: true }).catch(() => {});
     await firstName.fill(user.firstName || 'Test');
+    await firstName.dispatchEvent('input');
+    await firstName.dispatchEvent('change');
+
+    // Fill lastName
+    await lastName.click({ force: true }).catch(() => {});
     await lastName.fill(user.lastName  || 'User');
+    await lastName.dispatchEvent('input');
+    await lastName.dispatchEvent('change');
+
+    // Fill password
+    await password.click({ force: true }).catch(() => {});
     await password.fill(user.password  || 'Test@12345');
+    await password.dispatchEvent('input');
+    await password.dispatchEvent('change');
+
+    // Phone number — required for Ultimate tier flows
+    const phoneInput = this.page.locator(
+      'input[type="tel"], input[name*="phone" i], input[name*="Phone" i], input[placeholder*="phone" i]'
+    ).first();
+
+    if (await phoneInput.isVisible({ timeout: 2000 }).catch(() => false)) {
+      const isAU = this.page.url().includes('-AU');
+      const targetCountry = isAU ? 'Australia' : 'United Kingdom';
+      const targetDial = isAU ? '+61' : '+44';
+
+      console.log(`🔍 Inspecting phone country code/flag status...`);
+      const countrySelector = this.page.locator(
+        'button[aria-label*="country" i], [class*="flag" i], [class*="country" i], [class*="dial" i], [role="combobox"], ' +
+        'div.LeLwX, img[alt*="flag" i], div[tabindex="0"]'
+      ).first();
+
+      if (await countrySelector.isVisible({ timeout: 1500 }).catch(() => false)) {
+        let text = await countrySelector.innerText().catch(() => '');
+        console.log(`ℹ️  Country selector text: "${text.trim()}"`);
+        
+        if (!text.includes(targetDial) && !text.toLowerCase().includes(targetCountry.toLowerCase())) {
+          console.log(`⚠️  Dial code or flag not loaded. Clicking selector to set "${targetCountry}"...`);
+          await countrySelector.click({ force: true }).catch(() => {});
+          await this.page.waitForTimeout(500);
+
+          const option = this.page.locator(
+            `[role="option"]:has-text("${targetCountry}"), [role="option"]:has-text("${targetDial}"), ` +
+            `li:has-text("${targetCountry}"), option:has-text("${targetCountry}"), ` +
+            `button:has-text("${targetCountry}"), div:has-text("${targetCountry}"), span:has-text("${targetCountry}")`
+          ).first();
+
+          if (await option.isVisible({ timeout: 2000 }).catch(() => false)) {
+            await option.click({ force: true });
+            console.log(`✅ Selected country option: ${targetCountry}`);
+          } else {
+            console.warn(`⚠️  Country option "${targetCountry}" not found in list. Dismissing dropdown.`);
+            await this.page.keyboard.press('Escape').catch(() => {});
+          }
+        }
+      }
+
+      // Fill the phone number directly
+      const isStag = this.page.url().includes('stag') || this.page.url().includes('dev') || this.page.url().includes('beta');
+      let defaultPhone;
+      if (isStag) {
+        if (isAU) {
+          // 04 followed by 8 random digits
+          const randomDigits = Math.floor(10000000 + Math.random() * 90000000);
+          defaultPhone = `04${randomDigits}`;
+        } else {
+          // 07 followed by 9 random digits
+          const randomDigits = Math.floor(100000000 + Math.random() * 900000000);
+          defaultPhone = `07${randomDigits}`;
+        }
+      } else {
+        defaultPhone = isAU ? '0412345678' : '07480748354';
+      }
+      const phoneNumber = user.phone || defaultPhone;
+      await phoneInput.click({ force: true });
+      await phoneInput.fill(phoneNumber);
+      await phoneInput.dispatchEvent('change');
+      await phoneInput.blur(); // Blur to trigger validation
+      console.log(`📱 Phone number entered: ${phoneNumber}`);
+    }
 
     // Small stabilization for React forms
     await this.page.waitForTimeout(500);
@@ -95,11 +196,24 @@ export class SignupPage {
   // CLICK CONTINUE (PERSONAL DETAILS)
   // ─────────────────────────────
   async clickPersonalDetailsContinue() {
+    // If the URL has already transitioned to the payment page or navigated away from personal details, skip clicking
+    const url = this.page.url().toLowerCase();
+    if (url.includes('payment') || !url.includes('personaldetails')) {
+      console.log(`ℹ️  Already navigated away from personal details page (current URL: ${url}). Skipping Continue click.`);
+      return;
+    }
+
     const btn = this.page.locator(selectors.signup.continueButtonStep2).first();
 
     await this.page.waitForTimeout(500);
 
     if (!(await btn.isVisible().catch(() => false))) {
+      // Re-verify URL in case navigation completed during the timeout
+      const urlPostTimeout = this.page.url().toLowerCase();
+      if (urlPostTimeout.includes('payment') || !urlPostTimeout.includes('personaldetails')) {
+        console.log(`ℹ️  Navigated away from personal details page during timeout (current URL: ${urlPostTimeout}). Skipping Continue click.`);
+        return;
+      }
       throw new Error('❌ Continue button NOT visible on personal details page');
     }
 

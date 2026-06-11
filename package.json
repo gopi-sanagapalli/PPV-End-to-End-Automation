@@ -17,6 +17,7 @@
   "dependencies": {
     "exceljs": "^4.4.0",
     "fs-extra": "^11.3.4",
+    "playwright-mcp": "^0.0.19",
     "xlsx": "^0.18.5"
   }
 }

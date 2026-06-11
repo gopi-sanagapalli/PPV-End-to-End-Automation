@@ -1,11 +1,13 @@
 #!/bin/bash
 
 REGION="${DAZN_REGION:-IN}"
+ENV="${DAZN_ENV:-prod}"
 SPEC="tests/new_user/ppv.spec.ts"
-CONFIG_DIR="config"
+CONFIG_DIR="config/$ENV"
 
 echo "🚀 Discovering all PPV configs in: $CONFIG_DIR"
 echo "🌍 Region: $REGION"
+echo "🌐 Env:    $ENV"
 echo ""
 
 configs=()
@@ -28,7 +30,7 @@ pids=()
 for config in "${configs[@]}"; do
   filename=$(basename "$config")
   echo "▶️  Starting: $filename"
-  DAZN_REGION=$REGION PPV_CONFIG=$filename npx playwright test $SPEC &
+  DAZN_ENV=$ENV DAZN_REGION=$REGION PPV_CONFIG=$filename npx playwright test $SPEC &
   pids+=($!)
 done
 
