@@ -156,7 +156,7 @@ test("Home page: click PPV tile in Don't Miss and validate popup", async ({ brow
   };
 
   // ── Read sheet & validate each row ──
-  const rows = getHomePageData();
+  const rows = getHomePageData("home");
   const results: Array<{ field: string; expected: string; actual: string; status: 'PASS' | 'FAIL' }> = [];
 
   for (const row of rows as any[]) {
