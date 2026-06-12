@@ -45,11 +45,11 @@ export class SportsLandingPage extends LandingPage {
     await this.page.goto(welcomeUrl, { waitUntil: 'domcontentloaded' });
     await this.page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => { });
 
-    await super.waitForConsentAndDismiss();
+
 
     console.log(`✅ Welcome page loaded: ${this.page.url()}`);
     await this.clickExplore();
-    await super.waitForConsentAndDismiss();
+
     console.log(`✅ Home page loaded: ${this.page.url()}`);
 
     const targetSport = (eventData?.SPORT || 'Boxing').trim();
@@ -114,7 +114,7 @@ export class SportsLandingPage extends LandingPage {
     }
 
     await this.page.waitForLoadState('domcontentloaded').catch(() => { });
-    await super.waitForConsentAndDismiss();
+
   }
 
   // ─────────────────────────────
@@ -156,7 +156,7 @@ export class SportsLandingPage extends LandingPage {
 
             await this.waitForSportPageContent('Boxing');
             console.log(`✅ Clicked Boxing tab — navigated to: ${this.page.url()}`);
-            await super.waitForConsentAndDismiss();
+
             return;
           }
         }
@@ -229,11 +229,16 @@ export class SportsLandingPage extends LandingPage {
             const beforeUrl = this.page.url();
             await el.click({ force: true });
 
-            await this.page.waitForURL(
+            const navigated = await this.page.waitForURL(
               (url: URL) => url.toString() !== beforeUrl,
-              { timeout: 10000 }
-            ).catch(() => {});
-            return true;
+              { timeout: 8000 }
+            ).then(() => true).catch(() => false);
+
+            if (navigated) {
+              return true;
+            } else {
+              console.log(`⚠️ Clicked sport link "${selector}" but URL did not change from "${beforeUrl}"`);
+            }
           }
         }
       }
@@ -263,8 +268,6 @@ export class SportsLandingPage extends LandingPage {
   private async waitForSportPageContent(sportName: string): Promise<void> {
     console.log(`⏳ Waiting for ${sportName} page main content to load...`);
 
-    // Dismiss consent banner
-    await super.waitForConsentAndDismiss();
 
     // Wait for network activity to settle
     await this.page.waitForLoadState('domcontentloaded').catch(() => { });
@@ -296,8 +299,7 @@ export class SportsLandingPage extends LandingPage {
       return;
     }
 
-    console.log(`⚠️ ${sportName} page content not visible — dismissing consent and waiting longer...`);
-    await super.waitForConsentAndDismiss();
+    console.log(`⚠️ ${sportName} page content not visible — waiting longer...`);
     await this.page.waitForTimeout(2000);
 
     const afterConsent = await contentReady.waitFor({ state: 'visible', timeout: 15000 })
@@ -508,8 +510,11 @@ export class SportsLandingPage extends LandingPage {
       return this.findPPVBannerSlide(eventData);
     }
 
-    // Default fallback
-    return this.findPPVBannerSlide(eventData);
+    // Strict source validation — no cross-source fallback
+    throw new Error(
+      `❌ PPV not found in expected source: "${source || 'unknown'}". ` +
+      `No fallback search will be attempted. Valid sources: home-boxing-banner, home-boxing-tile, home-boxing-upcoming.`
+    );
   }
 
   // ─────────────────────────────
@@ -659,18 +664,23 @@ export class SportsLandingPage extends LandingPage {
       return null;
     };
 
+    await railWrapper.hover({ force: true }).catch(() => { });
+    await this.page.waitForTimeout(50);
+
+    let found = await isTileInView();
+    if (found) {
+      console.log('✅ [Home Sport Tile] Tile already in view, no need to navigate rail');
+      return found;
+    }
+
     const nextBtn = railWrapper.locator('button[aria-label="Next slide"], button[class*="swiper-button-next"], .custom-swiper-button-next').first();
 
-    await nextBtn.waitFor({ state: 'attached', timeout: 5000 }).catch(() => {
-      console.log('⚠️ [Home Sport Tile] Swiper next button not attached after 5s');
+    await nextBtn.waitFor({ state: 'attached', timeout: 2000 }).catch(() => {
+      console.log('⚠️ [Home Sport Tile] Swiper next button not attached after 2s');
     });
-
-    await railWrapper.hover({ force: true }).catch(() => { });
-    await this.page.waitForTimeout(100);
 
     let clicks = 0;
     const maxClicks = 30;
-    let found = await isTileInView();
 
     while (!found && clicks < maxClicks) {
       if (this.page.isClosed()) throw new Error('Page closed during swiper navigation');

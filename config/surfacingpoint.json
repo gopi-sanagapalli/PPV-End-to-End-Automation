@@ -1,9 +1,4 @@
 {
-  "home-page-get-started": {
-    "source": "home-page-get-started",
-    "endPage": "payment",
-    "defaultSignup": true
-  },
   "landing-page-banner": {
     "source": "landing-page-banner",
     "endPage": "payment"

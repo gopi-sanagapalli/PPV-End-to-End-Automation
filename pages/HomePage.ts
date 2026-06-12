@@ -14,13 +14,13 @@ export class HomePage extends LandingPage {
     const welcomeUrl = `${baseUrl}/welcome`;
     console.log(`🌍 [HomePage] Navigating to Welcome page: ${welcomeUrl}`);
     await this.page.goto(welcomeUrl, { waitUntil: 'domcontentloaded' });
-    await this.page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => { });
+    await this.page.waitForLoadState('domcontentloaded', { timeout: 1000 }).catch(() => { });
 
-    await super.waitForConsentAndDismiss();
+
 
     console.log(`✅ [HomePage] Welcome page loaded: ${this.page.url()}`);
     await this.clickExplore();
-    await super.waitForConsentAndDismiss();
+
     console.log(`✅ [HomePage] Home page loaded: ${this.page.url()}`);
 
     // Wait for the hero banner or swiper component to render and be visible
@@ -89,8 +89,8 @@ export class HomePage extends LandingPage {
         const scrollPos = (i + 1) * 800;
         await this.page.evaluate((pos) => {
           window.scrollTo({ top: pos, behavior: 'instant' });
-        }, scrollPos).catch(() => {});
-        
+        }, scrollPos).catch(() => { });
+
         foundHeading = await railHeader.waitFor({ state: 'attached', timeout: 200 }).then(() => true).catch(() => false);
         if (foundHeading) break;
       }
@@ -148,7 +148,7 @@ export class HomePage extends LandingPage {
         // First check candidates by text
         const tileCandidates = railWrapper.locator('a[class*="tile__link" i], a[class*="tile" i], div[class*="tile" i], div[class*="card" i], a, button');
         const candidateCount = await tileCandidates.count().catch(() => 0);
-        
+
         let bestTile: any = null;
         let bestScore = 0;
 
@@ -246,7 +246,7 @@ export class HomePage extends LandingPage {
           console.log('⚠️ Next click error:', e.message);
         });
         clicks++;
-        
+
         await this.page.waitForTimeout(250);
         found = await isTileInView();
       }
@@ -320,7 +320,65 @@ export class HomePage extends LandingPage {
       return modal;
     }
 
-    return super.findPPVContainer(eventData, source);
+    // For home-page-get-started: locate the "Get Started" CTA on the welcome/home page
+    if (src === 'home-page-get-started') {
+      console.log('🔍 [HomePage] Finding "Get Started" CTA (preferring header)...');
+      
+      // Look in header first to trigger default signup flow without event context
+      let getStartedBtn = this.page.locator([
+        'header a:has-text("Get started")',
+        'header button:has-text("Get started")',
+        'header a:has-text("Sign up")',
+        'header button:has-text("Sign up")',
+        '[class*="header" i] a:has-text("Get started")',
+        '[class*="header" i] button:has-text("Get started")',
+        '[class*="header" i] a:has-text("Sign up")',
+        '[class*="header" i] button:has-text("Sign up")'
+      ].join(', ')).first();
+
+      let found = await getStartedBtn.waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false);
+
+      if (found) {
+        console.log('✅ [HomePage] Found "Get Started" CTA in header');
+        return getStartedBtn;
+      }
+
+      console.log('⚠️ [HomePage] Header "Get Started" CTA not visible — trying page-wide search');
+      getStartedBtn = this.page.locator(
+        'button:has-text("Get started "), a:has-text("Get started"), ' +
+        'button:has-text("Get started"), a:has-text("Get started")'
+      ).first();
+
+      found = await getStartedBtn.waitFor({ state: 'visible', timeout: 12000 })
+        .then(() => true)
+        .catch(() => false);
+
+      if (!found) {
+        // Scroll down to find it if not immediately visible
+        for (let i = 1; i <= 5; i++) {
+          await this.page.evaluate((pos: number) => {
+            window.scrollTo({ top: pos, behavior: 'instant' });
+          }, i * 600).catch(() => { });
+          const visible = await getStartedBtn.isVisible().catch(() => false);
+          if (visible) break;
+        }
+      }
+
+      if (!(await getStartedBtn.isVisible().catch(() => false))) {
+        throw new Error('❌ [HomePage] "Get Started" CTA not found on welcome/home page');
+      }
+
+      console.log('✅ [HomePage] "Get Started" CTA found');
+      return getStartedBtn;
+    }
+
+    // Strict source validation — no cross-source fallback
+    throw new Error(
+      `❌ PPV not found in expected source: "${source || 'unknown'}". ` +
+      `No fallback search will be attempted. Valid sources: home-page-banner, home-page-dont-miss, home-page-get-started.`
+    );
   }
 
   private async waitForModal(): Promise<any> {
@@ -352,6 +410,17 @@ export class HomePage extends LandingPage {
 
     if (src === 'home-page-banner') {
       await super.clickBuyNow(container, 'banner');
+      return;
+    }
+
+    if (src === 'home-page-get-started') {
+      console.log('🖱️ [HomePage] Clicking "Get Started" CTA...');
+      if (!container) {
+        throw new Error('❌ [HomePage] Get Started container is null');
+      }
+      await container.scrollIntoViewIfNeeded().catch(() => { });
+      await container.click({ force: true, timeout: 10000 });
+      console.log('✅ [HomePage] Clicked "Get Started" CTA');
       return;
     }
 
@@ -452,7 +521,7 @@ export class HomePage extends LandingPage {
           console.log(`📍 Profile button found via: ${selector}`);
           console.log(`📍 boundingBox: ${JSON.stringify(box)}`);
 
-          const cx = Math.round(box.x + box.width  / 2);
+          const cx = Math.round(box.x + box.width / 2);
           const cy = Math.round(box.y + box.height / 2);
           console.log(`🖱️  Clicking at: x=${cx} y=${cy}`);
 
@@ -479,12 +548,12 @@ export class HomePage extends LandingPage {
 
     // ── Wait for My Account link and click ────────────────────
     const myAccountLink = this.page.locator(
-      'a[href*="myaccount" i], '        +
-      'a:has-text("My Account"), '      +
-      'a:has-text("Account"), '         +
-      '[data-testid*="myaccount" i], '  +
-      'li:has-text("My Account") a, '   +
-      '[class*="dropdown" i] a, '       +
+      'a[href*="myaccount" i], ' +
+      'a:has-text("My Account"), ' +
+      'a:has-text("Account"), ' +
+      '[data-testid*="myaccount" i], ' +
+      'li:has-text("My Account") a, ' +
+      '[class*="dropdown" i] a, ' +
       '[class*="menu" i] a[href*="account" i]'
     ).first();
 
@@ -523,18 +592,18 @@ export class HomePage extends LandingPage {
   }
 
   private async navigateDirectly(): Promise<void> {
-    const currentUrl   = this.page.url();
+    const currentUrl = this.page.url();
     const baseUrlMatch = currentUrl.match(/(https:\/\/[a-z0-9.-]*dazn\.com\/en-[A-Z]+)/i);
-    const cleanBase    = baseUrlMatch?.[1]
-                      || this.baseUrl
-                      || this.getFallbackBaseUrl();
+    const cleanBase = baseUrlMatch?.[1]
+      || this.baseUrl
+      || this.getFallbackBaseUrl();
 
     console.log(`🔗 Direct navigation to: ${cleanBase}/myaccount`);
     await this.page.goto(`${cleanBase}/myaccount`, {
       waitUntil: 'domcontentloaded',
     });
-    await this.page.waitForURL(/myaccount/i, { timeout: 15000 }).catch(() => {});
-    await this.page.waitForLoadState('domcontentloaded').catch(() => {});
+    await this.page.waitForURL(/myaccount/i, { timeout: 15000 }).catch(() => { });
+    await this.page.waitForLoadState('domcontentloaded').catch(() => { });
     console.log(`✅ On My Account: ${this.page.url()}`);
   }
 
@@ -542,30 +611,30 @@ export class HomePage extends LandingPage {
     console.log('🔍 Checking for popups...');
     try {
       const dismissSelectors =
-        'button:has-text("Maybe later"), '   +
-        'button:has-text("Maybe Later"), '   +
-        'button:has-text("No thanks"), '     +
-        'button:has-text("No Thanks"), '     +
-        'button:has-text("Not now"), '       +
-        'button:has-text("Not Now"), '       +
-        'button:has-text("Close"), '         +
-        'button:has-text("Dismiss"), '       +
-        'button:has-text("Skip"), '          +
-        'button:has-text("Got it"), '        +
-        'button:has-text("Got It"), '        +
-        'button:has-text("OK"), '            +
-        'button:has-text("Cancel"), '        +
-        'button:has-text("Done"), '          +
-        'button:has-text("Use web version"), '  +
-        'button:has-text("Not interested"), '   +
-        'button:has-text("Remind me later"), '  +
-        'button:has-text("No, thanks"), '       +
-        '[aria-label="Close"], '             +
-        '[aria-label="close"], '             +
-        '[aria-label*="close" i], '          +
-        '[aria-label*="dismiss" i], '        +
-        '[data-testid*="close" i], '         +
-        '[data-testid*="dismiss" i], '       +
+        'button:has-text("Maybe later"), ' +
+        'button:has-text("Maybe Later"), ' +
+        'button:has-text("No thanks"), ' +
+        'button:has-text("No Thanks"), ' +
+        'button:has-text("Not now"), ' +
+        'button:has-text("Not Now"), ' +
+        'button:has-text("Close"), ' +
+        'button:has-text("Dismiss"), ' +
+        'button:has-text("Skip"), ' +
+        'button:has-text("Got it"), ' +
+        'button:has-text("Got It"), ' +
+        'button:has-text("OK"), ' +
+        'button:has-text("Cancel"), ' +
+        'button:has-text("Done"), ' +
+        'button:has-text("Use web version"), ' +
+        'button:has-text("Not interested"), ' +
+        'button:has-text("Remind me later"), ' +
+        'button:has-text("No, thanks"), ' +
+        '[aria-label="Close"], ' +
+        '[aria-label="close"], ' +
+        '[aria-label*="close" i], ' +
+        '[aria-label*="dismiss" i], ' +
+        '[data-testid*="close" i], ' +
+        '[data-testid*="dismiss" i], ' +
         '[role="dialog"] button[class*="close" i], ' +
         '[role="dialog"] button[aria-label*="close" i], ' +
         'button[class*="close" i]:not(input), ' +
@@ -586,17 +655,17 @@ export class HomePage extends LandingPage {
 
       const modal = this.page.locator(
         '[role="dialog"]:not([aria-hidden="true"]), ' +
-        '[role="alertdialog"], '                      +
+        '[role="alertdialog"], ' +
         '[class*="modal" i]:not([aria-hidden="true"]), ' +
         '[class*="overlay" i]:not([aria-hidden="true"]), ' +
-        '[class*="popup" i]:not([aria-hidden="true"]), '   +
+        '[class*="popup" i]:not([aria-hidden="true"]), ' +
         '[class*="drawer" i]:not([aria-hidden="true"])'
       ).first();
 
       if (await modal.isVisible({ timeout: 1000 }).catch(() => false)) {
         const closeBtn = modal.locator(
           'button[aria-label*="close" i], ' +
-          'button[class*="close" i], '      +
+          'button[class*="close" i], ' +
           '[data-testid*="close" i]'
         ).first();
 

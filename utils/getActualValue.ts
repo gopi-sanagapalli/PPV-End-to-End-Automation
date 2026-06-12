@@ -266,8 +266,13 @@ export async function getActualValue(
       }
       return snapFind(n =>
         n.tag === 'span' &&
-        (n.text.toLowerCase().includes('saturday') || n.text.toLowerCase().includes('sunday') || /\d{1,2}:\d{2}/.test(n.text)) &&
-        n.text.length < 30
+        (n.text.toLowerCase().includes('today') ||
+         n.text.toLowerCase().includes('tomorrow') ||
+         n.text.toLowerCase().includes('yesterday') ||
+         /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun)\b/i.test(n.text) ||
+         /\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/i.test(n.text) ||
+         /\d{1,2}:\d{2}/.test(n.text)) &&
+        n.text.length < 50
       );
     }
 
@@ -1899,6 +1904,19 @@ export async function getActualValue(
     // UPSELL PRICE
     // ════════════════════════════════════════════════════════════
     case 'upsell price': {
+      // If there is an offer, verify that the original price is present and struck off
+      const offerPrice = eventData?.UPSELL_PRICE || '';
+      const originalPrice = eventData?.UPSELL_ORIGINAL_PRICE || eventData?.['ULTIMATE_OFFER.ORIGINAL_PRICE'] || '';
+      if (originalPrice && offerPrice && originalPrice !== offerPrice) {
+        const cleanOrig = originalPrice.replace(/[£$€₹]/g, '').trim();
+        const hasStrikeOriginal = snap.some(n => n.isStrike && n.text.includes(cleanOrig));
+        if (!hasStrikeOriginal) {
+          console.warn(`⚠️  Upsell verification failed: Original price ${originalPrice} is not struck off on the page`);
+          return `Original price ${originalPrice} NOT struck off`;
+        }
+        console.log(`✅ Verified upsell: original price ${originalPrice} is struck off, offer price ${offerPrice} is displayed.`);
+      }
+
       // Try exact match against expected upsell price first
       let upsellExpected = eventData?.UPSELL_PRICE || '';
       if (!upsellExpected || upsellExpected.trim() === '' || upsellExpected.trim().toUpperCase() === 'N/A') {
@@ -5359,7 +5377,8 @@ export async function getActualValue(
     case 'banner date badge': {
       const container = page.locator('.swiper-slide-active, [class*="swiper-slide-active"]').first();
       const text = await container.textContent().catch(() => '');
-      const dateMatch = (text || '').match(/today\s+at\s+\d{2}:\d{2}|\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec).*at\s+\d{2}:\d{2}/i);
+      const dateRegex = /(?:today|tomorrow|yesterday)\s+at\s+\d{2}:\d{2}|\b(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*\s+at\s+\d{2}:\d{2}|\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/i;
+      const dateMatch = (text || '').match(dateRegex);
       return dateMatch ? dateMatch[0].trim() : (eventData?.LANDING_DATE_BADGE || eventData?.PPV_DATE || 'N/A');
     }
 

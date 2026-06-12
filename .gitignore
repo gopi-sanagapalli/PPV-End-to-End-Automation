@@ -7,3 +7,5 @@ playwright/.cache/
 *.log
 *.png
 .env
+
+reports/

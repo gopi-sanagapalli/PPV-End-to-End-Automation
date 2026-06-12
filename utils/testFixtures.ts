@@ -1,4 +1,5 @@
 import { Browser, BrowserContext, Page } from '@playwright/test';
+import { injectConsentCookies } from './helpers';
 
 /**
  * Test execution context — holds all runtime state for a single flow
@@ -26,6 +27,9 @@ export async function createTestContext(
       size: { width: 1920, height: 1080 },
     },
   });
+
+  // Pre-inject OneTrust consent cookies so banner never appears
+  await injectConsentCookies(context);
 
   await context.addInitScript(() => {
     try {

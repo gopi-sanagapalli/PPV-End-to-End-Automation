@@ -4,12 +4,13 @@
     "PPV_DISPLAY_NAME": "Fury vs. Hall",
     "SPORT": "Boxing",
     "PPV_TYPE": "boxing",
-    "OFFER_TYPE": "7_day_trial",
     "NEXT_PAYMENT_DAYS_OFFSET": 7,
+
     "global": {
       "PPV_PROMOTER": "Misfits Boxing",
       "PPV_DESCRIPTION": "The World's Strongest Man takes on the Fury dynasty in one of the biggest crossover fights to date"
     },
+
     "regions": {
       "GB": {
         "PPV_DATE": "Saturday at 22:30|Saturday at 18:00",
@@ -72,6 +73,7 @@
         "BUNDLE_TODAY_YOU_PAY_STANDARD": "$89.99"
       }
     },
+
     "variants": {
       "variant1": {
         "detection": "to watch your pay-per-view",
@@ -84,6 +86,7 @@
         "ctaText": "Continue with PPV + 7-day free trial"
       }
     },
+
     "pages": {
       "ppv": {
         "detection": "to watch your pay-per-view"
@@ -93,15 +96,18 @@
       }
     }
   },
+
   "standalone_collision": {
     "PPV_NAME": "GLORY Collision 9",
     "SPORT": "Kickboxing",
     "PPV_TYPE": "standalone",
+
     "global": {
       "PPV_PROMOTER": "Glory Kickboxing",
       "LANDING_DESCRIPTION": "A new Light Heavyweight king will be crowned as eight elite fighters battle through a one-night Grand Prix in Rotterdam.",
       "LANDING_DATE_BADGE": "Sunday at 00:30|Saturday at 20:00"
     },
+
     "regions": {
       "GB": {
         "PPV_DATE": "Sunday at 00:30|Saturday at 20:00|Sat 5:30PM",
@@ -116,17 +122,20 @@
         "UPSELL_PRICE": "£14.99"
       }
     },
+
     "upsell_ppv": {
       "UPSELL_HEADING": "Don't miss Fury vs Hall – add the PPV to your plan today.",
       "UPSELL_DESCRIPTION": "Watch the World's Strongest Man takes on the Fury dynasty in one of the biggest crossover mismatches in modern boxing|Watch the World's Strongest Man takes on the Fury dynasty in one of the biggest weight mismatches in modern boxing",
       "UPSELL_DATE": "Saturday at 18:00",
       "UPSELL_PRICE": "£14.99"
     },
+
     "pages": {
       "ppv": {
         "detection": "choose your subscription"
       }
     },
+
     "variants": {
       "variant1": {
         "detection": "subscribe without a pay-per-view",
@@ -145,11 +154,13 @@
       }
     }
   },
+
   "upsell_flow": {
     "PPV_NAME": "Zayas vs. Boots",
     "PPV_DISPLAY_NAME": "Zayas vs. Boots",
     "SPORT": "Boxing",
     "PPV_TYPE": "boxing",
+
     "global": {
       "PPV_PROMOTER": "DAZN Boxing",
       "PPV_DESCRIPTION": "Just the fight - plus 7 days of DAZN Standard, free.",
@@ -206,6 +217,7 @@
       "BET_CTA": "Activate Betting",
       "BET_DISMISS": "Maybe later"
     },
+
     "regions": {
       "GB": {
         "PPV_DATE": "Sat 27th Jun at 16:30",
@@ -223,6 +235,7 @@
         "BET_OFFER_TITLE": "DAZN Bet Offer"
       }
     },
+
     "upsell_ppv": {
       "UPSELL_HEADING": "Don't miss Fury vs Hall – add the PPV to your plan today.",
       "UPSELL_DESCRIPTION": "Watch the World's Strongest Man takes on the Fury dynasty in one of the biggest crossover mismatches in modern boxing|Watch the World's Strongest Man takes on the Fury dynasty in one of the biggest weight mismatches in modern boxing",
@@ -245,6 +258,7 @@
       "BET_CTA": "Activate Betting",
       "BET_DISMISS": "Maybe later"
     },
+
     "variants": {
       "variant1": {
         "detection": "subscribe without a pay-per-view",
@@ -262,6 +276,7 @@
         "ctaText": "Continue"
       }
     },
+
     "pages": {
       "ppv": {
         "detection": "subscribe without a pay-per-view"
@@ -271,6 +286,7 @@
       }
     }
   },
+
   "aj_joshua_prenga": {
     "PPV_NAME": "Joshua vs. Prenga",
     "PPV_DISPLAY_NAME": "Joshua vs. Prenga",
@@ -278,33 +294,40 @@
     "OFFER_TYPE": "7_day_trial",
     "PPV_TYPE": "standalone",
     "NEXT_PAYMENT_DAYS_OFFSET": 7,
+
     "global": {
       "PPV_PROMOTER": "Matchroom Boxing",
       "PPV_DATE": "25 Jul at 9:30 PM",
       "PPV_TIME": "9:30 PM",
       "PPV_DESCRIPTION": "Catch the biggest moment of the year. Select a DAZN plan to pair with your pay-per-view.",
+
       "PPV_CARD_TITLE": "Joshua v Prenga",
       "PPV_CARD_DESCRIPTION": "Just the fight - plus 7 days of DAZN Standard, free.",
       "PPV_CARD_DATE": "Sun 26th Jul at 00:30",
+
       "PPV_PAGE_TITLE": "Choose the right plan for you.",
       "PPV_PAGE_SUBTITLE": "To watch your pay-per-view, you'll need a DAZN plan.",
       "PAYMENT_PPV_LINE": "Joshua v Prenga"
     },
+
     "regions": {
       "GB": {
         "PPV_PRICE": "£24.99",
         "PPV_PRICE_RAW": "24.99",
         "TODAY_YOU_PAY_PRICE": "£24.99",
         "UPFRONT_SAVE_AMOUNT": "49.89",
+
         "PPV_DATE": "25 Jul at 9:30 PM",
         "PPV_TIME": "9:30 PM",
         "PPV_CARD_DATE": "Sun 26th Jul at 00:30",
         "BOXING_BANNER_SUBTITLE": "Main Event • 25 Jul • 9:30 pm.",
+
         "PAYMENT_PPV_PRICE": "£24.99",
         "PAYMENT_TODAY": "£24.99",
         "PAYMENT_CROSSED": "£24.99"
       }
     },
+
     "variants": {
       "variant1": {
         "detection": "to watch your pay-per-view",
@@ -317,6 +340,7 @@
         "ctaText": "Continue with PPV + 7-day free trial"
       }
     },
+
     "pages": {
       "ppv": {
         "detection": "to watch your pay-per-view"
