@@ -1,4 +1,5 @@
 import fs from 'fs';
+import { injectConsentCookies } from './helpers';
 import path from 'path';
 
 // ─────────────────────────────────────────────────────────────────
@@ -93,6 +94,9 @@ export async function createFreshContext(browser: any): Promise<{ context: any; 
     },
   });
 
+  // Pre-inject OneTrust consent cookies so banner never appears
+  await injectConsentCookies(context);
+
   await context.addInitScript(() => {
     try {
       localStorage.clear();
@@ -168,33 +172,26 @@ export async function handlePopupModal(
   ];
 
   let foundModal: any = null;
-  // Wait up to 2.5 seconds for the popup modal to appear
-  for (let attempt = 0; attempt < 12; attempt++) {
-    for (const selector of modalSelectors) {
-      const modalElements = page.locator(selector);
-      const count = await modalElements.count().catch(() => 0);
-      for (let i = 0; i < count; i++) {
-        const modal = modalElements.nth(i);
-        if (await modal.isVisible().catch(() => false)) {
-          const hasBuyNow = await modal
-            .locator(
-              'button:has-text("Buy now"), a:has-text("Buy now"), button:has-text("Buy Now"), ' +
-              'button:has-text("Subscribe"), a:has-text("Subscribe"), button:has-text("Continue"), a:has-text("Continue")'
-            )
-            .first()
-            .isVisible()
-            .catch(() => false);
-          if (hasBuyNow) {
-            foundModal = modal;
-            break;
-          }
-        }
-      }
-      if (foundModal) break;
-    }
-    if (foundModal) break;
 
-    // Check if the page navigated in the background during waiting
+  // Wait up to 2.5s for a modal with a CTA to appear (replaces polling loop)
+  const ctaSelector = 'button:has-text("Buy now"), a:has-text("Buy now"), button:has-text("Buy Now"), ' +
+    'button:has-text("Subscribe"), a:has-text("Subscribe"), button:has-text("Continue"), a:has-text("Continue")';
+
+  for (const selector of modalSelectors) {
+    const modalLocator = page.locator(selector).filter({ has: page.locator(ctaSelector) }).first();
+    try {
+      await modalLocator.waitFor({ state: 'visible', timeout: 2500 });
+      if (await modalLocator.isVisible().catch(() => false)) {
+        foundModal = modalLocator;
+        break;
+      }
+    } catch {
+      // Not found with this selector, try next
+    }
+  }
+
+  // Check if page navigated during the wait
+  if (!foundModal) {
     const intermediateUrl = page.url();
     if (
       intermediateUrl.includes('signup') ||
@@ -205,8 +202,6 @@ export async function handlePopupModal(
       console.log('ℹ️ [Popup Check] Background navigation detected. Aborting popup check.');
       return false;
     }
-
-    await page.waitForTimeout(200);
   }
 
   if (foundModal) {
@@ -284,4 +279,24 @@ export async function handlePopupModal(
     console.log('ℹ️ [Popup Check] No popup modal detected.');
     return false;
   }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// ASSERT COUNTRY MATCH
+// ─────────────────────────────────────────────────────────────────
+export function assertCountryMatch(page: any, region: string): void {
+  const url = page.url();
+  const regionLower = region.toLowerCase();
+
+  let matches = false;
+  if (regionLower === 'gb') {
+    matches = url.toLowerCase().includes('-gb') || url.toLowerCase().includes('-uk') || url.toLowerCase().includes('-gg') || url.toLowerCase().includes('-je');
+  } else {
+    matches = url.toLowerCase().includes(`-${regionLower}`);
+  }
+
+  if (!matches) {
+    throw new Error(`❌ [Country Match Check] Country mismatch: expected region "${region}" but URL is "${url}". Please ensure your VPN is connected to the correct region.`);
+  }
+  console.log(`✅ [Country Match Check] URL matches expected region "${region}": ${url}`);
 }

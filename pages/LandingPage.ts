@@ -15,11 +15,13 @@ export class LandingPage extends BasePage {
     console.log(`🌍 Navigating to: ${url}`);
     await this.page.goto(url, { waitUntil: 'domcontentloaded' });
     await this.page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => { });
+    await this.page.waitForLoadState('load', { timeout: 8000 }).catch(() => { });
     await this.dismissConsentIfPresent();
-    await this.page.waitForSelector(
-      'a:has-text("Buy now"), button:has-text("Buy now")',
-      { state: 'visible', timeout: 8000 }
-    ).catch(() => { });
+    
+    // Wait for the page structure (main content or banner or explore button) to render
+    const pageLoadedIndicator = this.page.locator('main [class*="banner"], main .swiper, a:has-text("Buy now"), button:has-text("Buy now"), button:has-text("Explore"), a:has-text("Explore")').first();
+    await pageLoadedIndicator.waitFor({ state: 'visible', timeout: 8000 }).catch(() => { });
+    
     console.log(`✅ Landed on: ${this.page.url()}`);
   }
 
@@ -27,8 +29,7 @@ export class LandingPage extends BasePage {
   // DISMISS CONSENT
   // ─────────────────────────────
   async dismissConsentIfPresent(): Promise<void> {
-    await this.page.waitForTimeout(500); // Brief pause for async cookie banner to render
-    await this.waitForConsentAndDismiss(15000);
+    // Cookies are pre-injected at context creation — no-op
   }
 
   // ─────────────────────────────
@@ -138,15 +139,15 @@ export class LandingPage extends BasePage {
     // Stop auto-slide
     await this.stopCarouselAutoSlide();
 
-    // Check if carousel exists
+    // Check if carousel exists (wait for it to become visible)
     const carousel = this.bannerCarousel();
-    if (!await carousel.isVisible({ timeout: 1500 }).catch(() => false)) {
+    if (!await carousel.waitFor({ state: 'visible', timeout: 8000 }).then(() => true).catch(() => false)) {
       console.log('⚠️  [Banner] No banner carousel found on page');
       return null;
     }
 
     // Check active slide first — try selectors.json path, then fallback to carousel content
-    const activeSlide = this.page.locator(selectors.banner.activeSlide).filter({ visible: true }).first();
+    const activeSlide = this.page.locator(selectors.banner.activeSlide).locator(':visible').first();
     let activeText = '';
     if (await activeSlide.isVisible({ timeout: 1000 }).catch(() => false)) {
       activeText = (await activeSlide.textContent().catch(() => ''))?.trim() || '';
@@ -182,9 +183,9 @@ export class LandingPage extends BasePage {
         await this.stopCarouselAutoSlide();
 
         let currentText = '';
-        let current = carousel.locator(selectors.banner.activeSlide).filter({ visible: true }).first();
+        let current = carousel.locator(selectors.banner.activeSlide).locator(':visible').first();
         if (!await current.isVisible().catch(() => false)) {
-          current = this.page.locator(selectors.banner.activeSlide).filter({ visible: true }).first();
+          current = this.page.locator(selectors.banner.activeSlide).locator(':visible').first();
         }
 
         if (await current.isVisible({ timeout: 1000 }).catch(() => false)) {
@@ -212,15 +213,31 @@ export class LandingPage extends BasePage {
 
         console.log(`  slide ${attempt + 1}: "${currentText.substring(0, 50)}..." — clicking next`);
 
+        const prevText = currentText;
         if (await nextBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
           await nextBtn.click({ force: true }).catch(() => { });
-          await this.page.waitForTimeout(500);
+          
+          // Wait up to 3 seconds for slide text to change
+          await this.page.waitForFunction((args) => {
+            const activeEl = document.querySelector(args.activeSelector);
+            const text = activeEl?.textContent?.trim() || '';
+            return text !== args.prevText;
+          }, { activeSelector: selectors.banner.activeSlide, prevText }, { timeout: 3000 }).catch(() => { });
+          
+          await this.page.waitForTimeout(800); // Wait a brief moment for swiper to fully settle
           await this.stopCarouselAutoSlide();
         } else {
           // Try clicking carousel area to trigger slide change
           console.log('⚠️  Next button not visible — trying carousel click');
           await carousel.click({ force: true }).catch(() => { });
-          await this.page.waitForTimeout(500);
+          
+          await this.page.waitForFunction((args) => {
+            const activeEl = document.querySelector(args.activeSelector);
+            const text = activeEl?.textContent?.trim() || '';
+            return text !== args.prevText;
+          }, { activeSelector: selectors.banner.activeSlide, prevText }, { timeout: 3000 }).catch(() => { });
+          
+          await this.page.waitForTimeout(800);
           await this.stopCarouselAutoSlide();
 
           if (attempt > 3) {
@@ -635,11 +652,11 @@ export class LandingPage extends BasePage {
       return this.findPPVInTileSection(eventData);
     }
 
-    // Default: try banner first, then tile
-    const bannerResult = await this.findPPVInBanner(eventData);
-    if (bannerResult) return bannerResult;
-
-    return this.findPPVInTileSection(eventData);
+    // Strict source validation — no cross-source fallback
+    throw new Error(
+      `❌ PPV not found in expected source: "${source || 'unknown'}". ` +
+      `No fallback search will be attempted. Valid sources: landing-page-banner, landing-page-dont-miss-live, welcome-rail.`
+    );
   }
 
   async clickBuyNow(container: any, source?: string): Promise<void> {
@@ -781,7 +798,7 @@ export class LandingPage extends BasePage {
           buyNowBtn = targetContainer;
         } else if (src.includes('banner')) {
           // If it's a banner slide, find any visible link or button inside the slide
-          const anyBtn = targetContainer.locator('a, button, [role="button"]').filter({ visible: true }).first();
+          const anyBtn = targetContainer.locator('a, button, [role="button"]').locator(':visible').first();
           if (await anyBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
             console.log('✅ Found custom CTA button inside banner slide');
             buyNowBtn = anyBtn;

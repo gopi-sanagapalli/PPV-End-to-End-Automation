@@ -8,6 +8,7 @@ import { SignupPage } from '../../pages/SignupPage';
 import { PaymentPage } from '../../pages/PaymentPage';
 import { PaymentFillPage } from '../../pages/PaymentFillPage';
 import { StandalonePPVPage } from '../../pages/StandalonePPVPage';
+import { DefaultSignupPage } from '../../pages/DefaultSignupPage';
 
 import { readStandaloneSheet } from '../../utils/standaloneExcelReader';
 import { configureExcelPathForEvent } from '../../utils/excelReader';
@@ -21,6 +22,7 @@ import {
   setupPage,
   handleCookies,
   stabilisePage,
+  injectConsentCookies,
 } from '../../utils/helpers';
 import {
   loadEventConfig,
@@ -191,12 +193,10 @@ Object.defineProperty(getActualValueModule, 'getActualValue', {
            n.text.toLowerCase().includes('yesterday at') ||
            n.text.toLowerCase().includes('tomorrow at') ||
            /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun)\b.*at\s*\d{2}:\d{2}/i.test(n.text) ||
+           /\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/i.test(n.text) ||
            /\d{1,2}\s*(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec).*at\s*\d{2}:\d{2}/i.test(n.text))
         );
-        if (node) {
-          return eventData?.PPV_DATE || node.text.trim();
-        }
-        return 'N/A';
+        return node ? node.text.trim() : 'N/A';
       }
 
       if (key === 'section label') {
@@ -300,6 +300,9 @@ async function runFlow(
       size: { width: 1920, height: 1080 },
     },
   });
+
+  // Pre-inject OneTrust consent cookies so banner never appears
+  await injectConsentCookies(context);
 
   const page = await context.newPage();
 
@@ -453,6 +456,28 @@ async function runFlow(
       await handleCookies(page, step === 0 ? 8000 : 1500);
       await stabilisePage(page);
       console.log(`\nstep ${step + 1} → pageType: ${pageType} | url: ${page.url()}`);
+
+      if (pageType === 'default-signup') {
+        console.log('👉 Default Signup page');
+        stuckCount = 0;
+
+        if (!ppvValidated) {
+          try {
+            const ppvData = readStandaloneSheet('PPV page');
+            console.log(`📊 PPV rows (Default Signup): ${ppvData.length}`);
+            const defaultSignupPage = new DefaultSignupPage(page);
+            await defaultSignupPage.validate(ppvData, results, eventData, 'variant1');
+          } catch (e: any) {
+            console.warn('⚠️ Default Signup validation error:', e.message);
+          }
+          ppvValidated = true;
+        }
+
+        const defaultSignupPage = new DefaultSignupPage(page);
+        await defaultSignupPage.clickContinueWithPPV();
+        await page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => {});
+        continue;
+      }
 
       if (pageType === 'standalone-ppv') {
         console.log('👉 Standalone PPV page');

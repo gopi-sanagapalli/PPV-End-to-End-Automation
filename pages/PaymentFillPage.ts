@@ -55,7 +55,7 @@ export class PaymentFillPage extends BasePage {
         continue;
       }
 
-      await frame.waitForLoadState('domcontentloaded').catch(() => {});
+      await frame.waitForLoadState('domcontentloaded').catch(() => { });
       const inputCount = await frame.locator('input').count().catch(() => 0);
       if (inputCount > 0) return frame;
 
@@ -173,7 +173,7 @@ export class PaymentFillPage extends BasePage {
     // Wait up to 30 seconds for success indicators or url change
     for (let attempt = 0; attempt < 15; attempt++) {
       if (this.page.isClosed()) throw new Error('Page closed during payment processing');
-      
+
       const currentUrl = this.page.url();
       if (
         currentUrl.includes('success') ||
@@ -222,7 +222,7 @@ export class PaymentFillPage extends BasePage {
     ).first();
 
     if (await continueBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await continueBtn.click({ force: true }).catch(() => {});
+      await continueBtn.click({ force: true }).catch(() => { });
       console.log('✅ Clicked success CTA');
     } else {
       console.log('ℹ️ No explicit Continue button found on success page (or auto-redirected)');

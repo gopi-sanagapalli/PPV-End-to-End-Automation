@@ -453,6 +453,28 @@ export function buildEventData(
       : base.MONTHLY_PRICE;
   }
 
+  // Dynamically resolve UPSELL_PRICE and UPSELL_ORIGINAL_PRICE from plans.json if not set
+  if (!base.UPSELL_PRICE) {
+    try {
+      const plansPath = path.resolve(process.cwd(), 'config/plans.json');
+      const plans = JSON.parse(fs.readFileSync(plansPath, 'utf-8'));
+      const ultimateApmRegion = plans.ultimate_apm?.regions?.[region.toUpperCase()];
+      const offer = ultimateApmRegion?.offers?.find((o: any) => o.name === 'ultimate_offer' && o.enabled === true);
+      if (offer) {
+        base.UPSELL_PRICE = `${base.CURRENCY || '£'}${offer.OFFER_PRICE}`;
+        base.UPSELL_ORIGINAL_PRICE = `${base.CURRENCY || '£'}${offer.ORIGINAL_PRICE}`;
+        console.log(`💡 Resolved dynamic UPSELL_PRICE from plans.json: ${base.UPSELL_PRICE} and UPSELL_ORIGINAL_PRICE: ${base.UPSELL_ORIGINAL_PRICE}`);
+      } else {
+        const standardUltimatePrice = ultimateApmRegion?.ANNUAL_PAY_MONTHLY_PRICE || '24.99';
+        base.UPSELL_PRICE = `${base.CURRENCY || '£'}${standardUltimatePrice}`;
+        base.UPSELL_ORIGINAL_PRICE = `${base.CURRENCY || '£'}${standardUltimatePrice}`;
+        console.log(`💡 Resolved fallback UPSELL_PRICE from plans.json: ${base.UPSELL_PRICE}`);
+      }
+    } catch (e: any) {
+      console.warn('⚠️ Failed to load plans.json for UPSELL_PRICE default:', e.message);
+    }
+  }
+
   const upsellPrice = base.UPSELL_PRICE || '';
   const ppvPrice = base.PPV_PRICE || '';
   const offerAvailable = base.OFFER_AVAILABLE === 'true';

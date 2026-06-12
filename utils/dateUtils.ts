@@ -108,3 +108,178 @@ export function formatRenewalDateUS(): string {
 
   return `${mm}/${dd}/${yyyy}`;
 }
+
+export function parseConfigDate(configStr: string, referenceDate: Date = new Date()): Date {
+  const clean = configStr.toLowerCase().replace(/\bat\b/g, ' ').replace(/\s+/g, ' ').trim();
+  
+  const months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+  const fullMonths = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+  
+  let monthIdx = -1;
+  let dayNum = -1;
+  
+  for (let i = 0; i < 12; i++) {
+    if (clean.includes(months[i]) || clean.includes(fullMonths[i])) {
+      monthIdx = i;
+      break;
+    }
+  }
+  
+  if (monthIdx !== -1) {
+    const dayMatch = clean.match(/\b(\d{1,2})(?:st|nd|rd|th)?\b/);
+    if (dayMatch) {
+      dayNum = parseInt(dayMatch[1], 10);
+    }
+  }
+  
+  let hours = 20;
+  let minutes = 0;
+  const timeMatch = clean.match(/(\d{1,2}):(\d{2})\s*(pm|am)?/);
+  if (timeMatch) {
+    hours = parseInt(timeMatch[1], 10);
+    minutes = parseInt(timeMatch[2], 10);
+    const ampm = timeMatch[3];
+    if (ampm === 'pm' && hours < 12) hours += 12;
+    if (ampm === 'am' && hours === 12) hours = 0;
+  }
+  
+  if (monthIdx !== -1 && dayNum !== -1) {
+    const targetDate = new Date(referenceDate);
+    targetDate.setMonth(monthIdx);
+    targetDate.setDate(dayNum);
+    targetDate.setHours(hours, minutes, 0, 0);
+    targetDate.setFullYear(referenceDate.getFullYear());
+    
+    if (targetDate.getTime() < referenceDate.getTime() - 30 * 24 * 3600 * 1000) {
+      targetDate.setFullYear(referenceDate.getFullYear() + 1);
+    }
+    return targetDate;
+  }
+  
+  const weekdays = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+  let weekdayIdx = -1;
+  for (let i = 0; i < 7; i++) {
+    if (clean.includes(weekdays[i]) || clean.includes(weekdays[i].substring(0, 3))) {
+      weekdayIdx = i;
+      break;
+    }
+  }
+  
+  if (weekdayIdx !== -1) {
+    const targetDate = new Date(referenceDate);
+    targetDate.setHours(hours, minutes, 0, 0);
+    
+    const refDay = referenceDate.getDay();
+    let daysDiff = weekdayIdx - refDay;
+    if (daysDiff < 0) {
+      daysDiff += 7;
+    } else if (daysDiff === 0) {
+      const temp = new Date(targetDate);
+      if (temp.getTime() < referenceDate.getTime()) {
+        daysDiff += 7;
+      }
+    }
+    targetDate.setDate(targetDate.getDate() + daysDiff);
+    return targetDate;
+  }
+  
+  const fallbackDate = new Date(referenceDate);
+  fallbackDate.setDate(fallbackDate.getDate() + 1);
+  return fallbackDate;
+}
+
+function getDynamicDateBadgeSingle(configStr: string, referenceDate: Date = new Date()): string {
+  if (configStr.toUpperCase() === 'N/A' || !configStr.trim()) {
+    return configStr;
+  }
+  const eventDate = parseConfigDate(configStr, referenceDate);
+  
+  const refDateStart = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), referenceDate.getDate());
+  const eventDateStart = new Date(eventDate.getFullYear(), eventDate.getMonth(), eventDate.getDate());
+  const diffTime = eventDateStart.getTime() - refDateStart.getTime();
+  const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+  
+  const hours = eventDate.getHours();
+  const minutes = String(eventDate.getMinutes()).padStart(2, '0');
+  
+  const time24 = `${String(hours).padStart(2, '0')}:${minutes}`;
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  const hours12 = hours % 12 || 12;
+  const time12 = `${hours12}:${minutes}${ampm}`;
+  const time12Spaced = `${hours12}:${minutes} ${ampm}`;
+  const time12Lower = `${hours12}:${minutes}${ampm.toLowerCase()}`;
+  const time12LowerSpaced = `${hours12}:${minutes} ${ampm.toLowerCase()}`;
+  
+  const times = [time24, time12, time12Spaced, time12Lower, time12LowerSpaced];
+  
+  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const fullDayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const dayName = dayNames[eventDate.getDay()];
+  const fullDayName = fullDayNames[eventDate.getDay()];
+  
+  const candidates = new Set<string>();
+  
+  // Helper to add day-of-week variations
+  const addDayVariations = (day: string) => {
+    for (const t of times) {
+      candidates.add(`${day} at ${t}`);
+      candidates.add(`${day} ${t}`);
+      candidates.add(`${day.toUpperCase()} at ${t}`);
+      candidates.add(`${day.toUpperCase()} ${t}`);
+      candidates.add(`${day.toLowerCase()} at ${t}`);
+      candidates.add(`${day.toLowerCase()} ${t}`);
+    }
+  };
+  
+  if (diffDays === 1) {
+    for (const t of times) {
+      candidates.add(`Tomorrow at ${t}`);
+      candidates.add(`Tomorrow ${t}`);
+      candidates.add(`tomorrow at ${t}`);
+      candidates.add(`tomorrow ${t}`);
+    }
+    addDayVariations(dayName);
+    addDayVariations(fullDayName);
+  } else if (diffDays === 0) {
+    for (const t of times) {
+      candidates.add(`Today at ${t}`);
+      candidates.add(`Today ${t}`);
+      candidates.add(`today at ${t}`);
+      candidates.add(`today ${t}`);
+    }
+    addDayVariations(dayName);
+    addDayVariations(fullDayName);
+  } else if (diffDays > 1 && diffDays <= 7) {
+    addDayVariations(dayName);
+    addDayVariations(fullDayName);
+  } else {
+    // Far date
+    const dayNum = eventDate.getDate();
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const fullMonthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    const monthName = monthNames[eventDate.getMonth()];
+    const fullMonthName = fullMonthNames[eventDate.getMonth()];
+    
+    const formats = [
+      `${dayNum} ${monthName}`,
+      `${dayNum} ${fullMonthName}`,
+      `${dayNum} ${monthName.toUpperCase()}`,
+      `${dayNum} ${fullMonthName.toUpperCase()}`,
+    ];
+    
+    for (const f of formats) {
+      candidates.add(f);
+      for (const t of times) {
+        candidates.add(`${f} at ${t}`);
+        candidates.add(`${f} ${t}`);
+      }
+    }
+  }
+  
+  return Array.from(candidates).join('|');
+}
+
+export function getDynamicDateBadge(configStr: string, referenceDate: Date = new Date()): string {
+  if (!configStr) return '';
+  return configStr.split('|').map(part => getDynamicDateBadgeSingle(part, referenceDate)).join('|');
+}

@@ -27,6 +27,7 @@ import {
   handleCookies,
   stabilisePage,
   triggerLazyLoad,
+  injectConsentCookies,
 } from '../../utils/helpers';
 
 import { loadEventConfig, handlePopupModal } from '../../utils/testHelpers';
@@ -72,6 +73,9 @@ test('PPV flow', async ({ browser }) => {
       size: { width: 1920, height: 1080 },
     },
   });
+
+  // Pre-inject OneTrust consent cookies so banner never appears
+  await injectConsentCookies(context);
 
   await context.addInitScript(() => {
     try {
