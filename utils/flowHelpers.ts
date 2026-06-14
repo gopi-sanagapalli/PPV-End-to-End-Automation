@@ -53,20 +53,21 @@ export async function detectPageType(
 
   // ── URL-based detection ──────────────
   const url = p.url();
+  const urlLower = url.toLowerCase();
 
   // Phone/OTP pages (highest priority URL checks)
-  if (url.includes('PhoneNumberCollection')) return 'phone';
-  if (url.includes('PhoneVerification') || url.includes('otpVerification')) return 'otp';
+  if (urlLower.includes('phonenumbercollection')) return 'phone';
+  if (urlLower.includes('phoneverification') || urlLower.includes('otpverification')) return 'otp';
 
   // Payment page
-  if (url.includes('paymentDetails') || url.includes('page=payment')) return 'payment';
+  if (urlLower.includes('paymentdetails') || urlLower.includes('page=payment')) return 'payment';
 
   // Personal details / Email page — MUST be before upsellTierSelected check
-  if (url.includes('page=personalDetails')) return 'email';
-  if (url.includes('emailDetails')) return 'email';
+  if (urlLower.includes('page=personaldetails')) return 'email';
+  if (urlLower.includes('emaildetails')) return 'email';
 
   // Plan page detection with planClickCount guard
-  if (url.includes('upsellTierSelected=true')) {
+  if (urlLower.includes('upselltierselected=true')) {
     if (planClickCount >= 1) return 'email';
     return 'plan';
   }
@@ -77,36 +78,37 @@ export async function detectPageType(
   // Normal PPV page only has "Continue with pay-per-view".
   if (
     process.env.DEFAULT_SIGNUP === 'true' &&
-    url.includes('upsellTierShown=true') &&
+    urlLower.includes('upselltiershown=true') &&
     body.includes('subscribe without a pay-per-view')
   ) {
     return 'default-signup';
   }
 
-  if (url.includes('upsellTierShown=true')) return 'ppv';
-  if (url.includes('upsellTierSkipped=true')) return 'plan';
+  if (urlLower.includes('upselltiershown=true')) return 'ppv';
+  if (urlLower.includes('upselltierskipped=true')) return 'plan';
   
   // Standalone/Glory PPV page detection (must be before general page=PlanDetails check)
-  if (url.includes('page=PlanDetails') && (
-    url.toLowerCase().includes('standalone') || 
+  // Relies on structural indicators (checkbox/toggle) rather than event-name keywords
+  // which could appear on ANY page (e.g., "GLORY Collision 9" in headers/breadcrumbs).
+  if (urlLower.includes('page=plandetails') && (
+    urlLower.includes('standalone') || 
     body.toLowerCase().includes('standalone') ||
-    body.toLowerCase().includes('collision') ||
     (await p.locator('input[type="checkbox"], button[class*="ni7RX"]').count().catch(() => 0)) > 0
   )) {
     return 'standalone-ppv';
   }
 
-  if (url.includes('page=PlanDetails')) return 'plan';
-  if (url.includes('page=TierPlans')) return 'plan';
+  if (urlLower.includes('page=plandetails')) return 'plan';
+  if (urlLower.includes('page=tierplans')) return 'plan';
 
   // PPV page detection via contextualPpvId query param (before email fallback)
-  if (url.includes('/signup') && url.includes('contextualPpvId=') && !url.includes('page=')) {
+  if (urlLower.includes('/signup') && urlLower.includes('contextualppvid=') && !urlLower.includes('page=')) {
     return 'ppv';
   }
 
   // ── Rest of fallbacks ─────────────────────────
   // Email/signup page
-  if (url.includes('/signup') && !url.includes('PlanDetails')) return 'email';
+  if (urlLower.includes('/signup') && !urlLower.includes('plandetails')) return 'email';
 
   try {
     const emailCount = await p.locator('input[type="email"]').count();

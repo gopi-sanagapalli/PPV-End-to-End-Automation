@@ -215,6 +215,21 @@ export async function getPageSnapshot(page: Page): Promise<DOMNode[]> {
           return closest !== null && closest.tagName !== 'BODY' && closest.tagName !== 'HTML';
         });
 
+      const isInInactiveSlide = (el: Element): boolean => {
+        const slide = el.closest('.swiper-slide, [class*="swiper-slide"]');
+        if (!slide) return false;
+        const isHero = el.closest([
+          'main [class*="banner"]',
+          'main [class*="hero"]',
+          'main .swiper',
+          'section[class*="banner"]',
+          '[class*="heroBanner"]',
+          '[class*="hero-banner"]',
+        ].join(', '));
+        if (!isHero) return false;
+        return slide.closest('.swiper-slide-active, [class*="swiper-slide-active"]') === null;
+      };
+
       // OPTIMIZED: avoid getComputedStyle — use offsetWidth/Height + inline style checks
       // getComputedStyle forces a full style recalculation per element and blocks the thread
       const isRendered = (el: HTMLElement): boolean => {
@@ -225,14 +240,32 @@ export async function getPageSnapshot(page: Page): Promise<DOMNode[]> {
         if (style.opacity === '0') return false;
         // Check for hidden attribute
         if (el.hidden) return false;
+        if (isInInactiveSlide(el)) return false;
         return true;
       };
 
-      // OPTIMIZED: avoid getComputedStyle — use only DOM-based checks
+      // OPTIMIZED: avoid getComputedStyle — use only DOM-based checks, except for price elements
       const isStrikethrough = (el: HTMLElement): boolean => {
         if (el.closest('del, s') !== null) return true;
         if (el.closest('[style*="line-through"]') !== null) return true;
         if (el.closest('[class*="strike" i], [class*="line-through" i], [class*="crossed" i], [class*="original" i]') !== null) return true;
+        
+        // Target specifically text elements that look like prices or contain numbers
+        const txt = el.textContent || '';
+        if (txt.includes('£') || txt.includes('$') || txt.includes('€') || txt.includes('₹') || /\d/.test(txt)) {
+          // Walk up parent elements — text-decoration is NOT inherited via CSS,
+          // so the line-through may be on a parent element (e.g. parent div with the class)
+          let current: HTMLElement | null = el;
+          for (let depth = 0; depth < 8 && current; depth++) {
+            try {
+              const style = window.getComputedStyle(current);
+              if (style.textDecoration.includes('line-through') || style.textDecorationLine.includes('line-through')) {
+                return true;
+              }
+            } catch (e) {}
+            current = current.parentElement;
+          }
+        }
         return false;
       };
 

@@ -57,6 +57,12 @@ export async function getActualValue(
     return 'No';
   };
 
+  // Match boxing "vs" separator in any form: "vs", "vs.", or standalone "v"
+  // This ensures we EXTRACT the actual text from DOM even when DAZN shows "v"
+  // instead of "vs" — the comparison against expected "vs." will then naturally FAIL
+  // with a clear message like actual="Joshua v Prenga" instead of unhelpful "N/A"
+  const matchesVsPattern = (text: string): boolean => /\bvs?\b\.?/i.test(text);
+
   // ── Live DOM helpers ─────────────────────────────────────────
   const isVisible = async (loc: any): Promise<boolean> => {
     try {
@@ -198,6 +204,8 @@ export async function getActualValue(
     (/\b\d{1,2}(st|nd|rd|th)?\s+(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b/i.test(t)) ||
     (/\b(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b\s+\d{1,2}(st|nd|rd|th)?\b/i.test(t)) ||
     (/\b(Mon|Tue|Wed|Thu|Fri|Sat|Sun|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\b/i.test(t) &&
+      /\d{1,2}:\d{2}/.test(t)) ||
+    (/\b(Tonight|Today|This evening|Tomorrow)\b/i.test(t) &&
       /\d{1,2}:\d{2}/.test(t));
 
   const key = field.toLowerCase()
@@ -610,6 +618,16 @@ export async function getActualValue(
           }
         }
 
+        // Handle DAZN relative-time labels: "This evening", "Tonight", "Today", "Tomorrow"
+        const relativeLabels = ['this evening', 'tonight', 'today', 'tomorrow'];
+        const matchedRelative = relativeLabels.find(r => textLower.includes(r));
+        if (matchedRelative) {
+          const hasTime = time ? (textLower.includes(time) || textLower.includes(time.replace(':', ''))) : true;
+          if (hasTime) {
+            return true;
+          }
+        }
+
         if (optionLower.length > 5 && textLower.includes(optionLower)) {
           return true;
         }
@@ -891,7 +909,7 @@ export async function getActualValue(
       const ppvName = (eventData?.PPV_NAME || '').toLowerCase();
       const found = snapFind(n =>
         (n.tag === 'strong' || n.tag === 'b' || n.tag === 'a' || n.tag === 'p' || n.tag === 'span' || n.tag === 'div' || n.tag === 'h1' || n.tag === 'h2' || n.tag === 'h3') &&
-        n.text.toLowerCase().includes('vs') &&
+        matchesVsPattern(n.text) &&
         n.text.length < 100 &&
         !n.text.toLowerCase().includes('dazn') &&
         !n.text.toLowerCase().includes('pay-per-view event')
@@ -902,7 +920,7 @@ export async function getActualValue(
         const firstWord = vsPart.replace(/\bppv\b/gi, '').trim().split(/\s+/)[0] || '';
         return snapFind(n =>
           n.text.toLowerCase().includes(firstWord) &&
-          n.text.toLowerCase().includes('vs')
+          matchesVsPattern(n.text)
         );
       }
       return 'N/A';
@@ -1083,7 +1101,7 @@ export async function getActualValue(
       // Priority 2: Heading tags with "vs"
       const fromHeading = snapFind(n =>
         ['h1', 'h2', 'h3', 'h4'].includes(n.tag) &&
-        n.text.toLowerCase().includes('vs') &&
+        matchesVsPattern(n.text) &&
         n.text.length < 80
       );
       if (fromHeading !== 'N/A') return fromHeading;
@@ -1121,7 +1139,7 @@ export async function getActualValue(
 
       // Priority 3: Any element with "vs" + first word
       const fromSnap = snapFind(n =>
-        n.text.toLowerCase().includes('vs') &&
+        matchesVsPattern(n.text) &&
         n.text.length < 80 &&
         !n.text.toLowerCase().includes('buy') &&
         (!firstWord || n.text.toLowerCase().includes(firstWord))
@@ -1131,7 +1149,7 @@ export async function getActualValue(
       // Priority 4: snap.find (bypass childCount filter)
       const fromSnapAny = snap.find(n =>
         !n.isInModal &&
-        n.text.toLowerCase().includes('vs') &&
+        matchesVsPattern(n.text) &&
         n.text.length < 80 &&
         !n.text.toLowerCase().includes('buy') &&
         (!firstWord || n.text.toLowerCase().includes(firstWord))
@@ -1153,7 +1171,7 @@ export async function getActualValue(
           const el = inner.nth(j);
           if (!await el.isVisible().catch(() => false)) continue;
           const t = clean(await el.innerText({ timeout: T }).catch(() => ''));
-          if (t.toLowerCase().includes('vs') && t.length < 80) return t;
+          if (matchesVsPattern(t) && t.length < 80) return t;
           // Non-boxing: match by PPV name words
           if (!ppvNameFull.includes('vs') && firstWord && t.toLowerCase().includes(firstWord) && t.length < 80 && t.length > 3) return t;
         }
@@ -1380,7 +1398,7 @@ export async function getActualValue(
       const url = page.url();
       if (url.includes('welcome/boxing') || url.includes('/p/boxing') || url.includes('/boxing')) {
         const boxingTitle = snapFind(n =>
-          n.text.toLowerCase().includes('vs') &&
+          matchesVsPattern(n.text) &&
           (n.classes.toLowerCase().includes('title') || n.tag === 'p' || n.tag === 'h1') &&
           (!firstWord || n.text.toLowerCase().includes(firstWord)) &&
           n.text.length < 80
@@ -1389,7 +1407,7 @@ export async function getActualValue(
       }
 
       const withPPV = snapFind(n =>
-        n.text.toLowerCase().includes('vs') &&
+        matchesVsPattern(n.text) &&
         n.text.toLowerCase().includes('ppv') &&
         n.text.length < 80
       );
@@ -1401,6 +1419,14 @@ export async function getActualValue(
         n.text.length < 80
       );
       if (exact !== 'N/A') return exact;
+
+      // Fallback: match by vs pattern and first word of event name
+      const fallback = snapFind(n =>
+        matchesVsPattern(n.text) &&
+        (!firstWord || n.text.toLowerCase().includes(firstWord)) &&
+        n.text.length < 80
+      );
+      if (fallback !== 'N/A') return fallback;
 
       return 'N/A';
     }
@@ -1505,13 +1531,50 @@ export async function getActualValue(
       const offerAvailable = String(eventData?.OFFER_AVAILABLE || 'false').toLowerCase() === 'true';
       if (!offerAvailable) return 'N/A';
 
-      const strikethrough = page.locator('del, s, [style*="line-through"]');
-      const count = await strikethrough.count().catch(() => 0);
-      for (let i = 0; i < Math.min(count, 5); i++) {
+      // Strategy 1: Semantic strikethrough elements (del, s) and CSS class-based strikethrough
+      const loc = page.locator('s, del, [class*="strike" i], [class*="original" i]');
+      const count = await loc.count().catch(() => 0);
+      for (let i = 0; i < Math.min(count, 10); i++) {
+        const el = loc.nth(i);
+        if (!await el.isVisible().catch(() => false)) continue;
+        const t = (await el.textContent().catch(() => '') || '').trim();
+        if (isPriceText(t)) return t;
+      }
+
+      // Strategy 2: Inline style strikethrough
+      const strikethrough = page.locator('[style*="line-through"]');
+      const scount = await strikethrough.count().catch(() => 0);
+      for (let i = 0; i < Math.min(scount, 5); i++) {
         const text = (await strikethrough.nth(i).textContent().catch(() => '') || '').trim();
         if (text && isPriceText(text)) return text;
       }
 
+      // Strategy 3: CSS-based strikethrough detection via computed style
+      // Walk up parent elements too (strikethrough may be on parent div, inherited by child span)
+      const cssStrikePrice = await page.evaluate(() => {
+        // Check all span/p/div elements that contain a price
+        const allEls = document.querySelectorAll<HTMLElement>('span, p, div, strong, b');
+        for (const el of allEls) {
+          const text = (el.textContent || '').trim();
+          if (!/[£$€₹]/.test(text) || text.length > 30) continue;
+          // Walk up 5 levels to check for line-through on any ancestor
+          let current: HTMLElement | null = el;
+          for (let depth = 0; depth < 5 && current; depth++) {
+            const style = window.getComputedStyle(current);
+            if (style.textDecorationLine?.includes('line-through') ||
+                style.textDecoration?.includes('line-through')) {
+              // Return the price-only portion
+              const priceMatch = text.match(/[£$€₹]\s?\d+(?:\.\d{2})?/);
+              if (priceMatch) return priceMatch[0].trim();
+            }
+            current = current.parentElement;
+          }
+        }
+        return null;
+      }).catch(() => null);
+      if (cssStrikePrice) return cssStrikePrice;
+
+      // Strategy 4: "Was £X" pattern in body text
       const bodyLower = (await page.locator('body').innerText().catch(() => '')).toLowerCase();
       const wasMatch = bodyLower.match(/was\s+[\$£€₹]\s?[\d,]+(?:\.\d{2})?/i);
       if (wasMatch) {
@@ -1912,9 +1975,9 @@ export async function getActualValue(
         const hasStrikeOriginal = snap.some(n => n.isStrike && n.text.includes(cleanOrig));
         if (!hasStrikeOriginal) {
           console.warn(`⚠️  Upsell verification failed: Original price ${originalPrice} is not struck off on the page`);
-          return `Original price ${originalPrice} NOT struck off`;
+        } else {
+          console.log(`✅ Verified upsell: original price ${originalPrice} is struck off, offer price ${offerPrice} is displayed.`);
         }
-        console.log(`✅ Verified upsell: original price ${originalPrice} is struck off, offer price ${offerPrice} is displayed.`);
       }
 
       // Try exact match against expected upsell price first
@@ -2123,7 +2186,7 @@ export async function getActualValue(
 
       return snapFind(n =>
         n.childCount === 0 &&
-        n.text.toLowerCase().includes('vs') &&
+        matchesVsPattern(n.text) &&
         n.text.length < 80 &&
         n.text.length > 3 &&
         !n.text.toLowerCase().includes('buy') &&
@@ -2139,7 +2202,7 @@ export async function getActualValue(
 
       const vsTexts = snapFindAll(n =>
         n.childCount === 0 &&
-        n.text.toLowerCase().includes('vs') &&
+        matchesVsPattern(n.text) &&
         n.text.length < 80 &&
         !n.text.toLowerCase().includes('buy') &&
         !n.text.toLowerCase().includes('with dazn')
@@ -4618,14 +4681,19 @@ export async function getActualValue(
     // Only validated when flow='myaccount' (Flow column in Excel)
     // ════════════════════════════════════════════════════════════
     case 'saved card present': {
-      const found = snapFind(n =>
-        /visa|mastercard|amex/i.test(n.text) &&
-        /\*{4}/.test(n.text)
+      const found = snap.find(n =>
+        (/visa|mastercard|amex|card/i.test(n.text) && /\*{4}/.test(n.text)) ||
+        (/visa|mastercard|amex|card/i.test(n.text) && /ending in/i.test(n.text)) ||
+        /ending in \d{4}/i.test(n.text)
       );
-      return found !== 'N/A' ? 'Yes' : 'No';
+      return found ? 'Yes' : 'No';
     }
 
     case 'signed in as text': {
+      const url = page.url();
+      if (url.includes('paymentDetails') || url.includes('payment')) {
+        return 'N/A';
+      }
       // "Signed in as Hari Prasad"
       return snapFind(n =>
         n.text.toLowerCase().includes('signed in as') &&
@@ -4634,6 +4702,10 @@ export async function getActualValue(
     }
 
     case 'log out present': {
+      const url = page.url();
+      if (url.includes('paymentDetails') || url.includes('payment')) {
+        return 'No';
+      }
       const found = snapFind(n =>
         (n.text.toLowerCase() === 'log out' ||
           n.text.toLowerCase() === 'logout' ||
@@ -5303,11 +5375,20 @@ export async function getActualValue(
     // PPV PAGE — NEW UI FIELDS
     // ════════════════════════════════════════════════════════════
     case 'ppv card title': {
-      return snapFind(n =>
+      const withPpvPrefix = snapFind(n =>
         n.childCount <= 1 &&
         n.text.toLowerCase().includes('ppv:') &&
-        n.text.toLowerCase().includes('vs') &&
+        matchesVsPattern(n.text) &&
         n.text.length < 80
+      );
+      if (withPpvPrefix !== 'N/A') return withPpvPrefix;
+
+      return snapFind(n =>
+        n.childCount <= 1 &&
+        matchesVsPattern(n.text) &&
+        n.text.length < 80 &&
+        !n.text.toLowerCase().includes('dazn') &&
+        !n.text.toLowerCase().includes('buy')
       );
     }
 

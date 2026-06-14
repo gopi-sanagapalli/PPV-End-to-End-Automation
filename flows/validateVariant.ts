@@ -2,6 +2,7 @@ import { resolveExpected }          from '../utils/resolveExpected';
 import { getActualValue }           from '../utils/getActualValue';
 import { compare }                  from '../utils/compare';
 import { getPageSnapshot, DOMNode } from '../utils/helpers';
+import { captureFailures }          from '../utils/failureCapture';
 
 export const validateVariant = async (
   page:      any,
@@ -207,4 +208,7 @@ export const validateVariant = async (
       status,
     });
   }
+
+  // ── Capture red-boxed screenshots for any failed fields ──────────
+  await captureFailures(page, results, pageName);
 };

@@ -140,7 +140,9 @@ function buildHtml(results: ReportResult[], meta: ReportMeta): string {
     const pr = results.filter(r => r.page === p);
     const rows = pr.map(r => {
       const cls = r.status === 'PASS' ? 'st-pass' : 'st-fail';
-      const showVals = r.status === 'FAIL';
+      const hasExpected = r.expected !== undefined && r.expected !== null && String(r.expected) !== '';
+      const hasActual = r.actual !== undefined && r.actual !== null && String(r.actual) !== '';
+      const showVals = hasExpected || hasActual;
       const img = r.status === 'FAIL' ? inlineImage(r.screenshot) : null;
       const shotRow = img
         ? `

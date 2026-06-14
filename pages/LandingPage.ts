@@ -14,8 +14,7 @@ export class LandingPage extends BasePage {
     const url = `${baseUrl}/welcome`;
     console.log(`🌍 Navigating to: ${url}`);
     await this.page.goto(url, { waitUntil: 'domcontentloaded' });
-    await this.page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => { });
-    await this.page.waitForLoadState('load', { timeout: 8000 }).catch(() => { });
+    await this.page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => { });
     await this.dismissConsentIfPresent();
     
     // Wait for the page structure (main content or banner or explore button) to render
@@ -36,11 +35,11 @@ export class LandingPage extends BasePage {
   // FIND BANNER CAROUSEL CONTAINER (resilient selector)
   // ─────────────────────────────
   protected bannerCarousel(): import('@playwright/test').Locator {
-    // Use a broad selector to find the hero banner carousel
+    // Use a broad selector to find the hero banner carousel, excluding rail swipers
     return this.page.locator([
       'main [class*="banner"]',
       'main [class*="hero"]',
-      'main .swiper',
+      'main .swiper:not([class*="rail" i]):not([class*="tiles" i])',
       'section[class*="banner"]',
       '[class*="heroBanner"]',
       '[class*="hero-banner"]',
@@ -51,8 +50,9 @@ export class LandingPage extends BasePage {
   // ─────────────────────────────
   // GET ALL BANNER SLIDES (resilient selector)
   // ─────────────────────────────
-  protected bannerSlides(): import('@playwright/test').Locator {
-    return this.page.locator('.swiper-slide:not(.swiper-slide-duplicate)');
+  protected bannerSlides(carousel?: import('@playwright/test').Locator): import('@playwright/test').Locator {
+    const parent = carousel || this.bannerCarousel();
+    return parent.locator('.swiper-slide:not(.swiper-slide-duplicate)');
   }
 
   // ─────────────────────────────
@@ -252,7 +252,7 @@ export class LandingPage extends BasePage {
 
     // Check all slides directly using the resilient selector
     console.log('🔍 [Banner] Checking all slides (resilient selector)...');
-    const allSlides = this.bannerSlides();
+    const allSlides = this.bannerSlides(carousel);
     const slideCount = await allSlides.count().catch(() => 0);
 
     for (let i = 0; i < slideCount; i++) {

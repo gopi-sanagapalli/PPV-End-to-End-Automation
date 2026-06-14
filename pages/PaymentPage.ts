@@ -49,6 +49,9 @@ export class PaymentPage extends BasePage {
       return;
     }
 
+    eventData.CURRENT_PAGE = 'payment';
+    eventData['CURRENT_PAGE'] = 'payment';
+
     console.log(`\n🧾 Validating Payment page — ${data.length} fields`);
 
     // Wait for payment page to fully load — single smart wait, max 4s total
@@ -447,6 +450,34 @@ export class PaymentPage extends BasePage {
       const match = bodyText.match(regex);
       if (match) return match[0].trim();
 
+      // Fallback: match by fighter names (handles "v" vs "vs." mismatch)
+      // Extract distinct name parts (words > 3 chars, excluding separators)
+      const nameParts = ppvName
+        .split(/\bvs?\b\.?|\s*[-–—:]\s*/i)
+        .map(p => p.trim())
+        .filter(p => p.length > 2);
+      if (nameParts.length >= 2) {
+        const first = nameParts[0].toLowerCase();
+        const last = nameParts[nameParts.length - 1].toLowerCase();
+        for (const line of lines) {
+          const lowerLine = line.toLowerCase();
+          if (lowerLine.includes(first) && lowerLine.includes(last) && /\bvs?\b\.?/i.test(line) && line.length < 100) {
+            return line;
+          }
+        }
+        // Also try bodyText substring approach
+        const firstIdx = lower.indexOf(first);
+        const lastIdx = lower.indexOf(last);
+        if (firstIdx >= 0 && lastIdx >= 0) {
+          const start = Math.min(firstIdx, lastIdx);
+          const end = Math.max(firstIdx, lastIdx) + last.length + 5;
+          const snippet = bodyText.substring(start, Math.min(end, bodyText.length)).trim();
+          if (snippet.length < 100 && /\bvs?\b\.?/i.test(snippet)) {
+            return snippet;
+          }
+        }
+      }
+
       // Look for a line containing "PPV:"
       for (const line of lines) {
         if (/^PPV:/i.test(line)) {
@@ -460,7 +491,7 @@ export class PaymentPage extends BasePage {
         if (lowerLine.includes('flex') || lowerLine.includes('annual') || lowerLine.includes('monthly') || lowerLine.includes('subscribe') || lowerLine.includes('payment') || lowerLine.includes('pay') || lowerLine.includes('change')) {
           continue;
         }
-        const vsM = line.match(/([A-Za-z\s.]+\s+(?:vs\.?|–|-)\s+[A-Za-z\s.]+?)/i);
+        const vsM = line.match(/([A-Za-z\s.]+\s+(?:vs?\.?|–|-)\s+[A-Za-z\s.]+?)/i);
         if (vsM) return vsM[0].trim();
       }
 

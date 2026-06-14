@@ -43,9 +43,7 @@ export class SportsLandingPage extends LandingPage {
     const welcomeUrl = `${baseUrl}/welcome`;
     console.log(`🌍 Navigating to Welcome page: ${welcomeUrl}`);
     await this.page.goto(welcomeUrl, { waitUntil: 'domcontentloaded' });
-    await this.page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => { });
-
-
+    await this.page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => { });
 
     console.log(`✅ Welcome page loaded: ${this.page.url()}`);
     await this.clickExplore();
@@ -113,7 +111,8 @@ export class SportsLandingPage extends LandingPage {
       await this.page.goto(`${base}/home`, { waitUntil: 'domcontentloaded' });
     }
 
-    await this.page.waitForLoadState('domcontentloaded').catch(() => { });
+    // Wait for Home page to be visually ready before next action
+    await this.page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => { });
 
   }
 
@@ -1054,7 +1053,7 @@ export class SportsLandingPage extends LandingPage {
       }
     }
 
-    const swiperEl = this.page.locator('.swiper').first();
+    const swiperEl = this.page.locator('.swiper:not([class*="rail" i]):not([class*="tiles" i])').first();
     if (!await swiperEl.isVisible({ timeout: 5000 }).catch(() => false)) {
       console.log('⚠️ [Home Sport Banner] Hero swiper not visible');
     }

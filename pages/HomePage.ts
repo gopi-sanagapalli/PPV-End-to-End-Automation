@@ -14,9 +14,7 @@ export class HomePage extends LandingPage {
     const welcomeUrl = `${baseUrl}/welcome`;
     console.log(`🌍 [HomePage] Navigating to Welcome page: ${welcomeUrl}`);
     await this.page.goto(welcomeUrl, { waitUntil: 'domcontentloaded' });
-    await this.page.waitForLoadState('domcontentloaded', { timeout: 1000 }).catch(() => { });
-
-
+    await this.page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => { });
 
     console.log(`✅ [HomePage] Welcome page loaded: ${this.page.url()}`);
     await this.clickExplore();
@@ -24,7 +22,7 @@ export class HomePage extends LandingPage {
     console.log(`✅ [HomePage] Home page loaded: ${this.page.url()}`);
 
     // Wait for the hero banner or swiper component to render and be visible
-    const bannerLocator = this.page.locator('main [class*="banner"], [class*="hero-banner-slider"], .swiper').first();
+    const bannerLocator = this.page.locator('main [class*="banner"], [class*="hero-banner-slider"], .swiper:not([class*="rail" i]):not([class*="tiles" i])').first();
     await bannerLocator.waitFor({ state: 'visible', timeout: 10000 }).catch((e) => {
       console.log('⚠️ [HomePage] Timeout waiting for hero banner/swiper: ' + e.message);
     });
@@ -60,7 +58,8 @@ export class HomePage extends LandingPage {
       await this.page.goto(`${base}/home`, { waitUntil: 'domcontentloaded' });
     }
 
-    await this.page.waitForLoadState('domcontentloaded').catch(() => { });
+    // Wait for Home page to be visually ready before next action
+    await this.page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => { });
   }
 
   // Find container logic:
@@ -388,6 +387,13 @@ export class HomePage extends LandingPage {
       '[class*="popup" i]',
       '[aria-modal="true"]',
       '[class*="overlay" i]',
+      '[class*="lightbox" i]',
+      '[class*="drawer" i]',
+      '[class*="panel" i]',
+      '[class*="bottomsheet" i]',
+      '[class*="sheet" i]',
+      '[class*="card-overlay" i]',
+      '[class*="backdrop" i]',
     ];
 
     for (const selector of modalSelectors) {
@@ -399,6 +405,25 @@ export class HomePage extends LandingPage {
         }
       }
     }
+
+    // Fallback: find any visible container that has a "Buy now" button
+    // (DAZN popups may use non-standard class names)
+    const buyNowBtn = this.page.locator('button:has-text("Buy now"), a:has-text("Buy now")').first();
+    if (await buyNowBtn.isVisible().catch(() => false)) {
+      // Walk up to find the closest container that looks like a popup
+      const popupContainer = buyNowBtn.locator('xpath=ancestor::div[contains(@class,"card") or contains(@class,"container") or contains(@class,"content") or contains(@class,"wrapper") or contains(@class,"box")][last()]');
+      if (await popupContainer.isVisible().catch(() => false)) {
+        console.log('✅ [waitForModal] Found popup via Buy now button ancestor');
+        return popupContainer;
+      }
+      // If no good ancestor, return the closest parent div with reasonable size
+      const parentDiv = buyNowBtn.locator('xpath=ancestor::div[position()<=5 and .//button[contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "buy now")]][last()]');
+      if (await parentDiv.isVisible().catch(() => false)) {
+        console.log('✅ [waitForModal] Found popup via Buy now parent div');
+        return parentDiv;
+      }
+    }
+
     return null;
   }
 
@@ -574,7 +599,21 @@ export class HomePage extends LandingPage {
 
     // ── Wait for My Account URL ───────────────────────────────
     try {
-      await this.page.waitForURL(/myaccount/i, { timeout: 15000 });
+      await this.page.waitForURL(
+        url => {
+          const u = url.toString().toLowerCase();
+          return (
+            u.includes('/myaccount') ||
+            (u.includes('/account') &&
+              !u.includes('/signup') &&
+              !u.includes('/signin') &&
+              !u.includes('/personaldetails') &&
+              !u.includes('/emaildetails') &&
+              !u.includes('/content/'))
+          );
+        },
+        { timeout: 15000 }
+      );
       console.log(`✅ On My Account: ${this.page.url()}`);
     } catch {
       console.log('⚠️  URL did not change — navigating directly');
@@ -602,7 +641,21 @@ export class HomePage extends LandingPage {
     await this.page.goto(`${cleanBase}/myaccount`, {
       waitUntil: 'domcontentloaded',
     });
-    await this.page.waitForURL(/myaccount/i, { timeout: 15000 }).catch(() => { });
+    await this.page.waitForURL(
+      url => {
+        const u = url.toString().toLowerCase();
+        return (
+          u.includes('/myaccount') ||
+          (u.includes('/account') &&
+            !u.includes('/signup') &&
+            !u.includes('/signin') &&
+            !u.includes('/personaldetails') &&
+            !u.includes('/emaildetails') &&
+            !u.includes('/content/'))
+        );
+      },
+      { timeout: 15000 }
+    ).catch(() => { });
     await this.page.waitForLoadState('domcontentloaded').catch(() => { });
     console.log(`✅ On My Account: ${this.page.url()}`);
   }

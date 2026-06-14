@@ -247,6 +247,19 @@ function getDynamicDateBadgeSingle(configStr: string, referenceDate: Date = new 
       candidates.add(`today at ${t}`);
       candidates.add(`today ${t}`);
     }
+    // DAZN shows "This evening" for same-day events at 17:00+
+    if (hours >= 17) {
+      for (const t of times) {
+        candidates.add(`This evening at ${t}`);
+        candidates.add(`This evening ${t}`);
+        candidates.add(`this evening at ${t}`);
+        candidates.add(`this evening ${t}`);
+        candidates.add(`Tonight at ${t}`);
+        candidates.add(`Tonight ${t}`);
+        candidates.add(`tonight at ${t}`);
+        candidates.add(`tonight ${t}`);
+      }
+    }
     addDayVariations(dayName);
     addDayVariations(fullDayName);
   } else if (diffDays > 1 && diffDays <= 7) {
@@ -260,12 +273,36 @@ function getDynamicDateBadgeSingle(configStr: string, referenceDate: Date = new 
     const monthName = monthNames[eventDate.getMonth()];
     const fullMonthName = fullMonthNames[eventDate.getMonth()];
     
+    // Ordinal suffix for day number (e.g., 1st, 2nd, 3rd, 25th)
+    const getOrdinal = (d: number): string => {
+      if (d >= 11 && d <= 13) return 'th';
+      switch (d % 10) {
+        case 1: return 'st';
+        case 2: return 'nd';
+        case 3: return 'rd';
+        default: return 'th';
+      }
+    };
+    const ordinal = getOrdinal(dayNum);
+    
     const formats = [
       `${dayNum} ${monthName}`,
       `${dayNum} ${fullMonthName}`,
       `${dayNum} ${monthName.toUpperCase()}`,
       `${dayNum} ${fullMonthName.toUpperCase()}`,
+      // Ordinal variants: "25th Jul", "25th July"
+      `${dayNum}${ordinal} ${monthName}`,
+      `${dayNum}${ordinal} ${fullMonthName}`,
     ];
+    
+    // Weekday-prefixed variants: "Sat 25th Jul", "Sat 25 Jul"
+    const weekdayPrefixes = [dayName, fullDayName, dayName.toUpperCase(), fullDayName.toUpperCase()];
+    for (const prefix of weekdayPrefixes) {
+      formats.push(`${prefix} ${dayNum}${ordinal} ${monthName}`);
+      formats.push(`${prefix} ${dayNum}${ordinal} ${fullMonthName}`);
+      formats.push(`${prefix} ${dayNum} ${monthName}`);
+      formats.push(`${prefix} ${dayNum} ${fullMonthName}`);
+    }
     
     for (const f of formats) {
       candidates.add(f);

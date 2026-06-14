@@ -2,7 +2,7 @@ import { Page, Locator } from '@playwright/test';
 import selectors from '../config/selectors.json';
 
 export class PPVPage {
-  constructor(private page: Page) {}
+  constructor(private page: Page) { }
 
   // ─────────────────────────────
   // CHECK IF ON PPV PAGE
@@ -31,7 +31,7 @@ export class PPVPage {
   // WAIT FOR PAGE STABLE
   // ─────────────────────────────
   async waitForLoad(): Promise<void> {
-    await this.page.waitForLoadState('domcontentloaded').catch(() => {});
+    await this.page.waitForLoadState('domcontentloaded').catch(() => { });
   }
 
   // ─────────────────────────────
@@ -39,10 +39,10 @@ export class PPVPage {
   // No hardcoded copies/prices
   // ─────────────────────────────
   async validate(
-    data:      any[],
-    results:   any[],
+    data: any[],
+    results: any[],
     eventData: Record<string, string>,
-    pageName:  string = 'PPV'
+    pageName: string = 'PPV'
   ): Promise<void> {
     console.log(`\n📋 Validating ${pageName} page — ${data.length} fields`);
 
@@ -50,7 +50,7 @@ export class PPVPage {
     const bodyText = await this.page.locator('body').innerText().catch(() => '');
 
     for (const row of data) {
-      const field    = (row['Field'] || '').trim();
+      const field = (row['Field'] || '').trim();
       const expected = (row['Value'] || row['Expected'] || '').toString().trim();
       if (!field) continue;
 
@@ -273,7 +273,7 @@ export class PPVPage {
     }
 
     // Text comparison — case-insensitive contains
-    const actualNorm   = actual.toLowerCase().replace(/\s+/g, ' ').trim();
+    const actualNorm = actual.toLowerCase().replace(/\s+/g, ' ').trim();
     const expectedNorm = expected.toLowerCase().replace(/\s+/g, ' ').trim();
 
     if (actualNorm === expectedNorm) return 'PASS';
@@ -295,16 +295,16 @@ export class PPVPage {
       ).first();
 
       if (await ultimateCard.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await ultimateCard.scrollIntoViewIfNeeded().catch(() => {});
-        await ultimateCard.click({ force: true }).catch(() => {});
+        await ultimateCard.scrollIntoViewIfNeeded().catch(() => { });
+        await ultimateCard.click({ force: true }).catch(() => { });
         console.log('✅ Clicked Ultimate card');
       }
     } else {
       // Standard/PPV — select first radio
       const radio = this.page.locator('input[type="radio"]').first();
       if (await radio.isVisible({ timeout: 1500 }).catch(() => false)) {
-        await radio.scrollIntoViewIfNeeded().catch(() => {});
-        await radio.click({ force: true }).catch(() => {});
+        await radio.scrollIntoViewIfNeeded().catch(() => { });
+        await radio.click({ force: true }).catch(() => { });
         console.log('✅ Selected Standard/PPV radio');
       }
     }
@@ -316,9 +316,9 @@ export class PPVPage {
   async clickContinueCTA(ctaText: string = 'Continue'): Promise<void> {
     console.log(`🔍 Looking for CTA: "${ctaText}"`);
     const btn = this.page.locator(`button:has-text("${ctaText}")`).first();
-    await btn.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
-    await btn.scrollIntoViewIfNeeded().catch(() => {});
-    await btn.click({ force: true }).catch(() => {});
+    await btn.waitFor({ state: 'visible', timeout: 10000 }).catch(() => { });
+    await btn.scrollIntoViewIfNeeded().catch(() => { });
+    await btn.click({ force: true }).catch(() => { });
     console.log(`✅ CTA "${ctaText}" clicked`);
   }
 }

@@ -27,8 +27,10 @@
         "offers": [
           {
             "name": "standard_flex_offer",
-            "enabled": true,
-            "environments": ["stag"],
+            "enabled": false,
+            "environments": [
+              "stag"
+            ],
             "OFFER_PRICE": "4.99",
             "ORIGINAL_PRICE": "25.99",
             "DISCOUNT_BADGE": "81% OFF for your first month",
@@ -105,7 +107,7 @@
         "BASE_URL": "https://www.dazn.com/en-GB",
         "CURRENCY": "£",
         "DAZN_TIER": "DAZN Standard",
-        "OFFER_TYPE": "7_day_trial",
+        "OFFER_TYPE": "1_month_free",
         "MONTHLY_PRICE": "25.99",
         "ANNUAL_PRICE": "15.99",
         "ANNUAL_PAY_MONTHLY_PRICE": "24.99",
@@ -134,7 +136,7 @@
         "BASE_URL": "https://www.dazn.com/en-AU",
         "CURRENCY": "$",
         "DAZN_TIER": "DAZN Standard",
-        "OFFER_TYPE": "7_day_trial",
+        "OFFER_TYPE": "1_month_free",
         "MONTHLY_PRICE": "31.99",
         "ANNUAL_PRICE": "16.99",
         "NEXT_PAYMENT_PRICE": "$16.99",
@@ -161,7 +163,7 @@
         "BASE_URL": "https://www.dazn.com/en-GB",
         "CURRENCY": "£",
         "DAZN_TIER": "DAZN Ultimate",
-        "OFFER_TYPE": "7_day_trial",
+        "OFFER_TYPE": "1_month_free",
         "MONTHLY_PRICE": "25.99",
         "ANNUAL_PRICE": "15.99",
         "ANNUAL_PAY_MONTHLY_PRICE": "24.99",
@@ -177,9 +179,15 @@
         "offers": [
           {
             "name": "ultimate_offer",
-            "enabled": true,
-            "environments": ["stag", "beta", "prod"],
-            "target_region": ["GB"],
+            "enabled": false,
+            "environments": [
+              "stag",
+              "beta",
+              "prod"
+            ],
+            "target_region": [
+              "GB"
+            ],
             "OFFER_PRICE": "19.99",
             "ORIGINAL_PRICE": "24.99",
             "DISCOUNT_BADGE": "20% OFF for 12 months",
@@ -204,7 +212,7 @@
         "BASE_URL": "https://www.dazn.com/en-AU",
         "CURRENCY": "$",
         "DAZN_TIER": "DAZN Ultimate",
-        "OFFER_TYPE": "7_day_trial",
+        "OFFER_TYPE": "1_month_free",
         "MONTHLY_PRICE": "31.99",
         "ANNUAL_PRICE": "16.99",
         "ANNUAL_PAY_MONTHLY_PRICE": "$16.99",
@@ -222,8 +230,14 @@
           {
             "name": "ultimate_offer",
             "enabled": false,
-            "environments": ["stag", "beta", "prod"],
-            "target_region": ["AU"],
+            "environments": [
+              "stag",
+              "beta",
+              "prod"
+            ],
+            "target_region": [
+              "AU"
+            ],
             "OFFER_PRICE": "29.99",
             "ORIGINAL_PRICE": "39.99",
             "DISCOUNT_BADGE": "25% OFF for 12 months",
@@ -265,7 +279,7 @@
         "BASE_URL": "https://www.dazn.com/en-GB",
         "CURRENCY": "£",
         "DAZN_TIER": "DAZN Ultimate",
-        "OFFER_TYPE": "7_day_trial",
+        "OFFER_TYPE": "1_month_free",
         "MONTHLY_PRICE": "25.99",
         "ANNUAL_PRICE": "15.99",
         "ANNUAL_PAY_MONTHLY_PRICE": "24.99",
@@ -296,7 +310,7 @@
         "BASE_URL": "https://www.dazn.com/en-AU",
         "CURRENCY": "$",
         "DAZN_TIER": "DAZN Ultimate",
-        "OFFER_TYPE": "7_day_trial",
+        "OFFER_TYPE": "1_month_free",
         "MONTHLY_PRICE": "31.99",
         "ANNUAL_PRICE": "16.99",
         "NEXT_PAYMENT_PRICE": "$31.99",

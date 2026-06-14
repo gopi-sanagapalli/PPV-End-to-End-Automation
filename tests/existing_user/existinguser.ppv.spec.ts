@@ -33,6 +33,7 @@ import { validateVariant } from '../../flows/validateVariant';
 import { buildEventData } from '../../utils/buildEventData';
 import { displayResultsTable } from '../../utils/resultsDisplay';
 import { writeResults } from '../../utils/excelWriter';
+import { generateReports } from '../../utils/reportGenerator';
 import {
   sleep,
   setupPage,
@@ -61,6 +62,7 @@ test('PPV flow via existing user my account', async ({ browser }) => {
   const json = loadEventConfig(EVENT_CONFIG);
   configureExcelPathForEvent(json.eventKey || '');
   const eventData = buildEventData(json, REGION);
+  const userStateKey = process.env.USER_STATE || 'freemium';
 
   // Compute dynamic future date variables
   const futureDate = new Date();
@@ -81,31 +83,62 @@ test('PPV flow via existing user my account', async ({ browser }) => {
   const sport = json.SPORT;
 
   // Resolve payment page expected variables to avoid skipping validation
-  const isTrial = ratePlan === 'monthly' && eventData.TRIAL_MONTHLY_PRICE && eventData.TRIAL_MONTHLY_PRICE !== 'N/A';
+  const offerType = (eventData.OFFER_TYPE || '1_month_free').toLowerCase();
+  const isTrial = ratePlan === 'monthly' && offerType === '7_day_trial';
   const activeOfferPresent = eventData.ACTIVE_OFFER_PRESENT === 'true';
+
+  if (tier === 'ultimate') {
+    eventData.PLAN_CTA_BUTTON = eventData.PLAN_CTA_BUTTON_ULTIMATE || 'Continue with DAZN Ultimate';
+    eventData.DAZN_TIER = 'DAZN Ultimate';
+  } else {
+    // Standard tier: CTA depends on rate plan
+    // Flex - Pay Monthly is always selected by default initially, so CTA is Continue with 7-day Free Trial
+    eventData.PLAN_CTA_BUTTON = eventData.PLAN_CTA_BUTTON_STANDARD || 'Continue with 7-day Free Trial';
+    eventData.DAZN_TIER = 'DAZN Standard';
+  }
 
   if (activeOfferPresent && ratePlan === 'monthly') {
     eventData.PAYMENT_PAGE_TITLE = eventData.PAYMENT_PAGE_TITLE_STANDARD || 'Choose how to pay';
     eventData.PAYMENT_PLAN_NAME = eventData.PAYMENT_PLAN_LABEL || 'Flex – Pay Monthly - First Month Only';
     eventData.PAYMENT_FREE_TEXT = 'N/A';
+    eventData.CANCELLATION_TEXT = eventData.CANCELLATION_TEXT_TRIAL || '';
   } else if (isTrial) {
     eventData.PAYMENT_PAGE_TITLE = eventData.PAYMENT_PAGE_TITLE_STANDARD || 'Choose how to pay';
     eventData.PAYMENT_PLAN_NAME = eventData.PAYMENT_FREE_TEXT_TRIAL || '7-days free';
     eventData.PAYMENT_FREE_TEXT = eventData.PAYMENT_FREE_TEXT_TRIAL || '7-days free';
+    eventData.CANCELLATION_TEXT = eventData.CANCELLATION_TEXT_TRIAL || '';
   } else if (ratePlan === 'annual pay monthly' || ratePlan === 'annual pay upfront') {
+    // APM / APU — 1 month free offer
     eventData.PAYMENT_PAGE_TITLE = eventData.PAYMENT_PAGE_TITLE_STANDARD || 'Choose how to pay';
     eventData.PAYMENT_PLAN_NAME = eventData.PAYMENT_PLAN_NAME_ANNUAL || 'Annual - Pay Monthly';
     eventData.PAYMENT_FREE_TEXT = eventData.PAYMENT_FREE_TEXT_MONTHLY || 'First month free';
+    if (tier === 'ultimate') {
+      eventData.CANCELLATION_TEXT = ratePlan === 'annual pay monthly'
+        ? (eventData.CANCELLATION_TEXT_ULTIMATE_APM || '')
+        : (eventData.CANCELLATION_TEXT_ULTIMATE_APU || '');
+    } else {
+      eventData.CANCELLATION_TEXT = eventData.CANCELLATION_TEXT_ANNUAL || '';
+    }
+  } else if (offerType === '1_month_free' && ratePlan === 'monthly') {
+    // Monthly plan with 1-month-free offer (non-trial regions)
+    eventData.PAYMENT_PAGE_TITLE = eventData.PAYMENT_PAGE_TITLE_STANDARD || 'Choose how to pay';
+    eventData.PAYMENT_PLAN_NAME = eventData.PAYMENT_PLAN_NAME_FLEX || 'Flex – Pay Monthly';
+    eventData.PAYMENT_FREE_TEXT = eventData.PAYMENT_FREE_TEXT_MONTHLY || 'First month free';
+    eventData.CANCELLATION_TEXT = eventData.CANCELLATION_TEXT_TRIAL || '';
   } else {
     eventData.PAYMENT_PAGE_TITLE = eventData.PAYMENT_PAGE_TITLE_STANDARD || 'Choose how to pay';
     eventData.PAYMENT_PLAN_NAME = eventData.PAYMENT_PLAN_NAME_FLEX || 'Flex – Pay Monthly';
     eventData.PAYMENT_FREE_TEXT = eventData.PAYMENT_FREE_TEXT_MONTHLY || 'First month free';
+    eventData.CANCELLATION_TEXT = eventData.CANCELLATION_TEXT_TRIAL || '';
   }
 
   // Ensure uppercase keys are in sync
   eventData['PAYMENT_PAGE_TITLE'] = eventData.PAYMENT_PAGE_TITLE;
   eventData['PAYMENT_PLAN_NAME'] = eventData.PAYMENT_PLAN_NAME;
   eventData['PAYMENT_FREE_TEXT'] = eventData.PAYMENT_FREE_TEXT;
+  eventData['PLAN_CTA_BUTTON'] = eventData.PLAN_CTA_BUTTON;
+  eventData['DAZN_TIER'] = eventData.DAZN_TIER;
+  eventData['CANCELLATION_TEXT'] = eventData.CANCELLATION_TEXT;
 
   console.log(`\n🔀 Flow      : ${FLOW}`);
   console.log(`🌍 Region    : ${REGION}`);
@@ -149,6 +182,9 @@ test('PPV flow via existing user my account', async ({ browser }) => {
     const url = p.url();
 
     if (url.includes('paymentDetails')) return 'payment';
+
+    // PPV page detection via contextualPpvId query param (before email fallback)
+    if (url.includes('/signup') && url.includes('contextualPpvId=') && !url.includes('page=')) return 'ppv';
 
     // Email/signup checks (highest priority URL checks, must be before tier checks)
     if (url.includes('page=personalDetails')) return 'email';
@@ -230,6 +266,7 @@ test('PPV flow via existing user my account', async ({ browser }) => {
   };
 
   const isMyAccount = SOURCE === 'my-account' || SOURCE === 'myaccount';
+  let reachedEndPage = false;
 
   try {
     if (!isMyAccount) {
@@ -481,6 +518,19 @@ test('PPV flow via existing user my account', async ({ browser }) => {
         ? myAccountData
         : myAccountData.filter((r: any) => !['PPV Name', 'PPV Date', 'PPV Price', 'PPV Status'].includes(r.Field));
 
+      for (const row of filteredMyAccountData) {
+        if (row.Field === 'PPV Section Present' && !hasPPV) {
+          row.Expected = 'Yes|No';
+        }
+      }
+
+      // Temporarily override DAZN_TIER to DAZN Free for freemium/frozen on My Account
+      const originalDaznTier = eventData.DAZN_TIER;
+      if (userStateKey === 'freemium' || userStateKey === 'frozen') {
+        eventData.DAZN_TIER = 'DAZN Free';
+        eventData['DAZN_TIER'] = 'DAZN Free';
+      }
+
       await page.evaluate(() => {
         document.documentElement.style.overflow = 'hidden';
         document.body.style.overflow = 'hidden';
@@ -489,6 +539,10 @@ test('PPV flow via existing user my account', async ({ browser }) => {
       await validateVariant(
         page, 'myaccount', filteredMyAccountData, results, eventData, 'My Account'
       );
+
+      // Restore original DAZN_TIER
+      eventData.DAZN_TIER = originalDaznTier;
+      eventData['DAZN_TIER'] = originalDaznTier;
 
       await page.evaluate(() => {
         document.documentElement.style.overflow = '';
@@ -554,13 +608,31 @@ test('PPV flow via existing user my account', async ({ browser }) => {
           ) ? 'PASS' : 'FAIL',
         });
 
+        reachedEndPage = true;
         const { excelPath, videoPath } = await writeResults(results);
+
+        // Display detailed per-page results
         displayResultsTable(results, tier, {
           event: eventData.PPV_NAME,
           region: REGION,
           excelPath,
           videoPath,
         });
+
+        // Generate HTML + PDF run report before early exit
+        const { htmlPath, pdfPath } = await generateReports(results, {
+          event: eventData.PPV_NAME,
+          region: REGION,
+          source: SOURCE,
+          ratePlan,
+          tier,
+          env: process.env.DAZN_ENV || 'prod',
+          flowName: SOURCE,
+          endTime: new Date(),
+          excelPath,
+          videoPath,
+        });
+        if (htmlPath) console.log(`\n📊 Report: ${htmlPath}${pdfPath ? `\n📊 Report: ${pdfPath}` : ''}`);
         return; // ← Exit early — no purchase flow needed
       }
 
@@ -585,13 +657,31 @@ test('PPV flow via existing user my account', async ({ browser }) => {
           ) ? 'PASS' : 'FAIL',
         });
 
+        reachedEndPage = true;
         const { excelPath, videoPath } = await writeResults(results);
+
+        // Display detailed per-page results
         displayResultsTable(results, 'ultimate', {
           event: eventData.PPV_NAME,
           region: REGION,
           excelPath,
           videoPath,
         });
+
+        // Generate HTML + PDF run report before early exit
+        const { htmlPath, pdfPath } = await generateReports(results, {
+          event: eventData.PPV_NAME,
+          region: REGION,
+          source: SOURCE,
+          ratePlan,
+          tier,
+          env: process.env.DAZN_ENV || 'prod',
+          flowName: SOURCE,
+          endTime: new Date(),
+          excelPath,
+          videoPath,
+        });
+        if (htmlPath) console.log(`\n📊 Report: ${htmlPath}${pdfPath ? `\n📊 Report: ${pdfPath}` : ''}`);
         return;
       }
 
@@ -628,18 +718,10 @@ test('PPV flow via existing user my account', async ({ browser }) => {
       await page.waitForURL((url: URL) => url.toString() !== beforeUrl, { timeout: 10000 }).catch(() => { });
       postClickUrl = page.url();
     } else {
-      // Landing page fallback values for user info
+      // Landing page — use names already resolved by buildEventData from config
       isReturning = true;
-      if (userEmail.includes('ukppv1')) {
-        firstName = 'ukppv1';
-        lastName = 'yopmail';
-      } else if (userEmail.includes('stagukppv')) {
-        firstName = 'stagukppv';
-        lastName = 'yopmail';
-      } else {
-        firstName = 'UAT';
-        lastName = 'UAT';
-      }
+      firstName = eventData.FIRST_NAME || userEmail.split('@')[0] || 'UAT';
+      lastName = eventData.LAST_NAME || 'UAT';
 
       eventData.FIRST_NAME = firstName;
       eventData.LAST_NAME = lastName;
@@ -682,13 +764,15 @@ test('PPV flow via existing user my account', async ({ browser }) => {
 
     const isChooseHowToBuy =
       isMyAccount &&
+      userStateKey === 'active_standard' &&
       (postClickUrl.includes('upsellTierShown=true') ||
         postClickUrl.includes('/addon/purchase') ||  // ← US active standard
         bodyText.includes('choose how to buy')) &&
       !bodyText.includes("choose a plan") &&
       !bodyText.includes("choose your plan") &&
       !bodyText.includes("choose your subscription") &&
-      !bodyText.includes("choose a subscription");
+      !bodyText.includes("choose a subscription") &&
+      !bodyText.includes("choose the right plan");
 
     console.log(`\n🔀 Post-click detection:`);
     console.log(`   tier             : ${tier}`);
@@ -716,6 +800,7 @@ test('PPV flow via existing user my account', async ({ browser }) => {
       let firstSuccessValidated = false;
       let savedCardPaymentDone = false;
       let secondSuccessValidated = false;
+      let emailProcessedCount = 0;
 
       for (let step = 0; step < 20; step++) {
 
@@ -761,6 +846,21 @@ test('PPV flow via existing user my account', async ({ browser }) => {
         if (pageType === 'email') {
           console.log('👉 Email/Login page');
           stuckCount = 0;
+          emailProcessedCount++;
+
+          if (emailProcessedCount > 2) {
+            console.log('⚠️  Email/Login loop detected — breaking');
+            try {
+              await page.screenshot({ path: 'test-results/email_loop_error.png', fullPage: true });
+              console.log('📸 Screenshot saved to test-results/email_loop_error.png');
+            } catch (se: any) {
+              console.warn('⚠️  Could not save screenshot:', se.message);
+            }
+            if (page.url().includes('paymentDetails') || page.url().includes('payment')) {
+              reachedEndPage = true;
+            }
+            break;
+          }
 
           const emailInput = page.locator('input[type="email"]').first();
           const passwordInput = page.locator('input[type="password"]').first();
@@ -812,6 +912,7 @@ test('PPV flow via existing user my account', async ({ browser }) => {
         // ── PAYMENT ───────────────────────────────────────────
         if (pageType === 'payment') {
           console.log('💳 Payment page');
+          reachedEndPage = true;
           console.log('\n📋 Validating Payment page...');
 
           const targetTier = tier === 'ultimate' ? 'ultimate' : 'standard';
@@ -1117,6 +1218,8 @@ test('PPV flow via existing user my account', async ({ browser }) => {
           }
 
           const planBtn = page.locator(
+            'button:has-text("Continue with 7-day Free Trial"), ' +
+            'button:has-text("Continue with 1st Month Free"), ' +
             'button:has-text("Continue with PPV + 7-day free trial"), ' +
             'button:has-text("Continue with PPV"), ' +
             'button:has-text("Continue")'
@@ -1135,6 +1238,7 @@ test('PPV flow via existing user my account', async ({ browser }) => {
           await validateVariant(
             page, 'confirmation', confirmData, results, eventData, 'Upgrade Confirmation'
           );
+          reachedEndPage = true;
           break;
         }
 
@@ -1163,6 +1267,36 @@ test('PPV flow via existing user my account', async ({ browser }) => {
         await sleep(800);
         if (stuckCount >= 5) {
           throw new Error(`❌ Flow stuck on unknown page.\nURL: ${page.url()}`);
+        }
+      }
+
+      if (!reachedEndPage) {
+        const finalUrl = page.url();
+        if (finalUrl.includes('paymentDetails') || finalUrl.includes('payment')) {
+          console.log('💳 Payment page detected after loop exit');
+          reachedEndPage = true;
+
+          const targetTier = tier === 'ultimate' ? 'ultimate' : 'standard';
+          const isBundle = SOURCE.includes('bundle');
+          const planKey = isBundle ? `${ratePlan} bundle` : ratePlan;
+          const paymentData = getPaymentDataByTierAndPlan(targetTier, planKey);
+          const paymentPage = new PaymentPage(page);
+          if (await paymentPage.isPaymentPage()) {
+            if (isReturning) {
+              await paymentPage.validate(paymentData, results, eventData, FLOW);
+              const returningData = paymentData.filter((r: any) => {
+                const rf = (r.Flow || '').trim().toLowerCase();
+                return rf === 'returning';
+              });
+              if (returningData.length > 0) {
+                await paymentPage.validate(returningData, results, eventData, 'returning');
+              }
+            } else {
+              await paymentPage.validate(paymentData, results, eventData, undefined);
+            }
+          }
+        } else {
+          console.log(`⚠️  Flow A did not reach expected end page`);
         }
       }
 
@@ -1276,6 +1410,7 @@ test('PPV flow via existing user my account', async ({ browser }) => {
         await validateVariant(
           page, 'confirmation', confirmData, results, eventData, 'Upgrade Confirmation'
         );
+        reachedEndPage = true;
 
       } else {
         // ── PPV only path ─────────────────────────────────────
@@ -1316,6 +1451,7 @@ test('PPV flow via existing user my account', async ({ browser }) => {
         await validateVariant(
           page, 'ppvpayment', ppvPaymentData, results, eventData, 'PPV Payment', FLOW
         );
+        reachedEndPage = true;
       }
 
     }
@@ -1324,12 +1460,45 @@ test('PPV flow via existing user my account', async ({ browser }) => {
     // STEP 8 — RESULTS
     // ══════════════════════════════════════════════════════════════
     const { excelPath, videoPath } = await writeResults(results);
+
+    // Display detailed per-page results
     displayResultsTable(results, tier, {
       event: eventData.PPV_NAME,
       region: REGION,
       excelPath,
       videoPath,
     });
+
+    // Generate HTML + PDF run report (country, surfacing point, rate plan, per-page pass/fail, totals)
+    const { htmlPath, pdfPath } = await generateReports(results, {
+      event: eventData.PPV_NAME,
+      region: REGION,
+      source: SOURCE,
+      ratePlan,
+      tier,
+      env: process.env.DAZN_ENV || 'prod',
+      flowName: SOURCE,
+      endTime: new Date(),
+      excelPath,
+      videoPath,
+    });
+    if (htmlPath) console.log(`\n📊 Report: ${htmlPath}${pdfPath ? `\n📊 Report: ${pdfPath}` : ''}`);
+
+
+    const passed = results.filter(r => r.status === 'PASS').length;
+    const failed = results.filter(r => r.status === 'FAIL').length;
+    const total = passed + failed;
+
+    console.log(`\n✅ Flow "${SOURCE}" complete: ${passed}/${total} passed (${total > 0 ? ((passed / total) * 100).toFixed(1) : 0}%)`);
+    console.log(`${'─'.repeat(55)}`);
+
+    if (total === 0) {
+      throw new Error(`❌ Flow "${SOURCE}" had 0 validation checks`);
+    }
+
+    if (!reachedEndPage) {
+      throw new Error(`❌ Flow "${SOURCE}" did not reach the expected end page: "payment" or "confirmation"`);
+    }
 
   } catch (error) {
     console.error('❌ Test error:', error);

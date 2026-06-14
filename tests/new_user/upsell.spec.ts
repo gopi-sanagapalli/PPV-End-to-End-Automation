@@ -2,6 +2,8 @@ import { test, Page } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
 import { LandingPage } from '../../pages/LandingPage';
+import { HomePage } from '../../pages/HomePage';
+import { SportsLandingPage } from '../../pages/SportsLandingPage';
 import { SignupPage } from '../../pages/SignupPage';
 import { PaymentPage } from '../../pages/PaymentPage';
 import { PaymentFillPage } from '../../pages/PaymentFillPage';
@@ -94,18 +96,33 @@ async function runUpsellFlow(
     // ═══════════════════════════════════════════════════════════
     // PAGE 1: Welcome page — "Don't miss live on DAZN" rail
     // ═══════════════════════════════════════════════════════════
+    const welcomeHeader = source.includes('banner')
+      ? 'PAGE 1: Welcome Page — Hero Banner Carousel'
+      : source.includes('rail')
+        ? 'PAGE 1: Welcome Page — Welcome Rail'
+        : 'PAGE 1: Welcome Page — Don\'t Miss Live Rail';
     console.log('\n══════════════════════════════════════════════');
-    console.log('PAGE 1: Welcome Page — Don\'t Miss Live Rail');
+    console.log(welcomeHeader);
     console.log('══════════════════════════════════════════════');
 
-    const landing = new LandingPage(page);
-    await landing.navigate(baseUrl, source);
+    const isHomePageSource = source.startsWith('home-page-');
+    const isHomeSport = source.startsWith('home-') && !isHomePageSource;
+    const landing = isHomePageSource
+      ? new HomePage(page)
+      : isHomeSport
+        ? new SportsLandingPage(page)
+        : new LandingPage(page);
+    await landing.navigate(baseUrl, source, eventData);
     await setupPage(page, 8000);
 
-    // Use LandingPage.findPPVContainer with 'welcome-rail' source
     const container = await landing.findPPVContainer(eventData, source);
     if (!container) {
-      throw new Error(`❌ CRITICAL: PPV tile not found in "Don't miss live" rail`);
+      const locationName = source.includes('banner')
+        ? 'hero banner carousel'
+        : source.includes('rail')
+          ? 'welcome rail'
+          : '"Don\'t miss live" rail';
+      throw new Error(`❌ CRITICAL: PPV container not found in ${locationName}`);
     }
 
     // Validate Welcome page fields
@@ -157,8 +174,8 @@ async function runUpsellFlow(
     // Handle generic popup validations and click-through
     await handlePopupModal(page, results, eventData, source, true);
 
-    await page.waitForLoadState('domcontentloaded').catch(() => {});
-    await page.waitForURL((url: URL) => url.toString() !== beforeUrl, { timeout: 10000 }).catch(() => {});
+    await page.waitForLoadState('domcontentloaded').catch(() => { });
+    await page.waitForURL((url: URL) => url.toString() !== beforeUrl, { timeout: 10000 }).catch(() => { });
     console.log(`✅ Navigated to: ${page.url()}`);
 
     // ═══════════════════════════════════════════════════════════
@@ -193,7 +210,7 @@ async function runUpsellFlow(
       }
 
       // ── DAZN Bet / Promotional Upsell (second success) ──
-      if (pageType === 'bet-upsell' && firstPaymentDone && savedCardPaymentDone) {
+      if (pageType === 'bet-upsell' && firstPaymentDone) {
         console.log('\n══════════════════════════════════════════════');
         console.log('PAGE 8: Second Success Page — DAZN Bet Upsell');
         console.log('══════════════════════════════════════════════');
@@ -279,7 +296,7 @@ async function runUpsellFlow(
 
         const defaultSignupPage = new DefaultSignupPage(page);
         await defaultSignupPage.clickContinueWithPPV();
-        await page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => {});
+        await page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => { });
         continue;
       }
 
@@ -292,7 +309,7 @@ async function runUpsellFlow(
 
         try {
           // Wait for the page content to load (heading or continue button)
-          await page.locator('h1, h2, button:has-text("Continue"), a:has-text("Continue")').first().waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});
+          await page.locator('h1, h2, button:has-text("Continue"), a:has-text("Continue")').first().waitFor({ state: 'visible', timeout: 15000 }).catch(() => { });
 
           const ppvData = readUpsellSheet('PPV page');
           console.log('📋 Validating PPV page...');
@@ -342,8 +359,8 @@ async function runUpsellFlow(
               for (let i = 0; i < radioCount; i++) {
                 const r = radios.nth(i);
                 const checked = await r.getAttribute('aria-checked').catch(() => null) ||
-                                await r.getAttribute('aria-pressed').catch(() => null) ||
-                                (await r.isChecked().catch(() => false) ? 'true' : null);
+                  await r.getAttribute('aria-pressed').catch(() => null) ||
+                  (await r.isChecked().catch(() => false) ? 'true' : null);
                 if (checked === 'true') { actual = 'Yes'; break; }
               }
             } else if (key.includes('ultimate card')) {
@@ -401,8 +418,8 @@ async function runUpsellFlow(
         const beforeUrl = page.url();
         await ppvCta.click({ force: true });
         console.log('✅ Clicked "Continue with pay-per-view"');
-        await page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => {});
-        await page.waitForURL((url: URL) => url.toString() !== beforeUrl, { timeout: 10000 }).catch(() => {});
+        await page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => { });
+        await page.waitForURL((url: URL) => url.toString() !== beforeUrl, { timeout: 10000 }).catch(() => { });
         continue;
       }
 
@@ -471,7 +488,7 @@ async function runUpsellFlow(
         await planCta.waitFor({ state: 'visible', timeout: 10000 });
         await planCta.click({ force: true });
         console.log('✅ Clicked Plan CTA');
-        await page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => {});
+        await page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => { });
         continue;
       }
 
@@ -501,11 +518,11 @@ async function runUpsellFlow(
             await page.waitForURL(
               (url: URL) => url.toString().includes('personalDetails') || url.toString().includes('payment') || url.toString().includes('checkout'),
               { timeout: 10000 }
-            ).catch(() => {});
+            ).catch(() => { });
           }
         }
 
-        await page.waitForLoadState('domcontentloaded').catch(() => {});
+        await page.waitForLoadState('domcontentloaded').catch(() => { });
 
         const firstNameEl = page.locator('[data-test-id="FIRST_NAME"], input[name="firstName"]').first();
         if (await firstNameEl.waitFor({ state: 'visible', timeout: 6000 }).then(() => true).catch(() => false)) {
@@ -515,7 +532,7 @@ async function runUpsellFlow(
           await page.waitForURL(
             (url: URL) => url.toString().includes('payment') || url.toString().includes('paymentDetails') || url.toString().includes('checkout'),
             { timeout: 15000 }
-          ).catch(() => {});
+          ).catch(() => { });
         }
         continue;
       }
@@ -530,7 +547,7 @@ async function runUpsellFlow(
         await page.waitForSelector(
           'text=/Today you pay|free trial|payment/i',
           { timeout: 12000 }
-        ).catch(() => {});
+        ).catch(() => { });
 
         const payment = new PaymentPage(page);
         if (await payment.isPaymentPage()) {
@@ -540,7 +557,7 @@ async function runUpsellFlow(
             const rowTier = (row['Tier'] || '').trim().toLowerCase();
             const rowPlan = (row['Rate Plan'] || '').trim().toLowerCase();
             return rowTier === (tier || 'standard').toLowerCase() &&
-                   rowPlan === (ratePlan || 'monthly').toLowerCase();
+              rowPlan === (ratePlan || 'monthly').toLowerCase();
           });
           console.log(`📊 Payment rows: ${paymentData.length} total → ${filteredPaymentData.length} filtered`);
           await payment.validate(filteredPaymentData, results, eventData, 'newuser');
@@ -551,7 +568,7 @@ async function runUpsellFlow(
         if (env === 'stag') {
           const paymentFill = new PaymentFillPage(page);
           try {
-            await page.screenshot({ path: 'test-results/upsell-before-payment-fill.png' }).catch(() => {});
+            await page.screenshot({ path: 'test-results/upsell-before-payment-fill.png' }).catch(() => { });
             await paymentFill.fillPaymentAndSubmit();
             console.log('✅ First payment submitted!');
             firstPaymentDone = true;
@@ -567,11 +584,11 @@ async function runUpsellFlow(
             await page.waitForURL(
               (url: URL) => url.toString() !== beforePaymentUrl,
               { timeout: 30000 }
-            ).catch(() => {});
+            ).catch(() => { });
             await page.waitForTimeout(4000);
           } catch (payErr: any) {
             console.error(`❌ First payment failed: ${payErr.message}`);
-            await page.screenshot({ path: 'test-results/upsell-payment-stuck.png' }).catch(() => {});
+            await page.screenshot({ path: 'test-results/upsell-payment-stuck.png' }).catch(() => { });
             results.push({
               page: 'Payment',
               field: 'First Payment Completed',
@@ -608,8 +625,8 @@ async function runUpsellFlow(
     try {
       const videoPath = await page.video()?.path();
       if (videoPath) console.log(`🎥 Video: ${videoPath}`);
-    } catch {}
-    await context.close().catch(() => {});
+    } catch { }
+    await context.close().catch(() => { });
   }
 
   return { results, reachedEndPage };

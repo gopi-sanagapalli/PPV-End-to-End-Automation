@@ -3,7 +3,11 @@ test-results/
 playwright-report/
 blob-report/
 playwright/.cache/
+reports/
 .DS_Store
+*.webm
 *.log
 *.png
+videos/
+auth/dazn-storage-state.json
 .env

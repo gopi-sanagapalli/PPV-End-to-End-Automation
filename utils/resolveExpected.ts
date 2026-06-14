@@ -12,6 +12,18 @@ export function resolveExpected(
   const rawRatePlan = rule['Rate Plan'] || rule.ratePlan || rule['RatePlan'] || '';
   const ratePlan = rawRatePlan.trim().toLowerCase();
 
+  const rawPage = rule.Page || rule.page || eventData.CURRENT_PAGE || eventData.current_page || '';
+  const pageName = rawPage.trim().toLowerCase();
+
+  if (pageName === 'payment') {
+    if (field === 'signed in as text') return 'N/A';
+    if (field === 'log out present') return 'No';
+    if (field === 'saved card present') {
+      const userState = (eventData.USER_STATE || process.env.USER_STATE || 'freemium').trim().toLowerCase();
+      return userState === 'freemium' ? 'No' : 'Yes';
+    }
+  }
+
   let raw = rule.Expected ?? rule.Value;
 
   if (raw !== undefined && raw !== null) {
@@ -94,7 +106,7 @@ export function resolveExpected(
       } else if (ratePlan.includes('annual pay upfront')) {
         raw = '{{CANCELLATION_TEXT_ULTIMATE_APU}}';
       }
-  } else if (field === 'cta button' && (rule.Flow === 'boxing-bundle-ppv' || rule.flow === 'boxing-bundle-ppv')) {
+    } else if (field === 'cta button' && (rule.Flow === 'boxing-bundle-ppv' || rule.flow === 'boxing-bundle-ppv')) {
     const currentTier = (eventData.TIER || eventData.tier || '').trim().toLowerCase();
     if (currentTier === 'ultimate') {
       raw = 'Continue with DAZN Ultimate|Continue with pay-per-view';
@@ -153,23 +165,70 @@ export function resolveExpected(
       }
     }
   }
+}
 
   const activeOfferPresent = String(eventData.ACTIVE_OFFER_PRESENT || 'false').toLowerCase() === 'true';
-  if (activeOfferPresent && currentRatePlan === 'monthly') {
-    if (field === 'flex badge') {
-      raw = 'N/A';
-    } else if (field === 'flex description') {
-      raw = 'Pay for the fight and get your first month of DAZN Standard ';
-    } else if (field === 'flex today text' || field === 'flex future text') {
-      raw = '';
-    } else if (field === 'first month free price' || field === 'first month free text') {
-      raw = 'N/A';
-    } else if (field === 'page title' && (rawField.toLowerCase().includes('pay') || rawField.toLowerCase().includes('payment'))) {
-      raw = 'Choose how to pay';
-    } else if (field === 'plan name') {
-      raw = eventData.PAYMENT_PLAN_LABEL || 'Flex – Pay Monthly - First Month Only';
+  const offerType = eventData.ACTIVE_OFFER_TYPE || 'default';
+
+  if (activeOfferPresent) {
+    if (field === 'ppv price' && offerType === 'ppv_only_offer') {
+      return eventData.OFFER_EFFECTIVE_PPV_PRICE || '';
     }
-  }
+    if (field === 'offer original price' || field === 'offer price original' || field === 'original price' || field === 'was price') {
+      if (offerType === 'ppv_only_offer') return eventData.OFFER_ORIGINAL_PPV_PRICE || '';
+      return eventData.RATE_PLAN_ORIGINAL_PRICE || 'N/A';
+    }
+    if (field === 'offer discount' || field === 'offer discount amount' || field === 'offer save amount' || field === 'discount badge') {
+      if (offerType === 'ppv_only_offer') return eventData.OFFER_DISCOUNT_AMOUNT || '';
+      return eventData.DISCOUNT_BADGE || 'N/A';
+    }
+    if (field === 'offer badge' || field === 'flex badge') {
+      if (offerType === 'ppv_only_offer') return eventData.OFFER_BADGE || '';
+      return 'N/A';
+    }
+    if (field === 'offer description' || field === 'flex description' || field === 'ppv card description') {
+      if (offerType === 'ppv_only_offer') {
+        if (field === 'flex description') return 'N/A';
+        return eventData.OFFER_DESCRIPTION || '';
+      }
+      return eventData.OFFER_DESCRIPTION || '';
+    }
+    if (field === 'cancellation text' || field === 'cancel text') {
+      let cancelTemplate = eventData.CANCELLATION_TEXT || '';
+      for (let pass = 0; pass < 2; pass++) {
+        cancelTemplate = cancelTemplate.replace(/\{\{(.*?)\}\}/g, (match, key) => {
+          const k = key.trim();
+          const val = eventData[k] ?? eventData[k.toUpperCase()] ?? eventData[k.toLowerCase()] ?? eventData[k.replace(/\s+/g, '_').toUpperCase()] ?? eventData[k.replace(/\s+/g, '_')];
+          return val !== undefined ? String(val) : match;
+        });
+        if (!cancelTemplate.includes('{{')) break;
+      }
+      return cancelTemplate;
+    }
+    if (field === 'today you pay price' || field === 'today price' || (field.includes('today you pay') && !field.includes('text'))) {
+      return eventData.TODAY_YOU_PAY_PRICE || '';
+    }
+    if (field === 'plan name' || field === 'plan label') {
+      return eventData.PAYMENT_PLAN_LABEL || eventData.PLAN_LABEL || '';
+    }
+    if (field === 'flex today text' || field === 'flex future text' || field === 'first month free price' || field === 'first month free text') {
+      return offerType === 'ppv_only_offer' ? 'N/A' : '';
+    }
+    if (field === 'bundle price' && offerType === 'bundle_offer') {
+      return eventData.BUNDLE_PRICE || '';
+    }
+    if (field === 'bundle original price' && offerType === 'bundle_offer') {
+      return eventData.BUNDLE_ORIGINAL_PRICE || '';
+    }
+    if (field === 'bundle save badge' && offerType === 'bundle_offer') {
+      return eventData.BUNDLE_SAVE_BADGE || '';
+    }
+    if (field === 'bundle discount' && offerType === 'bundle_offer') {
+      return eventData.BUNDLE_DISCOUNT || '';
+    }
+    if (field === 'bundle description' && offerType === 'bundle_offer') {
+      return eventData.OFFER_DESCRIPTION || '';
+    }
   }
 
   if (field === 'ppv card description') {
@@ -218,14 +277,36 @@ export function resolveExpected(
       template = 'Continue with 7-day Free Trial';
     }
   } else if (field === 'cancellation text' || field === 'cancel text') {
-    const isTrial = eventData.RATE_PLAN === 'monthly' && eventData.TRIAL_MONTHLY_PRICE && eventData.TRIAL_MONTHLY_PRICE !== 'N/A';
-    if (isTrial) {
+    const currentTierVal = (eventData.TIER || '').toLowerCase();
+    const currentRatePlanVal = (eventData.RATE_PLAN || '').replace(/-/g, ' ').toLowerCase();
+    const offerTypeVal = (eventData.OFFER_TYPE || '').toLowerCase();
+
+    if (currentTierVal === 'ultimate' && currentRatePlanVal.includes('annual pay monthly')) {
+      // Ultimate Annual Pay Monthly
+      template = eventData.CANCELLATION_TEXT_ULTIMATE_APM || '';
+    } else if (currentTierVal === 'ultimate' && currentRatePlanVal.includes('annual pay upfront')) {
+      // Ultimate Annual Pay Upfront
+      template = eventData.CANCELLATION_TEXT_ULTIMATE_APU || '';
+    } else if (currentRatePlanVal.includes('annual')) {
+      // Standard Annual (1 month free offer)
+      template = eventData.CANCELLATION_TEXT_ANNUAL || '';
+    } else if (offerTypeVal === '7_day_trial') {
+      // 7-day trial (monthly flex)
       template = eventData.CANCELLATION_TEXT_TRIAL || "In 7 days, you'll be charged {{CURRENCY}}{{MONTHLY_PRICE}}/month. Cancel anytime before the end of the trial.";
-      template = template.replace(/\{\{CURRENCY\}\}/g, eventData.CURRENCY || '£')
-                         .replace(/\{\{MONTHLY_PRICE\}\}/g, eventData.MONTHLY_PRICE || '25.99');
+    } else if (offerTypeVal === '1_month_free') {
+      // 1 month free (non-trial regions or monthly flex with 1-month offer)
+      template = eventData.CANCELLATION_TEXT || eventData.CANCELLATION_TEXT_TRIAL || '';
     } else {
-      template = "Monthly subscription. Cancel with 30 days' notice. Your subscription auto-renews unless you cancel.";
+      // Default monthly — use pre-set CANCELLATION_TEXT if available
+      template = eventData.CANCELLATION_TEXT || "Monthly subscription. Cancel with 30 days' notice. Your subscription auto-renews unless you cancel.";
     }
+
+    // Resolve any remaining template placeholders
+    template = template.replace(/\{\{CURRENCY\}\}/g, eventData.CURRENCY || '£')
+                       .replace(/\{\{MONTHLY_PRICE\}\}/g, eventData.MONTHLY_PRICE || '')
+                       .replace(/\{\{ANNUAL_PRICE\}\}/g, eventData.ANNUAL_PRICE || '')
+                       .replace(/\{\{ANNUAL_TOTAL\}\}/g, eventData.ANNUAL_TOTAL || '')
+                       .replace(/\{\{RENEWAL_DATE\}\}/g, eventData.RENEWAL_DATE || '');
   }
 
   const dateFields = [

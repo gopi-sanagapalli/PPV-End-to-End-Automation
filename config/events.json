@@ -37,7 +37,42 @@
         "BUNDLE_PPV2_FULL_NAME": "PPV: Zayas vs. Boots",
         "BUNDLE_PPV2_DATE": "Sat 27th Jun at 16:30",
         "BUNDLE_PPV2_LANDING_DATE": "27 June",
-        "BUNDLE_TODAY_YOU_PAY_STANDARD": "£35.99"
+        "BUNDLE_TODAY_YOU_PAY_STANDARD": "£35.99",
+        "offers": [
+          {
+            "name": "standard_flex_offer",
+            "enabled": true,
+            "environments": [
+              "stag"
+            ],
+            "OFFER_PRICE": "4.99",
+            "ORIGINAL_PRICE": "25.99",
+            "DISCOUNT_BADGE": "81% OFF for your first month",
+            "PLAN_LABEL": "Flex – Pay Monthly - First Month Only",
+            "OFFER_DESCRIPTION": "Pay for the fight and get your first month of DAZN Standard for only £4.99. Monthly subscription. Cancel any time.",
+            "CANCELLATION_TEXT": "£4.99 for your first month, then £25.99/month. Monthly subscription. Cancel anytime with 30 days notice.",
+            "TODAY_YOU_PAY": "19.98",
+            "TODAY_YOU_PAY_ORIGINAL": "40.98"
+          },
+          {
+            "name": "ultimate_offer",
+            "enabled": true,
+            "environments": [
+              "stag",
+              "beta",
+              "prod"
+            ],
+            "target_region": [
+              "GB"
+            ],
+            "OFFER_PRICE": "19.99",
+            "ORIGINAL_PRICE": "24.99",
+            "DISCOUNT_BADGE": "20% OFF for 12 months",
+            "PLAN_LABEL": "Pay Monthly (First 12 months)",
+            "OFFER_DESCRIPTION": "Offer for your first 12 months, standard price £24.99/month after that. Annual contract. Auto-renews.",
+            "CANCELLATION_TEXT": "Promotional price of £19.99/month for 12 months. Your subscription will automatically renew at the full price on {{RENEWAL_DATE}}. Manage or cancel your renewal anytime in My Account. 12-month minimum term."
+          }
+        ]
       },
       "AU": {
         "PPV_DATE": "Saturday at 10:30 PM|Sunday at 3:00 AM",
@@ -275,34 +310,108 @@
     "PPV_NAME": "Joshua vs. Prenga",
     "PPV_DISPLAY_NAME": "Joshua vs. Prenga",
     "SPORT": "Boxing",
+    "PPV_TYPE": "boxing",
     "OFFER_TYPE": "7_day_trial",
-    "PPV_TYPE": "standalone",
     "NEXT_PAYMENT_DAYS_OFFSET": 7,
     "global": {
       "PPV_PROMOTER": "Matchroom Boxing",
-      "PPV_DATE": "25 Jul at 9:30 PM",
-      "PPV_TIME": "9:30 PM",
-      "PPV_DESCRIPTION": "Catch the biggest moment of the year. Select a DAZN plan to pair with your pay-per-view.",
-      "PPV_CARD_TITLE": "Joshua v Prenga",
-      "PPV_CARD_DESCRIPTION": "Just the fight - plus 7 days of DAZN Standard, free.",
-      "PPV_CARD_DATE": "Sun 26th Jul at 00:30",
-      "PPV_PAGE_TITLE": "Choose the right plan for you.",
-      "PPV_PAGE_SUBTITLE": "To watch your pay-per-view, you'll need a DAZN plan.",
-      "PAYMENT_PPV_LINE": "Joshua v Prenga"
+      "PPV_DESCRIPTION": "Catch the biggest moment of the year. Select a DAZN plan to pair with your pay-per-view."
     },
     "regions": {
       "GB": {
+        "PPV_DATE": "25 July at 20:00",
+        "PPV_TIME": "00:30|21:30",
         "PPV_PRICE": "£24.99",
-        "PPV_PRICE_RAW": "24.99",
+        "PPV_CARD_TITLE": "Joshua vs. Prenga",
+        "PPV_CARD_DESCRIPTION": "Just the fight - plus 7 days of DAZN Standard, free.",
         "TODAY_YOU_PAY_PRICE": "£24.99",
-        "UPFRONT_SAVE_AMOUNT": "49.89",
-        "PPV_DATE": "25 Jul at 9:30 PM",
-        "PPV_TIME": "9:30 PM",
-        "PPV_CARD_DATE": "Sun 26th Jul at 00:30",
         "BOXING_BANNER_SUBTITLE": "Main Event • 25 Jul • 9:30 pm.",
-        "PAYMENT_PPV_PRICE": "£24.99",
-        "PAYMENT_TODAY": "£24.99",
-        "PAYMENT_CROSSED": "£24.99"
+        "BUNDLE_NAME": "The Contender Bundle",
+        "BUNDLE_DESCRIPTION": "From Box Office to World Class. Two big fight nights in one bundle.",
+        "BUNDLE_ORIGINAL_PRICE": "£44.98",
+        "BUNDLE_PRICE": "£39.99",
+        "BUNDLE_SAVE_BADGE": "Save 10%",
+        "BUNDLE_DISCOUNT": "10% off",
+        "BUNDLE_FIGHT_COUNT": "2-fight bundle",
+        "BUNDLE_SECTION_TITLE": "Save with a fight bundle",
+        "BUNDLE_SECTION_SUBTITLE": "More fights, pay less. Pick your bundle.",
+        "BUNDLE_PPV_CARD_DESCRIPTION": "Just the fight - plus 7 days of DAZN Standard, free.",
+        "BUNDLE_PPV1_NAME": "Joshua vs. Prenga",
+        "BUNDLE_PPV1_FULL_NAME": "PPV: Joshua vs. Prenga",
+        "BUNDLE_PPV1_DATE": "25 July at 20:00",
+        "BUNDLE_PPV1_LANDING_DATE": "25 July",
+        "BUNDLE_PPV2_NAME": "Zayas vs. Boots",
+        "BUNDLE_PPV2_FULL_NAME": "PPV: Zayas vs. Boots",
+        "BUNDLE_PPV2_DATE": "Sat 27th Jun at 16:30",
+        "BUNDLE_PPV2_LANDING_DATE": "27 June",
+        "BUNDLE_TODAY_YOU_PAY_STANDARD": "£39.99",
+        "offers": [
+          {
+            "name": "standard_flex_offer",
+            "enabled": true,
+            "environments": [
+              "stag"
+            ],
+            "OFFER_PRICE": "4.99",
+            "ORIGINAL_PRICE": "25.99",
+            "DISCOUNT_BADGE": "81% OFF for your first month",
+            "PLAN_LABEL": "Flex – Pay Monthly - First Month Only",
+            "OFFER_DESCRIPTION": "Pay for the fight and get your first month of DAZN Standard for only £4.99. Monthly subscription. Cancel any time.",
+            "CANCELLATION_TEXT": "£4.99 for your first month, then £25.99/month. Monthly subscription. Cancel anytime with 30 days notice.",
+            "TODAY_YOU_PAY": "29.98",
+            "TODAY_YOU_PAY_ORIGINAL": "50.98"
+          },
+          {
+            "name": "ultimate_offer",
+            "enabled": true,
+            "environments": [
+              "stag",
+              "beta",
+              "prod"
+            ],
+            "target_region": [
+              "GB"
+            ],
+            "OFFER_PRICE": "19.99",
+            "ORIGINAL_PRICE": "24.99",
+            "DISCOUNT_BADGE": "20% OFF for 12 months",
+            "PLAN_LABEL": "Pay Monthly (First 12 months)",
+            "OFFER_DESCRIPTION": "Offer for your first 12 months, standard price £24.99/month after that. Annual contract. Auto-renews.",
+            "CANCELLATION_TEXT": "Promotional price of £19.99/month for 12 months. Your subscription will automatically renew at the full price on {{RENEWAL_DATE}}. Manage or cancel your renewal anytime in My Account. 12-month minimum term."
+          }
+        ]
+      },
+      "AU": {
+        "PPV_DATE": "Sunday at 6:30 AM",
+        "PPV_TIME": "6:30 AM",
+        "PPV_PRICE": "$59.99",
+        "PPV_CARD_TITLE": "PPV: Joshua vs. Prenga",
+        "PPV_CARD_DESCRIPTION": "Just the fight – plus 7 days of DAZN Standard, free.",
+        "TODAY_YOU_PAY_PRICE": "$59.99",
+        "UPSELL_PRICE": "$39.99",
+        "UPSELL_ORIGINAL_PRICE": "$39.99",
+        "ULTIMATE_ANNUAL_PAY_MONTHLY_PRICE": "$39.99",
+        "TODAY_YOU_PAY_ULTIMATE_APM": "$39.99",
+        "BOXING_BANNER_SUBTITLE": "Main Event • 26 Jul • 6:30 am.",
+        "BUNDLE_NAME": "The Contender Bundle",
+        "BUNDLE_DESCRIPTION": "From Box Office to World Class. Two big fight nights in one bundle.",
+        "BUNDLE_ORIGINAL_PRICE": "$119.98",
+        "BUNDLE_PRICE": "$107.99",
+        "BUNDLE_SAVE_BADGE": "Save 10%",
+        "BUNDLE_DISCOUNT": "10% off",
+        "BUNDLE_FIGHT_COUNT": "2-fight bundle",
+        "BUNDLE_SECTION_TITLE": "Save with a fight bundle",
+        "BUNDLE_SECTION_SUBTITLE": "More fights, pay less. Pick your bundle.",
+        "BUNDLE_PPV_CARD_DESCRIPTION": "Just the fight – plus 7 days of DAZN Standard, free.",
+        "BUNDLE_PPV1_NAME": "Joshua vs. Prenga",
+        "BUNDLE_PPV1_FULL_NAME": "PPV: Joshua vs. Prenga",
+        "BUNDLE_PPV1_DATE": "Sunday at 6:30 AM",
+        "BUNDLE_PPV1_LANDING_DATE": "26 July",
+        "BUNDLE_PPV2_NAME": "Zayas vs. Boots",
+        "BUNDLE_PPV2_FULL_NAME": "PPV: Zayas vs. Boots",
+        "BUNDLE_PPV2_DATE": "Sat 27th Jun at 4:30 PM|27 June at 9:00pm",
+        "BUNDLE_PPV2_LANDING_DATE": "27 June",
+        "BUNDLE_TODAY_YOU_PAY_STANDARD": "$107.99"
       }
     },
     "variants": {

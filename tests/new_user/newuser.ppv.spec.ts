@@ -12,6 +12,7 @@ import { PaymentFillPage } from '../../pages/PaymentFillPage';
 import { SearchPage } from '../../pages/SearchPage';
 import { StandalonePPVPage } from '../../pages/StandalonePPVPage';
 import { DefaultSignupPage } from '../../pages/DefaultSignupPage';
+import { SchedulePage } from '../../pages/schedulepage';
 
 import {
   readSheet,
@@ -77,7 +78,8 @@ async function runFlow(
   region: string,
   validateLanding: boolean
 ): Promise<{ results: any[]; reachedEndPage: boolean; skipped?: boolean }> {
-  const { name, source, tier, ratePlan, enableDevMode: devModeEnabled } = flowConfig;
+  const { name, source, tier, ratePlan: rawRatePlan, enableDevMode: devModeEnabled } = flowConfig;
+  const ratePlan = (rawRatePlan || '').replace(/-/g, ' ').toLowerCase();
   const results: any[] = [];
 
   // Configure Excel path based on event type (standalone, upsell, or normal PPV)
@@ -100,6 +102,8 @@ async function runFlow(
     eventData.PLAN_CTA_BUTTON = eventData.PLAN_CTA_BUTTON_ULTIMATE || 'Continue with DAZN Ultimate';
     eventData.DAZN_TIER = 'DAZN Ultimate';
   } else {
+    // Standard tier: CTA depends on rate plan
+    // Flex - Pay Monthly is always selected by default initially, so CTA is Continue with 7-day Free Trial
     eventData.PLAN_CTA_BUTTON = eventData.PLAN_CTA_BUTTON_STANDARD || 'Continue with 7-day Free Trial';
     eventData.DAZN_TIER = 'DAZN Standard';
   }
@@ -113,10 +117,11 @@ async function runFlow(
     eventData.CANCELLATION_TEXT = eventData.CANCELLATION_TEXT_TRIAL || '';
   } else if (offerType === '7_day_trial' && tier === 'standard' && ratePlan === 'monthly') {
     eventData.PAYMENT_PAGE_TITLE = eventData.PAYMENT_PAGE_TITLE_TRIAL || 'Choose how to pay after your free trial';
-    eventData.PAYMENT_PLAN_NAME = eventData.RATE_PLAN_LABEL || eventData.PAYMENT_PLAN_LABEL || 'Flex – Pay Monthly';
+    eventData.PAYMENT_PLAN_NAME = eventData.PAYMENT_FREE_TEXT_TRIAL || '7-days free';
     eventData.PAYMENT_FREE_TEXT = eventData.PAYMENT_FREE_TEXT_TRIAL || '7-days free';
     eventData.CANCELLATION_TEXT = eventData.CANCELLATION_TEXT_TRIAL || '';
   } else if (ratePlan === 'annual pay monthly' || ratePlan === 'annual pay upfront') {
+    // APM / APU — 1 month free offer
     eventData.PAYMENT_PAGE_TITLE = eventData.PAYMENT_PAGE_TITLE_STANDARD || 'Choose how to pay';
     eventData.PAYMENT_PLAN_NAME = eventData.PAYMENT_PLAN_NAME_ANNUAL || 'Annual - Pay Monthly';
     eventData.PAYMENT_FREE_TEXT = eventData.PAYMENT_FREE_TEXT_MONTHLY || 'First month free';
@@ -127,12 +132,26 @@ async function runFlow(
     } else {
       eventData.CANCELLATION_TEXT = eventData.CANCELLATION_TEXT_ANNUAL || '';
     }
+  } else if (offerType === '1_month_free' && ratePlan === 'monthly') {
+    // Monthly plan with 1-month-free offer (non-trial regions)
+    eventData.PAYMENT_PAGE_TITLE = eventData.PAYMENT_PAGE_TITLE_STANDARD || 'Choose how to pay';
+    eventData.PAYMENT_PLAN_NAME = eventData.PAYMENT_PLAN_NAME_FLEX || 'Flex – Pay Monthly';
+    eventData.PAYMENT_FREE_TEXT = eventData.PAYMENT_FREE_TEXT_MONTHLY || 'First month free';
+    eventData.CANCELLATION_TEXT = eventData.CANCELLATION_TEXT_TRIAL || '';
   } else {
     eventData.PAYMENT_PAGE_TITLE = eventData.PAYMENT_PAGE_TITLE_STANDARD || 'Choose how to pay';
     eventData.PAYMENT_PLAN_NAME = eventData.PAYMENT_PLAN_NAME_FLEX || 'Flex – Pay Monthly';
     eventData.PAYMENT_FREE_TEXT = eventData.PAYMENT_FREE_TEXT_MONTHLY || 'First month free';
     eventData.CANCELLATION_TEXT = eventData.CANCELLATION_TEXT_TRIAL || '';
   }
+
+  // Ensure uppercase keys are in sync
+  eventData['PAYMENT_PAGE_TITLE'] = eventData.PAYMENT_PAGE_TITLE;
+  eventData['PAYMENT_PLAN_NAME'] = eventData.PAYMENT_PLAN_NAME;
+  eventData['PAYMENT_FREE_TEXT'] = eventData.PAYMENT_FREE_TEXT;
+  eventData['PLAN_CTA_BUTTON'] = eventData.PLAN_CTA_BUTTON;
+  eventData['DAZN_TIER'] = eventData.DAZN_TIER;
+  eventData['CANCELLATION_TEXT'] = eventData.CANCELLATION_TEXT;
 
   const baseUrl = eventData.BASE_URL;
   const variantConfig = json.variants;
@@ -222,8 +241,30 @@ async function runFlow(
     const isHomeSport = source.startsWith('home-') && !isHomePageSource;
     const isBoxingSource = source.startsWith('boxing');
     const isSearch = source.toLowerCase().includes('search');
+    const isSchedule = source.toLowerCase().includes('schedule');
 
-    if (isSearch) {
+    if (isSchedule) {
+      const schedule = new SchedulePage(page);
+      await schedule.navigate(baseUrl);
+      await setupPage(page, 8000);
+      assertCountryMatch(page, region);
+
+      const sport = json.SPORT || 'Boxing';
+      await schedule.selectSport(sport);
+
+      const eventCard = await schedule.findEvent(eventData.PPV_NAME);
+      await schedule.clickEvent(eventCard);
+
+      console.log('\n📋 Validating Schedule page...');
+      try {
+        const scheduleData = readSheet('Schedule page');
+        await validateVariant(page, 'schedule', scheduleData, results, eventData, 'Schedule');
+      } catch (err: any) {
+        console.warn(`⚠️  Schedule page validation error: ${err.message}`);
+      }
+
+      await schedule.clickBuyNow();
+    } else if (isSearch) {
       const searchPage = new SearchPage(page);
       await searchPage.navigate(baseUrl);
       await setupPage(page, 8000);
