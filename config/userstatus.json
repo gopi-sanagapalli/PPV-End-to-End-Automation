@@ -22,8 +22,8 @@
             "USER_PASSWORD": "Test1!"
           },
           "prod": {
-            "USER_EMAIL": "us_freemium@t.com",
-            "USER_PASSWORD": "Test1!"
+            "USER_EMAIL": "usppv01@yopmail.com",
+            "USER_PASSWORD": "Dazn@123"
           }
         }
       },

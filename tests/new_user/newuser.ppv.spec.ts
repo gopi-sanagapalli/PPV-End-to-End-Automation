@@ -952,7 +952,7 @@ async function runFlow(
           let clicked = false;
           for (const sel of selectors) {
             const el = page.locator(sel).first();
-            if (await el.isVisible({ timeout: 1000 }).catch(() => false)) {
+            if (await el.isVisible().catch(() => false)) {
               await safeScrollToElement(page, el);
               await el.click({ force: true }).catch(() => { });
               console.log(`✅ Clicked Ultimate card via selector: ${sel}`);
@@ -981,18 +981,17 @@ async function runFlow(
           }
 
           const btn = page.locator('button:has-text("Continue with DAZN Ultimate")').first();
-          await btn.waitFor({ state: 'visible', timeout: 5000 }).catch(() => { });
           await clickAndWaitForNav(page, btn, 'PPV Continue Ultimate');
         } else {
           const ppvSelector = currentVariantConfig?.ppvSelector || 'input[type="radio"]';
           const ppvInput = page.locator(ppvSelector).first();
-          if (await ppvInput.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)) {
+          if (await ppvInput.isVisible().catch(() => false)) {
             await safeScrollToElement(page, ppvInput);
             await ppvInput.click({ force: true }).catch(() => { });
           }
 
           let btn = page.locator('button:has-text("Continue with pay-per-view")').first();
-          if (await btn.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)) {
+          if (await btn.isVisible().catch(() => false)) {
             console.log('🖱️ Clicking CTA: "Continue with pay-per-view"');
           } else {
             const ctaText = currentVariantConfig?.ctaText || 'Continue';

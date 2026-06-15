@@ -197,6 +197,14 @@ export interface DOMNode {
   childCount: number;
   isInModal:  boolean;
   isStrike?:  boolean;
+  isChecked?: boolean;
+  type?:      string;
+  src?:       string;
+  href?:      string;
+  ariaPressed?: string;
+  ariaChecked?: string;
+  id?:        string;
+  hasCheckedSvg?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -298,7 +306,8 @@ export async function getPageSnapshot(page: Page): Promise<DOMNode[]> {
       const tags = [
         'button','a','h1','h2','h3','h4','h5',
         'p','span','li','label',
-        'small','time','strong','b','em','div'
+        'small','time','strong','b','em','div',
+        'img','input'
       ];
 
       const results: any[] = [];
@@ -313,7 +322,7 @@ export async function getPageSnapshot(page: Page): Promise<DOMNode[]> {
           if (totalProcessed > MAX_ELEMENTS) break;
           if (!isRendered(el)) continue;
           const text = isStrikethrough(el) ? clean(el.textContent || '') : clean(getNonStrikeText(el));
-          const isInteractive = tag === 'button' || tag === 'a';
+          const isInteractive = ['button', 'a', 'img', 'input'].includes(tag);
           if (!isInteractive && (!text || text.length < 2 || text.length > 500)) continue;
           const key = text ? `${tag}:${text}` : `${tag}:${el.className || ''}:${results.length}`;
           if (seen.has(key)) continue;
@@ -325,6 +334,14 @@ export async function getPageSnapshot(page: Page): Promise<DOMNode[]> {
             childCount: el.children.length,
             isInModal:  isInModal(el),
             isStrike:   isStrikethrough(el),
+            isChecked:  (el as HTMLInputElement).checked || el.getAttribute('aria-checked') === 'true' || el.getAttribute('aria-pressed') === 'true',
+            type:       el.getAttribute('type') || undefined,
+            src:        (el as HTMLImageElement).src || el.getAttribute('src') || undefined,
+            href:       (el as HTMLAnchorElement).href || el.getAttribute('href') || undefined,
+            ariaPressed: el.getAttribute('aria-pressed') || undefined,
+            ariaChecked: el.getAttribute('aria-checked') || undefined,
+            id:         el.id || undefined,
+            hasCheckedSvg: el.querySelector('svg[class*="checked" i], [class*="checkmark" i]') !== null,
           });
           if (results.length >= 2000) break;
         }

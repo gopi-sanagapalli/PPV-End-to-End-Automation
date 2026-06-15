@@ -29,6 +29,7 @@ import {
   safeScrollToElement,
   clickAndWaitForNav,
   handlePopupModal,
+  assertCountryMatch,
 } from '../../utils/testHelpers';
 import { compare } from '../../utils/compare';
 import { resolveExpected } from '../../utils/resolveExpected';
@@ -329,6 +330,7 @@ async function runFlow(
         : new LandingPage(page);
     await landing.navigate(baseUrl, source, eventData);
     await setupPage(page, 8000);
+    assertCountryMatch(page, region);
 
     // ── Step 2: Find PPV container & click Buy Now ──
     const container = await landing.findPPVContainer(eventData, source);

@@ -46,6 +46,7 @@ import {
   safeScrollToElement,
   clickAndWaitForNav,
   handlePopupModal,
+  assertCountryMatch,
 } from '../../utils/testHelpers';
 
 const REGION = process.env.DAZN_REGION || 'GB';
@@ -280,6 +281,7 @@ test('PPV flow via existing user my account', async ({ browser }) => {
         const schedule = new SchedulePage(page);
         await schedule.navigate(baseUrl);
         await setupPage(page, 8000);
+        assertCountryMatch(page, REGION);
         await schedule.selectSport(sport);
 
         const eventCard = await schedule.findEvent(eventData.PPV_NAME);
@@ -299,6 +301,8 @@ test('PPV flow via existing user my account', async ({ browser }) => {
       } else if (isSearch) {
         const searchPage = new SearchPage(page);
         await searchPage.navigate(baseUrl);
+        await setupPage(page, 8000);
+        assertCountryMatch(page, REGION);
         let searchQuery = eventData.PPV_NAME;
         if (eventData.PPV_NAME && eventData.PPV_NAME.includes(':')) {
           searchQuery = eventData.PPV_NAME.split(':').pop()?.trim() || eventData.PPV_NAME;
@@ -348,6 +352,7 @@ test('PPV flow via existing user my account', async ({ browser }) => {
 
         await landing.navigate(baseUrl, SOURCE, eventData);
         await setupPage(page, 8000);
+        assertCountryMatch(page, REGION);
 
         // Validate entry page
         const isBoxingSourceInner = SOURCE.startsWith('boxing-page') || SOURCE.startsWith('boxing');
@@ -436,6 +441,7 @@ test('PPV flow via existing user my account', async ({ browser }) => {
       console.log('🍪 Waiting for cookie banner...');
       await handleCookies(page, 10000);
       await stabilisePage(page);
+      assertCountryMatch(page, REGION);
 
       console.log(`📧 Entering email: ${userEmail}`);
       const emailInput = page.locator(

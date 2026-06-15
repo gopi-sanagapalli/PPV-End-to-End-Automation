@@ -30,7 +30,7 @@ import {
   injectConsentCookies,
 } from '../../utils/helpers';
 
-import { loadEventConfig, handlePopupModal } from '../../utils/testHelpers';
+import { loadEventConfig, handlePopupModal, assertCountryMatch } from '../../utils/testHelpers';
 
 const REGION = process.env.DAZN_REGION || 'IN';
 const EVENT_CONFIG = process.env.PPV_CONFIG || 'beauty_and_beast';
@@ -190,6 +190,7 @@ test('PPV flow', async ({ browser }) => {
       const schedule = new SchedulePage(page);
       await schedule.navigate(baseUrl);
       await setupPage(page);
+      assertCountryMatch(page, REGION);
       await schedule.selectSport(sport);
 
       const eventCard = await schedule.findEvent(eventData.PPV_NAME);
@@ -229,6 +230,7 @@ test('PPV flow', async ({ browser }) => {
       await page.waitForLoadState('domcontentloaded').catch(() => { });
       await handleCookies(page);
       await stabilisePage(page);
+      assertCountryMatch(page, REGION);
 
       const container = await landing.findPPVContainer(eventData);
       if (!container) {
@@ -351,8 +353,7 @@ test('PPV flow', async ({ browser }) => {
             'label:has-text("DAZN Ultimate")'
           ).first();
 
-          if (await ultimateCard.isVisible({ timeout: 3000 })
-            .catch(() => false)) {
+          if (await ultimateCard.isVisible().catch(() => false)) {
             await safeScrollToElement(page, ultimateCard);
             await ultimateCard.click({ force: true }).catch(() => { });
             console.log('✅ Clicked Ultimate card');
@@ -379,8 +380,7 @@ test('PPV flow', async ({ browser }) => {
           const ppvSelector = currentVariantConfig?.ppvSelector
             || 'input[type="radio"]';
           const ppvInput = page.locator(ppvSelector).first();
-          if (await ppvInput.isVisible({ timeout: 1500 })
-            .catch(() => false)) {
+          if (await ppvInput.isVisible().catch(() => false)) {
             await safeScrollToElement(page, ppvInput);
             await ppvInput.click({ force: true }).catch(() => { });
           }
@@ -395,9 +395,6 @@ test('PPV flow', async ({ browser }) => {
         const btn = page.locator(
           `button:has-text("${ctaText}")`
         ).first();
-        await btn.waitFor({ state: 'visible', timeout: 8000 }).catch(() => {
-          console.warn(`⚠️  CTA "${ctaText}" not visible after 8s`);
-        });
         await clickAndWaitForNav(page, btn, `PPV Continue (${variant})`);
 
         await setupPage(page);

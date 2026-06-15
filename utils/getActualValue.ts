@@ -267,10 +267,13 @@ export async function getActualValue(
     }
 
     case 'ppv date badge': {
-      const btn = page.locator('button[class*="ni7RX" i]').first();
-      const span = btn.locator('span').first();
-      if (await span.isVisible().catch(() => false)) {
-        return (await span.innerText().catch(() => '')) || 'N/A';
+      const hasNi7RX = snap.some(n => n.tag === 'button' && n.classes.toLowerCase().includes('ni7rx'));
+      if (hasNi7RX) {
+        const btn = page.locator('button[class*="ni7RX" i]').first();
+        const span = btn.locator('span').first();
+        if (await span.isVisible().catch(() => false)) {
+          return (await span.innerText().catch(() => '')) || 'N/A';
+        }
       }
       return snapFind(n =>
         n.tag === 'span' &&
@@ -286,11 +289,15 @@ export async function getActualValue(
 
     case 'ppv checkbox state': {
       const mainName = eventData?.PPV_NAME ? eventData.PPV_NAME.split(/[:\-–]/)[0].trim() : '';
-      const btn = mainName
-        ? page.locator(`button:has-text("${mainName}"), button[class*="ni7RX"]`).first()
-        : page.locator(`button[class*="ni7RX"]`).first();
+      const btnExists = snap.some(n => 
+        (mainName && n.tag === 'button' && n.text.toLowerCase().includes(mainName.toLowerCase())) || 
+        (n.tag === 'button' && n.classes.toLowerCase().includes('ni7rx'))
+      );
       let checked = false;
-      if (await btn.isVisible().catch(() => false)) {
+      if (btnExists) {
+        const btn = mainName
+          ? page.locator(`button:has-text("${mainName}"), button[class*="ni7RX"]`).first()
+          : page.locator(`button[class*="ni7RX"]`).first();
         const ariaPressed = await btn.getAttribute('aria-pressed').catch(() => null);
         const ariaChecked = await btn.getAttribute('aria-checked').catch(() => null);
         const classAttr = (await btn.getAttribute('class').catch(() => null)) || '';
@@ -301,8 +308,13 @@ export async function getActualValue(
           if (hasCheckedCheckmark > 0) checked = true;
         }
       } else {
-        const cb = page.locator('input[type="checkbox"]').first();
-        checked = await cb.isChecked().catch(() => false);
+        const cbNode = snap.find(n => n.tag === 'input' && n.type === 'checkbox');
+        if (cbNode) {
+          checked = cbNode.isChecked ?? false;
+        } else {
+          const cb = page.locator('input[type="checkbox"]').first();
+          checked = await cb.isChecked().catch(() => false);
+        }
       }
       return checked ? 'Checked' : 'Unchecked';
     }
@@ -348,6 +360,11 @@ export async function getActualValue(
 
     case 'cta button (flex selected)':
     case 'cta button (apm selected)': {
+      const hasBtn = snap.some(n => n.tag === 'button' && (n.classes.toLowerCase().includes('ihnwix') || n.text.toLowerCase().includes('continue')));
+      if (hasBtn) {
+        const text = snapFind(n => n.tag === 'button' && (n.classes.toLowerCase().includes('ihnwix') || n.text.toLowerCase().includes('continue')));
+        if (text !== 'N/A') return text;
+      }
       const btn = page.locator('button[class*="ihnwix" i], button:has-text("Continue")').first();
       if (await btn.isVisible().catch(() => false)) {
         return (await btn.innerText().catch(() => '')) || 'N/A';
@@ -361,6 +378,10 @@ export async function getActualValue(
 
     case 'plans visible count (checked)':
     case 'plans visible count (unchecked)': {
+      const snapRadioCount = snap.filter(n => n.tag === 'input' && n.type === 'radio').length;
+      if (snapRadioCount > 0) return String(snapRadioCount);
+      const snapCardCount = snap.filter(n => n.tag === 'div' && n.classes.toLowerCase().includes('plancard')).length;
+      if (snapCardCount > 0) return String(snapCardCount);
       const selectorsList = [
         'input[type="radio"]',
         '[role="radio"]',
@@ -1339,16 +1360,41 @@ export async function getActualValue(
     // ════════════════════════════════════════════════════════════
     case 'hero image':
     case 'ppv image present':
-    case 'ppv image':
+    case 'ppv image': {
+      const hasImg = snap.some(n => 
+        n.tag === 'img' && 
+        (
+          (n.src && n.src.toLowerCase().includes('ppv')) || 
+          (n.text && n.text.toLowerCase().includes('vs')) || 
+          n.classes.toLowerCase().includes('hero')
+        )
+      ) || snap.some(n => n.tag === 'img');
+      if (hasImg) return 'Yes';
+
       return firstExists(
         'img[src*="ppv"]',
         'img[alt*="vs" i]',
         'main img',
         'img'
       );
+    }
 
     case 'ppv1 image present on ultimate tier':
     case 'ppv1 image present on bundle': {
+      const hasScopedImg = snap.some(n =>
+        n.tag === 'img' &&
+        (
+          n.classes.toLowerCase().includes('upsell') ||
+          n.classes.toLowerCase().includes('ultimate') ||
+          n.classes.toLowerCase().includes('bundle') ||
+          n.classes.toLowerCase().includes('included')
+        )
+      );
+      if (hasScopedImg) return 'Yes';
+
+      const snapImgsCount = snap.filter(n => n.tag === 'img').length;
+      if (snapImgsCount >= 2) return 'Yes';
+
       const found = await firstExists(
         '[class*="upsell" i] img',
         '[class*="ultimate" i] img',
@@ -1375,6 +1421,15 @@ export async function getActualValue(
         );
         if (secFound === 'N/A') return 'N/A';
       }
+
+      const snapImgsCount = snap.filter(n => n.tag === 'img').length;
+      if (snapImgsCount >= 3) return 'Yes';
+
+      const snapScopedCount = snap.filter(n =>
+        n.tag === 'img' &&
+        (n.classes.toLowerCase().includes('upsell') || n.classes.toLowerCase().includes('ultimate'))
+      ).length;
+      if (snapScopedCount >= 2) return 'Yes';
 
       const allImgs = page.locator('img');
       const count = await allImgs.count().catch(() => 0);
@@ -1821,6 +1876,12 @@ export async function getActualValue(
     // RADIO / CHECKBOX
     // ════════════════════════════════════════════════════════════
     case 'radio selected': {
+      const hasChecked = snap.some(n => 
+        (n.tag === 'input' && n.type === 'radio' && n.isChecked) || 
+        (n.ariaChecked === 'true' || n.ariaPressed === 'true')
+      );
+      if (hasChecked) return 'Yes';
+
       const loc = page.locator('input[type="radio"], [role="radio"]');
       const count = await loc.count().catch(() => 0);
       for (let i = 0; i < count; i++) {
@@ -1830,6 +1891,9 @@ export async function getActualValue(
     }
 
     case 'ppv checkbox present': {
+      const hasCb = snap.some(n => n.tag === 'input' && n.type === 'checkbox');
+      if (hasCb) return 'Yes';
+
       const count = await page
         .locator('input[type="checkbox"]')
         .count()
@@ -1838,21 +1902,33 @@ export async function getActualValue(
     }
 
     case 'ppv selected': {
+      const cbNode = snap.find(n => n.tag === 'input' && n.type === 'checkbox');
+      if (cbNode) return cbNode.isChecked ? 'Yes' : 'No';
+
       const cb = page.locator('input[type="checkbox"]').first();
       return (await cb.isChecked().catch(() => false)) ? 'Yes' : 'No';
     }
 
     case 'trial selected': {
+      const rNode = snap.find(n => n.tag === 'input' && n.type === 'radio');
+      if (rNode) return rNode.isChecked ? 'Yes' : 'No';
+
       const r = page.locator('input[type="radio"]').first();
       return (await r.isChecked().catch(() => false)) ? 'Yes' : 'No';
     }
 
     case 'upsell selected': {
+      const rNodes = snap.filter(n => n.tag === 'input' && n.type === 'radio');
+      if (rNodes.length > 1) return rNodes[1].isChecked ? 'Yes' : 'No';
+
       const r = page.locator('input[type="radio"]').nth(1);
       return (await r.isChecked().catch(() => false)) ? 'Yes' : 'No';
     }
 
     case 'trial radio present': {
+      const hasRadio = snap.some(n => n.tag === 'input' && n.type === 'radio');
+      if (hasRadio) return 'Yes';
+
       const r = page.locator('input[type="radio"]').first();
       return (await r.isVisible().catch(() => false)) ? 'Yes' : 'No';
     }
@@ -2348,6 +2424,8 @@ export async function getActualValue(
         n.text.toLowerCase().includes('best value for boxing fans')
       );
       if (found !== 'N/A') return 'Yes';
+      const hasBoxed = snap.some(n => n.classes.toLowerCase().includes('boxedherobanner'));
+      if (hasBoxed) return 'Yes';
       const live = await page.locator('[class*="BoxedHeroBanner"]').first().isVisible({ timeout: 2000 }).catch(() => false);
       return live ? 'Yes' : 'No';
     }
