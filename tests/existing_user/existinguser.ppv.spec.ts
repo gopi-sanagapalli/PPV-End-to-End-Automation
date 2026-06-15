@@ -860,6 +860,8 @@ test('PPV flow via existing user my account', async ({ browser }) => {
             }
             if (page.url().includes('paymentDetails') || page.url().includes('payment')) {
               reachedEndPage = true;
+              console.log('💳 Navigated to payment page after loop detection retry');
+              continue;
             }
             break;
           }

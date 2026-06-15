@@ -696,8 +696,10 @@ async function runFlow(
             await page.waitForURL((url: URL) => url.toString() !== beforeUrl, { timeout: 2000 }).catch(() => { });
           }
           // Check if we reached payment
-          if (page.url().includes('paymentDetails')) {
+          if (page.url().includes('paymentDetails') || page.url().includes('payment')) {
             reachedEndPage = true;
+            console.log('💳 Navigated to payment page after loop detection retry');
+            continue;
           }
           break;
         }
@@ -719,7 +721,7 @@ async function runFlow(
             if (page.url().includes('paymentDetails') || page.url().includes('payment')) {
               console.log('💳 Navigated to payment after retry');
               reachedEndPage = true;
-              break;
+              continue;
             }
           }
           continue;

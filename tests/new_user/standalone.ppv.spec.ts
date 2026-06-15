@@ -529,7 +529,7 @@ async function runFlow(
             await page.waitForURL((url: URL) => url.toString().includes('payment') || url.toString().includes('checkout') || url.toString().includes('paymentDetails'), { timeout: 15000 }).catch(() => {});
             if (page.url().includes('paymentDetails') || page.url().includes('payment') || page.url().includes('checkout')) {
               reachedEndPage = true;
-              break;
+              continue;
             }
           }
           continue;
