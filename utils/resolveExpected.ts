@@ -1,5 +1,3 @@
-import { getDynamicDateBadge } from './dateUtils';
-
 export function resolveExpected(
   rule: any,
   eventData: Record<string, string>
@@ -172,17 +170,6 @@ export function resolveExpected(
   }
   }
 
-  if (field === 'ppv card description') {
-    const isStag = (process.env.DAZN_ENV || 'stag').toLowerCase().includes('stag');
-    if (isStag && process.env.DEFAULT_SIGNUP === 'true') {
-      raw = 'The fight, including one month of discounted DAZN Standard plan';
-    }
-  } else if (field === 'upsell section heading') {
-    if (process.env.DEFAULT_SIGNUP === 'true') {
-      raw = 'N/A';
-    }
-  }
-
   if (raw === undefined || raw === null || raw === '') {
     return '';
   }
@@ -226,26 +213,6 @@ export function resolveExpected(
     } else {
       template = "Monthly subscription. Cancel with 30 days' notice. Your subscription auto-renews unless you cancel.";
     }
-  }
-
-  const dateFields = [
-    'ppv date badge',
-    'date badge',
-    'banner date badge',
-    'upsell date badge',
-    'tile date badge',
-    'ppv date',
-    'popup date',
-    'ppv date and time',
-    'welcome tile date',
-    'event date',
-    'ppv date and time expected',
-    'fury payment date',
-    'ppv date and time text',
-    'ppv1 date text on ultimate tier'
-  ];
-  if (dateFields.includes(field)) {
-    return getDynamicDateBadge(template);
   }
 
   return template;

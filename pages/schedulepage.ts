@@ -1,5 +1,5 @@
 import { Page, Locator, expect } from '@playwright/test';
-
+import { handleCookies, stabilisePage } from '../utils/helpers';
 
 export class SchedulePage {
   constructor(private page: Page) {}
@@ -10,8 +10,13 @@ export class SchedulePage {
     console.log(`📅 Navigating to: ${url}`);
     await this.page.goto(url);
     await expect(this.page).toHaveURL(/schedule/);
+    await this.page.waitForLoadState('domcontentloaded');
     await this.page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => {});
     await this.page.waitForSelector('body', { timeout: 15000 });
+
+    // Accept cookies immediately after page load
+    await handleCookies(this.page);
+    await stabilisePage(this.page);
 
     console.log('✅ Schedule page loaded');
   }

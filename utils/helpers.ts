@@ -1,4 +1,13 @@
-import { Page, BrowserContext } from '@playwright/test';
+import * as fs   from 'fs';
+import * as path from 'path';
+import { Page }  from '@playwright/test';
+
+const COOKIE_STATE_FILE = 'auth/dazn-storage-state.json';
+
+// WeakMap to track checked origins per BrowserContext (session)
+const contextCheckedOrigins = new WeakMap<any, Set<string>>();
+// WeakMap to track accepted origins per BrowserContext (session)
+const contextAcceptedOrigins = new WeakMap<any, Set<string>>();
 
 // ─────────────────────────────────────────────────────────────────
 // SLEEP
@@ -7,109 +16,153 @@ export const sleep = (ms: number): Promise<void> =>
   new Promise(r => setTimeout(r, ms));
 
 // ─────────────────────────────────────────────────────────────────
-// PRE-INJECT CONSENT COOKIES
-// ── Call ONCE per BrowserContext, BEFORE the first navigation.
-//    This sets OneTrust cookies so the banner never appears.
+// COOKIE STATE
 // ─────────────────────────────────────────────────────────────────
-export async function injectConsentCookies(context: BrowserContext): Promise<void> {
-  const region = (process.env.DAZN_REGION || 'GB').toUpperCase();
-  const env = (process.env.DAZN_ENV || 'stag').toLowerCase();
+export async function saveCookieState(page: Page): Promise<void> {
+  try {
+    const state = await page.context().storageState();
+    const dir   = path.dirname(COOKIE_STATE_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(COOKIE_STATE_FILE, JSON.stringify(state, null, 2));
+    console.log('💾 Cookie state saved');
+  } catch (e) {
+    console.log('⚠️  Could not save cookie state:', e);
+  }
+}
 
-  let domain = 'stag.dazn.com';
-  if (env === 'beta') domain = 'beta.dazn.com';
-  if (env === 'prod') domain = 'www.dazn.com';
-
-  const baseDomain = '.dazn.com';
-  const expiry = Math.floor(Date.now() / 1000) + 365 * 24 * 3600;
-
-  const cookiesToSet = [domain, baseDomain].flatMap(dom => [
-    {
-      name: 'OptanonAlertBoxClosed',
-      value: new Date().toISOString(),
-      domain: dom,
-      path: '/',
-      expires: expiry,
-    },
-    {
-      name: 'OptanonConsent',
-      value: `isGpcEnabled=0&datestamp=${encodeURIComponent(new Date().toISOString())}&version=202409.1.0&isIABGlobal=false&hosts=&consentId=test-automation&interactionCount=1&landingPath=NotLandingPage&groups=C0001%3A1%2CC0002%3A1%2CC0003%3A1%2CC0004%3A1&geolocation=${region}%3BEN`,
-      domain: dom,
-      path: '/',
-      expires: expiry,
-    },
-  ]);
-
-  await context.addCookies(cookiesToSet);
-  console.log(`🍪 Pre-injected OneTrust consent cookies for ${domain} (region: ${region})`);
+export function loadCookieState(): any {
+  try {
+    if (fs.existsSync(COOKIE_STATE_FILE)) {
+      console.log('📂 Cookie state loaded');
+      return JSON.parse(fs.readFileSync(COOKIE_STATE_FILE, 'utf8'));
+    }
+  } catch (e) {
+    console.log('⚠️  Could not load cookie state:', e);
+  }
+  return null;
 }
 
 // ─────────────────────────────────────────────────────────────────
-// HANDLE COOKIES — lightweight safety net
-// ── Quick check: if banner is somehow visible, dismiss it.
-//    With pre-injected cookies this should rarely fire.
+// HANDLE COOKIES
+// ── Wait for banner, accept it, move on. Same for all flows/regions
 // ─────────────────────────────────────────────────────────────────
-
-const _dismissedContexts = new WeakSet<BrowserContext>();
-
-export async function handleCookies(page: Page, _timeout: number = 500): Promise<void> {
+export async function handleCookies(page: Page, timeout: number = 15000): Promise<void> {
   if (page.isClosed()) return;
-
   const context = page.context();
 
-  // Skip entirely if we already dismissed in this context
-  if (_dismissedContexts.has(context)) return;
-
-  const bannerSelector =
-    '#onetrust-banner-sdk, ' +
-    '#onetrust-consent-sdk, ' +
-    '[class*="cookie-banner" i], ' +
-    '[class*="consent-banner" i], ' +
-    '[data-test-id="COOKIE_CONTAINER"]';
-
-  // Quick visibility check — 500ms max
-  const bannerVisible = await page.locator(bannerSelector).first()
-    .isVisible()
-    .catch(() => false);
-
-  if (!bannerVisible) {
-    _dismissedContexts.add(context);
-    return;
+  let checkedSet = contextCheckedOrigins.get(context);
+  if (!checkedSet) {
+    checkedSet = new Set<string>();
+    contextCheckedOrigins.set(context, checkedSet);
   }
 
-  console.log(`🍪 Cookie banner unexpectedly visible — dismissing...`);
+  let acceptedSet = contextAcceptedOrigins.get(context);
+  if (!acceptedSet) {
+    acceptedSet = new Set<string>();
+    contextAcceptedOrigins.set(context, acceptedSet);
+  }
 
-  const acceptSelectors = [
-    '#onetrust-accept-btn-handler',
-    '[data-test-id="COOKIE_BUTTON"]',
-    'button:has-text("Accept All")',
-    'button:has-text("Accept")',
-    'button:has-text("Agree")',
-    'button:has-text("Allow all")',
-  ];
+  let origin = '';
+  try {
+    origin = new URL(page.url()).origin;
+  } catch (e) {
+    origin = page.url();
+  }
 
-  for (const sel of acceptSelectors) {
-    const btn = page.locator(sel).first();
-    if (await btn.isVisible().catch(() => false)) {
-      try {
-        await btn.click({ timeout: 3000 });
-      } catch {
-        await btn.click({ force: true, timeout: 3000 }).catch(() => {});
-      }
-      await page.locator(bannerSelector).first()
-        .waitFor({ state: 'hidden', timeout: 3000 })
-        .catch(() => {});
-      console.log(`🍪 Cookie banner dismissed`);
-      break;
+  const getBaseDomain = (urlStr: string) => {
+    try {
+      const hostname = new URL(urlStr).hostname;
+      const parts = hostname.split('.');
+      return parts.length >= 2 ? parts.slice(-2).join('.') : hostname;
+    } catch {
+      return urlStr;
     }
+  };
+
+  const originBase = getBaseDomain(origin);
+  const alreadyAccepted = Array.from(acceptedSet).some(o => getBaseDomain(o) === originBase);
+
+  // Determine the timeout to use
+  let actualTimeout = timeout;
+  if (acceptedSet.has(origin) || alreadyAccepted) {
+    // Already accepted on this origin/domain or its base domain. Use a safe 1000ms check.
+    actualTimeout = Math.min(timeout, 1000);
+  } else if (checkedSet.has(origin)) {
+    // Checked before but not accepted. Use a fast check (1500ms max)
+    actualTimeout = Math.min(timeout, 1500);
+  } else {
+    // First time on this domain/origin. Wait up to 5000ms for the banner container itself to become visible
+    console.log(`🍪 Initial page load on ${origin} — waiting up to 5000ms for cookie banner container...`);
+    await page.waitForSelector(
+      '#onetrust-banner-sdk, ' +
+      '#onetrust-consent-sdk, ' +
+      '.onetrust-pc-dark-filter, ' +
+      '[class*="cookie-banner" i], ' +
+      '[class*="consent-banner" i]',
+      { state: 'visible', timeout: 5000 }
+    ).catch(() => {});
+    actualTimeout = timeout;
   }
 
-  // Remove any remaining overlay elements from the DOM
-  await stabilisePage(page);
-  _dismissedContexts.add(context);
+  try {
+    const btn = page.locator(
+      '#onetrust-accept-btn-handler, '  +
+      'button:has-text("Accept All"), ' +
+      'button:has-text("Accept"), '     +
+      'button:has-text("Agree"), '      +
+      'button:has-text("Allow all"), '  +
+      'button:has-text("Essential Only")'
+    ).first();
+
+    let isBtnVisible = await btn.isVisible().catch(() => false);
+
+    if (!isBtnVisible && actualTimeout > 0) {
+      await btn.waitFor({ state: 'visible', timeout: actualTimeout }).catch(() => {});
+      isBtnVisible = await btn.isVisible().catch(() => false);
+    }
+
+    if (isBtnVisible) {
+      console.log(`🍪 Cookie banner visible on ${origin} — dismissing...`);
+      await btn.click({ force: true });
+      await btn.waitFor({ state: 'hidden', timeout: 3000 }).catch(() => {});
+      console.log(`🍪 Cookies accepted for ${origin}`);
+      acceptedSet.add(origin);
+
+      // Persist OneTrust consent cookies in the browser context so the banner
+      // does not reappear on subsequent navigations within the same session.
+      try {
+        const hostname = new URL(origin).hostname;
+        const hostParts = hostname.split('.');
+        const baseDomain = hostParts.length >= 2 ? '.' + hostParts.slice(-2).join('.') : hostname;
+        const expiry = Math.floor(Date.now() / 1000) + 365 * 24 * 3600;
+
+        // Inject for both the specific domain and the base/root domain to cover all subdomains
+        const domainsToSet = new Set([hostname, baseDomain]);
+        for (const dom of domainsToSet) {
+          await context.addCookies([
+            { name: 'OptanonAlertBoxClosed', value: new Date().toISOString(), domain: dom, path: '/', expires: expiry },
+            { name: 'OptanonConsent',        value: 'isGpcEnabled=0&datestamp=' + encodeURIComponent(new Date().toISOString()) + '&version=202409.1.0&isIABGlobal=false&hosts=&consentId=test&interactionCount=1&landingPath=NotLandingPage&groups=C0001%3A1%2CC0002%3A1%2CC0003%3A1%2CC0004%3A1&geolocation=GB%3BEN', domain: dom, path: '/', expires: expiry },
+          ]);
+          console.log(`🍪 OneTrust cookies injected for ${dom}`);
+        }
+      } catch (cookieErr: any) {
+        console.log(`⚠️ Could not inject OneTrust cookies: ${cookieErr.message}`);
+      }
+    } else {
+      if (actualTimeout > 0) {
+        console.log(`ℹ️  No cookie banner found on ${origin} (timeout: ${actualTimeout}ms)`);
+      }
+    }
+
+    // Mark that we checked this origin
+    checkedSet.add(origin);
+  } catch (err: any) {
+    console.log(`⚠️ Error in handleCookies: ${err.message}`);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────
-// STABILISE PAGE — remove cookie overlays from DOM
+// STABILISE PAGE
 // ─────────────────────────────────────────────────────────────────
 export async function stabilisePage(page: Page): Promise<void> {
   if (page.isClosed()) return;
@@ -122,12 +175,11 @@ export async function stabilisePage(page: Page): Promise<void> {
       '.onetrust-pc-dark-filter',
       '[class*="cookie-banner" i]',
       '[class*="consent-banner" i]',
-      '[class*="cookie-disclaimer" i]',
-      '[data-test-id="COOKIE_CONTAINER"]',
     ].forEach(sel =>
       document.querySelectorAll<HTMLElement>(sel)
         .forEach(el => el.remove())
     );
+    window.scrollTo(0, 0);
   }).catch(() => {});
 }
 
@@ -158,11 +210,13 @@ export async function triggerLazyLoad(page: Page): Promise<void> {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// SETUP PAGE — single call after navigation (safety net only)
+// SETUP PAGE — single call after every navigation
 // ─────────────────────────────────────────────────────────────────
-export async function setupPage(page: Page, _cookieTimeout: number = 500): Promise<void> {
+export async function setupPage(page: Page, cookieTimeout: number = 8000): Promise<void> {
   if (page.isClosed()) return;
-  await handleCookies(page);
+  await page.waitForLoadState('domcontentloaded').catch(() => {});
+  await handleCookies(page, cookieTimeout);
+  await stabilisePage(page);
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -232,7 +286,6 @@ export async function getPageSnapshot(page: Page): Promise<DOMNode[]> {
       const isStrikethrough = (el: HTMLElement): boolean => {
         if (el.closest('del, s') !== null) return true;
         if (el.closest('[style*="line-through"]') !== null) return true;
-        if (el.closest('[class*="strike" i], [class*="line-through" i], [class*="crossed" i], [class*="original" i]') !== null) return true;
         return false;
       };
 

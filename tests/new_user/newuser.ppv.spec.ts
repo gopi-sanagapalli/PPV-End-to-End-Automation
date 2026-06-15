@@ -4,6 +4,7 @@ import * as path from 'path';
 
 import { LandingPage } from '../../pages/LandingPage';
 import { BoxingPage } from '../../pages/BoxingPage';
+import { GloryPage } from '../../pages/GloryPage';
 import { SportsLandingPage } from '../../pages/SportsLandingPage';
 import { HomePage } from '../../pages/HomePage';
 import { SignupPage } from '../../pages/SignupPage';
@@ -217,6 +218,7 @@ async function runFlow(
     const isHomeSport = source.startsWith('home-') && !isHomePageSource;
     const isBoxingSource = source.startsWith('boxing');
     const isSearch = source.toLowerCase().includes('search');
+    const isGlory = source.toLowerCase().includes('glory');
 
     if (isSearch) {
       const searchPage = new SearchPage(page);
@@ -255,6 +257,29 @@ async function runFlow(
       await handlePopupModal(page, results, eventData, source, false);
 
       await searchPage.clickBuyNow();
+    } else if (isGlory) {
+      // ── Glory Kickboxing page source ──
+      const gloryPage = new GloryPage(page);
+      await gloryPage.navigate('https://www.dazn.com/glory');
+      await setupPage(page, 8000);
+
+      if (validateLanding) {
+        console.log('\n📋 Validating Glory page...');
+        const isValid = await gloryPage.validateGloryPage();
+        results.push({
+          page: 'Glory Kickboxing',
+          field: 'Glory Page Validation',
+          expected: 'true',
+          actual: String(isValid),
+          status: isValid ? 'PASS' : 'FAIL',
+        });
+      }
+
+      // Click the GLORY COLLISION 9 tile in the "Coming up" rail
+      await gloryPage.clickGloryCollision9();
+
+      // Click Buy Now in the modal popup
+      await gloryPage.clickBuyNowInModal();
     } else {
       const landing = isHomePageSource
         ? new HomePage(page)

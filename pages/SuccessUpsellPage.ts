@@ -131,8 +131,12 @@ export class SuccessUpsellPage extends BasePage {
       await buyBtn.click({ force: true });
       console.log('✅ Clicked upsell Buy CTA');
 
+      await this.page.waitForURL(
+        (url: URL) => url.toString() !== beforeUrl,
+        { timeout: 20000 }
+      ).catch(() => {});
       await this.page.waitForLoadState('domcontentloaded').catch(() => {});
-      await this.page.waitForURL((url: URL) => url.toString() !== beforeUrl, { timeout: 10000 }).catch(() => {});
+      await this.page.waitForTimeout(2000);
       console.log(`✅ Navigated to: ${this.page.url()}`);
     } else {
       console.log('⚠️ Upsell Buy CTA not found');
@@ -209,10 +213,9 @@ export class SuccessUpsellPage extends BasePage {
       'button:has-text("Maybe later"), a:has-text("Maybe later")'
     ).first();
     if (await maybeLater.isVisible({ timeout: 5000 }).catch(() => false)) {
-      const beforeUrl = this.page.url();
       await maybeLater.click({ force: true });
       console.log('✅ Clicked "Maybe later"');
-      await this.page.waitForURL((url: URL) => url.toString() !== beforeUrl, { timeout: 10000 }).catch(() => {});
+      await this.page.waitForTimeout(3000);
     } else {
       console.log('⚠️ "Maybe later" not found — trying to proceed');
     }
@@ -228,10 +231,9 @@ export class SuccessUpsellPage extends BasePage {
       'button:has-text("No, thanks"), a:has-text("No, thanks")'
     ).first();
     if (await noThanks.isVisible({ timeout: 5000 }).catch(() => false)) {
-      const beforeUrl = this.page.url();
       await noThanks.click({ force: true });
       console.log('✅ Clicked "No thanks"');
-      await this.page.waitForURL((url: URL) => url.toString() !== beforeUrl, { timeout: 10000 }).catch(() => {});
+      await this.page.waitForTimeout(2000);
     } else {
       console.log('⚠️ "No thanks" not found');
     }

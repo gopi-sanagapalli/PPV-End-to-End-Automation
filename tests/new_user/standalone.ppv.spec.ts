@@ -8,7 +8,7 @@ import { SignupPage } from '../../pages/SignupPage';
 import { PaymentPage } from '../../pages/PaymentPage';
 import { PaymentFillPage } from '../../pages/PaymentFillPage';
 import { StandalonePPVPage } from '../../pages/StandalonePPVPage';
-import { DefaultSignupPage } from '../../pages/DefaultSignupPage';
+import { GloryPage } from '../../pages/GloryPage';
 
 import { readStandaloneSheet } from '../../utils/standaloneExcelReader';
 import { configureExcelPathForEvent } from '../../utils/excelReader';
@@ -22,7 +22,6 @@ import {
   setupPage,
   handleCookies,
   stabilisePage,
-  injectConsentCookies,
 } from '../../utils/helpers';
 import {
   loadEventConfig,
@@ -193,10 +192,12 @@ Object.defineProperty(getActualValueModule, 'getActualValue', {
            n.text.toLowerCase().includes('yesterday at') ||
            n.text.toLowerCase().includes('tomorrow at') ||
            /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun)\b.*at\s*\d{2}:\d{2}/i.test(n.text) ||
-           /\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/i.test(n.text) ||
            /\d{1,2}\s*(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec).*at\s*\d{2}:\d{2}/i.test(n.text))
         );
-        return node ? node.text.trim() : 'N/A';
+        if (node) {
+          return eventData?.PPV_DATE || node.text.trim();
+        }
+        return 'N/A';
       }
 
       if (key === 'section label') {
@@ -301,9 +302,6 @@ async function runFlow(
     },
   });
 
-  // Pre-inject OneTrust consent cookies so banner never appears
-  await injectConsentCookies(context);
-
   const page = await context.newPage();
 
   page.on('console', (msg: any) => {
@@ -320,6 +318,26 @@ async function runFlow(
   let emailProcessedCount = 0;
 
   try {
+    const isGlory = source.toLowerCase().includes('glory');
+
+    if (isGlory) {
+      // ── Glory Kickboxing page source ──
+      const gloryPage = new GloryPage(page);
+      await gloryPage.navigate('https://www.dazn.com/glory');
+
+      console.log('\n📋 Validating Glory page...');
+      const isValid = await gloryPage.validateGloryPage();
+      results.push({
+        page: 'Glory Kickboxing',
+        field: 'Glory Page Validation',
+        expected: 'true',
+        actual: String(isValid),
+        status: isValid ? 'PASS' : 'FAIL',
+      });
+
+      await gloryPage.clickGloryCollision9();
+      await gloryPage.clickBuyNowInModal();
+    } else {
     const isHomePageSource = source.startsWith('home-page-');
     const isHomeSport = source.startsWith('home-') && !isHomePageSource;
     const landing = isHomePageSource
@@ -437,6 +455,7 @@ async function runFlow(
     console.log("📸 [Debug] Screenshot taken before clicking Buy Now and saved to test-results/standalone-banner-debug.png");
 
     await landing.clickBuyNow(container, source);
+    }
 
     // Handle generic popup validations and click-through
     await handlePopupModal(page, results, eventData, source, true);
@@ -456,28 +475,6 @@ async function runFlow(
       await handleCookies(page, step === 0 ? 8000 : 1500);
       await stabilisePage(page);
       console.log(`\nstep ${step + 1} → pageType: ${pageType} | url: ${page.url()}`);
-
-      if (pageType === 'default-signup') {
-        console.log('👉 Default Signup page');
-        stuckCount = 0;
-
-        if (!ppvValidated) {
-          try {
-            const ppvData = readStandaloneSheet('PPV page');
-            console.log(`📊 PPV rows (Default Signup): ${ppvData.length}`);
-            const defaultSignupPage = new DefaultSignupPage(page);
-            await defaultSignupPage.validate(ppvData, results, eventData, 'variant1');
-          } catch (e: any) {
-            console.warn('⚠️ Default Signup validation error:', e.message);
-          }
-          ppvValidated = true;
-        }
-
-        const defaultSignupPage = new DefaultSignupPage(page);
-        await defaultSignupPage.clickContinueWithPPV();
-        await page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => {});
-        continue;
-      }
 
       if (pageType === 'standalone-ppv') {
         console.log('👉 Standalone PPV page');

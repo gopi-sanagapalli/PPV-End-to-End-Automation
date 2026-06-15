@@ -7,7 +7,7 @@ export async function detectPageType(
   p: any,
   pc: Record<string, { detection: string }>,
   planClickCount: number
-): Promise<'ppv' | 'plan' | 'email' | 'payment' | 'phone' | 'otp' | 'unknown' | 'standalone-ppv' | 'success-upsell' | 'saved-card-payment' | 'bet-upsell' | 'default-signup'> {
+): Promise<'ppv' | 'plan' | 'email' | 'payment' | 'phone' | 'otp' | 'unknown' | 'standalone-ppv' | 'success-upsell' | 'saved-card-payment' | 'bet-upsell'> {
   if (!p || p.isClosed()) return 'unknown';
 
   // ── Body text detection FIRST for highly specific pages (OTP & Phone) ──
@@ -69,18 +69,6 @@ export async function detectPageType(
   if (url.includes('upsellTierSelected=true')) {
     if (planClickCount >= 1) return 'email';
     return 'plan';
-  }
-
-  // ── Default Signup page detection (must check BEFORE general PPV) ──
-  // The Default Signup page has the same URL pattern (upsellTierShown=true)
-  // as the normal PPV page, but uniquely contains "subscribe without a pay-per-view".
-  // Normal PPV page only has "Continue with pay-per-view".
-  if (
-    process.env.DEFAULT_SIGNUP === 'true' &&
-    url.includes('upsellTierShown=true') &&
-    body.includes('subscribe without a pay-per-view')
-  ) {
-    return 'default-signup';
   }
 
   if (url.includes('upsellTierShown=true')) return 'ppv';

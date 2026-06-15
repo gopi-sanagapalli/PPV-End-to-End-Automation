@@ -1,5 +1,5 @@
 import { Page, Locator } from '@playwright/test';
-
+import { handleCookies, stabilisePage } from '../utils/helpers';
 
 export class MyAccountPage {
   constructor(private page: Page) { }
@@ -20,7 +20,8 @@ export class MyAccountPage {
   // DISMISS CONSENT OVERLAY
   // ─────────────────────────────
   private async dismissConsentIfPresent(): Promise<void> {
-    // Cookies are pre-injected at context creation — no-op
+    await handleCookies(this.page, 4000);
+    await stabilisePage(this.page);
   }
 
   // ─────────────────────────────

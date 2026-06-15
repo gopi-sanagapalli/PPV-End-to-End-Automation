@@ -7,7 +7,6 @@ import { PaymentPage } from '../../pages/PaymentPage';
 import { PaymentFillPage } from '../../pages/PaymentFillPage';
 import { SuccessUpsellPage } from '../../pages/SuccessUpsellPage';
 import { SavedCardPaymentPage } from '../../pages/SavedCardPaymentPage';
-import { DefaultSignupPage } from '../../pages/DefaultSignupPage';
 
 import { readUpsellSheet } from '../../utils/upsellExcelReader';
 import { detectPageType } from '../../utils/flowHelpers';
@@ -20,7 +19,6 @@ import {
   setupPage,
   handleCookies,
   stabilisePage,
-  injectConsentCookies,
 } from '../../utils/helpers';
 import {
   loadEventConfig,
@@ -74,9 +72,6 @@ async function runUpsellFlow(
       size: { width: 1920, height: 1080 },
     },
   });
-
-  // Pre-inject OneTrust consent cookies so banner never appears
-  await injectConsentCookies(context);
 
   const page = await context.newPage();
 
@@ -151,14 +146,13 @@ async function runUpsellFlow(
     }
 
     // Click "Buy now" on the tile
-    const beforeUrl = page.url();
     await landing.clickBuyNow(container, source);
 
     // Handle generic popup validations and click-through
     await handlePopupModal(page, results, eventData, source, true);
 
     await page.waitForLoadState('domcontentloaded').catch(() => {});
-    await page.waitForURL((url: URL) => url.toString() !== beforeUrl, { timeout: 10000 }).catch(() => {});
+    await page.waitForTimeout(2000);
     console.log(`✅ Navigated to: ${page.url()}`);
 
     // ═══════════════════════════════════════════════════════════
@@ -257,29 +251,6 @@ async function runUpsellFlow(
 
         firstSuccessValidated = true;
         await successPage.clickBuyUpsell();
-        continue;
-      }
-
-      // ── DEFAULT SIGNUP PAGE ──────────────────────────────────
-      if (pageType === 'default-signup') {
-        console.log('👉 Default Signup page');
-        stuckCount = 0;
-
-        if (!ppvValidated) {
-          try {
-            const ppvData = readUpsellSheet('PPV page');
-            console.log(`📊 PPV rows (Default Signup): ${ppvData.length}`);
-            const defaultSignupPage = new DefaultSignupPage(page);
-            await defaultSignupPage.validate(ppvData, results, eventData, 'variant1');
-          } catch (e: any) {
-            console.warn('⚠️ Default Signup validation error:', e.message);
-          }
-          ppvValidated = true;
-        }
-
-        const defaultSignupPage = new DefaultSignupPage(page);
-        await defaultSignupPage.clickContinueWithPPV();
-        await page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => {});
         continue;
       }
 
@@ -398,11 +369,10 @@ async function runUpsellFlow(
           'button:has-text("Continue"), a:has-text("Continue")'
         ).first();
         await ppvCta.waitFor({ state: 'visible', timeout: 10000 });
-        const beforeUrl = page.url();
         await ppvCta.click({ force: true });
         console.log('✅ Clicked "Continue with pay-per-view"');
         await page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => {});
-        await page.waitForURL((url: URL) => url.toString() !== beforeUrl, { timeout: 10000 }).catch(() => {});
+        await page.waitForTimeout(2000);
         continue;
       }
 
@@ -506,6 +476,7 @@ async function runUpsellFlow(
         }
 
         await page.waitForLoadState('domcontentloaded').catch(() => {});
+        await page.waitForTimeout(500);
 
         const firstNameEl = page.locator('[data-test-id="FIRST_NAME"], input[name="firstName"]').first();
         if (await firstNameEl.waitFor({ state: 'visible', timeout: 6000 }).then(() => true).catch(() => false)) {
