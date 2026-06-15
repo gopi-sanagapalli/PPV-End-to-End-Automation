@@ -32,6 +32,34 @@ export class PPVPage {
   // ─────────────────────────────
   async waitForLoad(): Promise<void> {
     await this.page.waitForLoadState('domcontentloaded').catch(() => {});
+
+    // Wait for the PPV plan cards / details to be rendered
+    await this.page.waitForFunction(() => {
+      // Check for radio buttons (plan selection) or continue button
+      const radios = document.querySelectorAll('input[type="radio"]');
+      if (radios.length > 0) return true;
+
+      // Check for plan card elements
+      const cards = document.querySelectorAll('[class*="card"], [class*="tile"], [class*="plan"], [class*="option"]');
+      if (cards.length > 0) return true;
+
+      // Check for any button with Continue text
+      const buttons = document.querySelectorAll('button');
+      const hasContinue = Array.from(buttons).some(b =>
+        (b.textContent || '').toLowerCase().includes('continue')
+      );
+      if (hasContinue) return true;
+
+      // Fallback: check body text for known PPV page identifiers
+      const body = document.body.innerText.toLowerCase();
+      return (
+        body.includes('choose your plan') ||
+        body.includes('choose how to buy') ||
+        body.includes('choose the right plan')
+      );
+    }, { timeout: 10000 }).catch(() => {
+      console.log('⚠️ PPV page plan cards not detected within timeout — continuing');
+    });
   }
 
   // ─────────────────────────────

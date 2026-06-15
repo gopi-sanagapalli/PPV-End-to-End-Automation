@@ -51,20 +51,15 @@ export class PaymentPage extends BasePage {
 
     console.log(`\n🧾 Validating Payment page — ${data.length} fields`);
 
-    // Wait for payment page to fully load — single smart wait, max 6s total
+    // Wait for payment page to load
     await this.page.waitForLoadState('domcontentloaded').catch(() => {});
-    await Promise.race([
-      this.page.waitForFunction(() => {
-        const body = document.body.innerText.toLowerCase();
-        return (
-          body.includes('choose how to pay') ||
-          body.includes('payment method') ||
-          body.includes('purchase summary') ||
-          body.includes('today you pay')
-        );
-      }).catch(() => {}),
-      this.page.waitForTimeout(4000),
-    ]);
+
+    // Wait for the credit card section to be visible (payment method options loaded)
+    await this.page.locator('section[id="Credit & Debit Card"]')
+      .waitFor({ state: 'visible', timeout: 15000 })
+      .catch(() => {
+        console.log('⚠️ Credit & Debit Card section not found within timeout — continuing');
+      });
 
     // Dynamically extract name from page — fast targeted selector
     let signedInText = '';
