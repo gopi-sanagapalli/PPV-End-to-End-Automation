@@ -801,11 +801,11 @@ const json = loadEventConfig(EVENT_CONFIG);
 const filterPlan = process.env.PLAN;
 const filterSource = process.env.SOURCE;
 
-const plansPath = path.resolve(process.cwd(), 'config/plans.json');
+const plansPath = path.resolve(process.cwd(), 'config/DaznPlan.json');
 const plans = JSON.parse(fs.readFileSync(plansPath, 'utf-8'));
 const planKeys = filterPlan ? [filterPlan] : Object.keys(plans);
 
-const sourcesPath = path.resolve(process.cwd(), 'config/sources.json');
+const sourcesPath = path.resolve(process.cwd(), 'config/surfacingpoint.json');
 const sources = JSON.parse(fs.readFileSync(sourcesPath, 'utf-8'));
 const sourceKeys = filterSource ? [filterSource] : Object.keys(sources);
 

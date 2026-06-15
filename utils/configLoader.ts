@@ -54,11 +54,11 @@ export function loadEventConfig(eventConfigOrKey?: string, planKeyOverride?: str
   const planKey = planKeyOverride || process.env.PLAN || 'standard_monthly';
 
   const configDir = path.resolve(process.cwd(), 'config');
-  const eventsPath = path.join(configDir, 'events.json');
-  const plansPath = path.join(configDir, 'plans.json');
+  const eventsPath = path.join(configDir, 'ppv.json');
+  const plansPath = path.join(configDir, 'DaznPlan.json');
 
-  if (!fs.existsSync(eventsPath)) throw new Error(`events.json not found in ${configDir}`);
-  if (!fs.existsSync(plansPath)) throw new Error(`plans.json not found in ${configDir}`);
+  if (!fs.existsSync(eventsPath)) throw new Error(`ppv.json not found in ${configDir}`);
+  if (!fs.existsSync(plansPath)) throw new Error(`DaznPlan.json not found in ${configDir}`);
 
   const events = JSON.parse(fs.readFileSync(eventsPath, 'utf-8'));
   const plans = JSON.parse(fs.readFileSync(plansPath, 'utf-8'));
@@ -66,8 +66,8 @@ export function loadEventConfig(eventConfigOrKey?: string, planKeyOverride?: str
   const eventData = events[eventKey];
   const planData = plans[planKey];
 
-  if (!eventData) throw new Error(`Event "${eventKey}" not found in events.json`);
-  if (!planData) throw new Error(`Plan "${planKey}" not found in plans.json`);
+  if (!eventData) throw new Error(`Event "${eventKey}" not found in ppv.json`);
+  if (!planData) throw new Error(`Plan "${planKey}" not found in DaznPlan.json`);
 
   // Try to load direct file override if exists
   let fileData: any = {};

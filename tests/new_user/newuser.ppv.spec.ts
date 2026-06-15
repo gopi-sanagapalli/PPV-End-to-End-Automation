@@ -1211,18 +1211,18 @@ test('PPV flow for new user', async ({ browser }) => {
 
   const json = loadEventConfig(EVENT_CONFIG);
 
-  const plansPath = path.resolve(process.cwd(), 'config/plans.json');
+  const plansPath = path.resolve(process.cwd(), 'config/DaznPlan.json');
   const plans = JSON.parse(fs.readFileSync(plansPath, 'utf-8'));
   const planData = plans[PLAN];
   if (!planData) {
-    throw new Error(`❌ Plan "${PLAN}" not found in plans.json`);
+    throw new Error(`❌ Plan "${PLAN}" not found in DaznPlan.json`);
   }
 
-  const sourcesPath = path.resolve(process.cwd(), 'config/sources.json');
+  const sourcesPath = path.resolve(process.cwd(), 'config/surfacingpoint.json');
   const sources = JSON.parse(fs.readFileSync(sourcesPath, 'utf-8'));
   const srcConfig = sources[SOURCE];
   if (!srcConfig) {
-    throw new Error(`❌ Source "${SOURCE}" not found in sources.json`);
+    throw new Error(`❌ Source "${SOURCE}" not found in surfacingpoint.json`);
   }
 
   const planTier = (planData.TIER || 'standard').toLowerCase();

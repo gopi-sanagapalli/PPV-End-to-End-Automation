@@ -106,7 +106,7 @@ export function buildEventData(
     ...regional,
   };
 
-  // OFFER_TYPE comes from regional data (plans.json per region) — not all countries have 7-day trial
+  // OFFER_TYPE comes from regional data (DaznPlan.json per region) — not all countries have 7-day trial
   if (!base.OFFER_TYPE) {
     base.OFFER_TYPE = '1_month_free';
   }
@@ -153,13 +153,13 @@ export function buildEventData(
     }
   }
 
-   // Load plans.json dynamically to read plan-level offers
-  const plansPath = path.resolve(process.cwd(), 'config/plans.json');
+   // Load DaznPlan.json dynamically to read plan-level offers
+  const plansPath = path.resolve(process.cwd(), 'config/DaznPlan.json');
   let plans: any = {};
   try {
     plans = JSON.parse(fs.readFileSync(plansPath, 'utf-8'));
   } catch (e: any) {
-    console.warn('⚠️ buildEventData: Failed to read plans.json:', e.message);
+    console.warn('⚠️ buildEventData: Failed to read DaznPlan.json:', e.message);
   }
 
   const planKey = json.planKey || 'standard_monthly';
@@ -314,9 +314,9 @@ export function buildEventData(
 
   if (regional.DAZN_TIER           ?? merged.DAZN_TIER)           base.DAZN_TIER           = regional.DAZN_TIER           ?? merged.DAZN_TIER;
 
-  // Resolve userState values from central userStates.json file
+  // Resolve userState values from central userstatus.json file
   const userStateKey = process.env.USER_STATE || 'freemium';
-  const userStatesPath = path.resolve(process.cwd(), 'config/userStates.json');
+  const userStatesPath = path.resolve(process.cwd(), 'config/userstatus.json');
   let userStates: Record<string, any> = {};
   if (fs.existsSync(userStatesPath)) {
     userStates = JSON.parse(fs.readFileSync(userStatesPath, 'utf-8'));
