@@ -3,7 +3,7 @@
     "PPV_NAME": "Beauty and The Beast: Fury vs. Hall",
     "PPV_DISPLAY_NAME": "Fury vs. Hall",
     "SPORT": "Boxing",
-    "PPV_TYPE": "boxing",
+    "PPV_TYPE": "normal",
     "OFFER_TYPE": "7_day_trial",
     "NEXT_PAYMENT_DAYS_OFFSET": 7,
     "global": {
@@ -184,7 +184,7 @@
     "PPV_NAME": "Zayas vs. Boots",
     "PPV_DISPLAY_NAME": "Zayas vs. Boots",
     "SPORT": "Boxing",
-    "PPV_TYPE": "boxing",
+    "PPV_TYPE": "upsell",
     "global": {
       "PPV_PROMOTER": "DAZN Boxing",
       "PPV_DESCRIPTION": "Just the fight - plus 7 days of DAZN Standard, free.",
@@ -311,7 +311,7 @@
     "PPV_NAME": "Joshua vs. Prenga",
     "PPV_DISPLAY_NAME": "Joshua vs. Prenga",
     "SPORT": "Boxing",
-    "PPV_TYPE": "boxing",
+    "PPV_TYPE": "normal",
     "OFFER_TYPE": "7_day_trial",
     "NEXT_PAYMENT_DAYS_OFFSET": 7,
     "global": {

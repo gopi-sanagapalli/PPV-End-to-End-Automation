@@ -12,7 +12,7 @@ import { SearchPage } from '../../pages/SearchPage';
 import { PaymentFillPage } from '../../pages/PaymentFillPage';
 import { SuccessUpsellPage } from '../../pages/SuccessUpsellPage';
 import { SavedCardPaymentPage } from '../../pages/SavedCardPaymentPage';
-import { readUpsellSheet } from '../../utils/upsellExcelReader';
+
 
 import {
   readSheet,
@@ -27,6 +27,10 @@ import {
   configureExcelPathForEvent,
   getHomeOfBoxingData,
   getHomePageData,
+  getStandalonePPVPageData,
+  getUpsellFirstSuccessData,
+  getUpsellSecondSuccessData,
+  getUpsellPaymentData,
 } from '../../utils/excelReader';
 import { detectVariant } from '../../flows/detectVariant';
 import { validateVariant } from '../../flows/validateVariant';
@@ -979,7 +983,7 @@ test('PPV flow via existing user my account', async ({ browser }) => {
 
           if (!ppvValidated) {
             try {
-              const ppvData = readSheet('PPV page');
+              const ppvData = getStandalonePPVPageData();
               console.log(`📊 Standalone PPV rows: ${ppvData.length}`);
 
               // Validate checked state
@@ -1010,7 +1014,7 @@ test('PPV flow via existing user my account', async ({ browser }) => {
 
           const successPage = new SuccessUpsellPage(page);
           try {
-            const successData = readUpsellSheet('First Success page');
+            const successData = getUpsellFirstSuccessData();
             await successPage.validateUpsellSuccess(successData, results, eventData);
           } catch (err: any) {
             console.warn(`⚠️ First Success page validation error: ${err.message}`);
@@ -1030,7 +1034,7 @@ test('PPV flow via existing user my account', async ({ browser }) => {
 
           const savedCardPage = new SavedCardPaymentPage(page);
           try {
-            const upsellPaymentData = readUpsellSheet('Upsell Payment page');
+            const upsellPaymentData = getUpsellPaymentData();
             await savedCardPage.validateSavedCardPayment(upsellPaymentData, results, eventData, 'Upsell Payment');
           } catch (err: any) {
             console.warn(`⚠️ Saved Card Payment validation error: ${err.message}`);
@@ -1058,7 +1062,7 @@ test('PPV flow via existing user my account', async ({ browser }) => {
 
           const successPage = new SuccessUpsellPage(page);
           try {
-            const betData = readUpsellSheet('Second Success page');
+            const betData = getUpsellSecondSuccessData();
             await successPage.validateBetUpsell(betData, results, eventData);
           } catch (err: any) {
             console.warn(`⚠️ Second Success page validation error: ${err.message}`);
