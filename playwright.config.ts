@@ -39,6 +39,8 @@ export default defineConfig({
         '--no-sandbox',
         '--disable-dev-shm-usage',
         '--disable-blink-features=AutomationControlled',
+        '--password-store=basic',
+        '--use-mock-keychain',
       ],
     },
 
@@ -69,6 +71,8 @@ export default defineConfig({
             '--no-sandbox',
             '--disable-dev-shm-usage',
             '--disable-blink-features=AutomationControlled',
+            '--password-store=basic',
+            '--use-mock-keychain',
           ],
         },
       },

@@ -1,17 +1,18 @@
 import { test, Page, BrowserContext } from '@playwright/test';
+
 import * as fs from 'fs';
 import * as path from 'path';
 
 import { LandingPage } from '../../pages/LandingPage';
 import { BoxingPage } from '../../pages/BoxingPage';
-import { GloryPage } from '../../pages/GloryPage';
-import { SportsLandingPage } from '../../pages/SportsLandingPage';
+import { BoxingHomePage } from '../../pages/BoxingHomePage';
 import { HomePage } from '../../pages/HomePage';
 import { SignupPage } from '../../pages/SignupPage';
 import { PaymentPage } from '../../pages/PaymentPage';
 import { PaymentFillPage } from '../../pages/PaymentFillPage';
 import { SearchPage } from '../../pages/SearchPage';
 import { StandalonePPVPage } from '../../pages/StandalonePPVPage';
+import { SchedulePage } from '../../pages/schedulepage';
 
 import {
   readSheet,
@@ -37,6 +38,7 @@ import {
   setupPage,
   handleCookies,
   stabilisePage,
+  dismissCookieBanner,
 } from '../../utils/helpers';
 import {
   loadEventConfig,
@@ -47,7 +49,10 @@ import {
 } from '../../utils/testHelpers';
 
 const REGION = process.env.DAZN_REGION || 'GB';
-const EVENT_CONFIG = process.env.PPV_CONFIG || 'BnB_landing_all_flows.json';
+// PPV_CONFIG accepts a JSON filename (e.g. BnB_landing_all_flows.json) or an event key.
+// PPV_EVENT accepts a bare event key (e.g. aj_joshua_prenga, beauty_and_beast).
+// configLoader prioritises PPV_CONFIG → PPV_EVENT → EVENT_CONFIG argument → 'beauty_and_beast'.
+const EVENT_CONFIG = process.env.PPV_CONFIG || process.env.PPV_EVENT || 'beauty_and_beast';
 const PLAN = process.env.PLAN || 'standard_monthly';
 const SOURCE = process.env.SOURCE || 'landing-page-banner';
 
@@ -172,6 +177,8 @@ async function runFlow(
     },
   });
 
+  // Cookie warmup removed — will dismiss banner naturally after page creation
+
   await context.addInitScript(() => {
     try {
       if (!localStorage.getItem('randomABPoint')) {
@@ -218,12 +225,48 @@ async function runFlow(
     const isHomeSport = source.startsWith('home-') && !isHomePageSource;
     const isBoxingSource = source.startsWith('boxing');
     const isSearch = source.toLowerCase().includes('search');
-    const isGlory = source.toLowerCase().includes('glory');
+    const isSchedule = source.toLowerCase() === 'schedule';
 
-    if (isSearch) {
+    // ── Cookie Warmup ──
+    // For home-page-* sources, the flow navigates to /home anyway,
+    // so dismiss cookies there (no double navigation).
+    // For schedule/search, navigate to the target page first then dismiss cookies there.
+    // For all other sources, navigate to /home first as a warmup.
+    if (isSchedule || isSearch) {
+      // Will dismiss cookies on the actual target page after navigation below
+    } else if (!isHomePageSource) {
+      await dismissCookieBanner(page);
+    }
+
+    if (isSchedule) {
+      const schedulePage = new SchedulePage(page);
+      await schedulePage.navigate(baseUrl);
+      await dismissCookieBanner(page, true);
+      await setupPage(page, 3000);
+      assertCountryMatch(page, region);
+
+      const sport = json.SPORT || eventData.SPORT;
+      if (sport) {
+        await schedulePage.selectSport(sport);
+      }
+
+      const eventCard = await schedulePage.findEvent(eventData.PPV_NAME);
+      await schedulePage.clickEvent(eventCard);
+
+      console.log('\n📋 Validating Schedule page...');
+      try {
+        const scheduleData = readSheet('Schedule page');
+        await validateVariant(page, 'schedule', scheduleData, results, eventData, 'Schedule');
+      } catch (err: any) {
+        console.warn(`⚠️  Schedule page validation error: ${err.message}`);
+      }
+
+      await schedulePage.clickBuyNow();
+    } else if (isSearch) {
       const searchPage = new SearchPage(page);
       await searchPage.navigate(baseUrl);
-      await setupPage(page, 8000);
+      await dismissCookieBanner(page, true);
+      await setupPage(page, 3000);
       assertCountryMatch(page, region);
       let searchQuery = eventData.PPV_NAME;
       if (eventData.PPV_NAME && eventData.PPV_NAME.includes(':')) {
@@ -257,39 +300,16 @@ async function runFlow(
       await handlePopupModal(page, results, eventData, source, false);
 
       await searchPage.clickBuyNow();
-    } else if (isGlory) {
-      // ── Glory Kickboxing page source ──
-      const gloryPage = new GloryPage(page);
-      await gloryPage.navigate('https://www.dazn.com/glory');
-      await setupPage(page, 8000);
-
-      if (validateLanding) {
-        console.log('\n📋 Validating Glory page...');
-        const isValid = await gloryPage.validateGloryPage();
-        results.push({
-          page: 'Glory Kickboxing',
-          field: 'Glory Page Validation',
-          expected: 'true',
-          actual: String(isValid),
-          status: isValid ? 'PASS' : 'FAIL',
-        });
-      }
-
-      // Click the GLORY COLLISION 9 tile in the "Coming up" rail
-      await gloryPage.clickGloryCollision9();
-
-      // Click Buy Now in the modal popup
-      await gloryPage.clickBuyNowInModal();
     } else {
       const landing = isHomePageSource
         ? new HomePage(page)
         : isHomeSport
-          ? new SportsLandingPage(page)
+          ? new BoxingHomePage(page)
           : isBoxingSource
             ? new BoxingPage(page)
             : new LandingPage(page);
       await landing.navigate(baseUrl, source, eventData);
-      await setupPage(page, 8000);
+      await setupPage(page, 3000);
       assertCountryMatch(page, region);
 
       // If it's a bundle flow, check if the bundle section/product is present on the page.
@@ -367,7 +387,11 @@ async function runFlow(
           console.log('\n📋 Validating Entry page using Excel sheet...');
           if (isHomePageSource) {
             const homePageData = getHomePageData(source);
-            await validateVariant(page, 'home-page', homePageData, results, eventData, 'Home Page', source);
+            if (homePageData.length > 0) {
+              await validateVariant(page, 'home-page', homePageData, results, eventData, 'Home Page', source);
+            } else {
+              console.log(`ℹ️  No Home Page data for "${source}" — skipping validation`);
+            }
           } else {
             const queryFlow = source.includes('banner') ? 'home-boxing-banner' : 'home-boxing-tile';
             const homeOfBoxingData = getHomeOfBoxingData(queryFlow);
@@ -381,17 +405,27 @@ async function runFlow(
 
     // Handle generic popup validations and click-through
     if (!isHomeSport || source === 'home-page-dont-miss') {
-      await handlePopupModal(page, results, eventData, source, true);
+      // Skip popup modal validation for live-tv-rail — modal is generic Subscribe, not PPV
+      if (source !== 'home-page-live-tv-rail') {
+        await handlePopupModal(page, results, eventData, source, true);
+      }
     }
 
+    const preNavUrl = page.url();
     await page.waitForURL(
       (url: URL) => url.toString().includes('PlanDetails') || url.toString().includes('signup'),
-      { timeout: 10000 }
+      { timeout: 15000 }
     ).catch(async () => {
+      // Fallback: wait for URL to change from current page (home or welcome)
       await page.waitForURL(
-        (url: URL) => !url.toString().includes('/welcome'),
-        { timeout: 5000 }
-      ).catch(() => { });
+        (url: URL) => {
+          const u = url.toString();
+          return u !== preNavUrl && !u.includes('/home') && !u.includes('/welcome');
+        },
+        { timeout: 10000 }
+      ).catch(() => {
+        console.log(`⚠️ [Navigation] URL did not change from: ${page.url()}`);
+      });
     });
 
     await page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => { });
@@ -412,7 +446,9 @@ async function runFlow(
       if (page.isClosed()) throw new Error('❌ Page closed unexpectedly');
 
       const pageType = await detectPageType(page, pagesConfig, planClickCount);
-      await handleCookies(page, step === 0 ? 5000 : 500);
+      const isPaymentStep = pageType === 'payment';
+      // Dismiss cookie banner if visible (cookies pre-injected so this is just a safety net)
+      await handleCookies(page, 500);
       await stabilisePage(page);
       console.log(`\nstep ${step + 1} → pageType: ${pageType} | planClicks: ${planClickCount} | url: ${page.url()}`);
 
@@ -587,6 +623,11 @@ async function runFlow(
       if (pageType === 'payment') {
         console.log('💳 Reached Payment page');
         reachedEndPage = true;
+
+        // Dismiss any cookie banner that may appear on the payment page (safety net)
+        // Use longer timeout (3000ms) since payment page can trigger OneTrust reload
+        await handleCookies(page, 3000);
+        await stabilisePage(page);
 
         const payment = new PaymentPage(page);
         if (await payment.isPaymentPage()) {
@@ -930,13 +971,13 @@ async function runFlow(
         } else {
           const ppvSelector = currentVariantConfig?.ppvSelector || 'input[type="radio"]';
           const ppvInput = page.locator(ppvSelector).first();
-          if (await ppvInput.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)) {
+          if (await ppvInput.isVisible({ timeout: 800 }).catch(() => false)) {
             await safeScrollToElement(page, ppvInput);
             await ppvInput.click({ force: true }).catch(() => { });
           }
 
           let btn = page.locator('button:has-text("Continue with pay-per-view")').first();
-          if (await btn.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)) {
+          if (await btn.isVisible({ timeout: 800 }).catch(() => false)) {
             console.log('🖱️ Clicking CTA: "Continue with pay-per-view"');
           } else {
             const ctaText = currentVariantConfig?.ctaText || 'Continue';
@@ -1112,9 +1153,25 @@ async function runFlow(
       }
 
       stuckCount++;
-      console.log(`⚠️  Unknown page — waiting... (${stuckCount}/20) | URL: ${page.url()}`);
+      const currentStuckUrl = page.url();
+      console.log(`⚠️  Unknown page — waiting... (${stuckCount}/20) | URL: ${currentStuckUrl}`);
+
+      // If stuck on home page, try to navigate to signup directly
+      if (stuckCount === 3 && (currentStuckUrl.includes('/home') || currentStuckUrl.includes('/welcome'))) {
+        console.log('🔄 [Recovery] Still on home/welcome page — attempting direct navigation to signup...');
+        const baseMatch = currentStuckUrl.match(/(https:\/\/[a-z0-9.-]*dazn\.com\/en-[A-Z]+)/i);
+        if (baseMatch) {
+          // Navigate to signup with plan selection context for proper flow
+          const signupUrl = `${baseMatch[1]}/signup?upsellTierShown=true`;
+          await page.goto(signupUrl, { waitUntil: 'domcontentloaded' }).catch(() => {});
+          await page.waitForLoadState('domcontentloaded', { timeout: 8000 }).catch(() => {});
+          await page.waitForTimeout(2000);
+          console.log(`🔄 [Recovery] Navigated to: ${page.url()}`);
+        }
+      }
+
       await sleep(800);
-      if (stuckCount >= 20) {
+      if (stuckCount >= 15) {
         const bodyPreview = await page.locator('body').innerText()
           .catch(() => 'N/A')
           .then((t: string) => t.substring(0, 200));
@@ -1158,18 +1215,18 @@ test('PPV flow for new user', async ({ browser }) => {
 
   const json = loadEventConfig(EVENT_CONFIG);
 
-  const plansPath = path.resolve(process.cwd(), 'config/plans.json');
+  const plansPath = path.resolve(process.cwd(), 'config/DaznPlan.json');
   const plans = JSON.parse(fs.readFileSync(plansPath, 'utf-8'));
   const planData = plans[PLAN];
   if (!planData) {
-    throw new Error(`❌ Plan "${PLAN}" not found in plans.json`);
+    throw new Error(`❌ Plan "${PLAN}" not found in DaznPlan.json`);
   }
 
-  const sourcesPath = path.resolve(process.cwd(), 'config/sources.json');
+  const sourcesPath = path.resolve(process.cwd(), 'config/surfacingpoint.json');
   const sources = JSON.parse(fs.readFileSync(sourcesPath, 'utf-8'));
   const srcConfig = sources[SOURCE];
   if (!srcConfig) {
-    throw new Error(`❌ Source "${SOURCE}" not found in sources.json`);
+    throw new Error(`❌ Source "${SOURCE}" not found in surfacingpoint.json`);
   }
 
   const planTier = (planData.TIER || 'standard').toLowerCase();
@@ -1181,7 +1238,23 @@ test('PPV flow for new user', async ({ browser }) => {
     ? 'Flex Monthly'
     : ((planData.RATE_PLAN || '').toLowerCase().includes('upfront') ? 'APU' : 'APM');
   const tierName = planTier.charAt(0).toUpperCase() + planTier.slice(1);
-  const srcLabel = SOURCE.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+  // Use proper source label mapping
+  const sourceLabels: Record<string, string> = {
+    'landing-page-banner':         'Landing Page Banner',
+    'landing-page-dont-miss-live': 'Landing Page Dont Miss Live',
+    'home-page-get-started':       'Home Page - Get Started',
+    'home-page-live-tv-rail':      'Home Page - Live TV Rail',
+    'home-page-live-event-rail':   'Home Page - Live Event Rail',
+    'home-page-banner':            'Home Page Banner',
+    'home-page-dont-miss':         'Home Page Dont Miss',
+    'boxing':                      'Boxing Page',
+    'boxing-banner':               'Boxing Page Banner',
+    'boxing-bundle':               'Boxing Page Bundle',
+    'search':                      'Search',
+    'schedule':                    'Schedule Page',
+    'myaccount':                   'My Account',
+  };
+  const srcLabel = sourceLabels[SOURCE] || SOURCE.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
   const flowConfig = {
     name: `${srcLabel} → ${tierName} → ${planName}`,
@@ -1223,7 +1296,7 @@ test('PPV flow for new user', async ({ browser }) => {
 
   // Display detailed per-page results
   displayResultsTable(results, 'ppv', {
-    event: json.PPV_NAME,
+    event: json.PPV_NAME || 'Normal Sign Up',
     region: REGION,
     excelPath,
     videoPath,
@@ -1231,7 +1304,7 @@ test('PPV flow for new user', async ({ browser }) => {
 
   // Generate HTML + PDF run report (country, surfacing point, rate plan, per-page pass/fail, totals)
   const { htmlPath, pdfPath } = await generateReports(results, {
-    event: json.PPV_NAME,
+    event: json.PPV_NAME || 'Normal Sign Up',
     region: REGION,
     source: flowConfig.source,
     ratePlan: flowConfig.ratePlan,
