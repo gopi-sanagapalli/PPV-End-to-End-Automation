@@ -4,7 +4,7 @@ import { compare } from '../utils/compare';
 import { resolveExpected } from '../utils/resolveExpected';
 
 /**
- * SavedCardPaymentPage — Generic page object for purchasing a PPV
+ * PPVUpsellPaymentPage — Generic page object for purchasing a PPV
  * using a previously saved payment card (no VGS iframes needed).
  *
  * Fully dynamic — reads PPV title, price, CVV from eventData.
@@ -14,7 +14,7 @@ import { resolveExpected } from '../utils/resolveExpected';
  *   UPSELL_CVV — CVV for saved card (default: '737')
  *   (all validation fields come from Excel sheet via resolveExpected)
  */
-export class SavedCardPaymentPage extends BasePage {
+export class PPVUpsellPaymentPage extends BasePage {
   constructor(page: Page) {
     super(page);
   }
@@ -22,7 +22,7 @@ export class SavedCardPaymentPage extends BasePage {
   // ─────────────────────────────
   // DETECT: Is this a saved card payment page?
   // ─────────────────────────────
-  async isSavedCardPaymentPage(): Promise<boolean> {
+  async isPPVUpsellPaymentPage(): Promise<boolean> {
     const body = await this.page.locator('body').innerText({ timeout: 3000 }).catch(() => '');
     const lower = body.toLowerCase();
     // Generic: saved card present + one time payment indicator

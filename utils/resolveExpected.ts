@@ -15,6 +15,8 @@ export function resolveExpected(
   const rawPage = rule.Page || rule.page || eventData.CURRENT_PAGE || eventData.current_page || '';
   const pageName = rawPage.trim().toLowerCase();
 
+
+
   if (pageName === 'payment') {
     if (field === 'signed in as text') return 'N/A';
     if (field === 'log out present') return 'No';
@@ -253,6 +255,14 @@ export function resolveExpected(
   for (let pass = 0; pass < 2; pass++) {
     template = template.replace(/\{\{(.*?)\}\}/g, (match, key) => {
       const k = key.trim();
+      
+      // Override PPV_DATE specifically for landing/boxing/home pages
+      if (k.toUpperCase() === 'PPV_DATE' && (pageName === 'landing' || pageName === 'boxing' || pageName.includes('home'))) {
+        if (eventData.LANDING_PAGE_PPV_DATE) {
+          return String(eventData.LANDING_PAGE_PPV_DATE);
+        }
+      }
+
       const value =
         eventData[k] ??
         eventData[k.toUpperCase()] ??

@@ -4,13 +4,13 @@ import { compare } from '../utils/compare';
 import { resolveExpected } from '../utils/resolveExpected';
 
 /**
- * SuccessUpsellPage — Generic page object for post-payment success pages
+ * PPVUpsellSuccessPage — Generic page object for post-payment success pages
  * that contain PPV upsell offers or promotional dismiss flows.
  *
  * Fully dynamic — reads all PPV names, prices, and CTA text from eventData.
  * Works for any upsell PPV (Fury vs Hall, future events, etc.)
  */
-export class SuccessUpsellPage extends BasePage {
+export class PPVUpsellSuccessPage extends BasePage {
   constructor(page: Page) {
     super(page);
   }

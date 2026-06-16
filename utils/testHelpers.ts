@@ -210,8 +210,8 @@ export async function handlePopupModal(
       // Load popup validation rules using getHomePageData or getHomeOfBoxingData
       let popupRules: any[] = [];
       try {
-        if (src === 'home-page-dont-miss') {
-          popupRules = getHomePageData('home-page-dont-miss');
+        if (src === 'home-page-dont-miss' || src === 'home-biggest-fights') {
+          popupRules = getHomePageData(src);
         } else {
           popupRules = getHomeOfBoxingData('home-boxing-tile');
         }
@@ -222,9 +222,10 @@ export async function handlePopupModal(
       if (popupRules.length > 0) {
         // Run validations
         try {
-          const pageName = src === 'home-page-dont-miss' ? 'Home Page' : 'Popup Modal';
-          const ruleFlow = src === 'home-page-dont-miss' ? 'home-page-dont-miss' : 'home-boxing-tile';
-          const pageType = src === 'home-page-dont-miss' ? 'home-page' : 'home-boxing';
+          const isHomeField = src === 'home-page-dont-miss' || src === 'home-biggest-fights';
+          const pageName = isHomeField ? 'Home Page' : 'Popup Modal';
+          const ruleFlow = isHomeField ? src : 'home-boxing-tile';
+          const pageType = isHomeField ? 'home-page' : 'home-boxing';
           await validateVariant(page, pageType, popupRules, results, eventData, pageName, ruleFlow);
           console.log('✅ [Popup Check] Popup modal validations completed successfully.');
         } catch (err: any) {

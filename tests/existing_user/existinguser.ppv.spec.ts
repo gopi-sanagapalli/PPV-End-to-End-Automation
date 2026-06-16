@@ -6,12 +6,11 @@ import { StandalonePPVPage } from '../../pages/StandalonePPVPage';
 import { DefaultSignupPage } from '../../pages/DefaultSignupPage';
 import { LandingPage } from '../../pages/LandingPage';
 import { BoxingPage } from '../../pages/BoxingPage';
-import { SportsLandingPage } from '../../pages/SportsLandingPage';
+import { BoxingHomePage } from '../../pages/BoxingHomePage';
 import { SchedulePage } from '../../pages/schedulepage';
 import { SearchPage } from '../../pages/SearchPage';
-import { PaymentFillPage } from '../../pages/PaymentFillPage';
-import { SuccessUpsellPage } from '../../pages/SuccessUpsellPage';
-import { SavedCardPaymentPage } from '../../pages/SavedCardPaymentPage';
+import { PPVUpsellSuccessPage } from '../../pages/PPVUpsellSuccessPage';
+import { PPVUpsellPaymentPage } from '../../pages/PPVUpsellPaymentPage';
 
 
 import {
@@ -68,6 +67,8 @@ test('PPV flow via existing user my account', async ({ browser }) => {
   const PPV_TYPE = (process.env.PPV_TYPE || json.PPV_TYPE || 'normal').toLowerCase();
   configureExcelPathForEvent(json.eventKey || '');
   const eventData = buildEventData(json, REGION);
+  eventData.source = SOURCE;
+  eventData.SOURCE = SOURCE;
   const userStateKey = process.env.USER_STATE || 'freemium';
 
   // Compute dynamic future date variables
@@ -164,6 +165,8 @@ test('PPV flow via existing user my account', async ({ browser }) => {
     viewport: null,
     colorScheme: 'dark',
     reducedMotion: 'no-preference',
+    timezoneId: 'Asia/Kolkata',
+    locale: 'en-IN',
     ...(recordVideo ? { recordVideo } : {}),
   });
 
@@ -343,14 +346,14 @@ test('PPV flow via existing user my account', async ({ browser }) => {
 
         await searchPage.clickBuyNow();
       } else {
-        const isHomePageSource = SOURCE.startsWith('home-page-');
+        const isHomePageSource = SOURCE.startsWith('home-page-') || SOURCE === 'home-biggest-fights';
         const isHomeSport = SOURCE.startsWith('home-') && !isHomePageSource;
         const isBoxingSource = SOURCE.startsWith('boxing-page') || SOURCE.startsWith('boxing');
 
         const landing = isHomePageSource
           ? new HomePage(page)
           : isHomeSport
-            ? new SportsLandingPage(page)
+            ? new BoxingHomePage(page)
             : isBoxingSource
               ? new BoxingPage(page)
               : new LandingPage(page);
@@ -361,7 +364,7 @@ test('PPV flow via existing user my account', async ({ browser }) => {
 
         // Validate entry page
         const isBoxingSourceInner = SOURCE.startsWith('boxing-page') || SOURCE.startsWith('boxing');
-        const isHomePageSourceInner = SOURCE.startsWith('home-page-');
+        const isHomePageSourceInner = SOURCE.startsWith('home-page-') || SOURCE === 'home-biggest-fights';
         const isHomeSportInner = SOURCE.startsWith('home-') && !isHomePageSourceInner;
 
         let sheetName = 'Landing page';
@@ -383,7 +386,9 @@ test('PPV flow via existing user my account', async ({ browser }) => {
           pageName = 'Boxing';
           flowParam = SOURCE.startsWith('boxing-page-bundle') || SOURCE.startsWith('boxing-bundle')
             ? 'boxing-bundle'
-            : 'boxing';
+            : SOURCE === 'boxing-upcoming-fights'
+              ? 'boxing-upcoming'
+              : 'boxing';
         }
 
         const container = await landing.findPPVContainer(eventData, SOURCE);
@@ -644,6 +649,7 @@ test('PPV flow via existing user my account', async ({ browser }) => {
           endTime: new Date(),
           excelPath,
           videoPath,
+          userType: 'existing-user',
         });
         if (htmlPath) console.log(`\n📊 Report: ${htmlPath}${pdfPath ? `\n📊 Report: ${pdfPath}` : ''}`);
         return; // ← Exit early — no purchase flow needed
@@ -693,6 +699,7 @@ test('PPV flow via existing user my account', async ({ browser }) => {
           endTime: new Date(),
           excelPath,
           videoPath,
+          userType: 'existing-user',
         });
         if (htmlPath) console.log(`\n📊 Report: ${htmlPath}${pdfPath ? `\n📊 Report: ${pdfPath}` : ''}`);
         return;
@@ -716,6 +723,40 @@ test('PPV flow via existing user my account', async ({ browser }) => {
           await validateVariant(
             page, 'myaccount', ppvListingData, results, eventData, 'Pay Per View'
           );
+        }
+      }
+
+      // ── VALIDATE PPV LISTING PAGE after "Explore more PPV events" navigation ──
+      // MyAccountPage.clickBuyNow() internally calls findPPVRow() which navigates
+      // to the PPV listing page if PPV not found in My Account.
+      // We need to validate the PPV card on the listing page BEFORE clicking Buy Now.
+      // Strategy: scroll and search for the PPV, then validate its card fields.
+      if (!hasPPV) {
+        console.log('\n📋 Checking if navigated to PPV listing page for validation...');
+        // Wait briefly for any navigation that may have happened
+        await page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => {});
+        const listingUrl = page.url();
+        const isOnListingPage = listingUrl.includes('/ppv') || listingUrl.includes('/pay-per-view') ||
+          listingUrl.includes('/addons') || listingUrl.includes('/content/');
+        
+        if (isOnListingPage) {
+          console.log(`📍 On PPV listing page: ${listingUrl}`);
+          // Wait for PPV cards to load
+          await page.waitForSelector(
+            '#addons-list-card, article, [class*="card" i], button:has-text("Buy now")',
+            { state: 'visible', timeout: 10000 }
+          ).catch(() => {});
+          
+          // Validate PPV listing page fields from Excel
+          const ppvListingPageData = getPayPerViewData();
+          if (ppvListingPageData.length > 0) {
+            console.log(`📊 PPV Listing page rows: ${ppvListingPageData.length}`);
+            await validateVariant(
+              page, 'myaccount', ppvListingPageData, results, eventData, 'Pay Per View'
+            );
+          } else {
+            console.log('ℹ️ No Pay Per View page sheet data — skipping listing page validation');
+          }
         }
       }
 
@@ -959,11 +1000,10 @@ test('PPV flow via existing user my account', async ({ browser }) => {
           const env = (process.env.DAZN_ENV || 'stag').toLowerCase();
           if (env === 'stag') {
             console.log('💳 DAZN_ENV is stag — filling credit card payment details...');
-            const paymentFill = new PaymentFillPage(page);
             try {
-              await paymentFill.fillPaymentAndSubmit();
-              await paymentFill.verifyPaymentSuccess();
-              await paymentFill.clickSuccessContinue();
+              await paymentPage.fillPaymentAndSubmit();
+              await paymentPage.verifyPaymentSuccess();
+              await paymentPage.clickSuccessContinue();
               console.log('✅ Payment details submitted successfully on staging!');
               if (PPV_TYPE === 'upsell') {
                 await page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => {});
@@ -1020,7 +1060,7 @@ test('PPV flow via existing user my account', async ({ browser }) => {
           console.log('══════════════════════════════════════════════');
           stuckCount = 0;
 
-          const successPage = new SuccessUpsellPage(page);
+          const successPage = new PPVUpsellSuccessPage(page);
           try {
             const successData = getUpsellFirstSuccessData();
             await successPage.validateUpsellSuccess(successData, results, eventData);
@@ -1040,7 +1080,7 @@ test('PPV flow via existing user my account', async ({ browser }) => {
           console.log('══════════════════════════════════════════════');
           stuckCount = 0;
 
-          const savedCardPage = new SavedCardPaymentPage(page);
+          const savedCardPage = new PPVUpsellPaymentPage(page);
           try {
             const upsellPaymentData = getUpsellPaymentData();
             await savedCardPage.validateSavedCardPayment(upsellPaymentData, results, eventData, 'Upsell Payment');
@@ -1068,7 +1108,7 @@ test('PPV flow via existing user my account', async ({ browser }) => {
           console.log('══════════════════════════════════════════════');
           stuckCount = 0;
 
-          const successPage = new SuccessUpsellPage(page);
+          const successPage = new PPVUpsellSuccessPage(page);
           try {
             const betData = getUpsellSecondSuccessData();
             await successPage.validateBetUpsell(betData, results, eventData);
@@ -1485,6 +1525,7 @@ test('PPV flow via existing user my account', async ({ browser }) => {
       endTime: new Date(),
       excelPath,
       videoPath,
+      userType: 'existing-user',
     });
     if (htmlPath) console.log(`\n📊 Report: ${htmlPath}${pdfPath ? `\n📊 Report: ${pdfPath}` : ''}`);
 

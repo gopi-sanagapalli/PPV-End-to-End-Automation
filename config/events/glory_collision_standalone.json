@@ -7,11 +7,13 @@
   "PPV_TYPE": "standalone",
   "global": {
     "PPV_PROMOTER": "Glory Kickboxing",
+    "PPV_LOCATION": "Rotterdam",
     "LANDING_DESCRIPTION": "A new Light Heavyweight king will be crowned as eight elite fighters battle through a one-night Grand Prix in Rotterdam.",
     "LANDING_DATE_BADGE": "Sunday at 00:30|Saturday at 20:00"
   },
   "regions": {
     "GB": {
+      "PPV_LOCATION": "Rotterdam",
       "PPV_DATE": "Sunday at 00:30|Saturday at 20:00|Sat 5:30PM",
       "PPV_TIME": "00:30",
       "PPV_PRICE": "£24.99",

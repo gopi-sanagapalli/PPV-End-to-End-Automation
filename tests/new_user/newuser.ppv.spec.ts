@@ -4,15 +4,14 @@ import * as path from 'path';
 
 import { LandingPage } from '../../pages/LandingPage';
 import { BoxingPage } from '../../pages/BoxingPage';
-import { SportsLandingPage } from '../../pages/SportsLandingPage';
+import { BoxingHomePage } from '../../pages/BoxingHomePage';
 import { HomePage } from '../../pages/HomePage';
 import { SignupPage } from '../../pages/SignupPage';
 import { PaymentPage } from '../../pages/PaymentPage';
-import { PaymentFillPage } from '../../pages/PaymentFillPage';
 import { SearchPage } from '../../pages/SearchPage';
 import { StandalonePPVPage } from '../../pages/StandalonePPVPage';
-import { SuccessUpsellPage } from '../../pages/SuccessUpsellPage';
-import { SavedCardPaymentPage } from '../../pages/SavedCardPaymentPage';
+import { PPVUpsellSuccessPage } from '../../pages/PPVUpsellSuccessPage';
+import { PPVUpsellPaymentPage } from '../../pages/PPVUpsellPaymentPage';
 import { DefaultSignupPage } from '../../pages/DefaultSignupPage';
 import { SchedulePage } from '../../pages/schedulepage';
 
@@ -165,33 +164,13 @@ async function runFlow(
   const pagesConfig = json.pages;
 
   const regionUpper = region.toUpperCase();
-  const regionConfigs: Record<string, { locale: string; timezoneId: string; geolocation: { latitude: number; longitude: number } }> = {
-    GB: {
-      locale: 'en-GB',
-      timezoneId: 'Europe/London',
-      geolocation: { latitude: 51.5074, longitude: -0.1278 }
-    },
-    IE: {
-      locale: 'en-IE',
-      timezoneId: 'Europe/Dublin',
-      geolocation: { latitude: 53.3498, longitude: -6.2603 }
-    },
-    AU: {
-      locale: 'en-AU',
-      timezoneId: 'Australia/Sydney',
-      geolocation: { latitude: -33.8688, longitude: 151.2093 }
-    }
-  };
-  const regConfig = regionConfigs[regionUpper] || regionConfigs.GB;
-
   // Create fresh context — viewport null to match --start-maximized
   const context = await browser.newContext({
     viewport: null,
     colorScheme: 'dark',
     reducedMotion: 'no-preference',
-    locale: regConfig.locale,
-    timezoneId: regConfig.timezoneId,
-    geolocation: regConfig.geolocation,
+    timezoneId: 'Asia/Kolkata',
+    locale: 'en-IN',
     permissions: ['clipboard-read', 'clipboard-write', 'geolocation'],
     recordVideo: {
       dir: 'test-results/videos/',
@@ -244,7 +223,7 @@ async function runFlow(
 
   try {
     // ── Step 1: Navigate to landing page ─────────────────────
-    const isHomePageSource = source.startsWith('home-page-');
+    const isHomePageSource = source.startsWith('home-page-') || source === 'home-biggest-fights';
     const isHomeSport = source.startsWith('home-') && !isHomePageSource;
     const isBoxingSource = source.startsWith('boxing');
     const isSearch = source.toLowerCase().includes('search');
@@ -312,7 +291,7 @@ async function runFlow(
       const landing = isHomePageSource
         ? new HomePage(page)
         : isHomeSport
-          ? new SportsLandingPage(page)
+          ? new BoxingHomePage(page)
           : isBoxingSource
             ? new BoxingPage(page)
             : new LandingPage(page);
@@ -357,6 +336,8 @@ async function runFlow(
           let flowParam = 'landing';
           if (source.startsWith('boxing-bundle')) {
             flowParam = 'boxing-bundle';
+          } else if (source === 'boxing-upcoming-fights') {
+            flowParam = 'boxing-upcoming';
           } else if (source.startsWith('boxing')) {
             flowParam = 'boxing';
           }
@@ -631,7 +612,7 @@ async function runFlow(
       if (pageType === 'success-upsell' && PPV_TYPE === 'upsell' && firstPaymentDone && !firstSuccessValidated) {
         console.log('🏆 First Success Page — PPV Upsell');
         stuckCount = 0;
-        const successPage = new SuccessUpsellPage(page);
+        const successPage = new PPVUpsellSuccessPage(page);
         try {
           const successData = getUpsellFirstSuccessData();
           if (successData.length > 0) {
@@ -647,7 +628,7 @@ async function runFlow(
       if (pageType === 'saved-card-payment' && PPV_TYPE === 'upsell' && firstPaymentDone && firstSuccessValidated && !savedCardPaymentDone) {
         console.log('💳 Upsell Saved Card Payment');
         stuckCount = 0;
-        const savedCardPage = new SavedCardPaymentPage(page);
+        const savedCardPage = new PPVUpsellPaymentPage(page);
         try {
           const upsellPayData = getUpsellPaymentData();
           if (upsellPayData.length > 0) {
@@ -664,7 +645,7 @@ async function runFlow(
       if (pageType === 'bet-upsell' && PPV_TYPE === 'upsell' && savedCardPaymentDone) {
         console.log('🎰 Second Success Page — DAZN Bet');
         stuckCount = 0;
-        const successPage = new SuccessUpsellPage(page);
+        const successPage = new PPVUpsellSuccessPage(page);
         try {
           const betData = getUpsellSecondSuccessData();
           if (betData.length > 0) {
@@ -695,11 +676,10 @@ async function runFlow(
         const env = (process.env.DAZN_ENV || 'stag').toLowerCase();
         if (env === 'stag') {
           console.log('💳 DAZN_ENV is stag — filling credit card payment details...');
-          const paymentFill = new PaymentFillPage(page);
           try {
-            await paymentFill.fillPaymentAndSubmit();
-            await paymentFill.verifyPaymentSuccess();
-            await paymentFill.clickSuccessContinue();
+            await payment.fillPaymentAndSubmit();
+            await payment.verifyPaymentSuccess();
+            await payment.clickSuccessContinue();
 
             console.log('✅ Payment details submitted successfully on staging!');
             results.push({

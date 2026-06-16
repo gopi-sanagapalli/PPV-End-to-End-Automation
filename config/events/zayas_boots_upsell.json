@@ -6,6 +6,7 @@
   "PPV_TYPE": "upsell",
   "global": {
     "PPV_PROMOTER": "DAZN Boxing",
+    "PPV_LOCATION": "Barclays Center, Brooklyn",
     "PPV_DESCRIPTION": "Just the fight - plus 7 days of DAZN Standard, free.",
     "PPV_PRICE": "£24.99",
     "PPV_PRICE_RAW": "24.99",
@@ -63,6 +64,7 @@
   },
   "regions": {
     "GB": {
+      "PPV_LOCATION": "Barclays Center, Brooklyn",
       "PPV_DATE": "Sat 27th Jun at 16:30",
       "PPV_TIME": "16:30",
       "WELCOME_TILE_DATE": "Saturday at 10:30 PM",

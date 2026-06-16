@@ -32,6 +32,7 @@ export interface ReportMeta {
   endTime?: Date;
   videoPath?: string | null;
   excelPath?: string | null;
+  userType?: 'new-user' | 'existing-user';
 }
 
 function inlineImage(p?: string): string | null {
@@ -262,7 +263,7 @@ function buildHtml(results: ReportResult[], meta: ReportMeta): string {
 </head>
 <body>
   <div class="wrap">
-    <h1>DAZN PPV New-User Run Report</h1>
+    <h1>DAZN PPV ${(meta.userType === 'existing-user') ? 'Existing-User' : 'New-User'} Run Report</h1>
     <div class="sub">
       Generated: ${fmtTime(now)} &nbsp;|&nbsp; Start: ${fmtTime(meta.startTime)} &nbsp;|&nbsp; Duration: ${fmtDuration(dur)} &nbsp;|&nbsp; ${overallBadge}
     </div>
@@ -335,7 +336,6 @@ export async function generateReports(
 
   const html = buildHtml(results, meta);
   fs.writeFileSync(htmlPath, html, 'utf-8');
-  console.log(`📝 [Report] HTML written: ${htmlPath}`);
 
   // Render PDF via headless Chrome (channel:chrome avoids needing bundled chromium)
   let pdfOk = false;
@@ -353,9 +353,8 @@ export async function generateReports(
     });
     await browser.close();
     pdfOk = true;
-    console.log(`📄 [Report] PDF written:  ${pdfPath}`);
   } catch (e: any) {
-    console.warn(`⚠️  [Report] PDF generation failed (HTML still available): ${e.message}`);
+    // PDF generation failed silently — HTML report still available
   }
 
   return { htmlPath, pdfPath: pdfOk ? pdfPath : null };

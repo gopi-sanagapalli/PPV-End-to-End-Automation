@@ -3,10 +3,10 @@ import { LandingPage } from './LandingPage';
 import selectors from '../config/selectors.json';
 
 /**
- * SportsLandingPage — Page object to dynamically handle navigation and checkout flow
+ * BoxingHomePage — Page object to dynamically handle navigation and checkout flow
  * for any sport landing page (Boxing, Kickboxing, Misfits Boxing, etc.).
  */
-export class SportsLandingPage extends LandingPage {
+export class BoxingHomePage extends LandingPage {
   private _fighter1 = '';
   private _fighter2 = '';
   private _bannerBuyNowHref = '';
@@ -1014,18 +1014,18 @@ export class SportsLandingPage extends LandingPage {
           x: box.x + box.width / 2,
           y: box.y + box.height / 2
         };
-        console.log(`📎 [SportsLandingPage] Extracted Buy Now coords: x=${this._buyNowCoords.x}, y=${this._buyNowCoords.y}`);
+        console.log(`📎 [BoxingHomePage] Extracted Buy Now coords: x=${this._buyNowCoords.x}, y=${this._buyNowCoords.y}`);
       } else {
-        console.log('⚠️ [SportsLandingPage] Extracted Buy Now coords has zero/null bounding box');
+        console.log('⚠️ [BoxingHomePage] Extracted Buy Now coords has zero/null bounding box');
       }
 
       const href = await buyNowBtn.getAttribute('href').catch(() => '');
       if (href) {
         this._bannerBuyNowHref = href;
-        console.log(`📎 [SportsLandingPage] Extracted Buy Now href: ${href}`);
+        console.log(`📎 [BoxingHomePage] Extracted Buy Now href: ${href}`);
       }
     } catch (e: any) {
-      console.log(`⚠️ [SportsLandingPage] Failed to extract CTA info: ${e.message}`);
+      console.log(`⚠️ [BoxingHomePage] Failed to extract CTA info: ${e.message}`);
     }
   }
 
@@ -1121,27 +1121,27 @@ export class SportsLandingPage extends LandingPage {
   }
 
   private async clickPPVBannerBuyNow(): Promise<void> {
-    console.log('🎯 [SportsLandingPage] Clicking Buy Now from active banner');
+    console.log('🎯 [BoxingHomePage] Clicking Buy Now from active banner');
 
     if (this._buyNowCoords) {
-      console.log(`🎯 [SportsLandingPage] Clicking pre-captured coordinates: x=${this._buyNowCoords.x}, y=${this._buyNowCoords.y}`);
+      console.log(`🎯 [BoxingHomePage] Clicking pre-captured coordinates: x=${this._buyNowCoords.x}, y=${this._buyNowCoords.y}`);
       await this.page.mouse.click(this._buyNowCoords.x, this._buyNowCoords.y);
-      console.log(`✅ [SportsLandingPage] Mouse click dispatched at coordinates`);
+      console.log(`✅ [BoxingHomePage] Mouse click dispatched at coordinates`);
 
       const beforeUrl = this.page.url();
       await this.page.waitForURL(
         (url: URL) => url.toString() !== beforeUrl,
         { timeout: 15000 }
       ).catch(() => {
-        console.log('⚠️ [SportsLandingPage] No URL change detected after coordinate click');
+        console.log('⚠️ [BoxingHomePage] No URL change detected after coordinate click');
       });
       await this.page.waitForLoadState('domcontentloaded').catch(() => { });
-      console.log(`✅ [SportsLandingPage] Current URL after click: ${this.page.url()}`);
+      console.log(`✅ [BoxingHomePage] Current URL after click: ${this.page.url()}`);
       return;
     }
 
     if (this._bannerBuyNowHref) {
-      console.log(`🎯 [SportsLandingPage] Navigating directly to: ${this._bannerBuyNowHref}`);
+      console.log(`🎯 [BoxingHomePage] Navigating directly to: ${this._bannerBuyNowHref}`);
       let targetUrl = this._bannerBuyNowHref;
       if (targetUrl.startsWith('/')) {
         const currentUrl = this.page.url();
@@ -1150,7 +1150,7 @@ export class SportsLandingPage extends LandingPage {
       }
       await this.page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
       await this.page.waitForLoadState('domcontentloaded').catch(() => { });
-      console.log(`✅ [SportsLandingPage] Navigated to: ${this.page.url()}`);
+      console.log(`✅ [BoxingHomePage] Navigated to: ${this.page.url()}`);
       return;
     }
 

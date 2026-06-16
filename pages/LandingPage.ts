@@ -384,7 +384,7 @@ export class LandingPage extends BasePage {
     console.log('✅ [Tile] Rail wrapper container found');
 
     // ─────────────────────────────────────────────────────────────────────────
-    // PHASE 2.5: Build image selector for PPV tile (same approach as SportsLandingPage)
+    // PHASE 2.5: Build image selector for PPV tile (same approach as BoxingHomePage)
     // ─────────────────────────────────────────────────────────────────────────
     // Build an exclusion selector to avoid matching ancillary content
     const exclusions = [
@@ -406,23 +406,65 @@ export class LandingPage extends BasePage {
     const ppvImg = railWrapper.locator(imgSelector).first();
     const ppvTileLink = ppvImg.locator('xpath=ancestor::a[1]');
 
+    const textTileLocator = railWrapper.locator('.swiper-slide, [class*="tile" i], article, li').filter({
+      hasText: fighter1 && fighter2 ? new RegExp(`${fighter1}|${fighter2}`, 'i') : ppvName
+    }).first();
+
     // Helper: check if the PPV tile is currently in view (with retry for transient detachments)
     const isTileInView = async (): Promise<any> => {
       for (let retry = 0; retry < 2; retry++) {
-        const imgCount = await ppvImg.count().catch(() => 0);
-        if (imgCount === 0) {
-          if (retry === 0) {
-            // Swiper may be animating — wait briefly and retry
-            await this.page.waitForTimeout(400);
-            continue;
+        // Strategy A: Find by Text Content
+        const candidates = railWrapper.locator('.swiper-slide, [class*="tile" i], article, li');
+        const count = await candidates.count().catch(() => 0);
+        for (let i = 0; i < count; i++) {
+          const el = candidates.nth(i);
+          if (await el.isVisible().catch(() => false)) {
+            const text = (await el.textContent().catch(() => '')) || '';
+            const match = matchesPPV(text) ||
+              (fighter1 && text.toLowerCase().includes(fighter1.toLowerCase())) ||
+              (fighter2 && text.toLowerCase().includes(fighter2.toLowerCase()));
+            
+            if (match) {
+              const inView = await el.evaluate((node: HTMLElement) => {
+                const r = node.getBoundingClientRect();
+                return r.width > 0 && r.right > 0 && r.left < window.innerWidth;
+              }).catch(() => false);
+              
+              if (inView) {
+                const buyNowBtn = el.locator('button:has-text("Buy now"), button:has-text("Buy"), a:has-text("Buy now"), a:has-text("Buy")').first();
+                if (await buyNowBtn.isVisible().catch(() => false)) {
+                  console.log('✅ Found matching tile and its Buy Now button in view');
+                  return buyNowBtn;
+                }
+                const anchor = el.locator('xpath=self::a | ancestor-or-self::a').first();
+                if (await anchor.count().catch(() => 0) > 0) {
+                  console.log('✅ Found matching tile anchor in view');
+                  return anchor;
+                }
+                console.log('✅ Found matching tile element in view');
+                return el;
+              }
+            }
           }
-          return null;
         }
-        const inView = await ppvImg.evaluate((el: HTMLElement) => {
-          const r = el.getBoundingClientRect();
-          return r.width > 0 && r.right > 0 && r.left < window.innerWidth;
-        }).catch(() => false);
-        return inView ? ppvTileLink : null;
+
+        // Strategy B: Fallback to original image alt-text search
+        const imgCount = await ppvImg.count().catch(() => 0);
+        if (imgCount > 0) {
+          const inView = await ppvImg.evaluate((el: HTMLElement) => {
+            const r = el.getBoundingClientRect();
+            return r.width > 0 && r.right > 0 && r.left < window.innerWidth;
+          }).catch(() => false);
+          if (inView) {
+            console.log('✅ Found matching tile via image alt-text in view');
+            return ppvTileLink;
+          }
+        }
+
+        if (retry === 0) {
+          await this.page.waitForTimeout(400);
+          continue;
+        }
       }
       return null;
     };
@@ -445,7 +487,7 @@ export class LandingPage extends BasePage {
     await this.page.waitForTimeout(500);
 
     // ─────────────────────────────────────────────────────────────────────────
-    // PHASE 3: Navigate the swiper rail — click > until PPV tile is found (same as SportsLandingPage)
+    // PHASE 3: Navigate the swiper rail — click > until PPV tile is found (same as BoxingHomePage)
     // ─────────────────────────────────────────────────────────────────────────
     let clicks = 0;
     const maxClicks = 30;
@@ -493,9 +535,11 @@ export class LandingPage extends BasePage {
     console.log(`✅ [Tile] Swiper "Next" clicks performed: ${clicks}`);
 
     // Fallback: if tile exists in DOM but not in viewport, scroll it into view
-    if (!found && (await ppvImg.count()) > 0) {
+    const hasTextTile = await textTileLocator.count().catch(() => 0) > 0;
+    if (!found && (hasTextTile || (await ppvImg.count()) > 0)) {
       console.log('🔍 [Tile] Tile in DOM but not visible — scrolling into view');
-      await ppvImg.scrollIntoViewIfNeeded().catch(() => { });
+      const scrollTarget = hasTextTile ? textTileLocator : ppvImg;
+      await scrollTarget.scrollIntoViewIfNeeded().catch(() => { });
       await this.page.waitForTimeout(500);
       found = await isTileInView();
     }

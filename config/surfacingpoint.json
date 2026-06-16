@@ -20,6 +20,10 @@
     "source": "boxing-page-bundle",
     "endPage": "payment"
   },
+  "boxing-upcoming-fights": {
+    "source": "boxing-upcoming-fights",
+    "endPage": "payment"
+  },
   "home-boxing-banner": {
     "source": "home-boxing-banner",
     "endPage": "payment"
@@ -54,6 +58,10 @@
   },
   "home-page-dont-miss": {
     "source": "home-page-dont-miss",
+    "endPage": "payment"
+  },
+  "home-biggest-fights": {
+    "source": "home-biggest-fights",
     "endPage": "payment"
   }
 }

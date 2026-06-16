@@ -397,6 +397,7 @@ export function buildEventData(
     'ULTIMATE_FEATURE_2',
     'ULTIMATE_FEATURE_3',
     'SPORT',
+    'PPV_LOCATION',
     'BUNDLE_NAME',
     'BUNDLE_DESCRIPTION',
     'BUNDLE_ORIGINAL_PRICE',
