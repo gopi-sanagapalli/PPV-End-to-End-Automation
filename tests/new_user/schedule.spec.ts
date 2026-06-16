@@ -33,7 +33,7 @@ import {
 import { loadEventConfig, handlePopupModal, assertCountryMatch } from '../../utils/testHelpers';
 
 const REGION = process.env.DAZN_REGION || 'IN';
-const EVENT_CONFIG = process.env.PPV_CONFIG || 'beauty_and_beast';
+const EVENT_CONFIG = process.env.PPV_CONFIG || 'aj_joshua_prenga.json';
 
 
 // ── Safe scroll helper ────────────────────────────────────────────────────────

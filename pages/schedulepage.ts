@@ -108,20 +108,20 @@ export class SchedulePage {
     // Save scroll position BEFORE any scrolling
     const scrollY = await this.page.evaluate(() => window.scrollY);
 
-    // Scroll into view only if not already visible
-    const box0 = await event.boundingBox();
-    if (!box0 || box0.y < 0 || box0.y > 700) {
+    // Click using Playwright's built-in click
+    try {
+      await event.click({ timeout: 5000 });
+    } catch (err: any) {
+      console.warn(`⚠️ Standard click failed: ${err.message}. Falling back to manual scroll and mouse click...`);
       await event.scrollIntoViewIfNeeded();
-      await this.page.waitForTimeout(300);
+      await this.page.waitForTimeout(500);
+      const box = await event.boundingBox();
+      if (!box) throw new Error('❌ Event not clickable — no bounding box');
+      await this.page.mouse.click(
+        box.x + box.width  / 2,
+        box.y + box.height / 2
+      );
     }
-
-    const box = await event.boundingBox();
-    if (!box) throw new Error('❌ Event not clickable — no bounding box');
-
-    await this.page.mouse.click(
-      box.x + box.width  / 2,
-      box.y + box.height / 2
-    );
 
     const buyNowButton = this.page.locator(
       'a:has-text("Buy now"), '      +

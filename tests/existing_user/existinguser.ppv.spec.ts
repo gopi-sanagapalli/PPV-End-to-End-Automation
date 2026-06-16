@@ -54,7 +54,7 @@ import {
 } from '../../utils/testHelpers';
 
 const REGION = process.env.DAZN_REGION || 'GB';
-const EVENT_CONFIG = process.env.PPV_CONFIG || 'beauty_and_beast';
+const EVENT_CONFIG = process.env.PPV_CONFIG || 'aj_joshua_prenga.json';
 const SOURCE = process.env.SOURCE || 'my-account';
 
 // ── Flow constant — used for flow-restricted Excel rows ──────────────
@@ -65,6 +65,7 @@ test('PPV flow via existing user my account', async ({ browser }) => {
   test.setTimeout(300_000);
 
   const json = loadEventConfig(EVENT_CONFIG);
+  const PPV_TYPE = (process.env.PPV_TYPE || json.PPV_TYPE || 'normal').toLowerCase();
   configureExcelPathForEvent(json.eventKey || '');
   const eventData = buildEventData(json, REGION);
   const userStateKey = process.env.USER_STATE || 'freemium';
@@ -964,6 +965,10 @@ test('PPV flow via existing user my account', async ({ browser }) => {
               await paymentFill.verifyPaymentSuccess();
               await paymentFill.clickSuccessContinue();
               console.log('✅ Payment details submitted successfully on staging!');
+              if (PPV_TYPE === 'upsell') {
+                await page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => {});
+                continue;
+              }
             } catch (paymentErr: any) {
               console.error(`❌ Payment filling failed: ${paymentErr.message}`);
               throw paymentErr;
@@ -971,6 +976,9 @@ test('PPV flow via existing user my account', async ({ browser }) => {
             continue;
           }
 
+          if (PPV_TYPE === 'upsell') {
+            reachedEndPage = true;
+          }
           break;
         }
 
@@ -1006,7 +1014,7 @@ test('PPV flow via existing user my account', async ({ browser }) => {
         }
 
         // ── PPV Upsell Success Page (first success after initial payment) ──
-        if (pageType === 'success-upsell' && firstPaymentDone && !firstSuccessValidated) {
+        if (pageType === 'success-upsell' && PPV_TYPE === 'upsell' && firstPaymentDone && !firstSuccessValidated) {
           console.log('\n══════════════════════════════════════════════');
           console.log('First Success Page — PPV Upsell');
           console.log('══════════════════════════════════════════════');
@@ -1026,7 +1034,7 @@ test('PPV flow via existing user my account', async ({ browser }) => {
         }
 
         // ── Saved Card Payment (upsell PPV purchase) ──
-        if (pageType === 'saved-card-payment' && firstPaymentDone && firstSuccessValidated) {
+        if (pageType === 'saved-card-payment' && PPV_TYPE === 'upsell' && firstPaymentDone && firstSuccessValidated && !savedCardPaymentDone) {
           console.log('\n══════════════════════════════════════════════');
           console.log('Upsell PPV — Saved Card Payment');
           console.log('══════════════════════════════════════════════');
@@ -1054,7 +1062,7 @@ test('PPV flow via existing user my account', async ({ browser }) => {
         }
 
         // ── DAZN Bet / Promotional Upsell (second success) ──
-        if (pageType === 'bet-upsell' && firstPaymentDone && savedCardPaymentDone) {
+        if (pageType === 'bet-upsell' && PPV_TYPE === 'upsell' && firstPaymentDone && savedCardPaymentDone) {
           console.log('\n══════════════════════════════════════════════');
           console.log('Second Success Page — DAZN Bet Upsell');
           console.log('══════════════════════════════════════════════');
