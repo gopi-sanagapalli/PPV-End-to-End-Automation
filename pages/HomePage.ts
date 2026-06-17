@@ -29,7 +29,7 @@ export class HomePage extends LandingPage {
     });
   }
 
-  private async clickExplore(): Promise<void> {
+  protected async clickExplore(): Promise<void> {
     console.log('🔍 Looking for "Explore" button on welcome page...');
 
     const exploreSelectors = [
@@ -940,7 +940,7 @@ export class HomePage extends LandingPage {
     }
   }
 
-  private getFallbackBaseUrl(): string {
+  protected getFallbackBaseUrl(): string {
     const env = (process.env.DAZN_ENV || 'stag').toLowerCase();
     const region = (process.env.DAZN_REGION || 'GB').toUpperCase();
     let domain = 'stag.dazn.com';
@@ -983,6 +983,8 @@ export class HomePage extends LandingPage {
     console.log('🔍 Checking for popups...');
     try {
       const dismissSelectors =
+        'button:has-text("Keep me updated"), ' +
+        'button:has-text("Keep Me Updated"), ' +
         'button:has-text("Maybe later"), ' +
         'button:has-text("Maybe Later"), ' +
         'button:has-text("No thanks"), ' +
@@ -1070,5 +1072,124 @@ export class HomePage extends LandingPage {
     } catch {
       console.log('ℹ️  No popup found');
     }
+  }
+
+  // ─────────────────────────────
+  // SPORTS DROPDOWN TRIGGER HELPERS
+  // ─────────────────────────────
+  protected async clickAllSportsDropdown(): Promise<boolean> {
+    console.log('🔍 Looking for "All Sports" or "Sports" dropdown menu trigger...');
+    const triggers = [
+      'button:has-text("Sports")',
+      'a:has-text("Sports")',
+      'button:has-text("All Sports")',
+      'a:has-text("All Sports")',
+      '[aria-label*="sports" i]',
+      '[class*="sports" i]',
+      'button[aria-haspopup="true"]',
+    ];
+
+    for (const selector of triggers) {
+      const locator = this.page.locator(selector);
+      const count = await locator.count().catch(() => 0);
+      for (let i = 0; i < count; i++) {
+        const el = locator.nth(i);
+        if (await el.isVisible().catch(() => false)) {
+          console.log(`🎯 Clicking Sports dropdown trigger: "${selector}"`);
+          await el.scrollIntoViewIfNeeded().catch(() => { });
+          await el.click({ force: true });
+
+          // Wait up to 3 seconds for a dropdown container to appear
+          const containerSelectors = ['[role="menu"]', '[role="listbox"]', '[class*="dropdown" i]', '[class*="menu" i]'];
+          for (const cSel of containerSelectors) {
+            const visible = await this.page.locator(cSel).first().waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false);
+            if (visible) {
+              console.log(`✅ Sports dropdown menu visible: "${cSel}"`);
+              return true;
+            }
+          }
+          await this.page.waitForTimeout(500); // Fallback wait
+          return true;
+        }
+      }
+    }
+    console.log('⚠️ Could not click Sports dropdown trigger.');
+    return false;
+  }
+
+  protected async selectSportFromDropdown(sportName: string): Promise<boolean> {
+    console.log(`🔍 Selecting sport "${sportName}" from dropdown list...`);
+
+    // Define potential dropdown container selectors to restrict search scope
+    const containers = [
+      '[role="menu"]',
+      '[role="listbox"]',
+      '[class*="dropdown" i]',
+      '[class*="menu" i]',
+      '[class*="sports" i]',
+      'div' // generic fallback
+    ];
+
+    let activeContainer = this.page.locator('body');
+    for (const cSelector of containers) {
+      const locator = this.page.locator(cSelector);
+      const count = await locator.count().catch(() => 0);
+      for (let i = 0; i < count; i++) {
+        const c = locator.nth(i);
+        if (await c.isVisible().catch(() => false)) {
+          const hasOption = await c.locator(`a:has-text("${sportName}"), button:has-text("${sportName}"), li:has-text("${sportName}"), span:has-text("${sportName}")`).first().isVisible().catch(() => false);
+          if (hasOption) {
+            const box = await c.boundingBox().catch(() => null);
+            // Increased max width to 1000 to accommodate multi-column sports mega-menus
+            if (box && box.width > 0 && box.width < 1000) {
+              activeContainer = c;
+              console.log(`✅ Scoping sport search to active dropdown container: "${cSelector}" (width: ${Math.round(box.width)})`);
+              break;
+            }
+          }
+        }
+      }
+      if (activeContainer !== this.page.locator('body')) break;
+    }
+
+    const selectors = [
+      `button:has-text("${sportName}")`,
+      `button span:has-text("${sportName}")`,
+      `a:has-text("${sportName}")`,
+      `a[href*="sport"]:has-text("${sportName}")`,
+      `a[href*="competition"]:has-text("${sportName}")`,
+      `[role="menuitem"]:has-text("${sportName}")`,
+      `li:has-text("${sportName}")`,
+      `div:has-text("${sportName}")`
+    ];
+
+    for (const selector of selectors) {
+      const locator = activeContainer.locator(selector);
+      const count = await locator.count().catch(() => 0);
+      for (let i = 0; i < count; i++) {
+        const el = locator.nth(i);
+        if (await el.isVisible().catch(() => false)) {
+          const box = await el.boundingBox().catch(() => null);
+          if (box && box.width > 0 && box.height > 0) {
+            console.log(`🎯 Clicking sport link: "${selector}" inside container`);
+            await el.scrollIntoViewIfNeeded().catch(() => { });
+            const beforeUrl = this.page.url();
+            await el.click({ force: true });
+
+            const navigated = await this.page.waitForURL(
+              (url: URL) => url.toString() !== beforeUrl,
+              { timeout: 8000 }
+            ).then(() => true).catch(() => false);
+
+            if (navigated) {
+              return true;
+            } else {
+              console.log(`⚠️ Clicked sport link "${selector}" but URL did not change from "${beforeUrl}"`);
+            }
+          }
+        }
+      }
+    }
+    return false;
   }
 }

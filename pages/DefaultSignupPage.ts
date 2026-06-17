@@ -73,7 +73,7 @@ export class DefaultSignupPage extends BasePage {
       'a:has-text("Continue with pay-per-view")'
     ).first();
     await btn.waitFor({ state: 'visible', timeout: 10000 });
-    await btn.scrollIntoViewIfNeeded().catch(() => {});
+    await btn.scrollIntoViewIfNeeded().catch(() => { });
     await btn.click({ force: true });
     console.log('✅ [DefaultSignup] Clicked "Continue with pay-per-view"');
   }
@@ -90,7 +90,7 @@ export class DefaultSignupPage extends BasePage {
       '*:has-text("Subscribe without a pay-per-view"):not(div):not(section):not(main):not(body)'
     ).first();
     await link.waitFor({ state: 'visible', timeout: 10000 });
-    await link.scrollIntoViewIfNeeded().catch(() => {});
+    await link.scrollIntoViewIfNeeded().catch(() => { });
     await link.click({ force: true });
     console.log('✅ [DefaultSignup] Clicked "Subscribe without a pay-per-view"');
   }

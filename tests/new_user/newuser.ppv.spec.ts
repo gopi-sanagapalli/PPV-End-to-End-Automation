@@ -1,7 +1,6 @@
 import { test, Page, BrowserContext } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
-
 import { LandingPage } from '../../pages/LandingPage';
 import { BoxingPage } from '../../pages/BoxingPage';
 import { BoxingHomePage } from '../../pages/BoxingHomePage';
@@ -14,6 +13,7 @@ import { PPVUpsellSuccessPage } from '../../pages/PPVUpsellSuccessPage';
 import { PPVUpsellPaymentPage } from '../../pages/PPVUpsellPaymentPage';
 import { DefaultSignupPage } from '../../pages/DefaultSignupPage';
 import { SchedulePage } from '../../pages/schedulepage';
+import { MyAccountPage } from '../../pages/MyAccountPage';
 
 import {
   readSheet,
@@ -44,6 +44,7 @@ import {
   handleCookies,
   stabilisePage,
   injectConsentCookies,
+  dismissMarketingPopup,
 } from '../../utils/helpers';
 import {
   loadEventConfig,
@@ -58,6 +59,9 @@ const EVENT_CONFIG = process.env.PPV_CONFIG || 'aj_joshua_prenga.json';
 const PLAN = process.env.PLAN || 'standard_monthly';
 const SOURCE = process.env.SOURCE || 'landing-page-banner';
 const PPV_TYPE = (process.env.PPV_TYPE || 'normal').toLowerCase();
+const SWITCH_TO_ULTIMATE = (process.env.SWITCH || '').toLowerCase() === 'true';
+const ENV = (process.env.DAZN_ENV || 'stag').toLowerCase();
+const PAYMENT_METHOD = (process.env.PAYMENT_METHOD || 'credit_card').toLowerCase();
 
 // ═══════════════════════════════════════════════════════════════
 // RUN A SINGLE FLOW
@@ -269,10 +273,15 @@ async function runFlow(
         console.log(`⚠️ Search for "${searchQuery}" failed: ${err.message}. Trying fallback search...`);
       }
 
-      if (!searchSuccess && eventData.PPV_PROMOTER && eventData.PPV_PROMOTER !== 'N/A') {
-        console.log(`🔄 Searching with promoter fallback: "${eventData.PPV_PROMOTER}"`);
-        await searchPage.searchForEvent(eventData.PPV_PROMOTER);
-        await searchPage.clickPPVTile(eventData.PPV_NAME);
+      if (!searchSuccess) {
+        if (eventData.PPV_PROMOTER && eventData.PPV_PROMOTER !== 'N/A') {
+          console.log(`🔄 Searching with promoter fallback: "${eventData.PPV_PROMOTER}"`);
+          await searchPage.searchForEvent(eventData.PPV_PROMOTER);
+          await searchPage.clickPPVTile(eventData.PPV_NAME);
+          searchSuccess = true;
+        } else {
+          throw new Error(`❌ PPV event "${eventData.PPV_NAME}" not found via search`);
+        }
       }
 
       console.log('\n📋 Validating Search page...');
@@ -315,14 +324,13 @@ async function runFlow(
         }
       }
 
-      if (validateLanding) {
-        if (!isHomeSport && !isHomePageSource) {
-          await page.evaluate(() => {
-            document.documentElement.style.overflow = 'hidden';
-            document.body.style.overflow = 'hidden';
-          });
-        }
+      // ── Step 2: Find PPV container ──────────
+      const container = await landing.findPPVContainer(eventData, source);
+      if (!container) {
+        throw new Error(`❌ PPV container not found via ${source}`);
+      }
 
+      if (validateLanding) {
         if (isHomeSport || isHomePageSource) {
           console.log('ℹ️  Home of Sport/Home page flow — skipping Step 1 validation (handled in Step 2)');
         } else {
@@ -344,13 +352,6 @@ async function runFlow(
 
           await validateVariant(page, 'landing', landingData, results, eventData, pageName, flowParam);
         }
-
-        if (!isHomeSport && !isHomePageSource) {
-          await page.evaluate(() => {
-            document.documentElement.style.overflow = '';
-            document.body.style.overflow = '';
-          });
-        }
       }
 
       // ── DEV MODE: If enabled, activate dev mode to bypass phone number ──
@@ -359,12 +360,6 @@ async function runFlow(
         const searchPage = new SearchPage(page);
         await searchPage.enableDevMode();
         console.log('✅ dev mode enabled — continuing with ultimate flow');
-      }
-
-      // ── Step 2: Find PPV container & click Buy Now ──────────
-      const container = await landing.findPPVContainer(eventData, source);
-      if (!container) {
-        throw new Error(`❌ PPV container not found via ${source}`);
       }
 
       // Home of Sport & Home Page: validate banner/popup content before clicking Buy Now
@@ -438,6 +433,7 @@ async function runFlow(
       const pageType = await detectPageType(page, pagesConfig, planClickCount);
       await handleCookies(page, step === 0 ? 5000 : 500);
       await stabilisePage(page);
+      await dismissMarketingPopup(page);
       console.log(`\nstep ${step + 1} → pageType: ${pageType} | planClicks: ${planClickCount} | url: ${page.url()}`);
 
       // ── OTP Verification page ──────────────────────────────
@@ -670,16 +666,67 @@ async function runFlow(
           await payment.validate(paymentData, results, eventData, 'newuser');
         }
 
+        // ── SCENARIO 2: Ultimate Upsell Banner — validate before click,
+        //    click conditionally, validate after click ──────────────────
+        const isStandardTierForUpsell = (tier || '').toLowerCase() === 'standard';
+        const isMonthlyOrAPMForUpsell = ratePlan === 'monthly' || ratePlan === 'annual pay monthly';
+
+        if (isStandardTierForUpsell && isMonthlyOrAPMForUpsell) {
+          try {
+            // STEP A: Always validate banner text BEFORE click (both prod and stag)
+            await payment.validateUltimateUpsellBannerText(results, eventData);
+
+            // STEP B: Decide whether to click the arrow
+            // prod: always click (no payment follows anyway)
+            // stag: only click if SWITCH=true env var is set
+            const shouldClickUpsell = ENV !== 'stag' || SWITCH_TO_ULTIMATE;
+
+            if (shouldClickUpsell) {
+              // STEP C: Click > arrow and validate DAZN Ultimate summary
+              const switched = await payment.clickUltimateUpsellAndValidate(results, eventData);
+
+              if (switched && ENV === 'stag' && SWITCH_TO_ULTIMATE) {
+                // STEP D: stag + SWITCH=true → update eventData so payment
+                // fill proceeds as Ultimate (plan already changed on page)
+                console.log('💎 [SWITCH=true] Proceeding with DAZN Ultimate payment on stag...');
+                eventData.TIER = 'ultimate';
+                eventData['TIER'] = 'ultimate';
+                eventData.DAZN_TIER = 'DAZN Ultimate';
+                eventData['DAZN_TIER'] = 'DAZN Ultimate';
+                // Rate plan stays as annual pay monthly (Ultimate APM)
+                eventData.RATE_PLAN = 'annual pay monthly';
+                eventData['RATE_PLAN'] = 'annual pay monthly';
+              }
+            } else {
+              // stag + SWITCH not set → skip click, log info, proceed with Standard
+              console.log('ℹ️ [stag] SWITCH not set — skipping Ultimate upsell click. Proceeding with Standard payment.');
+            }
+          } catch (upsellErr: any) {
+            console.warn(`⚠️ Ultimate Upsell Banner validation error: ${upsellErr.message}`);
+          }
+        }
+        // ── End Scenario 2 ────────────────────────────────────────────
+
         firstPaymentDone = true;
 
         // --- Payment details filling on staging ---
         const env = (process.env.DAZN_ENV || 'stag').toLowerCase();
         if (env === 'stag') {
-          console.log('💳 DAZN_ENV is stag — filling credit card payment details...');
+          console.log(`💳 DAZN_ENV is stag — filling payment via method: ${PAYMENT_METHOD}`);
           try {
-            await payment.fillPaymentAndSubmit();
-            await payment.verifyPaymentSuccess();
-            await payment.clickSuccessContinue();
+            if (PAYMENT_METHOD === 'gpay') {
+              // ── Google Pay flow ──────────────────────────────────
+              console.log('🔵 [GPay] Using Google Pay payment method...');
+              await payment.fillGooglePayAndSubmit(results, eventData);
+              await payment.verifyPaymentSuccess();
+              await payment.clickSuccessContinue();
+            } else {
+              // ── Credit Card flow (existing default) ──────────────
+              console.log('💳 Using Credit Card payment method...');
+              await payment.fillPaymentAndSubmit();
+              await payment.verifyPaymentSuccess();
+              await payment.clickSuccessContinue();
+            }
 
             console.log('✅ Payment details submitted successfully on staging!');
             results.push({
@@ -689,6 +736,30 @@ async function runFlow(
               actual: 'Success page reached',
               status: 'PASS',
             });
+
+            // ── SCENARIO 3: Navigate to My Account and validate PPV status = Purchased ──
+            // Only runs on stag after successful payment, and only for normal PPV flows
+            if (PPV_TYPE !== 'upsell') {
+              try {
+                console.log('\n🏠 [Post-Payment] Validating PPV status in My Account...');
+                const myAccountPage = new MyAccountPage(page);
+                await myAccountPage.navigateToMyAccountAndValidatePPVStatus(
+                  eventData.PPV_NAME,
+                  results,
+                  eventData
+                );
+              } catch (myAccountErr: any) {
+                console.warn(`⚠️ [Post-Payment] My Account PPV status validation error: ${myAccountErr.message}`);
+                results.push({
+                  page: 'My Account (Post-Payment)',
+                  field: 'PPV Status After Purchase',
+                  expected: 'Purchased',
+                  actual: `Error: ${myAccountErr.message}`,
+                  status: 'FAIL',
+                });
+              }
+            }
+            // ── End Scenario 3 ────────────────────────────────────────────────────────
 
             // For upsell flows, continue the loop to handle post-payment pages
             if (PPV_TYPE === 'upsell') {
@@ -1196,6 +1267,21 @@ async function runFlow(
               'button:has-text("Continue")'
             ).first();
             await planBtn.waitFor({ state: 'visible', timeout: 5000 }).catch(() => { });
+
+            // Validate CTA text changed after selecting APM
+            const ctaText = await planBtn.textContent().catch(() => '') || '';
+            const cleanCta = ctaText.replace(/\s+/g, ' ').trim();
+            const expectedCta = 'Continue with 1st Month Free';
+            const ctaMatch = cleanCta.toLowerCase().includes(expectedCta.toLowerCase());
+            console.log(`  ${ctaMatch ? '✅' : '❌'} [Plan CTA after APM] expected="${expectedCta}" actual="${cleanCta}"`);
+            results.push({
+              page: 'DAZN Plan',
+              field: 'CTA After APM Selection',
+              expected: expectedCta,
+              actual: cleanCta,
+              status: ctaMatch ? 'PASS' : 'FAIL'
+            });
+
             await clickAndWaitForNav(page, planBtn, 'Standard Annual Plan Continue');
           } else {
             const trialRadio = page.locator('input[type="radio"]').first();
@@ -1284,7 +1370,8 @@ test('PPV flow for new user', async ({ browser }) => {
 
   const planTier = (planData.TIER || 'standard').toLowerCase();
   const isUltimate = planTier === 'ultimate';
-  const devMode = isUltimate || !!srcConfig.enableDevMode;
+  const isUSorGB = REGION === 'GB' || REGION === 'US';
+  const devMode = (isUltimate && isUSorGB && ENV !== 'prod') || (!!srcConfig.enableDevMode && ENV !== 'prod');
   const endPage = srcConfig.endPage || 'payment';
 
   const planName = (planData.RATE_PLAN || 'monthly').toLowerCase() === 'monthly'

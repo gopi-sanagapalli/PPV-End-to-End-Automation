@@ -25,13 +25,20 @@ export async function injectConsentCookies(_context: BrowserContext): Promise<vo
 const _dismissedContexts = new WeakSet<BrowserContext>();
 const _initialCheckDone = new WeakSet<BrowserContext>();
 
-export async function handleCookies(page: Page, timeout: number = 5000): Promise<void> {
+export async function handleCookies(page: Page, timeout: number = 8000): Promise<void> {
   if (page.isClosed()) return;
 
   const context = page.context();
 
-  // Skip entirely if we already dismissed in this context
-  if (_dismissedContexts.has(context)) return;
+  // Skip entirely if we already dismissed in this context,
+  // BUT do a fast check in case the cookie banner reappeared (e.g. on new pages/redirects)
+  if (_dismissedContexts.has(context)) {
+    const isVisibleNow = await page.locator('#onetrust-accept-btn-handler')
+      .isVisible()
+      .catch(() => false);
+    if (!isVisibleNow) return;
+    console.log('🍪 Cookie banner reappeared after initial dismissal — dismissing again...');
+  }
 
   // Use a shorter activeTimeout if the initial wait has already been completed
   let activeTimeout = timeout;
@@ -59,7 +66,7 @@ export async function handleCookies(page: Page, timeout: number = 5000): Promise
       // Wait for banner to disappear after clicking
       await page.locator('#onetrust-banner-sdk')
         .waitFor({ state: 'hidden', timeout: 5000 })
-        .catch(() => {});
+        .catch(() => { });
       await stabilisePage(page);
       return;
     } catch {
@@ -74,7 +81,7 @@ export async function handleCookies(page: Page, timeout: number = 5000): Promise
         // JS click as last resort
         const handle = await cookieAcceptBtn.elementHandle().catch(() => null);
         if (handle) {
-          await page.evaluate((el: any) => el.click(), handle).catch(() => {});
+          await page.evaluate((el: any) => el.click(), handle).catch(() => { });
           console.log('🍪 Accepted cookies via JS click');
           _dismissedContexts.add(context);
           await stabilisePage(page);
@@ -136,7 +143,24 @@ export async function stabilisePage(page: Page): Promise<void> {
       document.querySelectorAll<HTMLElement>(sel)
         .forEach(el => el.remove())
     );
-  }).catch(() => {});
+  }).catch(() => { });
+}
+
+// ─────────────────────────────────────────────────────────────────
+// DISMISS MARKETING POPUP ("Unlock exclusive content")
+// ─────────────────────────────────────────────────────────────────
+export async function dismissMarketingPopup(page: Page): Promise<void> {
+  if (page.isClosed()) return;
+  try {
+    const keepMeUpdatedBtn = page.locator('button:has-text("Keep me updated"), button:has-text("Keep Me Updated")').first();
+    if (await keepMeUpdatedBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
+      console.log('🔔 Marketing popup ("Unlock exclusive content") detected. Clicking "Keep me updated"...');
+      await keepMeUpdatedBtn.click({ force: true }).catch(() => { });
+      console.log('✅ Clicked "Keep me updated"');
+    }
+  } catch (e) {
+    console.warn('⚠️ Error in dismissMarketingPopup:', e);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -144,7 +168,7 @@ export async function stabilisePage(page: Page): Promise<void> {
 // ─────────────────────────────────────────────────────────────────
 export async function waitForSPAReady(page: Page): Promise<void> {
   if (page.isClosed()) return;
-  await page.waitForLoadState('domcontentloaded').catch(() => {});
+  await page.waitForLoadState('domcontentloaded').catch(() => { });
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -160,9 +184,9 @@ export async function triggerLazyLoad(page: Page): Promise<void> {
       window.innerHeight * 3
     );
     window.scrollTo(0, target);
-  }).catch(() => {});
+  }).catch(() => { });
   await sleep(150);
-  await page.evaluate(() => window.scrollTo(0, 0)).catch(() => {});
+  await page.evaluate(() => window.scrollTo(0, 0)).catch(() => { });
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -177,33 +201,33 @@ export async function setupPage(page: Page, _cookieTimeout: number = 500): Promi
 // SCROLL TO CENTER
 // ─────────────────────────────────────────────────────────────────
 export async function scrollToCenter(
-  page:     Page,
+  page: Page,
   selector: string
 ): Promise<void> {
   if (page.isClosed()) return;
   await page.evaluate(sel => {
     const el = document.querySelector(sel);
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }, selector).catch(() => {});
+  }, selector).catch(() => { });
 }
 
 // ─────────────────────────────────────────────────────────────────
 // DOM NODE INTERFACE
 // ─────────────────────────────────────────────────────────────────
 export interface DOMNode {
-  tag:        string;
-  text:       string;
-  classes:    string;
+  tag: string;
+  text: string;
+  classes: string;
   childCount: number;
-  isInModal:  boolean;
-  isStrike?:  boolean;
+  isInModal: boolean;
+  isStrike?: boolean;
   isChecked?: boolean;
-  type?:      string;
-  src?:       string;
-  href?:      string;
+  type?: string;
+  src?: string;
+  href?: string;
   ariaPressed?: string;
   ariaChecked?: string;
-  id?:        string;
+  id?: string;
   hasCheckedSvg?: boolean;
 }
 
@@ -265,7 +289,7 @@ export async function getPageSnapshot(page: Page): Promise<DOMNode[]> {
         if (el.closest('del, s') !== null) return true;
         if (el.closest('[style*="line-through"]') !== null) return true;
         if (el.closest('[class*="strike" i], [class*="line-through" i], [class*="crossed" i], [class*="original" i]') !== null) return true;
-        
+
         // Target specifically text elements that look like prices or contain numbers
         const txt = el.textContent || '';
         if (txt.includes('£') || txt.includes('$') || txt.includes('€') || txt.includes('₹') || /\d/.test(txt)) {
@@ -278,7 +302,7 @@ export async function getPageSnapshot(page: Page): Promise<DOMNode[]> {
               if (style.textDecoration.includes('line-through') || style.textDecorationLine.includes('line-through')) {
                 return true;
               }
-            } catch (e) {}
+            } catch (e) { }
             current = current.parentElement;
           }
         }
@@ -304,10 +328,10 @@ export async function getPageSnapshot(page: Page): Promise<DOMNode[]> {
       };
 
       const tags = [
-        'button','a','h1','h2','h3','h4','h5',
-        'p','span','li','label',
-        'small','time','strong','b','em','div',
-        'img','input'
+        'button', 'a', 'h1', 'h2', 'h3', 'h4', 'h5',
+        'p', 'span', 'li', 'label',
+        'small', 'time', 'strong', 'b', 'em', 'div',
+        'img', 'input'
       ];
 
       const results: any[] = [];
@@ -330,17 +354,17 @@ export async function getPageSnapshot(page: Page): Promise<DOMNode[]> {
           results.push({
             tag,
             text,
-            classes:    el.className || '',
+            classes: el.className || '',
             childCount: el.children.length,
-            isInModal:  isInModal(el),
-            isStrike:   isStrikethrough(el),
-            isChecked:  (el as HTMLInputElement).checked || el.getAttribute('aria-checked') === 'true' || el.getAttribute('aria-pressed') === 'true',
-            type:       el.getAttribute('type') || undefined,
-            src:        (el as HTMLImageElement).src || el.getAttribute('src') || undefined,
-            href:       (el as HTMLAnchorElement).href || el.getAttribute('href') || undefined,
+            isInModal: isInModal(el),
+            isStrike: isStrikethrough(el),
+            isChecked: (el as HTMLInputElement).checked || el.getAttribute('aria-checked') === 'true' || el.getAttribute('aria-pressed') === 'true',
+            type: el.getAttribute('type') || undefined,
+            src: (el as HTMLImageElement).src || el.getAttribute('src') || undefined,
+            href: (el as HTMLAnchorElement).href || el.getAttribute('href') || undefined,
             ariaPressed: el.getAttribute('aria-pressed') || undefined,
             ariaChecked: el.getAttribute('aria-checked') || undefined,
-            id:         el.id || undefined,
+            id: el.id || undefined,
             hasCheckedSvg: el.querySelector('svg[class*="checked" i], [class*="checkmark" i]') !== null,
           });
           if (results.length >= 2000) break;

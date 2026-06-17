@@ -95,6 +95,13 @@ function fmtDuration(ms: number): string {
 }
 
 function buildHtml(results: ReportResult[], meta: ReportMeta): string {
+  // Filter out rows where both expected and actual are N/A — these are non-applicable fields
+  results = results.filter(r => {
+    const expNA = String(r.expected ?? '').trim().toUpperCase() === 'N/A';
+    const actNA = String(r.actual ?? '').trim().toUpperCase() === 'N/A';
+    return !(expNA && actNA);
+  });
+
   const pages = [...new Set(results.map(r => r.page))];
   const totalPass = results.filter(r => r.status === 'PASS').length;
   const totalFail = results.filter(r => r.status === 'FAIL').length;
@@ -149,7 +156,6 @@ function buildHtml(results: ReportResult[], meta: ReportMeta): string {
         ? `
         <tr class="shot-row">
           <td colspan="4">
-            <div class="shot-label">📸 Failing field highlighted in red:</div>
             <img class="shot" src="${img}" alt="Screenshot for ${esc(r.field)}"/>
           </td>
         </tr>`

@@ -22,6 +22,7 @@ export default defineConfig({
         '--disable-blink-features=AutomationControlled',
         '--password-store=basic',
         '--use-mock-keychain',
+        '--disable-popup-blocking',
       ],
     },
 
@@ -56,6 +57,7 @@ export default defineConfig({
             '--disable-blink-features=AutomationControlled',
             '--password-store=basic',
             '--use-mock-keychain',
+            '--disable-popup-blocking',
           ],
         },
       },
