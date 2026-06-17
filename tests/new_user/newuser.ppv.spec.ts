@@ -228,12 +228,11 @@ async function runFlow(
     const isSchedule = source.toLowerCase() === 'schedule';
 
     // ── Cookie Warmup ──
-    // For home-page-* sources, the flow navigates to /home anyway,
-    // so dismiss cookies there (no double navigation).
-    // For schedule/search, navigate to the target page first then dismiss cookies there.
+    // For home-page-* sources, the flow navigates to /home anyway.
+    // For schedule/search, navigate to target page first then dismiss cookies there.
     // For all other sources, navigate to /home first as a warmup.
     if (isSchedule || isSearch) {
-      // Will dismiss cookies on the actual target page after navigation below
+      // dismiss after navigating to target page below
     } else if (!isHomePageSource) {
       await dismissCookieBanner(page);
     }
@@ -1315,6 +1314,8 @@ test('PPV flow for new user', async ({ browser }) => {
     endTime: new Date(),
     excelPath,
     videoPath,
+    userStatus: 'New User',
+    userType: 'new-user' as const,
   });
   if (htmlPath) console.log(`\n📊 Report: ${htmlPath}${pdfPath ? `\n📊 Report: ${pdfPath}` : ''}`);
 

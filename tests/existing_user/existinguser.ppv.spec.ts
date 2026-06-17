@@ -627,10 +627,13 @@ test('PPV flow via existing user my account', async ({ browser }) => {
           ratePlan,
           tier,
           env: process.env.DAZN_ENV || 'prod',
-          flowName: SOURCE,
+          flowName: `${SOURCE} → ${tier} → ${ratePlan} (${userStateKey})`,
           endTime: new Date(),
           excelPath,
           videoPath,
+          userStatus: userStateKey.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()),
+          userType: 'existing-user' as const,
+          paymentMethod: 'Credit Card (Visa)',
         });
         if (htmlPath) console.log(`\n📊 Report: ${htmlPath}${pdfPath ? `\n📊 Report: ${pdfPath}` : ''}`);
         return; // ← Exit early — no purchase flow needed
@@ -669,19 +672,22 @@ test('PPV flow via existing user my account', async ({ browser }) => {
         });
 
         // Generate HTML + PDF run report before early exit
-        const { htmlPath, pdfPath } = await generateReports(results, {
+        const { htmlPath: htmlPath2, pdfPath: pdfPath2 } = await generateReports(results, {
           event: eventData.PPV_NAME,
           region: REGION,
           source: SOURCE,
           ratePlan,
           tier,
           env: process.env.DAZN_ENV || 'prod',
-          flowName: SOURCE,
+          flowName: `${SOURCE} → ${tier} → ${ratePlan} (${userStateKey})`,
           endTime: new Date(),
           excelPath,
           videoPath,
+          userStatus: userStateKey.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()),
+          userType: 'existing-user' as const,
+          paymentMethod: 'Credit Card (Visa)',
         });
-        if (htmlPath) console.log(`\n📊 Report: ${htmlPath}${pdfPath ? `\n📊 Report: ${pdfPath}` : ''}`);
+        if (htmlPath2) console.log(`\n📊 Report: ${htmlPath2}${pdfPath2 ? `\n📊 Report: ${pdfPath2}` : ''}`);
         return;
       }
 
@@ -1459,10 +1465,13 @@ test('PPV flow via existing user my account', async ({ browser }) => {
       ratePlan,
       tier,
       env: process.env.DAZN_ENV || 'prod',
-      flowName: SOURCE,
+      flowName: `${SOURCE} → ${tier} → ${ratePlan} (${userStateKey})`,
       endTime: new Date(),
       excelPath,
       videoPath,
+      userStatus: userStateKey.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()),
+      userType: 'existing-user' as const,
+      paymentMethod: 'Credit Card (Visa)',
     });
     if (htmlPath) console.log(`\n📊 Report: ${htmlPath}${pdfPath ? `\n📊 Report: ${pdfPath}` : ''}`);
 
