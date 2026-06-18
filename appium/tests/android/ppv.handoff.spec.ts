@@ -571,18 +571,31 @@ describe('DAZN Android PPV → Web Handoff', () => {
     // ── Step 3: Capture checkout URL from paywall ─────────────────────────
     console.log('📋 Looking for URL on paywall...');
     
+    // Click the Copy button using exact XPath from Appium Inspector
     let urlCopied = false;
-    for (const copyText of ['Copy', 'COPY', 'copy']) {
-      if (await tapByText(driver, copyText, 3000)) {
-        console.log(`✅ Clicked "${copyText}" button`);
+    try {
+      const copyBtn = await driver.$(`//android.widget.ScrollView/android.view.View/android.widget.Button`);
+      if (await copyBtn.isDisplayed()) {
+        await copyBtn.click();
+        console.log('✅ Clicked Copy button (exact XPath)');
         urlCopied = true;
         await driver.pause(2000);
-        break;
+      }
+    } catch (e) {
+      console.log('  Exact XPath failed, trying text search...');
+      for (const copyText of ['Copy', 'COPY', 'copy']) {
+        if (await tapByText(driver, copyText, 3000)) {
+          console.log(`✅ Clicked "${copyText}" button`);
+          urlCopied = true;
+          await driver.pause(2000);
+          break;
+        }
       }
     }
     
     let checkoutUrl = '';
     
+    // Get URL from clipboard
     try {
       const clipboard = adb('shell am clipht get');
       if (clipboard && clipboard.includes('dazn.com')) {
@@ -591,6 +604,7 @@ describe('DAZN Android PPV → Web Handoff', () => {
       }
     } catch (e) {}
     
+    // Fallback: Get URL from UI dump
     if (!checkoutUrl) {
       checkoutUrl = getChromeUrl();
       if (checkoutUrl && checkoutUrl.includes('dazn.com')) {
@@ -598,6 +612,7 @@ describe('DAZN Android PPV → Web Handoff', () => {
       }
     }
     
+    // Fallback: Get URL from text field
     if (!checkoutUrl) {
       try {
         const urlField = await driver.$(`android=new UiSelector().textContains("dazn.com")`);
