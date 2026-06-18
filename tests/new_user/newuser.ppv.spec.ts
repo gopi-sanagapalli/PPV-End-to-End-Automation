@@ -11,7 +11,6 @@ import { SearchPage } from '../../pages/SearchPage';
 import { StandalonePPVPage } from '../../pages/StandalonePPVPage';
 import { PPVUpsellSuccessPage } from '../../pages/PPVUpsellSuccessPage';
 import { PPVUpsellPaymentPage } from '../../pages/PPVUpsellPaymentPage';
-import { DefaultSignupPage } from '../../pages/DefaultSignupPage';
 import { SchedulePage } from '../../pages/schedulepage';
 import { MyAccountPage } from '../../pages/MyAccountPage';
 
@@ -469,6 +468,17 @@ async function runFlow(
       await stabilisePage(page);
       await dismissMarketingPopup(page);
       console.log(`\nstep ${step + 1} → pageType: ${pageType} | planClicks: ${planClickCount} | url: ${page.url()}`);
+
+      // ── Default Signup validation check: Fail if no PPV ──
+      if (process.env.DEFAULT_SIGNUP === 'true' && !ppvValidated) {
+        const url = page.url().toLowerCase();
+        if (url.includes('page=tierplans') || url.includes('page=plandetails') || pageType === 'plan' || pageType === 'email') {
+          const bodyText = await page.locator('body').innerText({ timeout: 2000 }).then((t: string) => t.toLowerCase()).catch(() => '');
+          if (!bodyText.includes('subscribe without a pay-per-view')) {
+            throw new Error('❌ [DefaultSignup] No PPV exists in default signup — redirected directly to plans page');
+          }
+        }
+      }
 
       // ── OTP Verification page ──────────────────────────────
       if (pageType === 'otp') {
@@ -1006,6 +1016,7 @@ async function runFlow(
         }
       }
 
+      // ── DEFAULT SIGNUP PAGE ──────────────────────────────────
       if (pageType === 'default-signup') {
         console.log('👉 Default Signup page');
         stuckCount = 0;
@@ -1014,16 +1025,39 @@ async function runFlow(
           try {
             const ppvData = getPPVDataByVariant(variant);
             console.log(`📊 PPV rows (Default Signup): ${ppvData.length}`);
-            const defaultSignupPage = new DefaultSignupPage(page);
-            await defaultSignupPage.validate(ppvData, results, eventData, variant);
+            const ppvFlow = undefined;
+            await validateVariant(page, variant, ppvData, results, eventData, 'Default Signup', ppvFlow);
           } catch (e: any) {
             console.warn('⚠️ Default Signup validation error:', e.message);
           }
           ppvValidated = true;
         }
 
-        const defaultSignupPage = new DefaultSignupPage(page);
-        await defaultSignupPage.verifyDefaultSignupFlow(eventData, tier, ratePlan, results);
+        // ── Default Signup Event Matching Check ──
+        const ppvName = eventData.PPV_NAME || '';
+        const nameClean = ppvName.replace(/[:\-–]/g, ' ');
+        let matched = false;
+        if (nameClean.includes('vs')) {
+          const fighters = nameClean.split(/\bvs\b/i).map((f: string) => f.trim());
+          const f1 = fighters[0];
+          const f2 = fighters[1];
+          if (f1 && f2) {
+            const hasF1 = await page.locator(`text=${f1}`).first().isVisible().catch(() => false);
+            const hasF2 = await page.locator(`text=${f2}`).first().isVisible().catch(() => false);
+            matched = hasF1 || hasF2;
+          }
+        }
+        if (!matched && ppvName) {
+          matched = await page.locator(`text=${ppvName}`).first().isVisible().catch(() => false);
+        }
+        if (!matched) {
+          throw new Error(`❌ [DefaultSignup] PPV on page does not match the expected event: "${ppvName}"`);
+        }
+        console.log(`✅ [DefaultSignup] Verified PPV on page matches: "${ppvName}"`);
+
+        console.log('🖱️ [DefaultSignup] Clicking "Continue with pay-per-view"...');
+        await page.locator('button:has-text("Continue with pay-per-view"), a:has-text("Continue with pay-per-view")').first().click({ force: true });
+        console.log('✅ [DefaultSignup] Clicked "Continue with pay-per-view"');
         await page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => { });
         continue;
       }
