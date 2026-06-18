@@ -577,9 +577,13 @@ test('PPV flow via existing user my account', async ({ browser }) => {
         ? myAccountData
         : myAccountData.filter((r: any) => !['PPV Name', 'PPV Date', 'PPV Price', 'PPV Status'].includes(r.Field));
 
+      const expectedPPVStatus = (eventData.PPV_STATUS || '').toLowerCase();
       for (const row of filteredMyAccountData) {
         if (row.Field === 'PPV Section Present' && !hasPPV) {
           row.Expected = 'Yes|No';
+        }
+        if (row.Field === 'PPV Price' && (expectedPPVStatus === 'purchased' || expectedPPVStatus === 'included')) {
+          row.Expected = 'N/A';
         }
       }
 
@@ -654,7 +658,6 @@ test('PPV flow via existing user my account', async ({ browser }) => {
       // STEP 5a — CHECK IF PPV ALREADY PURCHASED
       // For any tier — if PPV shows "Purchased", validate and exit
       // ══════════════════════════════════════════════════════════
-      const expectedPPVStatus = (eventData.PPV_STATUS || '').toLowerCase();
       if (expectedPPVStatus === 'purchased' || expectedPPVStatus === 'included') {
         console.log(`\n✅ PPV expected status: "${eventData.PPV_STATUS}" — validating...`);
 

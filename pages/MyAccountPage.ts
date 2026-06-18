@@ -226,15 +226,14 @@ export class MyAccountPage {
     // Wait for the My Account page sections/cards to load
     if (this.isOnMyAccountPage()) {
       console.log('⏳ Waiting for PPV section, cards, or Explore button to be attached to DOM...');
-      const exploreSelector = 'a[href*="/ppv"], a[href*="/pay-per-view"], text=/explore.*ppv/i, text=/explore.*pay-per-view/i';
-      const cardSelector = '[id*="ppv-card"], [class*="ppv-card"], article, [class*="card" i]';
-      const headingSelector = 'h1, h2, h3, h4, h5, span, div';
-      const combinedSelector = `${exploreSelector}, ${cardSelector}, ${headingSelector}`;
+      const exploreSelector = 'a[href*="/ppv"], a[href*="/pay-per-view"]';
+      const cardSelector = '[id*="ppv-card"], [class*="ppv-card"], article, [class*="card" i], h2, h3';
+      const combinedSelector = `${exploreSelector}, ${cardSelector}`;
 
-      await this.page.waitForSelector(combinedSelector, { state: 'attached', timeout: 8000 }).catch(() => {
+      await this.page.waitForSelector(combinedSelector, { state: 'attached', timeout: 3000 }).catch(() => {
         console.log('⚠️ Timeout waiting for PPV related elements to attach to DOM');
       });
-      await this.page.waitForTimeout(1000);
+      await this.page.waitForTimeout(200);
     }
 
     // 1. Search in current DOM (My Account PPV section or Listing Page if already navigated)

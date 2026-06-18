@@ -360,7 +360,7 @@ export function buildEventData(
     const ppvType = merged.PPV_TYPE || json.PPV_TYPE;
     if (ppvType === 'included') {
       ppvStatus = 'Purchased';
-    } else {
+    } else if (!base.PPV_STATUS) {
       ppvStatus = 'Buy now';
     }
   }

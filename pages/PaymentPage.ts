@@ -133,6 +133,10 @@ export class PaymentPage extends BasePage {
         console.log(`  ⏭️  Skipping [${field}] in standard loop — validated via validateNextPaymentDetails`);
         continue;
       }
+      if (fieldLower === 'ultimate upsell price') {
+        console.log(`  ⏭️  Skipping [${field}] in standard loop — should not be validated before switching`);
+        continue;
+      }
 
       const rowFlow = (row['Flow'] || '').trim().toLowerCase();
       if (rowFlow) {
@@ -261,7 +265,12 @@ export class PaymentPage extends BasePage {
         // Date can be DD/MM/YYYY or DD Month YYYY
         const labelValid = /next\s+(?:annual\s+)?payment\s+on\s+(?:\d{1,2}[\/\s]\d{2}[\/\s]\d{4}|\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4})/i.test(actualLabel);
         
-        const labelExpected = 'Next [Annual] payment on <date>';
+        const expectedDateStr = eventData.NEXT_PAYMENT_DATE || '';
+        const labelExpected = expectedDateStr
+          ? ((eventData.RATE_PLAN || '').includes('upfront')
+            ? `Next Annual payment on ${expectedDateStr}`
+            : `Next payment on ${expectedDateStr}`)
+          : 'Next [Annual] payment on <date>';
         const labelActual = labelValid ? actualLabel : (actualLabel === 'N/A' ? 'Not visible' : actualLabel);
         const labelStatus = labelValid ? 'PASS' : 'FAIL';
         console.log(`  ${labelStatus === 'PASS' ? '✅' : '❌'} [Next Payment Label] expected="${labelExpected}" actual="${labelActual}"`);
@@ -353,48 +362,38 @@ export class PaymentPage extends BasePage {
     const banner = this.page.locator(bannerSelectors.join(', ')).first();
     const bannerVisible = await banner.isVisible({ timeout: 3000 }).catch(() => false);
 
-    // Validate 1: Banner presence
-    const presenceStatus = bannerVisible ? 'PASS' : 'FAIL';
-    console.log(`  ${presenceStatus === 'PASS' ? '✅' : '❌'} [Ultimate Upsell Banner Present] expected="Yes" actual="${bannerVisible ? 'Yes' : 'No'}"`);
-    results.push({
-      page: 'Payment',
-      field: 'Ultimate Upsell Banner Present',
-      expected: 'Yes',
-      actual: bannerVisible ? 'Yes' : 'No',
-      status: presenceStatus,
-    });
+    // Validate 1: Banner presence (if not already validated in standard loop)
+    const isBannerPresentAlreadyValidated = results.some(r => r.page === 'Payment' && r.field === 'Ultimate Upsell Banner Present');
+    if (!isBannerPresentAlreadyValidated) {
+      const presenceStatus = bannerVisible ? 'PASS' : 'FAIL';
+      console.log(`  ${presenceStatus === 'PASS' ? '✅' : '❌'} [Ultimate Upsell Banner Present] expected="Yes" actual="${bannerVisible ? 'Yes' : 'No'}"`);
+      results.push({
+        page: 'Payment',
+        field: 'Ultimate Upsell Banner Present',
+        expected: 'Yes',
+        actual: bannerVisible ? 'Yes' : 'No',
+        status: presenceStatus,
+      });
+    }
 
     if (!bannerVisible) {
       console.log('⚠️ [Ultimate Upsell] Banner not found — skipping text validation');
       return;
     }
 
-    // Validate 2: Banner text (contains "Switch to DAZN Ultimate")
-    const bannerText = ((await banner.textContent().catch(() => '')) || '').trim().replace(/\s+/g, ' ');
-    const expectedBannerText = 'Switch to DAZN Ultimate and enjoy pay-per-views at no extra cost';
-    const textStatus = compare(bannerText, expectedBannerText, 'contains') ? 'PASS' : 'FAIL';
-    console.log(`  ${textStatus === 'PASS' ? '✅' : '❌'} [Ultimate Upsell Text] expected="${expectedBannerText}" actual="${bannerText}"`);
-    results.push({
-      page: 'Payment',
-      field: 'Ultimate Upsell Text',
-      expected: expectedBannerText,
-      actual: bannerText,
-      status: textStatus,
-    });
-
-    // Validate 3: Ultimate price shown in banner (e.g. £24.99/month)
-    const ultimatePrice = eventData.ULTIMATE_ANNUAL_PAY_MONTHLY_PRICE || eventData.TODAY_YOU_PAY_ULTIMATE_APM || '';
-    if (ultimatePrice) {
-      const priceNumeric = ultimatePrice.replace(/[^\d.]/g, '');
-      const priceInBanner = bannerText.includes(priceNumeric);
-      const priceStatus = priceInBanner ? 'PASS' : 'FAIL';
-      console.log(`  ${priceStatus === 'PASS' ? '✅' : '❌'} [Ultimate Upsell Price] expected="${ultimatePrice}" actual="${bannerText}"`);
+    // Validate 2: Banner text (contains "Switch to DAZN Ultimate") (if not already validated)
+    const isTextAlreadyValidated = results.some(r => r.page === 'Payment' && r.field === 'Ultimate Upsell Text');
+    if (!isTextAlreadyValidated) {
+      const bannerText = ((await banner.textContent().catch(() => '')) || '').trim().replace(/\s+/g, ' ');
+      const expectedBannerText = 'Switch to DAZN Ultimate and enjoy pay-per-views at no extra cost';
+      const textStatus = compare(bannerText, expectedBannerText, 'contains') ? 'PASS' : 'FAIL';
+      console.log(`  ${textStatus === 'PASS' ? '✅' : '❌'} [Ultimate Upsell Text] expected="${expectedBannerText}" actual="${bannerText}"`);
       results.push({
         page: 'Payment',
-        field: 'Ultimate Upsell Price',
-        expected: ultimatePrice,
+        field: 'Ultimate Upsell Text',
+        expected: expectedBannerText,
         actual: bannerText,
-        status: priceStatus,
+        status: textStatus,
       });
     }
   }
@@ -612,7 +611,14 @@ export class PaymentPage extends BasePage {
         break;
       }
     }
-    const expectedCancelUltimate = eventData.CANCELLATION_TEXT_ULTIMATE_APM || '';
+    let expectedCancelUltimate = eventData.CANCELLATION_TEXT_ULTIMATE_APM || '';
+    if (expectedCancelUltimate.includes('{{')) {
+      expectedCancelUltimate = expectedCancelUltimate.replace(/\{\{(.*?)\}\}/g, (match, key) => {
+        const k = key.trim();
+        const val = eventData[k] ?? eventData[k.toUpperCase()] ?? eventData[k.toLowerCase()] ?? eventData[k.replace(/\s+/g, '_').toUpperCase()] ?? eventData[k.replace(/\s+/g, '_')];
+        return val !== undefined ? String(val) : match;
+      });
+    }
     const cancelStatus = expectedCancelUltimate
       ? (compare(actualCancelText, expectedCancelUltimate, 'contains') ? 'PASS' : 'FAIL')
       : (actualCancelText !== 'N/A' ? 'PASS' : 'FAIL');

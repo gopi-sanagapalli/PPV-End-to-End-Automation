@@ -30,12 +30,12 @@
       "AU": {
         "environments": {
           "stag": {
-            "USER_EMAIL": "au_freemium@t.com",
+            "USER_EMAIL": "au_freemium@t.com", 
             "USER_PASSWORD": "Test1!"
           },
           "prod": {
-            "USER_EMAIL": "au_freemium@t.com",
-            "USER_PASSWORD": "Test1!"
+            "USER_EMAIL": "auppv011@yopmail.com",
+            "USER_PASSWORD": "Dazn@123"
           }
         }
       },
