@@ -7,6 +7,7 @@ on:
         description: 'PPV config filename/key, for example aj_joshua_prenga.json'
         required: true
         default: 'aj_joshua_prenga.json'
+
       PAYMENT_METHOD:
         description: 'Payment method used on stag payment flow'
         required: true
@@ -15,6 +16,7 @@ on:
         options:
           - credit_card
           - gpay
+
       SWITCH:
         description: 'On stag standard flows, switch to Ultimate from payment upsell banner'
         required: false
@@ -28,16 +30,16 @@ permissions:
   contents: read
 
 jobs:
-  schedule-au:
-    name: AU | schedule | ${{ matrix.dazn_env }} | ${{ matrix.plan }}
-    timeout-minutes: 60
+
+  stag:
+    name: STAG | ${{ matrix.plan }}
     runs-on: ubuntu-latest
+    timeout-minutes: 60
 
     strategy:
       fail-fast: false
-      max-parallel: 8
+      max-parallel: 4
       matrix:
-        dazn_env: [stag, prod]
         plan:
           - standard_monthly
           - standard_apm
@@ -48,12 +50,12 @@ jobs:
       CI: 'true'
       HEADLESS: 'true'
       DAZN_REGION: AU
-      DAZN_ENV: ${{ matrix.dazn_env }}
+      DAZN_ENV: stag
       SOURCE: schedule
       PLAN: ${{ matrix.plan }}
-      PPV_CONFIG: ${{ inputs.PPV_CONFIG || 'aj_joshua_prenga.json' }}
-      PAYMENT_METHOD: ${{ inputs.PAYMENT_METHOD || 'credit_card' }}
-      SWITCH: ${{ inputs.SWITCH || 'false' }}
+      PPV_CONFIG: ${{ inputs.PPV_CONFIG }}
+      PAYMENT_METHOD: ${{ inputs.PAYMENT_METHOD }}
+      SWITCH: ${{ inputs.SWITCH }}
 
     steps:
       - name: Checkout repository
@@ -71,25 +73,87 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium chrome
 
-      - name: Run AU schedule new-user PPV flow
+      - name: Run STAG PPV Flow
         run: npx playwright test tests/new_user/newuser.ppv.spec.ts --project=chromium
 
       - name: Upload Playwright HTML report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report-AU-schedule-${{ matrix.dazn_env }}-${{ matrix.plan }}
+          name: playwright-report-stag-${{ matrix.plan }}
           path: playwright-report/
           if-no-files-found: ignore
-          retention-days: 30
 
-      - name: Upload test results, screenshots, videos, and Excel reports
+      - name: Upload Results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-results-AU-schedule-${{ matrix.dazn_env }}-${{ matrix.plan }}
+          name: test-results-stag-${{ matrix.plan }}
           path: |
             test-results/
             reports/
           if-no-files-found: ignore
-          retention-days: 30
+
+  prod:
+    name: PROD | ${{ matrix.plan }}
+    needs: stag
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        plan:
+          - standard_monthly
+          - standard_apm
+          - ultimate_apm
+          - ultimate_upfront
+
+    env:
+      CI: 'true'
+      HEADLESS: 'true'
+      DAZN_REGION: AU
+      DAZN_ENV: prod
+      SOURCE: schedule
+      PLAN: ${{ matrix.plan }}
+      PPV_CONFIG: ${{ inputs.PPV_CONFIG }}
+      PAYMENT_METHOD: ${{ inputs.PAYMENT_METHOD }}
+      SWITCH: ${{ inputs.SWITCH }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium chrome
+
+      - name: Run PROD PPV Flow
+        run: npx playwright test tests/new_user/newuser.ppv.spec.ts --project=chromium
+
+      - name: Upload Playwright HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-prod-${{ matrix.plan }}
+          path: playwright-report/
+          if-no-files-found: ignore
+
+      - name: Upload Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-prod-${{ matrix.plan }}
+          path: |
+            test-results/
+            reports/
+          if-no-files-found: ignore
