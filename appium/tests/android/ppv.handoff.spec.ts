@@ -568,59 +568,53 @@ describe('DAZN Android PPV → Web Handoff', () => {
     await driver.saveScreenshot('./test-results/android_buy_tapped.png');
     console.log('\n⏳ Waiting for Chrome Custom Tab to open...');
 
-    // ── Step 3: Capture checkout URL from paywall ─────────────────────────
-    console.log('📋 Looking for URL on paywall...');
-    
-    // Click the Copy button using exact XPath from Appium Inspector
-    let urlCopied = false;
-    try {
-      const copyBtn = await driver.$(`//android.widget.ScrollView/android.view.View/android.widget.Button`);
-      if (await copyBtn.isDisplayed()) {
-        await copyBtn.click();
-        console.log('✅ Clicked Copy button (exact XPath)');
-        urlCopied = true;
-        await driver.pause(2000);
-      }
-    } catch (e) {
-      console.log('  Exact XPath failed, trying text search...');
-      for (const copyText of ['Copy', 'COPY', 'copy']) {
-        if (await tapByText(driver, copyText, 3000)) {
-          console.log(`✅ Clicked "${copyText}" button`);
-          urlCopied = true;
-          await driver.pause(2000);
-          break;
-        }
-      }
-    }
+    // ── Step 3: Capture checkout URL from Chrome Custom Tab ───────────────
+    console.log('📋 Capturing checkout URL...');
     
     let checkoutUrl = '';
     
-    // Get URL from clipboard
+    // Method 1: Switch to WebView context (most reliable)
+    console.log('  Trying WebView context...');
     try {
-      const clipboard = adb('shell am clipht get');
-      if (clipboard && clipboard.includes('dazn.com')) {
-        checkoutUrl = clipboard;
-        console.log('✅ URL captured from clipboard');
+      const contexts = await driver.getContexts();
+      const webContext = contexts.find((c: string) => 
+        c.includes('WEBVIEW') || c.includes('CHROMIUM') || c.includes('CDP')
+      );
+      
+      if (webContext) {
+        await driver.switchContext(webContext);
+        checkoutUrl = await driver.getUrl();
+        console.log(`  WebView URL: ${checkoutUrl}`);
+        if (checkoutUrl && checkoutUrl.includes('dazn.com')) {
+          console.log('✅ URL captured from WebView context');
+        }
+        await driver.switchContext('NATIVE_APP');
       }
-    } catch (e) {}
+    } catch (e) {
+      console.log('  WebView context failed');
+    }
     
-    // Fallback: Get URL from UI dump
-    if (!checkoutUrl) {
+    // Method 2: Get URL from Chrome UI dump
+    if (!checkoutUrl || !checkoutUrl.includes('dazn.com')) {
+      console.log('  Trying Chrome UI dump...');
       checkoutUrl = getChromeUrl();
       if (checkoutUrl && checkoutUrl.includes('dazn.com')) {
-        console.log('✅ URL captured from UI dump');
+        console.log('✅ URL captured from Chrome UI dump');
       }
     }
     
-    // Fallback: Get URL from text field
-    if (!checkoutUrl) {
+    // Method 3: Get URL from text field on screen
+    if (!checkoutUrl || !checkoutUrl.includes('dazn.com')) {
+      console.log('  Trying text field...');
       try {
         const urlField = await driver.$(`android=new UiSelector().textContains("dazn.com")`);
         if (await urlField.isDisplayed()) {
           checkoutUrl = await urlField.getText();
           console.log('✅ URL captured from text field');
         }
-      } catch (e) {}
+      } catch (e) {
+        console.log('  Text field method failed');
+      }
     }
     
     if (!checkoutUrl || !checkoutUrl.includes('dazn.com')) {
