@@ -1,8 +1,10 @@
 import { Page } from '@playwright/test';
 import { LandingPage } from './LandingPage';
+import { RailsInterceptor, RailTileMatch } from '../utils/railsInterceptor';
 
 export class HomePage extends LandingPage {
   protected baseUrl: string;
+  protected _railsInterceptor: RailsInterceptor | null = null;
 
   constructor(page: Page, baseUrl: string = '') {
     super(page);
@@ -11,6 +13,13 @@ export class HomePage extends LandingPage {
 
   // Navigation for home-page flows
   override async navigate(baseUrl: string, source?: string, eventData?: Record<string, string>): Promise<void> {
+    const src = (source || '').toLowerCase();
+    if (src === 'home-page-dazntile') {
+      console.log('🔌 [HomePage] Initialising and starting RailsInterceptor...');
+      this._railsInterceptor = new RailsInterceptor(this.page);
+      await this._railsInterceptor.startIntercepting();
+    }
+
     const welcomeUrl = `${baseUrl}/welcome`;
     console.log(`🌍 [HomePage] Navigating to Welcome page: ${welcomeUrl}`);
     await this.page.goto(welcomeUrl, { waitUntil: 'domcontentloaded' });
@@ -68,6 +77,12 @@ export class HomePage extends LandingPage {
   // For home-page-dont-miss: finds tile, clicks it to open modal, and returns the modal popup!
   override async findPPVContainer(eventData: Record<string, string>, source?: string): Promise<any> {
     const src = (source || '').toLowerCase();
+
+    if (src === 'home-page-dazntile') {
+      console.log('🔍 [HomePage] Finding DAZN content tile by entitlement...');
+      const locator = await this.findTileLocatorByEntitlement(eventData);
+      return locator;
+    }
 
     if (src === 'home-page-banner') {
       return super.findPPVInBanner(eventData);
@@ -664,6 +679,17 @@ export class HomePage extends LandingPage {
   override async clickBuyNow(container: any, source?: string): Promise<void> {
     const src = (source || '').toLowerCase();
 
+    if (src === 'home-page-dazntile') {
+      console.log('🖱️ [HomePage] Clicking DAZN content tile...');
+      if (!container) {
+        throw new Error('❌ [HomePage] DAZN content tile container is null');
+      }
+      await container.scrollIntoViewIfNeeded().catch(() => {});
+      await container.click({ timeout: 10000 });
+      console.log('✅ [HomePage] Clicked DAZN content tile');
+      return;
+    }
+
     if (src === 'home-page-banner') {
       await super.clickBuyNow(container, 'banner');
       return;
@@ -814,6 +840,175 @@ export class HomePage extends LandingPage {
     }
 
     await super.clickBuyNow(container, source);
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // ENTITLEMENT-BASED TILE FINDING (Rails API Interception)
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * [PRIVATE] Resolves the DOM locator for a tile matching the given entitlement IDs.
+   */
+  private async findTileLocatorByEntitlement(eventData: Record<string, string>): Promise<any> {
+    const rawEntitlements = eventData?.ENTITLEMENT_IDS || eventData?.RAIL_ENTITLEMENT || process.env.ENTITLEMENT_IDS || '';
+    const entitlements: string[] = rawEntitlements ? rawEntitlements.split(',').map((e: string) => e.trim()).filter(Boolean) : ['base_dazn_content'];
+
+    const interceptor = this._railsInterceptor;
+    if (!interceptor) {
+      throw new Error('❌ [HomePage] Rails interceptor not initialised. Make sure navigate() was called with source="home-page-dazntile".');
+    }
+
+    interceptor.printRailsSummary();
+    const matches = interceptor.findTilesByEntitlement(entitlements);
+
+    if (matches.length === 0) {
+      console.warn(`⚠️ [HomePage] No tiles found in RailsInterceptor. Trying fallback DOM scan for DAZN content tiles...`);
+      const fallbackTile = await this.page.evaluate(() => {
+        const anchors = Array.from(document.querySelectorAll<HTMLAnchorElement>('a[href]'));
+        for (const anchor of anchors) {
+          const rect = anchor.getBoundingClientRect();
+          const isVisible = rect.width > 0 && rect.height > 0 && window.getComputedStyle(anchor).display !== 'none';
+          if (!isVisible) continue;
+
+          const href = anchor.getAttribute('href') || '';
+          const text = (anchor.innerText || '').toLowerCase();
+          
+          const isPpv = href.includes('ppv') || text.includes('ppv') || text.includes('buy now') || text.includes('joshua') || text.includes('prenga') || text.includes('zayas') || text.includes('boots') || text.includes('fury') || text.includes('hall');
+          
+          const isDaznContent = href.includes('/home/content/') || href.includes('/event/') || href.includes('/competition/') || href.includes('/sport/') || anchor.className.toLowerCase().includes('tile');
+          
+          if (isDaznContent && !isPpv) {
+            return href;
+          }
+        }
+        return null;
+      });
+
+      if (fallbackTile) {
+        console.log(`✅ [HomePage] Found fallback DAZN content tile link: ${fallbackTile}`);
+        const tileLocator = this.page.locator(`a[href="${fallbackTile}"]`).first();
+        await tileLocator.scrollIntoViewIfNeeded().catch(() => {});
+        return tileLocator;
+      }
+      
+      throw new Error(`❌ [HomePage] No tiles found with EntitlementIds [${entitlements.join(', ')}] and no fallback DAZN content tiles found in DOM.`);
+    }
+
+    console.log(`🎯 [HomePage] ${matches.length} tile(s) match [${entitlements.join(', ')}] — scanning DOM for first visible`);
+
+    const cleanIds = matches.map(m => m.tileId.replace(/^(List:|Tile:|Asset:|Content:|Episode:|Series:|Video:|Article:|ArticleId:)/i, '')).filter(Boolean);
+
+    // Quick scan: try each tile title immediately (no scrolling at all)
+    for (const match of matches) {
+      if (!match.tileTitle) continue;
+      const titleEsc = match.tileTitle.replace(/'/g, "\\'");
+      const candidates = [
+        this.page.locator(`a:has-text("${titleEsc}")`).first(),
+        this.page.locator(`img[alt*="${titleEsc}" i]`).locator('xpath=ancestor::a[1]'),
+      ];
+      for (const loc of candidates) {
+        if (await loc.isVisible().catch(() => false)) {
+          console.log(`✅ [HomePage] Quick scan: clicked "${match.tileTitle}" immediately (no scroll)`);
+          return loc;
+        }
+      }
+    }
+
+    // Scroll back to top
+    await this.page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' })).catch(() => {});
+    await this.page.waitForTimeout(200);
+
+    // Pass 1: JS DOM scan + incremental scroll
+    for (let step = 0; step <= 5; step++) {
+      if (step > 0) {
+        await this.page.evaluate((pos: number) => window.scrollTo({ top: pos, behavior: 'instant' }), step * 600).catch(() => {});
+        await this.page.waitForTimeout(200);
+      }
+      const foundId = await this.page.evaluate((ids: string[]) => {
+        const links = document.querySelectorAll<HTMLAnchorElement>('a[href]:not([aria-hidden="true"]):not([tabindex="-1"])');
+        for (const link of links) {
+          const href = link.getAttribute('href') || '';
+          for (const id of ids) { if (id && href.includes(id)) return id; }
+        }
+        return null;
+      }, cleanIds).catch(() => null);
+
+      if (foundId) {
+        const matchInfo = matches.find(m => m.tileId.includes(foundId));
+        console.log(`✅ [HomePage] Tile found via JS DOM scan (step ${step}): "${matchInfo?.tileTitle}" (cleanId="${foundId}")`);
+        const tile = this.page.locator(`a[href*="${foundId}"]:not([aria-hidden="true"]):not([tabindex="-1"])`).first();
+        await tile.scrollIntoViewIfNeeded().catch(() => {});
+        await this.page.waitForTimeout(300);
+        return tile;
+      }
+    }
+
+    // Pass 2: try each match by title in its rail (with carousel swipe)
+    await this.page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' })).catch(() => {});
+    await this.page.waitForTimeout(200);
+
+    for (const match of matches) {
+      const locator = await this.tryFindTileInRail(match);
+      if (locator) return locator;
+    }
+
+    throw new Error(`❌ [HomePage] No matching tile found in DOM for entitlements [${entitlements.join(', ')}].`);
+  }
+
+  /**
+   * [PRIVATE] Try to find a specific tile in its rail by title text.
+   */
+  private async tryFindTileInRail(match: RailTileMatch): Promise<any> {
+    if (!match.railTitle && !match.tileTitle) return null;
+
+    const railHeading = this.page.getByText(new RegExp(this.escapeRegexStr(match.railTitle), 'i')).first();
+    for (let s = 0; s <= 3; s++) {
+      if (await railHeading.isVisible().catch(() => false)) break;
+      await this.page.evaluate((pos: number) => window.scrollTo({ top: pos, behavior: 'instant' }), s * 600).catch(() => {});
+      await this.page.waitForTimeout(150);
+    }
+
+    if (!await railHeading.isVisible().catch(() => false)) return null;
+
+    await railHeading.scrollIntoViewIfNeeded().catch(() => {});
+    await this.page.waitForTimeout(300);
+
+    const railWrapper = railHeading.locator('xpath=ancestor::section[1] | ancestor::div[contains(@class,"rail")][1] | ancestor::*[contains(@class,"rail__rail-wrapper")][1]');
+    if (await railWrapper.count() === 0) return null;
+
+    await railWrapper.hover({ force: true }).catch(() => {});
+
+    if (match.tileTitle) {
+      const titleEscaped = match.tileTitle.replace(/'/g, "\\'");
+      const findTile = async (): Promise<any> => {
+        const candidates = [
+          railWrapper.locator(`a:has-text("${titleEscaped}")`).first(),
+          railWrapper.locator(`a:has(img[alt*="${titleEscaped}"])`).first(),
+          railWrapper.locator(`img[alt*="${titleEscaped}"]`).locator('xpath=ancestor::a[1]'),
+        ];
+        for (const loc of candidates) { if (await loc.isVisible().catch(() => false)) return loc; }
+        return null;
+      };
+
+      let found = await findTile();
+      if (found) return found;
+
+      const maxSwipes = Math.min(match.tileIndex + 2, 5);
+      const nextBtn = railWrapper.locator('button[aria-label="Next slide"], button[class*="swiper-button-next"], [class*="next" i]').first();
+      for (let swipe = 0; swipe < maxSwipes; swipe++) {
+        const disabled = await nextBtn.evaluate((el: Element) => el.classList.contains('swiper-button-disabled') || el.hasAttribute('disabled')).catch(() => true);
+        if (disabled) break;
+        await nextBtn.click({ force: true }).catch(() => {});
+        await this.page.waitForTimeout(200);
+        found = await findTile();
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  private escapeRegexStr(str: string): string {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 
   // --- EXISTING METHODS PRESERVED FOR BACKWARD COMPATIBILITY ---

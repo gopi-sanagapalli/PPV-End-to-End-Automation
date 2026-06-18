@@ -34,6 +34,19 @@ export function compare(
   const a = norm(actual);
   const e = norm(expected);
 
+  // ── Price duplication check ─────────────────────────────────────
+  const priceRegex = /\d+(?:\.\d{2})?/;
+  const expectedPrices = e.match(new RegExp(priceRegex.source, 'g')) || [];
+  const actualPrices = a.match(new RegExp(priceRegex.source, 'g')) || [];
+  if (expectedPrices.length === 1 && actualPrices.length > 1) {
+    const singleExpected = expectedPrices[0];
+    const occurrences = actualPrices.filter(p => p === singleExpected).length;
+    if (occurrences > 1) {
+      console.log(`❌ [Compare] Price duplication detected: "${singleExpected}" appears ${occurrences} times in actual "${actual}"`);
+      return false;
+    }
+  }
+
   // ── Matchups Substring Match (e.g. "Beauty and The Beast: Fury vs. Hall" <-> "Fury vs. Hall") ──
   if (a.includes('vs') && e.includes('vs')) {
     const eParts = e.split('vs');

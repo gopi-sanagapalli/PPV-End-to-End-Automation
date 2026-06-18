@@ -23,15 +23,14 @@ export async function injectConsentCookies(_context: BrowserContext): Promise<vo
 // ─────────────────────────────────────────────────────────────────
 
 const _dismissedContexts = new WeakSet<BrowserContext>();
-const _initialCheckDone = new WeakSet<BrowserContext>();
 
 export async function handleCookies(page: Page, timeout: number = 8000): Promise<void> {
   if (page.isClosed()) return;
 
   const context = page.context();
 
-  // Skip entirely if we already dismissed in this context,
-  // BUT do a fast check in case the cookie banner reappeared (e.g. on new pages/redirects)
+  // If already dismissed in this context, do a fast visible check first
+  // and only proceed if the banner reappeared (e.g. on a new page/redirect)
   if (_dismissedContexts.has(context)) {
     const isVisibleNow = await page.locator('#onetrust-accept-btn-handler')
       .isVisible()
@@ -40,21 +39,12 @@ export async function handleCookies(page: Page, timeout: number = 8000): Promise
     console.log('🍪 Cookie banner reappeared after initial dismissal — dismissing again...');
   }
 
-  // Use a shorter activeTimeout if the initial wait has already been completed
-  let activeTimeout = timeout;
-  if (_initialCheckDone.has(context)) {
-    activeTimeout = 100;
-  } else {
-    _initialCheckDone.add(context);
-  }
-
-  // ── DAZN pattern: directly target the Accept button ──────────
-  // Instead of waiting for a banner container first, go straight
-  // for the accept button. This is more reliable when the banner
-  // wrapper uses dynamic/unpredictable class names.
+  // ── DAZN pattern: wait the full timeout for the Accept button ─────
+  // Always use the caller-provided timeout so late-loading banners
+  // (e.g. on signin page) are caught reliably.
   const cookieAcceptBtn = page.locator('#onetrust-accept-btn-handler');
   const isVisible = await cookieAcceptBtn
-    .waitFor({ state: 'visible', timeout: activeTimeout })
+    .waitFor({ state: 'visible', timeout })
     .then(() => true)
     .catch(() => false);
 
@@ -116,11 +106,8 @@ export async function handleCookies(page: Page, timeout: number = 8000): Promise
     }
   }
 
-  // Cookie banner not displayed — skipping
-  if (!_initialCheckDone.has(context)) {
-    // Don't mark as dismissed so we can retry on next navigation
-    console.log('🍪 Cookie banner not displayed — skipping');
-  }
+  // Cookie banner not displayed
+  console.log('🍪 Cookie banner not displayed — skipping');
 }
 
 // ─────────────────────────────────────────────────────────────────

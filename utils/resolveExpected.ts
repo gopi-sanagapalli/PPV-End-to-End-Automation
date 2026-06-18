@@ -67,12 +67,12 @@ export function resolveExpected(
       raw = 'N/A';
     } else if (field === 'annual pay monthly contract text' && (!eventData.UPSELL_PRICE || eventData.UPSELL_PRICE.trim() === '' || eventData.UPSELL_PRICE.trim().toUpperCase() === 'N/A')) {
       raw = 'Annual contract. Auto renews.';
-    } else if (field === 'ppv name' && (currentSource === 'boxing-ultimate' || currentSource === 'boxing-bundle-ultimate')) {
+    } else if (field === 'ppv name' && (currentSource === 'boxing-ultimate' || currentSource === 'boxing-bundle-ultimate' || currentSource === 'boxing-banner-ultimate')) {
       raw = 'N/A';
-    } else if (field === 'ppv price' && (currentSource === 'boxing-ultimate' || currentSource === 'boxing-bundle-ultimate')) {
+    } else if (field === 'ppv price' && (currentSource === 'boxing-ultimate' || currentSource === 'boxing-bundle-ultimate' || currentSource === 'boxing-banner-ultimate')) {
       raw = 'N/A';
     } else if (field === 'ultimate feature 1' || field === 'ultimate feature 2' || field === 'ultimate feature 3') {
-      if (currentSource !== 'boxing-ultimate') {
+      if (currentSource !== 'boxing-ultimate' && currentSource !== 'boxing-banner-ultimate') {
         raw = 'N/A';
       }
     } else if (field === 'saturday badge') {

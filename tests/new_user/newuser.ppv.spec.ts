@@ -90,6 +90,9 @@ async function runFlow(
 ): Promise<{ results: any[]; reachedEndPage: boolean; skipped?: boolean }> {
   const { name, source, tier, ratePlan: rawRatePlan, enableDevMode: devModeEnabled } = flowConfig;
   const ratePlan = (rawRatePlan || '').replace(/-/g, ' ').toLowerCase();
+  if (SOURCE === 'boxing-banner-ultimate' && tier !== 'ultimate') {
+    throw new Error('❌ SOURCE "boxing-banner-ultimate" requires an Ultimate plan (e.g., PLAN=ultimate_apm).');
+  }
   const results: any[] = [];
 
   // Configure Excel path based on event type (standalone, upsell, or normal PPV)
@@ -228,7 +231,7 @@ async function runFlow(
   try {
     // ── Step 1: Navigate to landing page ─────────────────────
     const isHomePageSource = source.startsWith('home-page-') || source === 'home-biggest-fights';
-    const isHomeSport = source.startsWith('home-') && !isHomePageSource;
+    const isHomeSport = (source.startsWith('home-') && !isHomePageSource) || source === 'home-kickboxing-tile';
     const isBoxingSource = source.startsWith('boxing');
     const isSearch = source.toLowerCase().includes('search');
     const isSchedule = source.toLowerCase().includes('schedule');
@@ -342,10 +345,12 @@ async function runFlow(
           const landingData = readSheet(sheetName);
 
           let flowParam = 'landing';
-          if (source.startsWith('boxing-bundle')) {
+          if (source.startsWith('boxing-page-bundle') || source.startsWith('boxing-bundle')) {
             flowParam = 'boxing-bundle';
           } else if (source === 'boxing-upcoming-fights') {
             flowParam = 'boxing-upcoming';
+          } else if (source === 'boxing-banner-ultimate') {
+            flowParam = 'boxing';
           } else if (source.startsWith('boxing')) {
             flowParam = 'boxing';
           }
@@ -414,6 +419,35 @@ async function runFlow(
 
     // ── Step 3: Detect variant ───────────────────────────────
     console.log('landed on:', page.url());
+    // ── STRICT VALIDATION FOR BOXING-BANNER-ULTIMATE REDIRECT ──
+    if (SOURCE === 'boxing-banner-ultimate') {
+      console.log('\n🔍 Validating boxing-banner-ultimate redirect...');
+      await page.waitForFunction(() => {
+        const href = window.location.href.toLowerCase();
+        const text = document.body.innerText.toLowerCase();
+        return href.includes('plandetails') || 
+               href.includes('choosehowtobuy') || 
+               href.includes('purchase') ||
+               text.includes('choose your plan') ||
+               text.includes('choose how to buy') ||
+               text.includes('choose a plan');
+      }, { timeout: 15000 }).catch(() => {});
+
+      const currentUrl = page.url();
+      const bodyText = await page.locator('body').innerText().catch(() => '');
+      
+      // 1. It should NOT go to the normal PPV page
+      if (bodyText.toLowerCase().includes('choose how to buy') || 
+         (currentUrl.includes('contextualPpvId') && !currentUrl.includes('PlanDetails'))) {
+        throw new Error('❌ [boxing-banner-ultimate] Redirected to normal PPV page ("Choose how to buy") instead of DAZN Ultimate Plan page.');
+      }
+      
+      // 2. It SHOULD go directly to the Plan page
+      if (!currentUrl.includes('PlanDetails') && !bodyText.toLowerCase().includes('choose your plan')) {
+        throw new Error(`❌ [boxing-banner-ultimate] Expected to land on DAZN Ultimate Plan page, but landed on: ${currentUrl}`);
+      }
+      console.log('✅ Successfully redirected directly to DAZN Ultimate Plan page.');
+    }
     const variant = await detectVariant(page, variantConfig).catch(() => 'variant1');
     console.log('🎯 variant:', variant);
     const currentVariantConfig = variantConfig?.[variant] || {};
@@ -989,7 +1023,7 @@ async function runFlow(
         }
 
         const defaultSignupPage = new DefaultSignupPage(page);
-        await defaultSignupPage.clickContinueWithPPV();
+        await defaultSignupPage.verifyDefaultSignupFlow(eventData, tier, ratePlan, results);
         await page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => { });
         continue;
       }
@@ -1373,6 +1407,9 @@ test('PPV flow for new user', async ({ browser }) => {
   const isUSorGB = REGION === 'GB' || REGION === 'US';
   const devMode = (isUltimate && isUSorGB && ENV !== 'prod') || (!!srcConfig.enableDevMode && ENV !== 'prod');
   const endPage = srcConfig.endPage || 'payment';
+  if (srcConfig.defaultSignup) {
+    process.env.DEFAULT_SIGNUP = 'true';
+  }
 
   const planName = (planData.RATE_PLAN || 'monthly').toLowerCase() === 'monthly'
     ? 'Flex Monthly'
@@ -1427,7 +1464,7 @@ test('PPV flow for new user', async ({ browser }) => {
   });
 
   // Generate HTML + PDF run report (country, surfacing point, rate plan, per-page pass/fail, totals)
-  const { htmlPath, pdfPath } = await generateReports(results, {
+  const { htmlPath, pdfPath, folderPath } = await generateReports(results, {
     event: json.PPV_NAME,
     region: REGION,
     source: flowConfig.source,
@@ -1439,8 +1476,9 @@ test('PPV flow for new user', async ({ browser }) => {
     endTime: new Date(),
     excelPath,
     videoPath,
+    userType: 'new-user',
   });
-  if (htmlPath) console.log(`\n📊 Report: ${htmlPath}${pdfPath ? `\n📊 Report: ${pdfPath}` : ''}`);
+  if (folderPath) console.log(`\n📂 Report folder: ${folderPath}`);
 
   // Playwright manages the browser lifecycle. Closing the browser manually is not recommended.
 

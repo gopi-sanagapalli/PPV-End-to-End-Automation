@@ -4,6 +4,11 @@
     "endPage": "payment",
     "defaultSignup": true
   },
+  "home-page-dazntile": {
+    "source": "home-page-dazntile",
+    "endPage": "payment",
+    "defaultSignup": true
+  },
   "landing-page-banner": {
     "source": "landing-page-banner",
     "endPage": "payment"
@@ -62,6 +67,10 @@
   },
   "home-biggest-fights": {
     "source": "home-biggest-fights",
+    "endPage": "payment"
+  },
+  "boxing-banner-ultimate": {
+    "source": "boxing-banner-ultimate",
     "endPage": "payment"
   }
 }

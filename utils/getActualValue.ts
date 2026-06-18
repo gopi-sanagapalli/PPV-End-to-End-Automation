@@ -2838,16 +2838,16 @@ export async function getActualValue(
         const liveText = await page.locator(`span:has-text("${shortDayMatch}"), p:has-text("${shortDayMatch}")`)
           .filter({ hasText: new RegExp(dateNum) })
           .first()
-          .innerText()
+          .innerText({ timeout: 1000 })
           .catch(() => '');
         if (liveText.trim()) return liveText.trim();
       }
 
       // 4. Fallbacks
-      const liveText = await page.locator(`text=${targetDay}`).first().innerText().catch(() => '');
+      const liveText = await page.locator(`text=${targetDay}`).first().innerText({ timeout: 1000 }).catch(() => '');
       if (liveText.trim()) return liveText.trim();
 
-      const liveBadge = await page.locator('span, p, div').filter({ hasText: badgeRegex }).first().innerText().catch(() => '');
+      const liveBadge = await page.locator('span, p, div').filter({ hasText: badgeRegex }).first().innerText({ timeout: 1000 }).catch(() => '');
       if (liveBadge.trim()) return targetDay;
 
       return 'N/A';

@@ -173,8 +173,12 @@ export async function handlePopupModal(
   let foundModal: any = null;
 
   // Wait up to 2.5s for a modal with a CTA to appear (replaces polling loop)
-  const ctaSelector = 'button:has-text("Buy now"), a:has-text("Buy now"), button:has-text("Buy Now"), ' +
-    'button:has-text("Subscribe"), a:has-text("Subscribe"), button:has-text("Continue"), a:has-text("Continue")';
+  const ctaSelector = [
+    'button:has-text("Buy now")', 'a:has-text("Buy now")', 'button:has-text("Buy Now")',
+    'button:has-text("Subscribe")', 'a:has-text("Subscribe")', 'button:has-text("Continue")', 'a:has-text("Continue")',
+    'button:has-text("Sign up")', 'a:has-text("Sign up")', 'button:has-text("Sign up for free")', 'a:has-text("Sign up for free")',
+    'button:has-text("Start watching")', 'a:has-text("Start watching")', 'button:has-text("Get started")', 'a:has-text("Get started")'
+  ].join(', ');
 
   for (const selector of modalSelectors) {
     const modalLocator = page.locator(selector).filter({ has: page.locator(ctaSelector) }).first();
@@ -240,21 +244,11 @@ export async function handlePopupModal(
       // Click "Buy now" inside the modal popup to proceed
       console.log('💳 [Popup Check] Clicking "Buy now" / CTA inside modal popup...');
       const dialog = foundModal.locator('[role="dialog"], [aria-modal="true"], [class*="modal" i]').first();
-      let buyNowBtn = dialog
-        .locator(
-          'button:has-text("Buy now"), a:has-text("Buy now"), button:has-text("Buy Now"), ' +
-          'button:has-text("Subscribe"), a:has-text("Subscribe"), button:has-text("Continue"), a:has-text("Continue")'
-        )
-        .first();
+      let buyNowBtn = dialog.locator(ctaSelector).first();
 
       let visible = await buyNowBtn.isVisible({ timeout: 2000 }).catch(() => false);
       if (!visible) {
-        buyNowBtn = foundModal
-          .locator(
-            'button:has-text("Buy now"), a:has-text("Buy now"), button:has-text("Buy Now"), ' +
-            'button:has-text("Subscribe"), a:has-text("Subscribe"), button:has-text("Continue"), a:has-text("Continue")'
-          )
-          .first();
+        buyNowBtn = foundModal.locator(ctaSelector).first();
       }
 
       await buyNowBtn.click({ force: true }).catch((e: any) => {

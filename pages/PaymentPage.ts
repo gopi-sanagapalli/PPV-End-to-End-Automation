@@ -959,12 +959,12 @@ export class PaymentPage extends BasePage {
             const activePrices = pricesInSection.filter(el => !isStrike(el));
             
             if (activePrices.length > 0) {
-              const activePriceVal = activePrices[0].textContent?.trim();
-              if (strikePrices.length > 0) {
+              // Expose duplicate active prices in the section if there are more than 1
+              const activePriceVal = activePrices.map(el => el.textContent?.trim() || '').filter(Boolean).join(' ');
+              if (activePrices.length === 1 && strikePrices.length > 0) {
                 const strikePriceVal = strikePrices[0].textContent?.trim();
                 if (strikePriceVal === activePriceVal) {
                   console.warn(`⚠️ Redundant strike-through price found showing same value: ${strikePriceVal}`);
-                  return activePriceVal;
                 }
               }
               return activePriceVal;
@@ -983,12 +983,16 @@ export class PaymentPage extends BasePage {
         const prices = afterToday.match(/[\$£€₹]\s?\d+(?:\.\d{2})?/g) || [];
         const origPrice = eventData.ANNUAL_PAY_MONTHLY_ORIGINAL_PRICE || eventData.UPSELL_ORIGINAL_PRICE || '';
         const cleanOrig = origPrice.replace(/[^\d.]/g, '');
+        const filteredPrices = [];
         for (const p of prices) {
           const cleanP = p.replace(/[^\d.]/g, '');
           if (cleanOrig && cleanP === cleanOrig) {
             continue;
           }
-          return p.trim();
+          filteredPrices.push(p.trim());
+        }
+        if (filteredPrices.length > 0) {
+          return filteredPrices.join(' ');
         }
         if (prices[0]) return prices[0].trim();
       }
@@ -1721,7 +1725,7 @@ export class PaymentPage extends BasePage {
   private async _getGPayFrame(popup: import('@playwright/test').Page): Promise<import('@playwright/test').Frame | null> {
     console.log('🔍 [GPay] Looking for content iframe inside popup...');
 
-    // Wait for the page to have iframes
+    // Wait for the page to have iframes and load fully
     await popup.waitForTimeout(3000);
 
     // List all frames for debugging
@@ -1731,21 +1735,57 @@ export class PaymentPage extends BasePage {
       console.log(`   - ${f.url()}`);
     }
 
-    // Find the iframe that contains Google Pay content
-    // Usually it's the first child frame, or one that has pay.google.com URL
+    // Scan all frames for GPay content text
+    for (const frame of allFrames) {
+      try {
+        const bodyText = (await frame.locator('body').innerText({ timeout: 1000 }).catch(() => '')).toLowerCase();
+        if (
+          bodyText.includes('test card') ||
+          bodyText.includes('visa ••') ||
+          bodyText.includes('visa') ||
+          bodyText.includes("won't be charged") ||
+          bodyText.includes('test environment') ||
+          bodyText.includes('pay dazn')
+        ) {
+          console.log(`✅ [GPay] Found target content frame by content match: ${frame.url()}`);
+          return frame;
+        }
+      } catch (err) {
+        // Safe catch for cross-origin or closed frame errors
+      }
+    }
+
+    // Fallback 1: Look for buyflow iframe by URL
     for (const frame of allFrames) {
       if (frame === popup.mainFrame()) continue; // Skip main frame
       const url = frame.url();
-      if (url.includes('pay.google.com') || url.includes('payments.google.com') || url.includes('google.com')) {
-        console.log(`✅ [GPay] Found content frame: ${url}`);
+      if (url.includes('buyflow2') || url.includes('buyflow')) {
+        console.log(`✅ [GPay] Fallback: Found buyflow iframe by URL: ${url}`);
         return frame;
       }
     }
 
-    // If no matching child frame, try any non-main frame
+    // Fallback 2: Look for non-warmup matching URL
+    for (const frame of allFrames) {
+      if (frame === popup.mainFrame()) continue;
+      const url = frame.url();
+      if ((url.includes('pay.google.com') || url.includes('payments.google.com') || url.includes('google.com')) && !url.includes('auth_warmup') && !url.includes('bscframe')) {
+        console.log(`✅ [GPay] Fallback: Found matching URL frame: ${url}`);
+        return frame;
+      }
+    }
+
+    // Fallback 3: Use first child frame that isn't auth_warmup
     if (allFrames.length > 1) {
+      for (const frame of allFrames) {
+        if (frame === popup.mainFrame()) continue;
+        if (!frame.url().includes('auth_warmup')) {
+          console.log(`⚠️ [GPay] Fallback: Using non-warmup child frame: ${frame.url()}`);
+          return frame;
+        }
+      }
       const childFrame = allFrames[1];
-      console.log(`⚠️ [GPay] Using first child frame: ${childFrame.url()}`);
+      console.log(`⚠️ [GPay] Fallback: Using first child frame: ${childFrame.url()}`);
       return childFrame;
     }
 

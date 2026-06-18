@@ -313,7 +313,7 @@ export class BoxingPage extends LandingPage {
       // "Buy now" inside it. Throws if section or PPV not found.
       return this.findUpcomingFightsPPV(eventData);
     }
-    if (src === 'boxing-page-banner' || src === 'boxing-buy' || src === 'boxing-ultimate') {
+    if (src === 'boxing-page-banner' || src === 'boxing-buy' || src === 'boxing-ultimate' || src === 'boxing-banner-ultimate') {
       const banner = await this.findPPVInBanner(eventData);
       if (!banner) {
         console.log(`❌ [BoxingPage Banner] PPV "${eventData.PPV_NAME}" not found on hero banner.`);
@@ -357,7 +357,7 @@ export class BoxingPage extends LandingPage {
       let btnSelector = '';
       if (source === 'boxing-buy' || source === 'boxing-page-banner') {
         btnSelector = 'button:has-text("Buy this fight"), a:has-text("Buy this fight")';
-      } else if (source === 'boxing-ultimate') {
+      } else if (source === 'boxing-ultimate' || source === 'boxing-banner-ultimate') {
         btnSelector = 'button:has-text("Get included in DAZN Ultimate"), a:has-text("Get included in DAZN Ultimate")';
       } else if (source === 'boxing-upcoming-fights') {
         // container IS the specific PPV card — find "Buy now" inside it

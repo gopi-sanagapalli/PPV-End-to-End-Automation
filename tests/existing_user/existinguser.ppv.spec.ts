@@ -1,4 +1,6 @@
 import { test } from '@playwright/test';
+import * as fs from 'fs';
+import * as path from 'path';
 import { PaymentPage } from '../../pages/PaymentPage';
 import { HomePage } from '../../pages/HomePage';
 import { MyAccountPage } from '../../pages/MyAccountPage';
@@ -61,6 +63,7 @@ const SOURCE = process.env.SOURCE || 'my-account';
 // Enables Welcome Back, Saved Card, Signed In As, Log Out validations
 const FLOW = 'myaccount';
 const SWITCH_TO_ULTIMATE = (process.env.SWITCH || '').toLowerCase() === 'true';
+const LOGIN_FIRST = (process.env.LOGIN || '').toLowerCase() === 'true';
 const ENV = (process.env.DAZN_ENV || 'stag').toLowerCase();
 const PAYMENT_METHOD = (process.env.PAYMENT_METHOD || 'credit_card').toLowerCase();
 
@@ -73,6 +76,15 @@ test('PPV flow via existing user my account', async ({ browser }) => {
   const eventData = buildEventData(json, REGION);
   eventData.source = SOURCE;
   eventData.SOURCE = SOURCE;
+
+  const sourcesPath = path.resolve(process.cwd(), 'config/surfacingpoint.json');
+  if (fs.existsSync(sourcesPath)) {
+    const sources = JSON.parse(fs.readFileSync(sourcesPath, 'utf-8'));
+    if (sources[SOURCE]?.defaultSignup) {
+      process.env.DEFAULT_SIGNUP = 'true';
+    }
+  }
+
   const userStateKey = process.env.USER_STATE || 'freemium';
 
   // Compute dynamic future date variables
@@ -84,6 +96,9 @@ test('PPV flow via existing user my account', async ({ browser }) => {
   eventData.FLEX_FUTURE_DATE_SHORT = `${fDay} ${fMonth} ${fYear}`;
 
   const tier = (json.TIER || 'freemium').toLowerCase();
+  if (SOURCE === 'boxing-banner-ultimate' && tier !== 'ultimate') {
+    throw new Error('❌ SOURCE "boxing-banner-ultimate" requires an Ultimate plan (e.g., PLAN=ultimate_apm).');
+  }
   const isUSorGB = REGION === 'GB' || REGION === 'US';
   const devModeEnabled = tier === 'ultimate' && isUSorGB && ENV !== 'prod';
   const ratePlan = (json.RATE_PLAN || 'monthly').toLowerCase();
@@ -287,6 +302,70 @@ test('PPV flow via existing user my account', async ({ browser }) => {
   let reachedEndPage = false;
 
   try {
+    const requiresPreLogin = isMyAccount || LOGIN_FIRST;
+
+    // ══════════════════════════════════════════════════════════════
+    // PRE-LOGIN FLOW (My Account OR LOGIN=true)
+    // ══════════════════════════════════════════════════════════════
+    if (requiresPreLogin) {
+      const signinUrl = `${baseUrl}/signin`;
+      console.log(`\n🔐 Navigating to: ${signinUrl}`);
+      await page.goto(signinUrl, { waitUntil: 'domcontentloaded' });
+      // Wait for page to fully settle (including late-loading cookie banner scripts)
+      await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });
+
+      // Block until cookie banner appears and dismiss it before touching the form
+      console.log('🍪 Waiting for cookie banner on signin page...');
+      await handleCookies(page, 15000);
+
+      // Wait for the URL to settle (signin/emailDetails/signup)
+      await page.waitForURL(/emailDetails|signup|signin/i, { timeout: 10000 }).catch(() => { });
+      await page.waitForLoadState('domcontentloaded').catch(() => { });
+      console.log(`📍 Landed on: ${page.url()}`);
+
+      if (isMyAccount) assertCountryMatch(page, REGION);
+
+      console.log(`📧 Entering email: ${userEmail}`);
+      const emailInput = page.locator(
+        'input[type="email"], ' +
+        'input[name="email"], ' +
+        'input[placeholder*="email" i]'
+      ).first();
+      await emailInput.waitFor({ state: 'visible', timeout: 10000 });
+      await emailInput.fill(userEmail);
+
+      const emailNextBtn = page.locator(
+        'button:has-text("Next"), ' +
+        'button:has-text("Continue"), ' +
+        'button[type="submit"]'
+      ).first();
+      await clickAndWaitForNav(page, emailNextBtn, 'Email Next');
+
+      console.log('🔑 Entering password...');
+      const passwordInput = page.locator(
+        'input[type="password"], ' +
+        'input[name="password"]'
+      ).first();
+      await passwordInput.waitFor({ state: 'visible', timeout: 15000 });
+      await passwordInput.fill(userPassword);
+
+      const signInBtn = page.locator(
+        'button:has-text("Sign in"), ' +
+        'button:has-text("Log in"), ' +
+        'button:has-text("Sign In"), ' +
+        'button[type="submit"]'
+      ).first();
+      await clickAndWaitForNav(page, signInBtn, 'Sign In');
+
+      await page.waitForURL(/\/home/i, { timeout: 20000 }).catch(() => { });
+      await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });
+      console.log(`✅ Signed in — on: ${page.url()}`);
+
+      console.log('🍪 Waiting for cookie banner on Home page...');
+      await handleCookies(page, 15000);
+      await stabilisePage(page);
+    }
+
     if (!isMyAccount) {
       // ══════════════════════════════════════════════════════════════
       // LANDING / BOXING / SCHEDULE ACQUISITION FLOW
@@ -374,7 +453,7 @@ test('PPV flow via existing user my account', async ({ browser }) => {
         await searchPage.clickBuyNow();
       } else {
         const isHomePageSource = SOURCE.startsWith('home-page-') || SOURCE === 'home-biggest-fights';
-        const isHomeSport = SOURCE.startsWith('home-') && !isHomePageSource;
+        const isHomeSport = (SOURCE.startsWith('home-') && !isHomePageSource) || SOURCE === 'home-kickboxing-tile';
         const isBoxingSource = SOURCE.startsWith('boxing-page') || SOURCE.startsWith('boxing');
 
         const landing = isHomePageSource
@@ -385,6 +464,8 @@ test('PPV flow via existing user my account', async ({ browser }) => {
               ? new BoxingPage(page)
               : new LandingPage(page);
 
+        // If LOGIN_FIRST=true the user is already signed in. navigate() goes to /welcome
+        // which DAZN auto-redirects to /home for authenticated users.
         await landing.navigate(baseUrl, SOURCE, eventData);
         await setupPage(page, 8000);
         assertCountryMatch(page, REGION);
@@ -421,7 +502,9 @@ test('PPV flow via existing user my account', async ({ browser }) => {
             ? 'boxing-bundle'
             : SOURCE === 'boxing-upcoming-fights'
               ? 'boxing-upcoming'
-              : 'boxing';
+              : SOURCE === 'boxing-banner-ultimate'
+                ? 'boxing'
+                : 'boxing';
         }
 
         const container = await landing.findPPVContainer(eventData, SOURCE);
@@ -466,67 +549,40 @@ test('PPV flow via existing user my account', async ({ browser }) => {
         ).catch(() => { });
       });
       console.log(`📍 Landed after Buy Now: ${page.url()}`);
+      // ── STRICT VALIDATION FOR BOXING-BANNER-ULTIMATE REDIRECT ──
+      if (SOURCE === 'boxing-banner-ultimate') {
+        console.log('\n🔍 Validating boxing-banner-ultimate redirect...');
+        await page.waitForFunction(() => {
+          const href = window.location.href.toLowerCase();
+          const text = document.body.innerText.toLowerCase();
+          return href.includes('plandetails') || 
+                 href.includes('choosehowtobuy') || 
+                 href.includes('purchase') ||
+                 text.includes('choose your plan') ||
+                 text.includes('choose how to buy') ||
+                 text.includes('choose a plan');
+        }, { timeout: 15000 }).catch(() => {});
+
+        const currentUrl = page.url();
+        const bodyText = await page.locator('body').innerText().catch(() => '');
+        
+        // 1. It should NOT go to the normal PPV page
+        if (bodyText.toLowerCase().includes('choose how to buy') || 
+           (currentUrl.includes('contextualPpvId') && !currentUrl.includes('PlanDetails'))) {
+          throw new Error('❌ [boxing-banner-ultimate] Redirected to normal PPV page ("Choose how to buy") instead of DAZN Ultimate Plan page.');
+        }
+        
+        // 2. It SHOULD go directly to the Plan page
+        if (!currentUrl.includes('PlanDetails') && !bodyText.toLowerCase().includes('choose your plan')) {
+          throw new Error(`❌ [boxing-banner-ultimate] Expected to land on DAZN Ultimate Plan page, but landed on: ${currentUrl}`);
+        }
+        console.log('✅ Successfully redirected directly to DAZN Ultimate Plan page.');
+      }
 
     } else {
       // ══════════════════════════════════════════════════════════════
-      // MY ACCOUNT FLOW — SIGN IN FIRST
+      // MY ACCOUNT FLOW — already signed in via PRE-LOGIN FLOW above
       // ══════════════════════════════════════════════════════════════
-      const signinUrl = `${baseUrl}/signin`;
-      console.log(`\n🔐 Navigating to: ${signinUrl}`);
-      await page.goto(signinUrl, { waitUntil: 'domcontentloaded' });
-      await page.waitForLoadState('domcontentloaded').catch(() => { });
-
-      // Wait for signin page or email details redirect to settle before handling cookies
-      await page.waitForURL(/emailDetails|signup/i, { timeout: 10000 }).catch(() => { });
-      await page.waitForLoadState('domcontentloaded').catch(() => { });
-      console.log(`📍 Landed on: ${page.url()}`);
-
-      console.log('🍪 Waiting for cookie banner...');
-      await handleCookies(page, 10000);
-      await stabilisePage(page);
-      assertCountryMatch(page, REGION);
-
-      console.log(`📧 Entering email: ${userEmail}`);
-      const emailInput = page.locator(
-        'input[type="email"], ' +
-        'input[name="email"], ' +
-        'input[placeholder*="email" i]'
-      ).first();
-      await emailInput.waitFor({ state: 'visible', timeout: 10000 });
-      await emailInput.fill(userEmail);
-
-      const emailNextBtn = page.locator(
-        'button:has-text("Next"), ' +
-        'button:has-text("Continue"), ' +
-        'button[type="submit"]'
-      ).first();
-      await clickAndWaitForNav(page, emailNextBtn, 'Email Next');
-
-      console.log('🔑 Entering password...');
-      const passwordInput = page.locator(
-        'input[type="password"], ' +
-        'input[name="password"]'
-      ).first();
-      await passwordInput.waitFor({ state: 'visible', timeout: 15000 });
-      await passwordInput.fill(userPassword);
-
-      const signInBtn = page.locator(
-        'button:has-text("Sign in"), ' +
-        'button:has-text("Log in"), ' +
-        'button:has-text("Sign In"), ' +
-        'button[type="submit"]'
-      ).first();
-      await clickAndWaitForNav(page, signInBtn, 'Sign In');
-
-      await page.waitForURL(/\/home/i, { timeout: 20000 }).catch(() => { });
-      await page.waitForLoadState('domcontentloaded').catch(() => { });
-      console.log(`✅ Signed in — on: ${page.url()}`);
-
-      console.log('🍪 Waiting for cookie banner on Home page...');
-      await handleCookies(page, 8000);
-      await stabilisePage(page);
-
-      // Dismiss popup and navigate to My Account
       const homePage = new HomePage(page, baseUrl);
       await homePage.dismissPopup();
 
@@ -691,20 +747,22 @@ test('PPV flow via existing user my account', async ({ browser }) => {
         });
 
         // Generate HTML + PDF run report before early exit
-        const { htmlPath, pdfPath } = await generateReports(results, {
+        const { htmlPath, pdfPath, folderPath } = await generateReports(results, {
           event: eventData.PPV_NAME,
           region: REGION,
           source: SOURCE,
           ratePlan,
           tier,
           env: process.env.DAZN_ENV || 'prod',
-          flowName: SOURCE,
+          flowName: `${SOURCE} → ${tier} → ${ratePlan}`,
           endTime: new Date(),
           excelPath,
           videoPath,
+          userStatus: isMyAccount ? (process.env.USER_STATE || 'Freemium') : 'New User',
           userType: 'existing-user',
+          paymentMethod: PAYMENT_METHOD === 'gpay' ? 'Google Pay' : 'Credit Card',
         });
-        if (htmlPath) console.log(`\n📊 Report: ${htmlPath}${pdfPath ? `\n📊 Report: ${pdfPath}` : ''}`);
+        if (folderPath) console.log(`\n📂 Report folder: ${folderPath}`);
         return; // ← Exit early — no purchase flow needed
       }
 
@@ -741,20 +799,22 @@ test('PPV flow via existing user my account', async ({ browser }) => {
         });
 
         // Generate HTML + PDF run report before early exit
-        const { htmlPath, pdfPath } = await generateReports(results, {
+        const { htmlPath: htmlPath2, pdfPath: pdfPath2, folderPath: folderPath2 } = await generateReports(results, {
           event: eventData.PPV_NAME,
           region: REGION,
           source: SOURCE,
           ratePlan,
           tier,
           env: process.env.DAZN_ENV || 'prod',
-          flowName: SOURCE,
+          flowName: `${SOURCE} → ${tier} → ${ratePlan}`,
           endTime: new Date(),
           excelPath,
           videoPath,
+          userStatus: isMyAccount ? (process.env.USER_STATE || 'Freemium') : 'New User',
           userType: 'existing-user',
+          paymentMethod: PAYMENT_METHOD === 'gpay' ? 'Google Pay' : 'Credit Card',
         });
-        if (htmlPath) console.log(`\n📊 Report: ${htmlPath}${pdfPath ? `\n📊 Report: ${pdfPath}` : ''}`);
+        if (folderPath2) console.log(`\n📂 Report folder: ${folderPath2}`);
         return;
       }
 
@@ -1038,7 +1098,13 @@ test('PPV flow via existing user my account', async ({ browser }) => {
               await paymentPage.validate(paymentData, results, eventData, FLOW);
               const returningData = paymentData.filter((r: any) => {
                 const rf = (r.Flow || '').trim().toLowerCase();
-                return rf === 'returning';
+                if (rf !== 'returning') return false;
+                // 'Signed In As Text' and 'Log Out Present' only apply to frozen users, not freemium
+                if (userStateKey === 'freemium') {
+                  const f = (r.Field || '').trim().toLowerCase();
+                  if (f === 'signed in as text' || f === 'log out present') return false;
+                }
+                return true;
               });
               if (returningData.length > 0) {
                 await paymentPage.validate(returningData, results, eventData, 'returning');
@@ -1261,7 +1327,7 @@ test('PPV flow via existing user my account', async ({ browser }) => {
               const ppvData = getPPVDataByVariant(variant);
               console.log(`📊 PPV rows (Default Signup): ${ppvData.length}`);
               const defaultSignupPage = new DefaultSignupPage(page);
-              const ppvFlow = isReturning ? 'returning' : undefined;
+              const ppvFlow = isMyAccount ? 'myaccount' : (isReturning ? 'returning' : undefined);
               await defaultSignupPage.validate(ppvData, results, eventData, variant, ppvFlow);
             } catch (e: any) {
               console.warn('⚠️ Default Signup validation error:', e.message);
@@ -1270,7 +1336,7 @@ test('PPV flow via existing user my account', async ({ browser }) => {
           }
 
           const defaultSignupPage = new DefaultSignupPage(page);
-          await defaultSignupPage.clickContinueWithPPV();
+          await defaultSignupPage.verifyDefaultSignupFlow(eventData, tier, ratePlan, results);
           await page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => { });
           continue;
         }
@@ -1284,8 +1350,9 @@ test('PPV flow via existing user my account', async ({ browser }) => {
             try {
               const ppvData = getPPVDataByVariant(variant);
               console.log(`📊 PPV rows: ${ppvData.length}`);
-
-              const ppvFlow = isReturning ? 'returning' : undefined;
+              // 'myaccount' flow: Excel rows restricted to Flow=myaccount (e.g. Signed In As, Log Out)
+              // 'returning'  flow: Excel rows for returning users on any non-myAccount source
+              const ppvFlow = isMyAccount ? 'myaccount' : (isReturning ? 'returning' : undefined);
               await validateVariant(
                 page, variant, ppvData, results, eventData, 'PPV', ppvFlow
               );
@@ -1366,7 +1433,7 @@ test('PPV flow via existing user my account', async ({ browser }) => {
               eventData['TIER'] = 'standard';
 
               const planData = getPlanDataByTier('standard');
-              const planFlow = isReturning ? 'returning' : undefined;
+              const planFlow = isMyAccount ? 'myaccount' : (isReturning ? 'returning' : undefined);
               console.log(`📊 Plan rows: ${planData.length}`);
 
               await validateVariant(
@@ -1477,7 +1544,13 @@ test('PPV flow via existing user my account', async ({ browser }) => {
               await paymentPage.validate(paymentData, results, eventData, FLOW);
               const returningData = paymentData.filter((r: any) => {
                 const rf = (r.Flow || '').trim().toLowerCase();
-                return rf === 'returning';
+                if (rf !== 'returning') return false;
+                // 'Signed In As Text' and 'Log Out Present' only apply to frozen users, not freemium
+                if (userStateKey === 'freemium') {
+                  const f = (r.Field || '').trim().toLowerCase();
+                  if (f === 'signed in as text' || f === 'log out present') return false;
+                }
+                return true;
               });
               if (returningData.length > 0) {
                 await paymentPage.validate(returningData, results, eventData, 'returning');
@@ -1666,20 +1739,22 @@ test('PPV flow via existing user my account', async ({ browser }) => {
     });
 
     // Generate HTML + PDF run report (country, surfacing point, rate plan, per-page pass/fail, totals)
-    const { htmlPath, pdfPath } = await generateReports(results, {
+    const { htmlPath, pdfPath, folderPath } = await generateReports(results, {
       event: eventData.PPV_NAME,
       region: REGION,
       source: SOURCE,
       ratePlan,
       tier,
       env: process.env.DAZN_ENV || 'prod',
-      flowName: SOURCE,
+      flowName: `${SOURCE} → ${tier} → ${ratePlan}`,
       endTime: new Date(),
       excelPath,
       videoPath,
+      userStatus: isMyAccount ? (process.env.USER_STATE || 'Freemium') : 'New User',
       userType: 'existing-user',
+      paymentMethod: PAYMENT_METHOD === 'gpay' ? 'Google Pay' : 'Credit Card',
     });
-    if (htmlPath) console.log(`\n📊 Report: ${htmlPath}${pdfPath ? `\n📊 Report: ${pdfPath}` : ''}`);
+    if (folderPath) console.log(`\n📂 Report folder: ${folderPath}`);
 
 
     const passed = results.filter(r => r.status === 'PASS').length;
