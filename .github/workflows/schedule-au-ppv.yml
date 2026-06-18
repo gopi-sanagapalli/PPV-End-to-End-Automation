@@ -34,6 +34,9 @@ jobs:
   stag:
     name: STAG | ${{ matrix.plan }}
 
+    needs: prod
+    if: always()
+
     runs-on:
       - self-hosted
       - macOS
@@ -108,7 +111,6 @@ jobs:
   prod:
     name: PROD | ${{ matrix.plan }}
 
-    needs: stag
 
     runs-on:
       - self-hosted
