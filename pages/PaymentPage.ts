@@ -777,7 +777,14 @@ export class PaymentPage extends BasePage {
     // ── PPV Name ───────────────────────────────────────────────
     if (fieldLower === 'ppv name' || fieldLower === 'ppv event name' || fieldLower === 'event name') {
       const source = (eventData.SOURCE || eventData.source || '').toLowerCase();
-      if (source === 'boxing-ultimate') return 'N/A';
+      if (
+        source === 'boxing-ultimate' ||
+        source === 'boxing-bundle-ultimate' ||
+        source === 'boxing-banner-ultimate' ||
+        source === 'boxing-ultimate-subscription' ||
+        source === 'boxing-standard-subscription' ||
+        source === 'boxing-join-the-club'
+      ) return 'N/A';
 
       const ppvName = eventData.PPV_NAME || '';
       const regex = new RegExp(ppvName.split(/\s+/).join('.*'), 'i');
@@ -835,7 +842,14 @@ export class PaymentPage extends BasePage {
     // ── PPV Price ──────────────────────────────────────────────
     if (fieldLower === 'ppv price') {
       const source = (eventData.SOURCE || eventData.source || '').toLowerCase();
-      if (source === 'boxing-ultimate') return 'N/A';
+      if (
+        source === 'boxing-ultimate' ||
+        source === 'boxing-bundle-ultimate' ||
+        source === 'boxing-banner-ultimate' ||
+        source === 'boxing-ultimate-subscription' ||
+        source === 'boxing-standard-subscription' ||
+        source === 'boxing-join-the-club'
+      ) return 'N/A';
 
       const ppvName = eventData.PPV_NAME || '';
       let ppvIndex = -1;
@@ -1200,7 +1214,7 @@ export class PaymentPage extends BasePage {
 
     // ── Bundle Name ───────────────────────────────────────────
     if (fieldLower === 'bundle name') {
-      const bundleName = (eventData?.BUNDLE_NAME || 'The Contender Bundle').toLowerCase();
+      const bundleName = (eventData?.BUNDLE_NAME || '').toLowerCase();
       const idx = lower.indexOf(bundleName);
       if (idx >= 0) {
         return bodyText.substring(idx, idx + bundleName.length);
@@ -1210,7 +1224,7 @@ export class PaymentPage extends BasePage {
 
     // ── Bundle Price ──────────────────────────────────────────
     if (fieldLower === 'bundle price') {
-      const bundleName = (eventData?.BUNDLE_NAME || 'The Contender Bundle').toLowerCase();
+      const bundleName = (eventData?.BUNDLE_NAME || '').toLowerCase();
       const bundleIdx = lower.indexOf(bundleName);
       if (bundleIdx >= 0) {
         const afterText = bodyText.substring(bundleIdx, bundleIdx + 150);
@@ -1233,7 +1247,7 @@ export class PaymentPage extends BasePage {
 
     // ── Bundle Original Price ──────────────────────────────────
     if (fieldLower === 'bundle original price') {
-      const bundleName = (eventData?.BUNDLE_NAME || 'The Contender Bundle').toLowerCase();
+      const bundleName = (eventData?.BUNDLE_NAME || '').toLowerCase();
       const bundleIdx = lower.indexOf(bundleName);
       if (bundleIdx >= 0) {
         const afterText = bodyText.substring(bundleIdx, bundleIdx + 150);
@@ -1253,7 +1267,7 @@ export class PaymentPage extends BasePage {
 
     // ── Bundle Discount ────────────────────────────────────────
     if (fieldLower === 'bundle discount') {
-      const bundleName = (eventData?.BUNDLE_NAME || 'The Contender Bundle').toLowerCase();
+      const bundleName = (eventData?.BUNDLE_NAME || '').toLowerCase();
       const bundleIdx = lower.indexOf(bundleName);
       if (bundleIdx >= 0) {
         const afterText = bodyText.substring(bundleIdx, bundleIdx + 150);

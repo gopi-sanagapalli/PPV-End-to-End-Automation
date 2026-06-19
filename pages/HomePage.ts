@@ -863,7 +863,22 @@ export class HomePage extends LandingPage {
 
     if (matches.length === 0) {
       console.warn(`⚠️ [HomePage] No tiles found in RailsInterceptor. Trying fallback DOM scan for DAZN content tiles...`);
-      const fallbackTile = await this.page.evaluate(() => {
+
+      // Derive PPV keywords dynamically from eventData instead of hardcoding fighter names
+      const ppvKeywords: string[] = [];
+      const ppvNameSources = [
+        eventData?.PPV_NAME, eventData?.PPV_DISPLAY_NAME,
+        eventData?.BUNDLE_PPV1_NAME, eventData?.BUNDLE_PPV2_NAME,
+        eventData?.UPSELL_PPV_NAME,
+      ].filter(Boolean);
+      for (const name of ppvNameSources) {
+        // Extract individual words from "Fighter1 vs. Fighter2" patterns
+        const parts = name.toLowerCase().replace(/[.:]/g, '').split(/\bvs\.?\b|\s+/).map((w: string) => w.trim()).filter((w: string) => w.length > 2);
+        ppvKeywords.push(...parts);
+      }
+      const uniquePpvKeywords = [...new Set(ppvKeywords)];
+
+      const fallbackTile = await this.page.evaluate((keywords: string[]) => {
         const anchors = Array.from(document.querySelectorAll<HTMLAnchorElement>('a[href]'));
         for (const anchor of anchors) {
           const rect = anchor.getBoundingClientRect();
@@ -873,7 +888,7 @@ export class HomePage extends LandingPage {
           const href = anchor.getAttribute('href') || '';
           const text = (anchor.innerText || '').toLowerCase();
           
-          const isPpv = href.includes('ppv') || text.includes('ppv') || text.includes('buy now') || text.includes('joshua') || text.includes('prenga') || text.includes('zayas') || text.includes('boots') || text.includes('fury') || text.includes('hall');
+          const isPpv = href.includes('ppv') || text.includes('ppv') || text.includes('buy now') || keywords.some(kw => text.includes(kw));
           
           const isDaznContent = href.includes('/home/content/') || href.includes('/event/') || href.includes('/competition/') || href.includes('/sport/') || anchor.className.toLowerCase().includes('tile');
           
@@ -882,7 +897,7 @@ export class HomePage extends LandingPage {
           }
         }
         return null;
-      });
+      }, uniquePpvKeywords);
 
       if (fallbackTile) {
         console.log(`✅ [HomePage] Found fallback DAZN content tile link: ${fallbackTile}`);

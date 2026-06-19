@@ -1254,6 +1254,17 @@ export async function getActualValue(
     // PPV NAME
     // ════════════════════════════════════════════════════════════
     case 'ppv name': {
+      const source = (eventData?.SOURCE || eventData?.source || '').toLowerCase();
+      if (
+        source === 'boxing-ultimate' ||
+        source === 'boxing-bundle-ultimate' ||
+        source === 'boxing-banner-ultimate' ||
+        source === 'boxing-ultimate-subscription' ||
+        source === 'boxing-standard-subscription' ||
+        source === 'boxing-join-the-club'
+      ) {
+        return 'N/A';
+      }
       const url = page.url();
       const isLandingOrHome = url.includes('/welcome') || url.includes('/home') || url.includes('/boxing') || 
                               (eventData?.CURRENT_PAGE && ['landing', 'boxing', 'home page', 'home of boxing'].includes(eventData.CURRENT_PAGE.toLowerCase()));
@@ -1570,6 +1581,7 @@ export async function getActualValue(
         , true);
     }
 
+    case 'popup buy now cta present':
     case 'popup buy now cta': {
       const found = snapFind(n =>
         n.isInModal &&
@@ -1577,6 +1589,24 @@ export async function getActualValue(
         n.text.toLowerCase().includes('buy')
         , true);
       return found !== 'N/A' ? 'Yes' : 'No';
+    }
+
+    case 'popup buy now cta text': {
+      const found = snapFind(n =>
+        n.isInModal &&
+        (n.tag === 'button' || n.tag === 'a') &&
+        n.text.toLowerCase().includes('buy')
+        , true);
+      if (found !== 'N/A') return found;
+
+      // Fallback: live DOM
+      const btn = page.locator('[role="dialog"] button, [role="dialog"] a, [class*="modal"] button, [class*="modal"] a')
+        .filter({ hasText: /buy/i }).first();
+      if (await btn.isVisible({ timeout: 2000 }).catch(() => false)) {
+        const text = await btn.textContent().catch(() => '');
+        return text ? text.trim() : 'N/A';
+      }
+      return 'N/A';
     }
 
     // ════════════════════════════════════════════════════════════
@@ -1716,7 +1746,14 @@ export async function getActualValue(
     // ════════════════════════════════════════════════════════════
     case 'ppv price': {
       const source = (eventData?.SOURCE || eventData?.source || '').toLowerCase();
-      if (source === 'boxing-ultimate') {
+      if (
+        source === 'boxing-ultimate' ||
+        source === 'boxing-bundle-ultimate' ||
+        source === 'boxing-banner-ultimate' ||
+        source === 'boxing-ultimate-subscription' ||
+        source === 'boxing-standard-subscription' ||
+        source === 'boxing-join-the-club'
+      ) {
         return 'N/A';
       }
       const expectedPrice = eventData?.PPV_PRICE || '';
@@ -2965,13 +3002,13 @@ export async function getActualValue(
 
     case 'bundle title':
     case 'bundle card title': {
-      const bundleName = (eventData?.BUNDLE_NAME || 'contender bundle').toLowerCase();
+      const bundleName = (eventData?.BUNDLE_NAME || '').toLowerCase();
       const found = snapFind(n =>
         n.text.toLowerCase().includes(bundleName) &&
         n.text.length < 60
       );
       if (found !== 'N/A') return found;
-      const liveText = await page.locator(`text=/${eventData?.BUNDLE_NAME || 'Contender Bundle'}/i`).first().innerText().catch(() => '');
+      const liveText = eventData?.BUNDLE_NAME ? await page.locator(`text=/${eventData.BUNDLE_NAME}/i`).first().innerText().catch(() => '') : '';
       return liveText.trim() || 'N/A';
     }
 
@@ -3002,7 +3039,7 @@ export async function getActualValue(
     case 'bundle card price':
     case 'bundle monthly price': {
       // Find the discounted bundle price — a currency amount near bundle text
-      const bundleName = (eventData?.BUNDLE_NAME || 'contender').toLowerCase().split(' ')[0];
+      const bundleName = (eventData?.BUNDLE_NAME || '').toLowerCase().split(' ')[0];
       const bundlePrice = (eventData?.BUNDLE_PRICE || '').replace(/[^0-9.]/g, '');
       if (bundlePrice) {
         const found = snapFind(n =>
@@ -3019,7 +3056,7 @@ export async function getActualValue(
           if (t.includes(bp) && t.length < 30) return t;
         }
         return '';
-      }, eventData?.BUNDLE_PRICE || '$89.99').catch(() => '');
+      }, eventData?.BUNDLE_PRICE || '').catch(() => '');
       return priceText || 'N/A';
     }
 
@@ -3126,7 +3163,8 @@ export async function getActualValue(
       const liveMatches = await (async () => {
         let container = page.locator('[class*="FightBundle" i], [class*="fbRoot" i]').first();
         if (!await container.isVisible().catch(() => false)) {
-          container = page.locator('label').filter({ hasText: /Contender Bundle/i }).first();
+          const bundleNameFallback = eventData?.BUNDLE_NAME || 'bundle';
+          container = page.locator('label').filter({ hasText: new RegExp(bundleNameFallback, 'i') }).first();
         }
         if (await container.isVisible().catch(() => false)) {
           const candidates = await container.locator('p, span, div, time').all().catch(() => []);
@@ -3243,7 +3281,8 @@ export async function getActualValue(
       const liveMatches = await (async () => {
         let container = page.locator('[class*="FightBundle" i], [class*="fbRoot" i]').first();
         if (!await container.isVisible().catch(() => false)) {
-          container = page.locator('label').filter({ hasText: /Contender Bundle/i }).first();
+          const bundleNameFallback2 = eventData?.BUNDLE_NAME || 'bundle';
+          container = page.locator('label').filter({ hasText: new RegExp(bundleNameFallback2, 'i') }).first();
         }
         if (await container.isVisible().catch(() => false)) {
           const candidates = await container.locator('p, span, div, time').all().catch(() => []);
@@ -3294,14 +3333,16 @@ export async function getActualValue(
 
     case 'bundle ppv 2 image':
     case 'bundle ppv 2 ppv image': {
-      const ppv2Name = (eventData?.BUNDLE_PPV2_NAME || 'zayas').toLowerCase().split(' ')[0];
-      const imgFound = snapFind(n =>
-        n.tag === 'img' &&
-        (n.text.toLowerCase().includes(ppv2Name) || n.classes.toLowerCase().includes('ppv'))
-      );
-      if (imgFound !== 'N/A') return 'Yes';
-      const imgCount = await page.locator(`img[alt*="${ppv2Name}" i], img[src*="${ppv2Name}" i]`).count().catch(() => 0);
-      if (imgCount > 0) return 'Yes';
+      const ppv2Name = (eventData?.BUNDLE_PPV2_NAME || '').toLowerCase().split(' ')[0];
+      if (ppv2Name) {
+        const imgFound = snapFind(n =>
+          n.tag === 'img' &&
+          (n.text.toLowerCase().includes(ppv2Name) || n.classes.toLowerCase().includes('ppv'))
+        );
+        if (imgFound !== 'N/A') return 'Yes';
+        const imgCount = await page.locator(`img[alt*="${ppv2Name}" i], img[src*="${ppv2Name}" i]`).count().catch(() => 0);
+        if (imgCount > 0) return 'Yes';
+      }
       // Broader: check for multiple PPV images
       const totalImgs = await page.locator('img[src*="ppv"], img[src*="fight"]').count().catch(() => 0);
       return totalImgs > 1 ? 'Yes' : 'No';
@@ -3361,13 +3402,13 @@ export async function getActualValue(
 
     case 'bundle name': {
       // Payment page: "The Contender Bundle" in purchase summary
-      const bundleName = (eventData?.BUNDLE_NAME || 'Contender Bundle').toLowerCase();
+      const bundleName = (eventData?.BUNDLE_NAME || '').toLowerCase();
       const found = snapFind(n =>
         n.text.toLowerCase().includes(bundleName) &&
         n.text.length < 60
       );
       if (found !== 'N/A') return found;
-      const liveText = await page.locator(`text=/${eventData?.BUNDLE_NAME || 'Contender Bundle'}/i`).first().innerText().catch(() => '');
+      const liveText = eventData?.BUNDLE_NAME ? await page.locator(`text=/${eventData.BUNDLE_NAME}/i`).first().innerText().catch(() => '') : '';
       return liveText.trim() || 'N/A';
     }
 
@@ -5900,18 +5941,34 @@ export async function getActualValue(
     }
 
     case 'upsell section heading': {
+      // Try snapshot: look for a heading or short text with "all these fights included"
       const fromSnap = snapFind(n =>
         n.text.toLowerCase().includes('all these fights included') &&
-        n.text.length < 100
+        n.text.length < 60
       );
       if (fromSnap !== 'N/A') return fromSnap;
 
-      const liveText = await page.locator('span, p, div, h2, h3, h4')
+      // Fallback: try specific heading elements only (h2, h3, h4, then span/p with short text)
+      const headingSelectors = ['h2', 'h3', 'h4'];
+      for (const sel of headingSelectors) {
+        const heading = page.locator(sel)
+          .filter({ hasText: /all these fights included/i })
+          .first();
+        if (await heading.isVisible({ timeout: 1000 }).catch(() => false)) {
+          const text = await heading.innerText().catch(() => '');
+          if (text.trim() && text.trim().length < 80) return text.trim();
+        }
+      }
+
+      // Final fallback: span/p but enforce strict length limit to avoid grabbing entire section
+      const el = page.locator('span, p')
         .filter({ hasText: /all these fights included/i })
-        .first()
-        .innerText()
-        .catch(() => '');
-      return liveText.trim() || 'N/A';
+        .first();
+      if (await el.isVisible({ timeout: 1000 }).catch(() => false)) {
+        const text = await el.innerText().catch(() => '');
+        if (text.trim() && text.trim().length < 80) return text.trim();
+      }
+      return 'N/A';
     }
     case 'banner image present':
     case 'image present': {

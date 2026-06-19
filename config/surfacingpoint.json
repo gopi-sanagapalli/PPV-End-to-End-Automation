@@ -72,5 +72,20 @@
   "boxing-banner-ultimate": {
     "source": "boxing-banner-ultimate",
     "endPage": "payment"
+  },
+  "boxing-ultimate-subscription": {
+    "source": "boxing-ultimate-subscription",
+    "endPage": "payment",
+    "defaultSignup": true
+  },
+  "boxing-standard-subscription": {
+    "source": "boxing-standard-subscription",
+    "endPage": "payment",
+    "defaultSignup": true
+  },
+  "boxing-join-the-club": {
+    "source": "boxing-join-the-club",
+    "endPage": "payment",
+    "defaultSignup": true
   }
 }

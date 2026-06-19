@@ -3,7 +3,11 @@ export function compare(
   expected: string,
   type?:    string
 ): boolean {
-  if (!expected) return true;
+  if (!expected) {
+    // Empty expected: pass only if actual is also empty or N/A
+    const aTrimmed = actual.trim();
+    return aTrimmed === '' || aTrimmed.toUpperCase() === 'N/A';
+  }
 
   // ── N/A expected ───────────────────────────────────────────────
   if (expected.trim().toUpperCase() === 'N/A') {
@@ -103,7 +107,7 @@ export function compare(
   }
 
   // ── Contains with length guard ─────────────────────────────────
-  if (a.includes(e) && actual.length < expected.length * 10) {
+  if (a.includes(e) && actual.length < expected.length * 3) {
     if (a.includes('not ' + e) || a.includes('not' + e)) return false;
     return true;
   }

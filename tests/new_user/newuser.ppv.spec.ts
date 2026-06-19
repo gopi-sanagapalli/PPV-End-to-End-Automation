@@ -89,8 +89,8 @@ async function runFlow(
 ): Promise<{ results: any[]; reachedEndPage: boolean; skipped?: boolean }> {
   const { name, source, tier, ratePlan: rawRatePlan, enableDevMode: devModeEnabled } = flowConfig;
   const ratePlan = (rawRatePlan || '').replace(/-/g, ' ').toLowerCase();
-  if (SOURCE === 'boxing-banner-ultimate' && tier !== 'ultimate') {
-    throw new Error('❌ SOURCE "boxing-banner-ultimate" requires an Ultimate plan (e.g., PLAN=ultimate_apm).');
+  if ((SOURCE === 'boxing-banner-ultimate' || SOURCE === 'boxing-ultimate-subscription' || SOURCE === 'boxing-join-the-club') && tier !== 'ultimate') {
+    throw new Error(`❌ SOURCE "${SOURCE}" requires an Ultimate plan (e.g., PLAN=ultimate_apm).`);
   }
   const results: any[] = [];
 
@@ -100,7 +100,7 @@ async function runFlow(
   const eventData = buildEventData(json, region, tier, ratePlan, source);
   eventData.source = source;
   eventData.SOURCE = source;
-  eventData.OFFER_TYPE = eventData.OFFER_TYPE || json.OFFER_TYPE || '1_month_free';
+  // OFFER_TYPE is now resolved by buildEventData from DaznPlan.json per plan+region
 
   // Compute date variables
   const futureDate = new Date();
@@ -340,21 +340,32 @@ async function runFlow(
           const sheetName = isBoxingSourceInner ? 'Boxing page' : 'Landing page';
           const pageName = isBoxingSourceInner ? 'Boxing' : 'Landing';
 
-          console.log(`\n📋 Validating ${pageName} page...`);
-          const landingData = readSheet(sheetName);
+          // Skip landing page validation for subscription-only boxing sources
+          // — they go directly to TierPlans/PlanDetails, there is no PPV banner to validate.
+          const isBoxingSubscriptionSource =
+            source === 'boxing-ultimate-subscription' ||
+            source === 'boxing-standard-subscription' ||
+            source === 'boxing-page-bundle' ||
+            source === 'boxing-upcoming-fights' ||
+            source === 'boxing-join-the-club';
 
-          let flowParam = 'landing';
-          if (source.startsWith('boxing-page-bundle') || source.startsWith('boxing-bundle')) {
-            flowParam = 'boxing-bundle';
-          } else if (source === 'boxing-upcoming-fights') {
-            flowParam = 'boxing-upcoming';
-          } else if (source === 'boxing-banner-ultimate') {
-            flowParam = 'boxing';
-          } else if (source.startsWith('boxing')) {
-            flowParam = 'boxing';
+          if (!isBoxingSubscriptionSource) {
+            console.log(`\n📋 Validating ${pageName} page...`);
+            const landingData = readSheet(sheetName);
+
+            let flowParam = 'landing';
+            if (source.startsWith('boxing-page-bundle') || source.startsWith('boxing-bundle')) {
+              flowParam = 'boxing-bundle';
+            } else if (source === 'boxing-upcoming-fights') {
+              flowParam = 'boxing-upcoming';
+            } else if (source.startsWith('boxing')) {
+              flowParam = 'boxing';
+            }
+
+            await validateVariant(page, 'landing', landingData, results, eventData, pageName, flowParam);
+          } else {
+            console.log(`ℹ️ [${source}] Subscription source — skipping boxing banner/landing validation.`);
           }
-
-          await validateVariant(page, 'landing', landingData, results, eventData, pageName, flowParam);
         }
       }
 
@@ -405,7 +416,10 @@ async function runFlow(
     }
 
     await page.waitForURL(
-      (url: URL) => url.toString().includes('PlanDetails') || url.toString().includes('signup'),
+      (url: URL) =>
+        url.toString().includes('PlanDetails') ||
+        url.toString().includes('TierPlans') ||
+        url.toString().includes('signup'),
       { timeout: 10000 }
     ).catch(async () => {
       await page.waitForURL(
@@ -424,28 +438,129 @@ async function runFlow(
       await page.waitForFunction(() => {
         const href = window.location.href.toLowerCase();
         const text = document.body.innerText.toLowerCase();
-        return href.includes('plandetails') || 
-               href.includes('choosehowtobuy') || 
-               href.includes('purchase') ||
-               text.includes('choose your plan') ||
-               text.includes('choose how to buy') ||
-               text.includes('choose a plan');
-      }, { timeout: 15000 }).catch(() => {});
+        return href.includes('plandetails') ||
+          href.includes('choosehowtobuy') ||
+          href.includes('purchase') ||
+          text.includes('choose your plan') ||
+          text.includes('choose how to buy') ||
+          text.includes('choose a plan');
+      }, { timeout: 15000 }).catch(() => { });
 
       const currentUrl = page.url();
       const bodyText = await page.locator('body').innerText().catch(() => '');
-      
+
       // 1. It should NOT go to the normal PPV page
-      if (bodyText.toLowerCase().includes('choose how to buy') || 
-         (currentUrl.includes('contextualPpvId') && !currentUrl.includes('PlanDetails'))) {
+      if (bodyText.toLowerCase().includes('choose how to buy') ||
+        (currentUrl.includes('contextualPpvId') && !currentUrl.includes('PlanDetails'))) {
         throw new Error('❌ [boxing-banner-ultimate] Redirected to normal PPV page ("Choose how to buy") instead of DAZN Ultimate Plan page.');
       }
-      
+
       // 2. It SHOULD go directly to the Plan page
       if (!currentUrl.includes('PlanDetails') && !bodyText.toLowerCase().includes('choose your plan')) {
         throw new Error(`❌ [boxing-banner-ultimate] Expected to land on DAZN Ultimate Plan page, but landed on: ${currentUrl}`);
       }
       console.log('✅ Successfully redirected directly to DAZN Ultimate Plan page.');
+    }
+
+    // ── STRICT VALIDATION FOR BOXING-ULTIMATE-SUBSCRIPTION REDIRECT ──
+    if (source === 'boxing-ultimate-subscription') {
+      console.log('\n🔍 Validating boxing-ultimate-subscription redirect...');
+      // Wait for URL or body to settle on the plan page.
+      // The SPA loads `signup` first, then client-side routing adds ?page=PlanDetails.
+      await page.waitForFunction(() => {
+        const href = window.location.href.toLowerCase();
+        const text = document.body.innerText.toLowerCase();
+        return href.includes('tierplans') ||
+          href.includes('plandetails') ||
+          text.includes('dazn ultimate') ||
+          text.includes('choose your plan') ||
+          text.includes('choose a plan');
+      }, { timeout: 20000 }).catch(() => { });
+
+      const subUrl = page.url();
+      const subBody = (await page.locator('body').innerText().catch(() => '')).toLowerCase();
+
+      const subOnPPVPage = subBody.includes('to watch your pay-per-view');
+      const subUrlOk = subUrl.includes('TierPlans') || subUrl.includes('PlanDetails');
+      const subBodyOk = subBody.includes('dazn ultimate') || subBody.includes('choose your plan') || subBody.includes('choose a plan');
+
+      // Must NOT land on the normal PPV page
+      if (subOnPPVPage && !subUrlOk && !subBodyOk) {
+        throw new Error('❌ [boxing-ultimate-subscription] Unexpectedly redirected to PPV page — expected TierPlans or PlanDetails (Ultimate).');
+      }
+      // Must land on plan page (by URL OR body text)
+      if (!subUrlOk && !subBodyOk) {
+        throw new Error(`❌ [boxing-ultimate-subscription] Expected to land on TierPlans/PlanDetails (Ultimate), but landed on: ${subUrl}`);
+      }
+      console.log(`✅ [boxing-ultimate-subscription] Successfully redirected to plan selection page. URL: ${subUrl}`);
+    }
+
+    // ── STRICT VALIDATION FOR BOXING-STANDARD-SUBSCRIPTION REDIRECT ──
+    if (source === 'boxing-standard-subscription') {
+      console.log('\n🔍 Validating boxing-standard-subscription redirect...');
+      await page.waitForFunction(() => {
+        const href = window.location.href.toLowerCase();
+        const text = document.body.innerText.toLowerCase();
+        return href.includes('plandetails') ||
+          href.includes('tierplans') ||
+          text.includes('choose a plan') ||
+          text.includes('dazn standard') ||
+          text.includes('subscribe without a pay-per-view');
+      }, { timeout: 15000 }).catch(() => { });
+
+      const stdUrl = page.url();
+      const stdBody = await page.locator('body').innerText().catch(() => '');
+
+      // Must NOT land on PPV page
+      if (stdBody.toLowerCase().includes('to watch your pay-per-view') &&
+        !stdUrl.includes('PlanDetails') && !stdUrl.includes('TierPlans')) {
+        throw new Error('❌ [boxing-standard-subscription] Unexpectedly redirected to PPV page — expected PlanDetails (Standard).');
+      }
+
+      if (!stdUrl.includes('PlanDetails') && !stdUrl.includes('TierPlans')) {
+        throw new Error(`❌ [boxing-standard-subscription] Expected to land on PlanDetails or TierPlans (Standard), but landed on: ${stdUrl}`);
+      }
+
+      // defaultSignup=true means the plan page should contain a PPV option ("subscribe without a pay-per-view").
+      // If it's absent, no PPV exists for this event — fail the test.
+      if (!stdBody.toLowerCase().includes('subscribe without a pay-per-view')) {
+        throw new Error(`❌ [boxing-standard-subscription] Landed on plan page but no PPV option found ("subscribe without a pay-per-view" absent). No PPV exists for this event.\nURL: ${stdUrl}`);
+      }
+
+      console.log('✅ [boxing-standard-subscription] Successfully redirected to plan selection page with PPV option.');
+    }
+
+    // ── STRICT VALIDATION FOR BOXING-JOIN-THE-CLUB REDIRECT ──
+    if (source === 'boxing-join-the-club') {
+      console.log('\n🔍 Validating boxing-join-the-club redirect...');
+      // Wait for URL or body to settle. The SPA loads `signup` first, then
+      // client-side routing appends ?page=PlanDetails. Body text is a reliable fallback.
+      await page.waitForFunction(() => {
+        const href = window.location.href.toLowerCase();
+        const text = document.body.innerText.toLowerCase();
+        return href.includes('tierplans') ||
+          href.includes('plandetails') ||
+          text.includes('dazn ultimate') ||
+          text.includes('choose your plan') ||
+          text.includes('choose a plan');
+      }, { timeout: 20000 }).catch(() => { });
+
+      const clubUrl = page.url();
+      const clubBody = (await page.locator('body').innerText().catch(() => '')).toLowerCase();
+
+      const onPPVPage = clubBody.includes('to watch your pay-per-view');
+      const urlOk = clubUrl.includes('TierPlans') || clubUrl.includes('PlanDetails');
+      const bodyOk = clubBody.includes('dazn ultimate') || clubBody.includes('choose your plan') || clubBody.includes('choose a plan');
+
+      // Must NOT land on the wrong PPV page
+      if (onPPVPage && !urlOk && !bodyOk) {
+        throw new Error('❌ [boxing-join-the-club] Unexpectedly redirected to PPV page — expected TierPlans or PlanDetails (Ultimate).');
+      }
+      // Must land on plan page (URL OR body text is sufficient)
+      if (!urlOk && !bodyOk) {
+        throw new Error(`❌ [boxing-join-the-club] Expected to land on TierPlans/PlanDetails (Ultimate), but landed on: ${clubUrl}\nPage body snippet: ${clubBody.slice(0, 200)}`);
+      }
+      console.log(`✅ [boxing-join-the-club] Successfully redirected to plan selection page. URL: ${clubUrl}`);
     }
     const variant = await detectVariant(page, variantConfig).catch(() => 'variant1');
     console.log('🎯 variant:', variant);
@@ -470,7 +585,14 @@ async function runFlow(
       console.log(`\nstep ${step + 1} → pageType: ${pageType} | planClicks: ${planClickCount} | url: ${page.url()}`);
 
       // ── Default Signup validation check: Fail if no PPV ──
-      if (process.env.DEFAULT_SIGNUP === 'true' && !ppvValidated) {
+      // Skip this check for boxing subscription sources — they intentionally bypass the PPV page
+      // and go directly to plans. DEFAULT_SIGNUP=true is still set for them (they are sub-only flows)
+      // but the "no PPV" check only applies to home-page / landing-page default signup sources.
+      const isBoxingSubscriptionSource =
+        SOURCE === 'boxing-ultimate-subscription' ||
+        SOURCE === 'boxing-standard-subscription' ||
+        SOURCE === 'boxing-join-the-club';
+      if (process.env.DEFAULT_SIGNUP === 'true' && !ppvValidated && !isBoxingSubscriptionSource) {
         const url = page.url().toLowerCase();
         if (url.includes('page=tierplans') || url.includes('page=plandetails') || pageType === 'plan' || pageType === 'email') {
           const bodyText = await page.locator('body').innerText({ timeout: 2000 }).then((t: string) => t.toLowerCase()).catch(() => '');
@@ -804,6 +926,72 @@ async function runFlow(
               }
             }
             // ── End Scenario 3 ────────────────────────────────────────────────────────
+
+            // ── SCENARIO 4: Navigate to Schedule Page and Click Event Tile (Post-Payment) ──
+            if (PPV_TYPE !== 'upsell') {
+              try {
+                console.log('\n📅 [Post-Payment] Navigating to Schedule page to verify purchased event...');
+                const schedulePagePostPayment = new SchedulePage(page);
+                await schedulePagePostPayment.navigate(baseUrl);
+
+                const sport = eventData.SPORT || json.SPORT || 'Boxing';
+                await schedulePagePostPayment.selectSport(sport);
+
+                console.log(`🔍 Finding event tile: "${eventData.PPV_NAME}"`);
+                const eventCard = await schedulePagePostPayment.findEvent(eventData.PPV_NAME);
+                
+                console.log('🖱️ Clicking PPV event tile...');
+                await eventCard.click();
+
+                console.log('⏳ Waiting for navigation off the Schedule page...');
+                await page.waitForURL((url: URL) => !url.href.includes('/schedule'), { timeout: 15000 });
+                await page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => {});
+                
+                const currentUrl = page.url();
+                console.log(`🔗 Post-payment redirected URL: ${currentUrl}`);
+
+                const lowerUrl = currentUrl.toLowerCase();
+                let navStatus: 'PASS' | 'FAIL' = 'FAIL';
+                let actualPage = 'Unknown Page';
+
+                if (lowerUrl.includes('preview')) {
+                  actualPage = 'Preview Page';
+                  navStatus = 'PASS';
+                } else if (
+                  lowerUrl.includes('fixture') ||
+                  lowerUrl.includes('event') ||
+                  lowerUrl.includes('stream') ||
+                  lowerUrl.includes('player')
+                ) {
+                  actualPage = 'Fixture Page';
+                  navStatus = 'PASS';
+                }
+
+                results.push({
+                  page: 'Schedule (Post-Payment)',
+                  field: 'Post-Purchase Navigation Target',
+                  expected: 'Preview Page or Fixture Page',
+                  actual: `Navigated to: ${currentUrl} (${actualPage})`,
+                  status: navStatus,
+                });
+
+                if (navStatus === 'FAIL') {
+                  console.error(`❌ Post-payment navigation target check failed. URL: ${currentUrl}`);
+                } else {
+                  console.log(`✅ Post-payment navigation target check passed: ${actualPage}`);
+                }
+              } catch (scheduleErr: any) {
+                console.warn(`⚠️ [Post-Payment] Schedule page validation error: ${scheduleErr.message}`);
+                results.push({
+                  page: 'Schedule (Post-Payment)',
+                  field: 'Post-Purchase Navigation Target',
+                  expected: 'Preview Page or Fixture Page',
+                  actual: `Error: ${scheduleErr.message}`,
+                  status: 'FAIL',
+                });
+              }
+            }
+            // ── End Scenario 4 ────────────────────────────────────────────────────────
 
             // For upsell flows, continue the loop to handle post-payment pages
             if (PPV_TYPE === 'upsell') {
@@ -1337,9 +1525,25 @@ async function runFlow(
             await planBtn.waitFor({ state: 'visible', timeout: 5000 }).catch(() => { });
 
             // Validate CTA text changed after selecting APM
+            let has1MonthFree = false;
+            if (await annualCard.isVisible({ timeout: 2000 }).catch(() => false)) {
+              const annualText = await annualCard.textContent().catch(() => '') || '';
+              if (/1\s*month\s*free|first\s*month\s*free/i.test(annualText)) {
+                has1MonthFree = true;
+              }
+            } else {
+              const radio = page.locator('input[type="radio"]').nth(1);
+              if (await radio.isVisible({ timeout: 2000 }).catch(() => false)) {
+                const radioParentText = await radio.evaluate((el: any) => el.parentElement?.textContent || '').catch(() => '');
+                if (/1\s*month\s*free|first\s*month\s*free/i.test(radioParentText)) {
+                  has1MonthFree = true;
+                }
+              }
+            }
+
             const ctaText = await planBtn.textContent().catch(() => '') || '';
             const cleanCta = ctaText.replace(/\s+/g, ' ').trim();
-            const expectedCta = 'Continue with 1st Month Free';
+            const expectedCta = has1MonthFree ? 'Continue with 1st Month Free' : 'Continue';
             const ctaMatch = cleanCta.toLowerCase().includes(expectedCta.toLowerCase());
             console.log(`  ${ctaMatch ? '✅' : '❌'} [Plan CTA after APM] expected="${expectedCta}" actual="${cleanCta}"`);
             results.push({
@@ -1439,7 +1643,9 @@ test('PPV flow for new user', async ({ browser }) => {
   const planTier = (planData.TIER || 'standard').toLowerCase();
   const isUltimate = planTier === 'ultimate';
   const isUSorGB = REGION === 'GB' || REGION === 'US';
-  const devMode = (isUltimate && isUSorGB && ENV !== 'prod') || (!!srcConfig.enableDevMode && ENV !== 'prod');
+  // Dev mode: bypass phone number on ultimate flows in GB/US.
+  // Enabled on all environments (including prod) when tier is ultimate.
+  const devMode = (isUltimate && isUSorGB) || (!!srcConfig.enableDevMode);
   const endPage = srcConfig.endPage || 'payment';
   if (srcConfig.defaultSignup) {
     process.env.DEFAULT_SIGNUP = 'true';

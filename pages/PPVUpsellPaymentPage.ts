@@ -350,7 +350,7 @@ export class PPVUpsellPaymentPage extends BasePage {
   // CVV is read from eventData.UPSELL_CVV (fallback: '737')
   // ─────────────────────────────
   async fillAndSubmit(eventData: Record<string, string>): Promise<void> {
-    const cvv = eventData.UPSELL_CVV || eventData.FURY_CVV || '737';
+    const cvv = eventData.UPSELL_CVV || eventData.UPSELL_PPV_CVV || eventData.FURY_CVV || '737';
     console.log(`💳 Saved card payment flow — CVV length: ${cvv.length}`);
     await this.selectSavedCard();
     await this.enterCVV(cvv);

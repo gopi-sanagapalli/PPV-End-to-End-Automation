@@ -68,7 +68,14 @@ const GLOBAL_DEFAULTS: Record<string, string> = {
   ULTIMATE_FEATURE_2: "Every match from Lega Serie A, and highlights from LALIGA, Bundesliga and the Saudi Pro League.",
   ULTIMATE_FEATURE_3: "HDR and Dolby 5.1 surround sound on select events.",
   UPSELL_CROSSED_PRICE: "N/A",
-  BUNDLE_MONTHLY_PRICE: "N/A"
+  BUNDLE_MONTHLY_PRICE: "N/A",
+  // ── Plan Details card descriptions (shown when no promotional offer is active) ──
+  PLAN_DETAILS_FLEX_DESC: "Billed monthly. Cancel anytime.",
+  PLAN_DETAILS_ANNUAL_MONTHLY_DESC: "Annual contract. Auto renews.",
+  PLAN_DETAILS_ANNUAL_UPFRONT_DESC: "Annual contract. Auto renews. Pay for a year upfront to get the best value deal.",
+  // ── Payment page legal / cancel notice lines (no-offer fallback) ──
+  PAYMENT_FLEX_CANCEL_NOTICE: "Cancel with 30 days' notice.",
+  PAYMENT_FLEX_LEGAL_TEXT: "Monthly subscription. Cancel with 30 days' notice. Your subscription auto-renews unless you cancel.",
 };
 
 export function buildEventData(
@@ -107,9 +114,17 @@ export function buildEventData(
     ...regional,
   };
 
-  // OFFER_TYPE comes from regional data (DaznPlan.json per region) — not all countries have 7-day trial
+  // OFFER_TYPE priority: DaznPlan.json (per plan+region) → event config → default
+  // Plan-level OFFER_TYPE is already merged by configLoader.ts (deepMerge(planData, eventData)).
+  // Since event configs no longer define OFFER_TYPE, the plan value flows through.
+  // This fallback handles the case where neither plan nor event defines it.
   if (!base.OFFER_TYPE) {
     base.OFFER_TYPE = '1_month_free';
+  }
+
+  // Auto-compute NEXT_PAYMENT_DAYS_OFFSET from OFFER_TYPE if not explicitly set
+  if (!base.NEXT_PAYMENT_DAYS_OFFSET) {
+    base.NEXT_PAYMENT_DAYS_OFFSET = base.OFFER_TYPE === '7_day_trial' ? 7 : 30;
   }
 
   const env = (process.env.DAZN_ENV || 'stag').toLowerCase();
@@ -272,8 +287,8 @@ export function buildEventData(
 
       // Dynamic Annual Savings Badge calculation
       const flexOfferPriceNum = parseFloat(activeOffer.OFFER_PRICE);
-      const flexOrigPriceNum = parseFloat(activeOffer.ORIGINAL_PRICE || base.MONTHLY_PRICE || '25.99');
-      const annualPriceNum = parseFloat(base.ANNUAL_PRICE || '15.99');
+      const flexOrigPriceNum = parseFloat(activeOffer.ORIGINAL_PRICE || base.MONTHLY_PRICE || '');
+      const annualPriceNum = parseFloat(base.ANNUAL_PRICE || '');
       if (!isNaN(flexOfferPriceNum) && !isNaN(flexOrigPriceNum) && !isNaN(annualPriceNum)) {
         const savingsVal = flexOfferPriceNum + (flexOrigPriceNum * 11) - (annualPriceNum * 11);
         base.ANNUAL_SAVINGS_BADGE = `SAVE ${base.CURRENCY}${savingsVal.toFixed(2).replace('.00', '')} A YEAR`;
@@ -546,7 +561,7 @@ export function buildEventData(
         base.UPSELL_OFFER_TEXT = ultimateOffer.OFFER_DESCRIPTION || '';
         console.log(`💡 Resolved dynamic UPSELL_PRICE from ultimate_offer: ${base.UPSELL_PRICE}`);
       } else {
-        const standardUltimatePrice = ultimateApmRegion.ANNUAL_PAY_MONTHLY_PRICE || '24.99';
+        const standardUltimatePrice = ultimateApmRegion.ANNUAL_PAY_MONTHLY_PRICE || '';
         base.UPSELL_PRICE = getPriceWithCurrency(standardUltimatePrice);
         base.UPSELL_ORIGINAL_PRICE = getPriceWithCurrency(standardUltimatePrice);
         base.UPSELL_CROSSED_PRICE = 'N/A';
