@@ -81,6 +81,7 @@ jobs:
       HEADLESS: 'true'
       DAZN_REGION: GB
       DAZN_ENV: prod
+      LOGIN_FIRST: 'false'
       SOURCE: ${{ matrix.source }}
       USER_STATE: ${{ matrix.user_state }}
       PPV_CONFIG: ${{ inputs.PPV_CONFIG }}
