@@ -25,8 +25,7 @@ jobs:
     env:
       CI: 'true'
       HEADLESS: 'true'
-      DAZN_REGION: UK
-      DAZN_ENV: prod
+DAZN_REGION: GB      DAZN_ENV: prod
       SOURCE: home-page-dont-miss
       PPV_CONFIG: ${{ inputs.PPV_CONFIG }}
 
