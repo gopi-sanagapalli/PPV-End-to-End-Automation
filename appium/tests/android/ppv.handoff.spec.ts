@@ -185,16 +185,45 @@ async function dismissStartupDialogs(driver: WdBrowser): Promise<void> {
     await driver.saveScreenshot('./test-results/android_explore_failed.png');
   }
   
-  // Dismiss cookie consent popup (check multiple times)
+  // Dismiss cookie consent popup using exact XPath
   console.log('🍪 Checking for cookie consent popup...');
   
   let cookieDismissed = false;
   
-  for (let cookieAttempt = 0; cookieAttempt < 5; cookieAttempt++) {
-    await driver.pause(500);
-    
-    // Try exact button texts from the cookie popup
-    const cookieButtons = ['Accept', 'Essential cookies only', 'Got it', 'OK', 'I agree', 'Accept all', 'Allow all', 'Accept cookies', 'Continue'];
+  // Method 1: Use exact XPath from Appium Inspector (most reliable)
+  try {
+    const acceptBtn = await driver.$(`//android.widget.Button[@resource-id="com.dazn:id/btn_accept_cookies"]`);
+    if (await acceptBtn.isDisplayed()) {
+      await acceptBtn.click();
+      console.log('✅ Cookie popup dismissed (exact XPath)');
+      cookieDismissed = true;
+      await driver.pause(1500);
+    }
+  } catch (e) {
+    console.log('  Exact XPath not found, trying text methods...');
+  }
+  
+  // Method 2: Try finding Accept button using textContains
+  if (!cookieDismissed) {
+    for (let cookieAttempt = 0; cookieAttempt < 3; cookieAttempt++) {
+      await driver.pause(500);
+      
+      try {
+        const acceptBtn = await driver.$(`android=new UiSelector().textContains("Accept")`);
+        if (await acceptBtn.isDisplayed()) {
+          await acceptBtn.click();
+          console.log('✅ Cookie popup dismissed (textContains)');
+          cookieDismissed = true;
+          await driver.pause(1500);
+          break;
+        }
+      } catch (e) {}
+    }
+  }
+  
+  // Method 3: Try exact button texts
+  if (!cookieDismissed) {
+    const cookieButtons = ['Accept', 'Essential cookies only', 'Got it', 'OK'];
     
     for (const buttonText of cookieButtons) {
       try {
@@ -208,17 +237,15 @@ async function dismissStartupDialogs(driver: WdBrowser): Promise<void> {
         }
       } catch (e) {}
     }
-    
-    if (cookieDismissed) break;
   }
   
-  // Also try clicking Accept button by coordinates (it's usually at the bottom)
+  // Method 4: Coordinate fallback
   if (!cookieDismissed) {
     const screenSize = getScreenSize();
-    const acceptBtnY = Math.round(screenSize.height * 0.78);  // Accept button position
-    const acceptBtnX = Math.round(screenSize.width * 0.5);     // Center
+    const acceptBtnY = Math.round(screenSize.height * 0.78);
+    const acceptBtnX = Math.round(screenSize.width * 0.5);
     
-    console.log(`  Trying coordinate tap for Accept button at (${acceptBtnX}, ${acceptBtnY})`);
+    console.log(`  Trying coordinate tap at (${acceptBtnX}, ${acceptBtnY})`);
     adbTap(acceptBtnX, acceptBtnY);
     await driver.pause(1500);
   }
