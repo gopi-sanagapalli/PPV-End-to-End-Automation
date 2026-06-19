@@ -13,8 +13,7 @@ permissions:
 
 jobs:
   prod:
-    name: PROD
-
+    name: PROD | ${{ matrix.plan }}
     runs-on:
       - self-hosted
       - macOS
@@ -22,12 +21,24 @@ jobs:
 
     timeout-minutes: 15
 
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+
+      matrix:
+        plan:
+          - standard_monthly
+          - standard_apm
+          - ultimate_apm
+          - ultimate_upfront
+
     env:
       CI: 'true'
       HEADLESS: 'true'
       DAZN_REGION: GB
       DAZN_ENV: prod
       SOURCE: home-page-dont-miss
+      PLAN: ${{ matrix.plan }}
       PPV_CONFIG: ${{ inputs.PPV_CONFIG }}
 
     steps:
