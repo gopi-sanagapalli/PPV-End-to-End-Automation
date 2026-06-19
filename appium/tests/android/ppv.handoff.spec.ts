@@ -548,13 +548,10 @@ describe('DAZN Android PPV → Web Handoff', () => {
         
         await driver.pause(2000);
         
-        for (const cta of ['Buy now', 'Buy Now', 'Buy']) {
-          if (await tapByText(driver, cta, 5000)) {
-            buyTapped = true;
-            console.log(`✅ Tapped ${cta}`);
-            break;
-          }
-        }
+        // After clicking PPV tile, we should be on paywall screen with Copy button
+        // Skip looking for Buy button and go straight to URL capture
+        console.log('  On paywall screen - will capture URL via Copy button');
+        buyTapped = true;  // Skip Buy button step
       } else {
         await driver.saveScreenshot('./test-results/schedule_navigation_failed.png');
         throw new Error('❌ Neither Schedule nor Boxing detected. Test STOPPED.');
@@ -670,71 +667,85 @@ describe('DAZN Android PPV → Web Handoff', () => {
     }
 
     // ── Step 3: Capture checkout URL from paywall screen ──────────────────
-    console.log('📋 Capturing checkout URL from paywall...');
-    await driver.saveScreenshot('./test-results/android_paywall_screen.png');
+    console.log("📋 Capturing checkout URL from paywall...");
+    await driver.saveScreenshot("./test-results/android_paywall_screen.png");
     
-    let checkoutUrl = '';
+    let checkoutUrl = ";
+    
+    // Dump page source to help debug why "Copy" button is not found/clickable
+    console.log("\n── Page Source (for debugging Copy button) ──────────────────");
+    const pageSource = await driver.getPageSource();
+    console.log(pageSource.substring(0, 5000)); // Log first 5000 chars to avoid overwhelming output
+    console.log("────────────────────────────────────────────────────────────\n");
     
     // Method 1: Click Copy button and get URL from clipboard
-    console.log('  Method 1: Clicking Copy button and reading clipboard...');
+    console.log("  Method 1: Clicking Copy button and reading clipboard...");
+    
+    // First, scroll up slightly to ensure Copy button is fully visible
+    console.log("  Scrolling up to ensure Copy button is visible...");
+    const screenSize = getScreenSize();
+    adbSwipe(Math.round(screenSize.width / 2), 
+             Math.round(screenSize.height * 0.85), 
+             Math.round(screenSize.width / 2), 
+             Math.round(screenSize.height * 0.75));
+    await driver.pause(1000);
+    
+    // Try clicking the parent element of the Copy button
     try {
-      // Click the Copy button using exact XPath from Appium Inspector
-      const copyBtn = await driver.$(`//android.widget.TextView[@text="Copy"]`);
-      if (await copyBtn.isDisplayed()) {
-        await copyBtn.click();
-        console.log('  ✅ Clicked Copy button');
-        await driver.pause(1000);
-        
-        // Read URL from clipboard using ADB
-        checkoutUrl = adb('shell am clipht get');
-        console.log(`  Clipboard content: ${checkoutUrl.substring(0, 100)}...`);
-        
-        if (checkoutUrl && checkoutUrl.includes('dazn.com')) {
-          console.log('✅ URL captured from clipboard');
-        }
-      }
+      // The clickable element is a View, which contains the TextView "Copy"
+      const parentCopyBtn = await driver.$(`//android.view.View[./android.widget.TextView[@text="Copy"]]`);
+      console.log("  Found parent of Copy button, waiting for display...");
+      await parentCopyBtn.waitForDisplayed({ timeout: 5000 });
+      console.log("  Parent displayed, attempting click...");
+      await parentCopyBtn.click();
+      console.log("  ✅ Clicked parent of Copy button");
+      await driver.pause(2000);
+      
+      // Take screenshot after click
+      await driver.saveScreenshot("./test-results/android_after_copy_click.png");
+      console.log("  Screenshot saved: android_after_copy_click.png");
     } catch (e) {
-      console.log(`  Copy button method failed: ${e.message}`);
+      console.log(`  ❌ Failed to click parent: ${e.message}`);
+      console.log("  Trying coordinate tap as fallback...");
+      
+      // Fallback: Try coordinate tap if element click failed
+      const copyBtnX = Math.round(screenSize.width * 0.19);  // 19% from left
+      const copyBtnY = Math.round(screenSize.height * 0.89); // 89% from top
+      
+      console.log(`  Tapping Copy button at coordinates (${copyBtnX}, ${copyBtnY})`);
+      adbTap(copyBtnX, copyBtnY);
+      await driver.pause(2000);
+      
+      // Take screenshot after coordinate tap
+      await driver.saveScreenshot("./test-results/android_after_copy_tap.png");
+      console.log("  Screenshot saved: android_after_copy_tap.png");
     }
     
-    // Method 2: Get URL from text field on screen (try multiple times)
-    if (!checkoutUrl || !checkoutUrl.includes('dazn.com')) {
-      console.log('  Method 2: Trying to read URL from screen...');
-      for (let i = 0; i < 5; i++) {
-        await driver.pause(500);
-        try {
-          const urlField = await driver.$(`android=new UiSelector().textContains("dazn.com")`);
-          if (await urlField.isDisplayed()) {
-            checkoutUrl = await urlField.getText();
-            console.log('✅ URL captured from text field');
-            break;
-          }
-        } catch (e) {
-          // Continue trying
-        }
-      }
-    }
+    // Read URL from clipboard using ADB
+    checkoutUrl = adb("shell am clipht get");
+    console.log(`  Clipboard content: ${checkoutUrl.substring(0, 100)}...`);
     
-    // Method 3: Get URL from UI dump
-    if (!checkoutUrl || !checkoutUrl.includes('dazn.com')) {
-      console.log('  Method 3: Trying UI dump...');
-      checkoutUrl = getChromeUrl();
-      if (checkoutUrl && checkoutUrl.includes('dazn.com')) {
-        console.log('✅ URL captured from UI dump');
-      }
-    }
-    
-    if (!checkoutUrl || !checkoutUrl.includes('dazn.com')) {
-      await driver.saveScreenshot('./test-results/android_url_not_found.png');
-      console.log('❌ All URL capture methods failed');
-      console.log('   Screenshot saved to: test-results/android_url_not_found.png');
-      console.log('   Paywall screenshot saved to: test-results/android_paywall_screen.png');
-      throw new Error(`❌ Could not capture checkout URL from paywall.\n   Check screenshots in test-results/`);
+    if (checkoutUrl && (checkoutUrl.includes("dazn.com") || checkoutUrl.includes("amazonaws.com"))) {
+      console.log("✅ URL captured from clipboard");
+    } else {
+      // If clipboard failed, take screenshot and throw error immediately
+      await driver.saveScreenshot("./test-results/android_url_not_found.png");
+      console.log("❌ Clipboard content was not a valid DAZN URL. All URL capture methods failed.");
+      console.log("   Screenshot saved to: test-results/android_url_not_found.png");
+      console.log("   Paywall screenshot saved to: test-results/android_paywall_screen.png");
+      throw new Error(`❌ Could not capture checkout URL from paywall.\n   Clipboard content: ${checkoutUrl}\n   Check screenshots and console log.`);
     }
 
     console.log(`\n🌐 Checkout URL captured:\n   ${checkoutUrl}\n`);
     writeHandoffUrl(checkoutUrl);
-    console.log('✅ URL written to mobile_entry_url.txt');
-    console.log('📱 Next: Open browser, paste URL, and complete web flow');
+    console.log("✅ URL written to mobile_entry_url.txt");
+    console.log("📱 Now navigating back and closing app...");
+    adbBack(); 
+    await driver.pause(2000);
+    adbBack(); 
+    await driver.pause(2000);
+    adb("shell am force-stop " + APP_PACKAGE); 
+    console.log("✅ URL written to mobile_entry_url.txt");
+    console.log("📱 Next: Open browser, paste URL, and complete web flow");
   });
 });

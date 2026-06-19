@@ -9,7 +9,7 @@ export default defineConfig({
 
   use: {
     headless:  process.env.HEADLESS === 'true',
-    viewport:  null,
+    viewport: { width: 1920, height: 1080 },
     timezoneId: 'Asia/Kolkata',
     locale:    'en-IN',
 
@@ -44,7 +44,7 @@ export default defineConfig({
       use: {
         channel:  'chrome',
         headless: process.env.HEADLESS === 'true',
-        viewport: null,
+        viewport: { width: 1920, height: 1080 },
         timezoneId: 'Asia/Kolkata',
         locale:    'en-IN',
 
