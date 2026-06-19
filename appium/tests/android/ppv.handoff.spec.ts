@@ -185,43 +185,44 @@ async function dismissStartupDialogs(driver: WdBrowser): Promise<void> {
     await driver.saveScreenshot('./test-results/android_explore_failed.png');
   }
   
-  // Dismiss cookie consent popup using exact XPath
+  // Dismiss cookie consent popup - try coordinate tap FIRST (most reliable)
   console.log('🍪 Checking for cookie consent popup...');
   
   let cookieDismissed = false;
+  const screenSize = getScreenSize();
   
-  // Method 1: Use exact XPath from Appium Inspector (most reliable)
+  // Method 1: Coordinate tap (PRIMARY - most reliable for this button)
+  const acceptBtnY = Math.round(screenSize.height * 0.78);
+  const acceptBtnX = Math.round(screenSize.width * 0.5);
+  
+  console.log(`  Trying coordinate tap at (${acceptBtnX}, ${acceptBtnY})`);
+  adbTap(acceptBtnX, acceptBtnY);
+  await driver.pause(2000);
+  
+  // Check if it worked
   try {
-    const acceptBtn = await driver.$(`//android.widget.Button[@resource-id="com.dazn:id/btn_accept_cookies"]`);
-    if (await acceptBtn.isDisplayed()) {
+    const homeText = await driver.$(`android=new UiSelector().textContains("Home")`);
+    if (await homeText.isDisplayed()) {
+      console.log('✅ Cookie popup dismissed (coordinate tap)');
+      cookieDismissed = true;
+    }
+  } catch (e) {}
+  
+  // Method 2: Try exact XPath if coordinate didn't work
+  if (!cookieDismissed) {
+    try {
+      const acceptBtn = await driver.$(`//android.widget.Button[@resource-id="com.dazn:id/btn_accept_cookies"]`);
+      await acceptBtn.waitForDisplayed({ timeout: 3000 });
       await acceptBtn.click();
       console.log('✅ Cookie popup dismissed (exact XPath)');
       cookieDismissed = true;
       await driver.pause(1500);
-    }
-  } catch (e) {
-    console.log('  Exact XPath not found, trying text methods...');
-  }
-  
-  // Method 2: Try finding Accept button using textContains
-  if (!cookieDismissed) {
-    for (let cookieAttempt = 0; cookieAttempt < 3; cookieAttempt++) {
-      await driver.pause(500);
-      
-      try {
-        const acceptBtn = await driver.$(`android=new UiSelector().textContains("Accept")`);
-        if (await acceptBtn.isDisplayed()) {
-          await acceptBtn.click();
-          console.log('✅ Cookie popup dismissed (textContains)');
-          cookieDismissed = true;
-          await driver.pause(1500);
-          break;
-        }
-      } catch (e) {}
+    } catch (e) {
+      console.log('  XPath failed, trying text methods...');
     }
   }
   
-  // Method 3: Try exact button texts
+  // Method 3: Try text-based methods
   if (!cookieDismissed) {
     const cookieButtons = ['Accept', 'Essential cookies only', 'Got it', 'OK'];
     
@@ -237,17 +238,6 @@ async function dismissStartupDialogs(driver: WdBrowser): Promise<void> {
         }
       } catch (e) {}
     }
-  }
-  
-  // Method 4: Coordinate fallback
-  if (!cookieDismissed) {
-    const screenSize = getScreenSize();
-    const acceptBtnY = Math.round(screenSize.height * 0.78);
-    const acceptBtnX = Math.round(screenSize.width * 0.5);
-    
-    console.log(`  Trying coordinate tap at (${acceptBtnX}, ${acceptBtnY})`);
-    adbTap(acceptBtnX, acceptBtnY);
-    await driver.pause(1500);
   }
   
   await driver.$(`android=new UiSelector().textContains("Home")`)
@@ -656,62 +646,111 @@ describe('DAZN Android PPV → Web Handoff', () => {
       throw new Error(`❌ Could not tap Buy CTA. SOURCE="${SOURCE}". See test-results/android_buy_not_found.png`);
     }
 
-    await driver.pause(3000);
-    await driver.saveScreenshot('./test-results/android_buy_tapped.png');
     console.log('\n⏳ Waiting for Chrome Custom Tab to open...');
+    await driver.pause(5000);  // Wait longer for Chrome to open
+    await driver.saveScreenshot('./test-results/android_after_buy_click.png');
+    
+    // Check if Chrome opened by looking for Chrome UI
+    console.log('  Checking if Chrome opened...');
+    const chromeSigns = ['Address', 'Search', 'dazn.com', 'https://'];
+    let chromeOpened = false;
+    
+    for (const sign of chromeSigns) {
+      if (await isVisible(driver, sign, 2000)) {
+        console.log(`  ✅ Chrome opened (found: ${sign})`);
+        chromeOpened = true;
+        break;
+      }
+    }
+    
+    if (!chromeOpened) {
+      console.log('  ⚠️ Chrome may not have opened. Checking current activity...');
+      const currentActivity = adb('shell dumpsys window | grep mCurrentFocus');
+      console.log(`  Current activity: ${currentActivity}`);
+    }
 
     // ── Step 3: Capture checkout URL from Chrome Custom Tab ───────────────
     console.log('📋 Capturing checkout URL...');
+    await driver.saveScreenshot('./test-results/android_chrome_opened.png');
     
     let checkoutUrl = '';
     
+    // Wait for Chrome to fully load
+    await driver.pause(3000);
+    
     // Method 1: Switch to WebView context (most reliable)
-    console.log('  Trying WebView context...');
+    console.log('  Method 1: Trying WebView context...');
     try {
       const contexts = await driver.getContexts();
+      console.log(`  Available contexts: ${contexts.join(', ')}`);
+      
       const webContext = contexts.find((c: string) => 
         c.includes('WEBVIEW') || c.includes('CHROMIUM') || c.includes('CDP')
       );
       
       if (webContext) {
+        console.log(`  Switching to context: ${webContext}`);
         await driver.switchContext(webContext);
+        await driver.pause(1000);
         checkoutUrl = await driver.getUrl();
         console.log(`  WebView URL: ${checkoutUrl}`);
         if (checkoutUrl && checkoutUrl.includes('dazn.com')) {
           console.log('✅ URL captured from WebView context');
         }
         await driver.switchContext('NATIVE_APP');
+      } else {
+        console.log('  No WebView context found');
       }
     } catch (e) {
-      console.log('  WebView context failed');
+      console.log(`  WebView context failed: ${e.message}`);
     }
     
-    // Method 2: Get URL from Chrome UI dump
+    // Method 2: Get URL from Chrome UI dump (try multiple times)
     if (!checkoutUrl || !checkoutUrl.includes('dazn.com')) {
-      console.log('  Trying Chrome UI dump...');
-      checkoutUrl = getChromeUrl();
-      if (checkoutUrl && checkoutUrl.includes('dazn.com')) {
-        console.log('✅ URL captured from Chrome UI dump');
-      }
-    }
-    
-    // Method 3: Get URL from text field on screen
-    if (!checkoutUrl || !checkoutUrl.includes('dazn.com')) {
-      console.log('  Trying text field...');
-      try {
-        const urlField = await driver.$(`android=new UiSelector().textContains("dazn.com")`);
-        if (await urlField.isDisplayed()) {
-          checkoutUrl = await urlField.getText();
-          console.log('✅ URL captured from text field');
+      console.log('  Method 2: Trying Chrome UI dump...');
+      for (let i = 0; i < 3; i++) {
+        await driver.pause(1000);
+        checkoutUrl = getChromeUrl();
+        if (checkoutUrl && checkoutUrl.includes('dazn.com')) {
+          console.log('✅ URL captured from Chrome UI dump');
+          break;
         }
-      } catch (e) {
-        console.log('  Text field method failed');
       }
+    }
+    
+    // Method 3: Get URL from text field on screen (try multiple times)
+    if (!checkoutUrl || !checkoutUrl.includes('dazn.com')) {
+      console.log('  Method 3: Trying text field on screen...');
+      for (let i = 0; i < 5; i++) {
+        await driver.pause(500);
+        try {
+          const urlField = await driver.$(`android=new UiSelector().textContains("dazn.com")`);
+          if (await urlField.isDisplayed()) {
+            checkoutUrl = await urlField.getText();
+            console.log('✅ URL captured from text field');
+            break;
+          }
+        } catch (e) {
+          // Continue trying
+        }
+      }
+    }
+    
+    // Method 4: Try to find URL in any visible text
+    if (!checkoutUrl || !checkoutUrl.includes('dazn.com')) {
+      console.log('  Method 4: Searching for URL in visible elements...');
+      try {
+        const allText = await driver.$(`android=new UiSelector().className("android.widget.TextView")`);
+        // This is a long shot but worth trying
+      } catch (e) {}
     }
     
     if (!checkoutUrl || !checkoutUrl.includes('dazn.com')) {
       await driver.saveScreenshot('./test-results/android_url_not_found.png');
-      throw new Error(`❌ Could not capture checkout URL from paywall.\n   See test-results/android_url_not_found.png`);
+      console.log('❌ All URL capture methods failed');
+      console.log('   Screenshot saved to: test-results/android_url_not_found.png');
+      console.log('   Chrome screenshot saved to: test-results/android_chrome_opened.png');
+      throw new Error(`❌ Could not capture checkout URL from paywall.\n   Check screenshots in test-results/`);
     }
 
     console.log(`\n🌐 Checkout URL captured:\n   ${checkoutUrl}\n`);
