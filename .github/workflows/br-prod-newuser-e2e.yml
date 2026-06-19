@@ -1,4 +1,4 @@
-name: GB PROD PPV Regression
+name: BR PROD New User End-to-End Flows
 
 on:
   workflow_dispatch:
@@ -71,7 +71,7 @@ jobs:
     env:
       CI: 'true'
       HEADLESS: 'true'
-      DAZN_REGION: GB
+      DAZN_REGION: BR
       DAZN_ENV: prod
       SOURCE: ${{ matrix.source }}
       PLAN: ${{ matrix.plan }}
