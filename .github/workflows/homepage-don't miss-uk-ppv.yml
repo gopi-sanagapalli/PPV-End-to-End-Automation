@@ -65,15 +65,13 @@ env:
   SWITCH: ${{ inputs.SWITCH }}
 
 steps:
-  - name: Checkout repository
-    uses: actions/checkout@v4
+  - uses: actions/checkout@v4
     with:
       fetch-depth: 1
 
   - name: Show Runner
     run: |
       echo "Runner: $RUNNER_NAME"
-      echo "OS: $RUNNER_OS"
       hostname
 
   - name: Verify Node
@@ -96,15 +94,5 @@ steps:
     with:
       name: playwright-report-prod-${{ matrix.plan }}
       path: playwright-report/
-      if-no-files-found: ignore
-
-  - name: Upload Results
-    if: failure()
-    uses: actions/upload-artifact@v4
-    with:
-      name: test-results-prod-${{ matrix.plan }}
-      path: |
-        test-results/
-        reports/
       if-no-files-found: ignore
 ```
