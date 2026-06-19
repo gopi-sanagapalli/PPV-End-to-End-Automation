@@ -1,4 +1,4 @@
-name: Existing User E2E - Sign In During Flow - BR - PROD
+name: Existing User E2E - Sign In During Flow - GB - PROD
 
 on:
   workflow_dispatch:
@@ -31,7 +31,7 @@ permissions:
 
 jobs:
   prod:
-    name: ${{ matrix.source }} | ${{ matrix.user_state }}
+    name: ${{ matrix.source }} | ${{ matrix.user_state }} | ${{ matrix.plan }}
 
     runs-on:
       - self-hosted
@@ -70,11 +70,42 @@ jobs:
           - schedule
           - myaccount
 
-        user_state:
-          - freemium
-          - frozen
-          - active_standard
-          - active_ultimate
+        include:
+          - user_state: freemium
+            plan: standard_monthly
+          - user_state: freemium
+            plan: standard_apm
+          - user_state: freemium
+            plan: ultimate_apm
+          - user_state: freemium
+            plan: ultimate_upfront
+
+          - user_state: frozen
+            plan: standard_monthly
+          - user_state: frozen
+            plan: standard_apm
+          - user_state: frozen
+            plan: ultimate_apm
+          - user_state: frozen
+            plan: ultimate_upfront
+
+          - user_state: active_standard
+            plan: standard_monthly
+          - user_state: active_standard
+            plan: standard_apm
+          - user_state: active_standard
+            plan: ultimate_apm
+          - user_state: active_standard
+            plan: ultimate_upfront
+
+          - user_state: active_ultimate
+            plan: standard_monthly
+          - user_state: active_ultimate
+            plan: standard_apm
+          - user_state: active_ultimate
+            plan: ultimate_apm
+          - user_state: active_ultimate
+            plan: ultimate_upfront
 
     env:
       CI: 'true'
@@ -84,6 +115,7 @@ jobs:
       LOGIN_FIRST: 'false'
       SOURCE: ${{ matrix.source }}
       USER_STATE: ${{ matrix.user_state }}
+      PLAN: ${{ matrix.plan }}
       PPV_CONFIG: ${{ inputs.PPV_CONFIG }}
       PAYMENT_METHOD: ${{ inputs.PAYMENT_METHOD }}
       SWITCH: ${{ inputs.SWITCH }}
