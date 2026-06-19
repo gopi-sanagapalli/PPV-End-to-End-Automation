@@ -204,30 +204,53 @@ async function findPPVBanner(driver: WdBrowser): Promise<boolean> {
 async function navigateToSchedule(driver: WdBrowser): Promise<void> {
   console.log('📅 Navigating to Schedule tab...');
   
+  // Method 1: Find Schedule by text label (most reliable)
   try {
-    const scheduleTab = await driver.$(
-      `(//android.widget.ImageView[@resource-id="com.dazn:id/navigation_bar_item_icon_view"])[4]`
-    );
-    if (await scheduleTab.isDisplayed()) {
-      await scheduleTab.click();
+    const scheduleText = await driver.$(`android=new UiSelector().text("Schedule")`);
+    if (await scheduleText.isDisplayed()) {
+      await scheduleText.click();
       await driver.pause(3000);
-      console.log('✅ Schedule tab clicked (XPath)');
+      console.log('✅ Schedule tab clicked (by text)');
       return;
     }
   } catch (e) {
-    console.log('  XPath not found, trying UiSelector...');
+    console.log('  Text not found, trying XPath...');
   }
   
+  // Method 2: Find Schedule tab icon by checking all nav items
   try {
     const navItems = await driver.$$(`android=new UiSelector().resourceId("com.dazn:id/navigation_bar_item_icon_view")`);
-    if (navItems.length >= 4) {
-      await navItems[3].click();
+    console.log(`  Found ${navItems.length} navigation items`);
+    
+    // Check each nav item to find Schedule
+    for (let i = 0; i < Math.min(navItems.length, 5); i++) {
+      try {
+        const item = navItems[i];
+        const parent = await item.$(`//..`);
+        const textEl = await parent.$(`android=new UiSelector().text("Schedule")`);
+        if (await textEl.isDisplayed()) {
+          await item.click();
+          await driver.pause(3000);
+          console.log(`✅ Schedule tab clicked (nav item ${i + 1})`);
+          return;
+        }
+      } catch (e) {}
+    }
+  } catch (e) {
+    console.log('  Nav items method failed...');
+  }
+  
+  // Method 3: Try clicking 3rd item (Schedule is now 3rd, not 4th)
+  try {
+    const navItems = await driver.$$(`android=new UiSelector().resourceId("com.dazn:id/navigation_bar_item_icon_view")`);
+    if (navItems.length >= 3) {
+      await navItems[2].click();  // 3rd item (index 2)
       await driver.pause(3000);
-      console.log('✅ Schedule tab clicked (4th nav item)');
+      console.log('✅ Schedule tab clicked (3rd nav item)');
       return;
     }
   } catch (e) {
-    console.log('  UiSelector fallback failed...');
+    console.log('  3rd item method failed...');
   }
   
   console.log('⚠️  Could not click Schedule tab');
