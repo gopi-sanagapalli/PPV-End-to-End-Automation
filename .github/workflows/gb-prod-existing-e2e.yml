@@ -45,21 +45,30 @@ jobs:
       max-parallel: 4
       matrix:
         source:
-          - home-page-get-started
           - landing-page-banner
           - landing-page-dont-miss-live
-          - boxing-page-banner
-          - boxing-page-bundle
-          - boxing-upcoming-fights
-          - home-boxing-banner
-          - home-boxing-tile
-          - home-boxing-upcoming
-          - search
-          - schedule
-          - home-kickboxing-tile
+
           - home-page-banner
           - home-page-dont-miss
           - home-biggest-fights
+          - home-page-dazntile
+
+          - home-boxing-banner
+          - home-boxing-tile
+          - home-boxing-upcoming
+          - home-kickboxing-tile
+
+          - boxing-page-banner
+          - boxing-page-bundle
+          - boxing-upcoming-fights
+          - boxing-banner-ultimate
+          - boxing-ultimate-subscription
+          - boxing-standard-subscription
+          - boxing-join-the-club
+
+          - search
+          - schedule
+          - myaccount
 
         user_state:
           - freemium
