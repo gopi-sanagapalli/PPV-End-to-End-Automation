@@ -185,29 +185,42 @@ async function dismissStartupDialogs(driver: WdBrowser): Promise<void> {
     await driver.saveScreenshot('./test-results/android_explore_failed.png');
   }
   
-  // Dismiss cookie consent popup IMMEDIATELY (check multiple times)
+  // Dismiss cookie consent popup (check multiple times)
   console.log('🍪 Checking for cookie consent popup...');
   
-  for (let cookieAttempt = 0; cookieAttempt < 3; cookieAttempt++) {
+  let cookieDismissed = false;
+  
+  for (let cookieAttempt = 0; cookieAttempt < 5; cookieAttempt++) {
     await driver.pause(500);
     
-    const cookieButtons = ['Accept', 'Got it', 'OK', 'I agree', 'Accept all', 'Allow all', 'Accept cookies', 'Continue'];
-    let cookieDismissed = false;
+    // Try exact button texts from the cookie popup
+    const cookieButtons = ['Accept', 'Essential cookies only', 'Got it', 'OK', 'I agree', 'Accept all', 'Allow all', 'Accept cookies', 'Continue'];
     
     for (const buttonText of cookieButtons) {
       try {
-        const cookieBtn = await driver.$(`android=new UiSelector().textContains("${buttonText}")`);
+        const cookieBtn = await driver.$(`android=new UiSelector().text("${buttonText}")`);
         if (await cookieBtn.isDisplayed()) {
           await cookieBtn.click();
           console.log(`✅ Cookie popup dismissed (clicked "${buttonText}")`);
           cookieDismissed = true;
-          await driver.pause(1000);
+          await driver.pause(1500);
           break;
         }
       } catch (e) {}
     }
     
     if (cookieDismissed) break;
+  }
+  
+  // Also try clicking Accept button by coordinates (it's usually at the bottom)
+  if (!cookieDismissed) {
+    const screenSize = getScreenSize();
+    const acceptBtnY = Math.round(screenSize.height * 0.78);  // Accept button position
+    const acceptBtnX = Math.round(screenSize.width * 0.5);     // Center
+    
+    console.log(`  Trying coordinate tap for Accept button at (${acceptBtnX}, ${acceptBtnY})`);
+    adbTap(acceptBtnX, acceptBtnY);
+    await driver.pause(1500);
   }
   
   await driver.$(`android=new UiSelector().textContains("Home")`)
