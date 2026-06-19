@@ -1,4 +1,4 @@
-name: UK home page don't miss PPV New User
+name: AU Schedule PPV New User
 
 on:
 workflow_dispatch:
@@ -46,6 +46,7 @@ timeout-minutes: 10
 strategy:
   fail-fast: false
   max-parallel: 4
+
   matrix:
     plan:
       - standard_monthly
@@ -56,22 +57,24 @@ strategy:
 env:
   CI: 'true'
   HEADLESS: 'true'
-  DAZN_REGION: UK
+  DAZN_REGION: AU
   DAZN_ENV: prod
-  SOURCE: home-page-dont-miss
+  SOURCE: schedule
   PLAN: ${{ matrix.plan }}
   PPV_CONFIG: ${{ inputs.PPV_CONFIG }}
   PAYMENT_METHOD: ${{ inputs.PAYMENT_METHOD }}
   SWITCH: ${{ inputs.SWITCH }}
 
 steps:
-  - uses: actions/checkout@v4
+  - name: Checkout repository
+    uses: actions/checkout@v4
     with:
       fetch-depth: 1
 
   - name: Show Runner
     run: |
       echo "Runner: $RUNNER_NAME"
+      echo "OS: $RUNNER_OS"
       hostname
 
   - name: Verify Node
@@ -94,5 +97,15 @@ steps:
     with:
       name: playwright-report-prod-${{ matrix.plan }}
       path: playwright-report/
+      if-no-files-found: ignore
+
+  - name: Upload Results
+    if: failure()
+    uses: actions/upload-artifact@v4
+    with:
+      name: test-results-prod-${{ matrix.plan }}
+      path: |
+        test-results/
+        reports/
       if-no-files-found: ignore
 ```
