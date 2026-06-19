@@ -669,58 +669,37 @@ describe('DAZN Android PPV → Web Handoff', () => {
       console.log(`  Current activity: ${currentActivity}`);
     }
 
-    // ── Step 3: Capture checkout URL from Chrome Custom Tab ───────────────
-    console.log('📋 Capturing checkout URL...');
-    await driver.saveScreenshot('./test-results/android_chrome_opened.png');
+    // ── Step 3: Capture checkout URL from paywall screen ──────────────────
+    console.log('📋 Capturing checkout URL from paywall...');
+    await driver.saveScreenshot('./test-results/android_paywall_screen.png');
     
     let checkoutUrl = '';
     
-    // Wait for Chrome to fully load
-    await driver.pause(3000);
-    
-    // Method 1: Switch to WebView context (most reliable)
-    console.log('  Method 1: Trying WebView context...');
+    // Method 1: Click Copy button and get URL from clipboard
+    console.log('  Method 1: Clicking Copy button and reading clipboard...');
     try {
-      const contexts = await driver.getContexts();
-      console.log(`  Available contexts: ${contexts.join(', ')}`);
-      
-      const webContext = contexts.find((c: string) => 
-        c.includes('WEBVIEW') || c.includes('CHROMIUM') || c.includes('CDP')
-      );
-      
-      if (webContext) {
-        console.log(`  Switching to context: ${webContext}`);
-        await driver.switchContext(webContext);
+      // Click the Copy button using exact XPath from Appium Inspector
+      const copyBtn = await driver.$(`//android.widget.TextView[@text="Copy"]`);
+      if (await copyBtn.isDisplayed()) {
+        await copyBtn.click();
+        console.log('  ✅ Clicked Copy button');
         await driver.pause(1000);
-        checkoutUrl = await driver.getUrl();
-        console.log(`  WebView URL: ${checkoutUrl}`);
+        
+        // Read URL from clipboard using ADB
+        checkoutUrl = adb('shell am clipht get');
+        console.log(`  Clipboard content: ${checkoutUrl.substring(0, 100)}...`);
+        
         if (checkoutUrl && checkoutUrl.includes('dazn.com')) {
-          console.log('✅ URL captured from WebView context');
+          console.log('✅ URL captured from clipboard');
         }
-        await driver.switchContext('NATIVE_APP');
-      } else {
-        console.log('  No WebView context found');
       }
     } catch (e) {
-      console.log(`  WebView context failed: ${e.message}`);
+      console.log(`  Copy button method failed: ${e.message}`);
     }
     
-    // Method 2: Get URL from Chrome UI dump (try multiple times)
+    // Method 2: Get URL from text field on screen (try multiple times)
     if (!checkoutUrl || !checkoutUrl.includes('dazn.com')) {
-      console.log('  Method 2: Trying Chrome UI dump...');
-      for (let i = 0; i < 3; i++) {
-        await driver.pause(1000);
-        checkoutUrl = getChromeUrl();
-        if (checkoutUrl && checkoutUrl.includes('dazn.com')) {
-          console.log('✅ URL captured from Chrome UI dump');
-          break;
-        }
-      }
-    }
-    
-    // Method 3: Get URL from text field on screen (try multiple times)
-    if (!checkoutUrl || !checkoutUrl.includes('dazn.com')) {
-      console.log('  Method 3: Trying text field on screen...');
+      console.log('  Method 2: Trying to read URL from screen...');
       for (let i = 0; i < 5; i++) {
         await driver.pause(500);
         try {
@@ -736,20 +715,20 @@ describe('DAZN Android PPV → Web Handoff', () => {
       }
     }
     
-    // Method 4: Try to find URL in any visible text
+    // Method 3: Get URL from UI dump
     if (!checkoutUrl || !checkoutUrl.includes('dazn.com')) {
-      console.log('  Method 4: Searching for URL in visible elements...');
-      try {
-        const allText = await driver.$(`android=new UiSelector().className("android.widget.TextView")`);
-        // This is a long shot but worth trying
-      } catch (e) {}
+      console.log('  Method 3: Trying UI dump...');
+      checkoutUrl = getChromeUrl();
+      if (checkoutUrl && checkoutUrl.includes('dazn.com')) {
+        console.log('✅ URL captured from UI dump');
+      }
     }
     
     if (!checkoutUrl || !checkoutUrl.includes('dazn.com')) {
       await driver.saveScreenshot('./test-results/android_url_not_found.png');
       console.log('❌ All URL capture methods failed');
       console.log('   Screenshot saved to: test-results/android_url_not_found.png');
-      console.log('   Chrome screenshot saved to: test-results/android_chrome_opened.png');
+      console.log('   Paywall screenshot saved to: test-results/android_paywall_screen.png');
       throw new Error(`❌ Could not capture checkout URL from paywall.\n   Check screenshots in test-results/`);
     }
 
