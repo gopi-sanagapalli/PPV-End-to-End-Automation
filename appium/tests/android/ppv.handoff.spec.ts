@@ -188,6 +188,31 @@ async function dismissStartupDialogs(driver: WdBrowser): Promise<void> {
   await driver.$(`android=new UiSelector().textContains("Home")`)
     .waitForDisplayed({ timeout: 20000 })
     .catch(() => console.log('  ⚠️ Home text not found — continuing'));
+  
+  // Dismiss cookie consent popup if present
+  console.log('🍪 Checking for cookie consent popup...');
+  await driver.pause(1000);
+  
+  const cookieButtons = ['Accept', 'Got it', 'OK', 'I agree', 'Accept all', 'Allow all'];
+  let cookieDismissed = false;
+  
+  for (const buttonText of cookieButtons) {
+    try {
+      const cookieBtn = await driver.$(`android=new UiSelector().textContains("${buttonText}")`);
+      if (await cookieBtn.isDisplayed()) {
+        await cookieBtn.click();
+        console.log(`✅ Cookie popup dismissed (clicked "${buttonText}")`);
+        cookieDismissed = true;
+        await driver.pause(1000);
+        break;
+      }
+    } catch (e) {}
+  }
+  
+  if (!cookieDismissed) {
+    console.log('  No cookie popup found or already dismissed');
+  }
+  
   console.log('✅ App loaded\n');
 }
 
