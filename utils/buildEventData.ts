@@ -339,7 +339,21 @@ export function buildEventData(
   if (regional.DAZN_TIER           ?? merged.DAZN_TIER)           base.DAZN_TIER           = regional.DAZN_TIER           ?? merged.DAZN_TIER;
 
   // Resolve userState values from central userstatus.json file
-  const userStateKey = process.env.USER_STATE || 'freemium';
+  
+const userStateKey = process.env.USER_STATE || 'freemium';
+
+const isActiveStandard = [
+  'active_standard',
+  'active_standard_monthly',
+  'active_standard_apm',
+].includes(userStateKey);
+
+const isActiveUltimate = [
+  'active_ultimate',
+  'active_ultimate_apm',
+  'active_ultimate_upfront',
+].includes(userStateKey);
+
   const userStatesPath = path.resolve(process.cwd(), 'config/userstatus.json');
   let userStates: Record<string, any> = {};
   if (fs.existsSync(userStatesPath)) {
@@ -379,7 +393,7 @@ export function buildEventData(
 
   // Ultimate entitlement logic: active_ultimate on included PPVs is Purchased, otherwise Buy now.
   let ppvStatus = base.PPV_STATUS || "Buy now";
-  if (userStateKey === 'active_ultimate') {
+  if (isActiveUltimate) {
     const ppvType = merged.PPV_TYPE || json.PPV_TYPE;
     if (ppvType === 'included') {
       ppvStatus = 'Purchased';
@@ -390,7 +404,7 @@ export function buildEventData(
   base.PPV_STATUS = ppvStatus;
 
   // Active standard user: Choose How To Buy page shows different feature text
-  if (userStateKey === 'active_standard') {
+  if (isActiveStandard) {
     base.UPSELL_FEATURE_1 = 'Pay-per-views included at no extra cost. Minimum of 12 events per year.';
     base.UPSELL_FEATURE_2 = "185+ fights a year from the best promoters.|185+ fights a year from the best promotors.|185+ fights a year from the world's best promoters.";
     base.UPSELL_FEATURE_3 = "HDR and Dolby 5.1 surround sound on select events.";
@@ -459,7 +473,7 @@ export function buildEventData(
   }
 
   // Active standard user: CTA must be set AFTER directFields to avoid being clobbered
-  if (userStateKey === 'active_standard') {
+  if (isActiveStandard) {
     base.PPV_CTA_TEXT = `Continue with ${base.PPV_NAME} only|Continue with pay-per-view`;
   }
 

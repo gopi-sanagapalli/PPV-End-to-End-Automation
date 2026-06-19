@@ -84,7 +84,21 @@ test('PPV flow via existing user my account', async ({ browser }) => {
     }
   }
 
-  const userStateKey = process.env.USER_STATE || 'freemium';
+  
+const userStateKey = process.env.USER_STATE || 'freemium';
+
+const isActiveStandard = [
+  'active_standard',
+  'active_standard_monthly',
+  'active_standard_apm',
+].includes(userStateKey);
+
+const isActiveUltimate = [
+  'active_ultimate',
+  'active_ultimate_apm',
+  'active_ultimate_upfront',
+].includes(userStateKey);
+
 
   // Compute dynamic future date variables
   const futureDate = new Date();
@@ -585,7 +599,7 @@ test('PPV flow via existing user my account', async ({ browser }) => {
       console.log(`📍 Landed after Buy Now: ${page.url()}`);
 
       // ── STRICT VALIDATION FOR ULTIMATE USER PRE-LOGGED IN ──
-      if (userStateKey === 'active_ultimate' && requiresPreLogin) {
+      if (isActiveUltimate && requiresPreLogin) {
         console.log('⏳ [Ultimate User] Waiting for redirection to fixture page...');
         await page.waitForURL(
           (url: URL) =>
@@ -842,10 +856,10 @@ test('PPV flow via existing user my account', async ({ browser }) => {
       if (userStateKey === 'freemium' || userStateKey === 'frozen') {
         eventData.DAZN_TIER = 'DAZN Free';
         eventData['DAZN_TIER'] = 'DAZN Free';
-      } else if (userStateKey === 'active_standard') {
+      } else if (isActiveStandard) {
         eventData.DAZN_TIER = 'DAZN Standard';
         eventData['DAZN_TIER'] = 'DAZN Standard';
-      } else if (userStateKey === 'active_ultimate') {
+      } else if (isActiveUltimate) {
         eventData.DAZN_TIER = 'DAZN Ultimate';
         eventData['DAZN_TIER'] = 'DAZN Ultimate';
       }
@@ -1023,7 +1037,7 @@ test('PPV flow via existing user my account', async ({ browser }) => {
         return; // ← Exit early — no purchase flow needed
       }
 
-      if (tier === 'ultimate' && userStateKey === 'active_ultimate') {
+      if (tier === 'ultimate' && isActiveUltimate) {
         console.log('\n💎 Ultimate tier — checking PPV status...');
 
         await myAccountPage.scrollToPPVSection();
@@ -1251,7 +1265,7 @@ test('PPV flow via existing user my account', async ({ browser }) => {
 
     const isChooseHowToBuy =
       isMyAccount &&
-      userStateKey === 'active_standard' &&
+      isActiveStandard &&
       (postClickUrl.includes('upsellTierShown=true') ||
         postClickUrl.includes('/addon/purchase') ||  // ← US active standard
         bodyText.includes('choose how to buy')) &&
@@ -1559,7 +1573,7 @@ test('PPV flow via existing user my account', async ({ browser }) => {
             await clickAndWaitForNav(page, continueBtn, 'Email Continue');
           }
 
-          if (signedIn && userStateKey === 'active_ultimate') {
+          if (signedIn && isActiveUltimate) {
             console.log('⏳ [Ultimate User Login] Waiting for post-login redirection to fixture page...');
             await page.waitForURL(
               (url: URL) =>
