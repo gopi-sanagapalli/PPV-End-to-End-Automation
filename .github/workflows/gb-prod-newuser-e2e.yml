@@ -56,7 +56,6 @@ jobs:
           - home-boxing-upcoming
           - search
           - schedule
-          - myaccount
           - home-kickboxing-tile
           - home-page-banner
           - home-page-dont-miss
