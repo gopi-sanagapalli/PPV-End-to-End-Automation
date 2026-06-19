@@ -31,7 +31,7 @@ permissions:
 
 jobs:
   prod:
-    name: ${{ matrix.source }} | ${{ matrix.plan }}
+    name: ${{ matrix.source }} | ${{ matrix.user_state }}
 
     runs-on:
       - self-hosted
@@ -119,7 +119,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report-prod-${{ matrix.plan }}
+          name: playwright-report-prod-${{ matrix.source }}-${{ matrix.user_state }}
           path: playwright-report/
           if-no-files-found: ignore
 
@@ -127,7 +127,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-results-prod-${{ matrix.plan }}
+          name: test-results-prod-${{ matrix.source }}-${{ matrix.user_state }}
           path: |
             test-results/
             reports/
