@@ -495,9 +495,9 @@ async function runFlow(
       console.log(`✅ [boxing-ultimate-subscription] Successfully redirected to plan selection page. URL: ${subUrl}`);
     }
 
-    // ── STRICT VALIDATION FOR BOXING-STANDARD-SUBSCRIPTION REDIRECT ──
-    if (source === 'boxing-standard-subscription') {
-      console.log('\n🔍 Validating boxing-standard-subscription redirect...');
+    // ── STRICT VALIDATION FOR BOXING-STANDARD-SUBSCRIPTION / HOME-PAGE-GET-STARTED / HOME-PAGE-DAZNTILE REDIRECT ──
+    if (source === 'boxing-standard-subscription' || source === 'home-page-get-started' || source === 'home-page-dazntile') {
+      console.log(`\n🔍 Validating ${source} redirect...`);
       await page.waitForFunction(() => {
         const href = window.location.href.toLowerCase();
         const text = document.body.innerText.toLowerCase();
@@ -514,20 +514,20 @@ async function runFlow(
       // Must NOT land on PPV page
       if (stdBody.toLowerCase().includes('to watch your pay-per-view') &&
         !stdUrl.includes('PlanDetails') && !stdUrl.includes('TierPlans')) {
-        throw new Error('❌ [boxing-standard-subscription] Unexpectedly redirected to PPV page — expected PlanDetails (Standard).');
+        throw new Error(`❌ [${source}] Unexpectedly redirected to PPV page — expected PlanDetails (Standard).`);
       }
 
       if (!stdUrl.includes('PlanDetails') && !stdUrl.includes('TierPlans')) {
-        throw new Error(`❌ [boxing-standard-subscription] Expected to land on PlanDetails or TierPlans (Standard), but landed on: ${stdUrl}`);
+        throw new Error(`❌ [${source}] Expected to land on PlanDetails or TierPlans (Standard), but landed on: ${stdUrl}`);
       }
 
       // defaultSignup=true means the plan page should contain a PPV option ("subscribe without a pay-per-view").
       // If it's absent, no PPV exists for this event — fail the test.
       if (!stdBody.toLowerCase().includes('subscribe without a pay-per-view')) {
-        throw new Error(`❌ [boxing-standard-subscription] Landed on plan page but no PPV option found ("subscribe without a pay-per-view" absent). No PPV exists for this event.\nURL: ${stdUrl}`);
+        throw new Error(`❌ [${source}] Landed on plan page but no PPV option found ("subscribe without a pay-per-view" absent). No PPV exists for this event.\nURL: ${stdUrl}`);
       }
 
-      console.log('✅ [boxing-standard-subscription] Successfully redirected to plan selection page with PPV option.');
+      console.log(`✅ [${source}] Successfully redirected to plan selection page with PPV option.`);
     }
 
     // ── STRICT VALIDATION FOR BOXING-JOIN-THE-CLUB REDIRECT ──
@@ -1624,116 +1624,129 @@ test('PPV flow for new user', async ({ browser }) => {
   test.setTimeout(PPV_TYPE === 'upsell' ? 300_000 : 180_000);
   const runStart = new Date();
 
-  const json = loadEventConfig(EVENT_CONFIG);
+  try {
+    const json = loadEventConfig(EVENT_CONFIG);
 
-  const plansPath = path.resolve(process.cwd(), 'config/DaznPlan.json');
-  const plans = JSON.parse(fs.readFileSync(plansPath, 'utf-8'));
-  const planData = plans[PLAN];
-  if (!planData) {
-    throw new Error(`❌ Plan "${PLAN}" not found in DaznPlan.json`);
-  }
+    const plansPath = path.resolve(process.cwd(), 'config/DaznPlan.json');
+    const plans = JSON.parse(fs.readFileSync(plansPath, 'utf-8'));
+    const planData = plans[PLAN];
+    if (!planData) {
+      throw new Error(`❌ Plan "${PLAN}" not found in DaznPlan.json`);
+    }
 
-  const sourcesPath = path.resolve(process.cwd(), 'config/surfacingpoint.json');
-  const sources = JSON.parse(fs.readFileSync(sourcesPath, 'utf-8'));
-  const srcConfig = sources[SOURCE];
-  if (!srcConfig) {
-    throw new Error(`❌ Source "${SOURCE}" not found in surfacingpoint.json`);
-  }
+    const sourcesPath = path.resolve(process.cwd(), 'config/surfacingpoint.json');
+    const sources = JSON.parse(fs.readFileSync(sourcesPath, 'utf-8'));
+    const srcConfig = sources[SOURCE];
+    if (!srcConfig) {
+      throw new Error(`❌ Source "${SOURCE}" not found in surfacingpoint.json`);
+    }
 
-  const planTier = (planData.TIER || 'standard').toLowerCase();
-  const isUltimate = planTier === 'ultimate';
-  const isUSorGB = REGION === 'GB' || REGION === 'US';
-  // Dev mode: bypass phone number on ultimate flows in GB/US.
-  // Enabled on all environments (including prod) when tier is ultimate.
-  const devMode = (isUltimate && isUSorGB) || (!!srcConfig.enableDevMode);
-  const endPage = srcConfig.endPage || 'payment';
-  if (srcConfig.defaultSignup) {
-    process.env.DEFAULT_SIGNUP = 'true';
-  }
+    const planTier = (planData.TIER || 'standard').toLowerCase();
+    const isUltimate = planTier === 'ultimate';
+    const isUSorGB = REGION === 'GB' || REGION === 'US';
+    // Dev mode: bypass phone number on ultimate flows in GB/US.
+    // Enabled on all environments (including prod) when tier is ultimate.
+    const devMode = (isUltimate && isUSorGB) || (!!srcConfig.enableDevMode);
+    const endPage = srcConfig.endPage || 'payment';
+    if (srcConfig.defaultSignup) {
+      process.env.DEFAULT_SIGNUP = 'true';
+    }
 
-  const planName = (planData.RATE_PLAN || 'monthly').toLowerCase() === 'monthly'
-    ? 'Flex Monthly'
-    : ((planData.RATE_PLAN || '').toLowerCase().includes('upfront') ? 'APU' : 'APM');
-  const tierName = planTier.charAt(0).toUpperCase() + planTier.slice(1);
-  const srcLabel = SOURCE.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    const planName = (planData.RATE_PLAN || 'monthly').toLowerCase() === 'monthly'
+      ? 'Flex Monthly'
+      : ((planData.RATE_PLAN || '').toLowerCase().includes('upfront') ? 'APU' : 'APM');
+    const tierName = planTier.charAt(0).toUpperCase() + planTier.slice(1);
+    const srcLabel = SOURCE.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
-  const flowConfig = {
-    name: `${srcLabel} → ${tierName} → ${planName}`,
-    source: srcConfig.source || SOURCE,
-    tier: planTier,
-    ratePlan: (planData.RATE_PLAN || 'monthly').toLowerCase(),
-    endPage: endPage,
-    enableDevMode: devMode,
-    planKey: PLAN
-  };
+    const flowConfig = {
+      name: `${srcLabel} → ${tierName} → ${planName}`,
+      source: srcConfig.source || SOURCE,
+      tier: planTier,
+      ratePlan: (planData.RATE_PLAN || 'monthly').toLowerCase(),
+      endPage: endPage,
+      enableDevMode: devMode,
+      planKey: PLAN
+    };
 
-  console.log(`\n╔═══════════════════════════════════════════════════════╗`);
-  console.log(`║  RUNNING NEW USER FLOW: ${flowConfig.name}`);
-  console.log(`║  Source: ${flowConfig.source} | Tier: ${flowConfig.tier} | Plan: ${flowConfig.ratePlan}`);
-  console.log(`╚═══════════════════════════════════════════════════════╝\n`);
+    console.log(`\n╔═══════════════════════════════════════════════════════╗`);
+    console.log(`║  RUNNING NEW USER FLOW: ${flowConfig.name}`);
+    console.log(`║  Source: ${flowConfig.source} | Tier: ${flowConfig.tier} | Plan: ${flowConfig.ratePlan}`);
+    console.log(`╚═══════════════════════════════════════════════════════╝\n`);
 
-  const currentJson = loadEventConfig(EVENT_CONFIG, PLAN);
+    const currentJson = loadEventConfig(EVENT_CONFIG, PLAN);
 
-  const { results, reachedEndPage, skipped } = await runFlow(
-    browser, currentJson, flowConfig, REGION, true
-  );
+    const { results, reachedEndPage, skipped } = await runFlow(
+      browser, currentJson, flowConfig, REGION, true
+    );
 
-  if (skipped) {
-    console.log(`⚠️ Flow "${flowConfig.name}" was dynamically skipped (bundle not configured on page)`);
-    test.skip(true, 'Bundle not configured on this page');
-    return;
-  }
+    if (skipped) {
+      console.log(`⚠️ Flow "${flowConfig.name}" was dynamically skipped (bundle not configured on page)`);
+      test.skip(true, 'Bundle not configured on this page');
+      return;
+    }
 
-  // Tag results with flow metadata
-  results.forEach(r => {
-    r.flowName = flowConfig.name;
-    r.source = flowConfig.source;
-    r.tier = flowConfig.tier;
-    r.ratePlan = flowConfig.ratePlan;
-  });
+    // Tag results with flow metadata
+    results.forEach(r => {
+      r.flowName = flowConfig.name;
+      r.source = flowConfig.source;
+      r.tier = flowConfig.tier;
+      r.ratePlan = flowConfig.ratePlan;
+    });
 
-  // Write results to Excel
-  const { excelPath, videoPath } = await writeResults(results);
+    // Write results to Excel
+    const { excelPath, videoPath } = await writeResults(results);
 
-  // Display detailed per-page results
-  displayResultsTable(results, 'ppv', {
-    event: json.PPV_NAME,
-    region: REGION,
-    excelPath,
-    videoPath,
-  });
+    // Display detailed per-page results
+    displayResultsTable(results, 'ppv', {
+      event: json.PPV_NAME,
+      region: REGION,
+      excelPath,
+      videoPath,
+    });
 
-  // Generate HTML + PDF run report (country, surfacing point, rate plan, per-page pass/fail, totals)
-  const { htmlPath, pdfPath, folderPath } = await generateReports(results, {
-    event: json.PPV_NAME,
-    region: REGION,
-    source: flowConfig.source,
-    ratePlan: flowConfig.ratePlan,
-    tier: flowConfig.tier,
-    env: process.env.DAZN_ENV || 'prod',
-    flowName: flowConfig.name,
-    startTime: runStart,
-    endTime: new Date(),
-    excelPath,
-    videoPath,
-    userType: 'new-user',
-  });
-  if (folderPath) console.log(`\n📂 Report folder: ${folderPath}`);
+    // Generate HTML + PDF run report (country, surfacing point, rate plan, per-page pass/fail, totals)
+    const { htmlPath, pdfPath, folderPath } = await generateReports(results, {
+      event: json.PPV_NAME,
+      region: REGION,
+      source: flowConfig.source,
+      ratePlan: flowConfig.ratePlan,
+      tier: flowConfig.tier,
+      env: process.env.DAZN_ENV || 'prod',
+      flowName: flowConfig.name,
+      startTime: runStart,
+      endTime: new Date(),
+      excelPath,
+      videoPath,
+      userType: 'new-user',
+    });
+    if (folderPath) console.log(`\n📂 Report folder: ${folderPath}`);
 
-  // Playwright manages the browser lifecycle. Closing the browser manually is not recommended.
+    // Playwright manages the browser lifecycle. Closing the browser manually is not recommended.
 
-  const passed = results.filter(r => r.status === 'PASS').length;
-  const failed = results.filter(r => r.status === 'FAIL').length;
-  const total = passed + failed;
+    const passed = results.filter(r => r.status === 'PASS').length;
+    const failed = results.filter(r => r.status === 'FAIL').length;
+    const total = passed + failed;
 
-  console.log(`\n✅ Flow "${flowConfig.name}" complete: ${passed}/${total} passed (${total > 0 ? ((passed / total) * 100).toFixed(1) : 0}%)`);
-  console.log(`${'─'.repeat(55)}`);
+    console.log(`\n✅ Flow "${flowConfig.name}" complete: ${passed}/${total} passed (${total > 0 ? ((passed / total) * 100).toFixed(1) : 0}%)`);
+    console.log(`${'─'.repeat(55)}`);
 
-  if (total === 0) {
-    throw new Error(`❌ Flow "${flowConfig.name}" had 0 validation checks`);
-  }
+    if (total === 0) {
+      throw new Error(`❌ Flow "${flowConfig.name}" had 0 validation checks`);
+    }
 
-  if (!reachedEndPage) {
-    throw new Error(`❌ Flow "${flowConfig.name}" did not reach the expected end page: "${flowConfig.endPage || 'payment'}"`);
+    if (!reachedEndPage) {
+      throw new Error(`❌ Flow "${flowConfig.name}" did not reach the expected end page: "${flowConfig.endPage || 'payment'}"`);
+    }
+
+    if (failed > 0) {
+      const failMsgs = results
+        .filter(r => r.status === 'FAIL')
+        .map(r => `  - [${r.page}] ${r.field}: expected "${r.expected}", actual "${r.actual}"`)
+        .join('\n');
+      throw new Error(`❌ Validation failures detected:\n${failMsgs}`);
+    }
+  } catch (error) {
+    console.error('❌ Test error:', error);
+    throw error;
   }
 });

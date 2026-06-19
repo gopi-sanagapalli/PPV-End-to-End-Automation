@@ -62,7 +62,7 @@ const SOURCE = process.env.SOURCE || 'my-account';
 // Enables Welcome Back, Saved Card, Signed In As, Log Out validations
 const FLOW = 'myaccount';
 const SWITCH_TO_ULTIMATE = (process.env.SWITCH || '').toLowerCase() === 'true';
-const LOGIN_FIRST = (process.env.LOGIN || '').toLowerCase() === 'true';
+const LOGIN_FIRST = (process.env.LOGIN || process.env.LOGIN_FIRST || '').toLowerCase() === 'true';
 const ENV = (process.env.DAZN_ENV || 'stag').toLowerCase();
 const PAYMENT_METHOD = (process.env.PAYMENT_METHOD || 'credit_card').toLowerCase();
 
@@ -211,13 +211,18 @@ test('PPV flow via existing user my account', async ({ browser }) => {
   const detectPageType = async (
     p: any,
     pc: Record<string, { detection: string }>
-  ): Promise<'ppv' | 'plan' | 'payment' | 'confirmation' | 'standalone-ppv' | 'email' | 'unknown' | 'success-upsell' | 'saved-card-payment' | 'bet-upsell' | 'default-signup' | 'phone'> => {
+  ): Promise<'ppv' | 'plan' | 'payment' | 'confirmation' | 'standalone-ppv' | 'email' | 'unknown' | 'success-upsell' | 'saved-card-payment' | 'bet-upsell' | 'default-signup' | 'phone' | 'myaccount-ppv'> => {
     if (!p || p.isClosed()) return 'unknown';
     const url = p.url();
     const urlLower = url.toLowerCase();
 
     if (urlLower.includes('paymentdetails')) return 'payment';
     if (urlLower.includes('phonenumbercollection')) return 'phone';
+
+    // My Account PPV page — ultimate users redirected here when PPV is already purchased
+    if (urlLower.includes('/myaccount/ppv') || urlLower.includes('/myaccount?')) {
+      return 'myaccount-ppv';
+    }
 
     // PPV page detection via contextualPpvId query param (before email fallback)
     if (urlLower.includes('/signup') && urlLower.includes('contextualppvid=') && !urlLower.includes('page=')) return 'ppv';
@@ -578,6 +583,59 @@ test('PPV flow via existing user my account', async ({ browser }) => {
         ).catch(() => { });
       });
       console.log(`📍 Landed after Buy Now: ${page.url()}`);
+
+      // ── STRICT VALIDATION FOR ULTIMATE USER PRE-LOGGED IN ──
+      if (userStateKey === 'active_ultimate' && requiresPreLogin) {
+        console.log('⏳ [Ultimate User] Waiting for redirection to fixture page...');
+        await page.waitForURL(
+          (url: URL) =>
+            !url.href.includes('/welcome') &&
+            !url.href.includes('/home') &&
+            !url.href.includes('PlanDetails') &&
+            !url.href.includes('TierPlans') &&
+            !url.href.includes('signup') &&
+            !url.href.includes('signin') &&
+            !url.href.includes('payment') &&
+            !url.href.includes('checkout'),
+          { timeout: 15000 }
+        ).catch(() => {});
+        
+        const currentUrl = page.url();
+        const lowerUrl = currentUrl.toLowerCase();
+        let navStatus: 'PASS' | 'FAIL' = 'FAIL';
+        let actualPage = 'Unknown Page';
+        
+        if (lowerUrl.includes('preview')) {
+          actualPage = 'Preview Page';
+          navStatus = 'PASS';
+        } else if (
+          lowerUrl.includes('fixture') ||
+          lowerUrl.includes('event') ||
+          lowerUrl.includes('stream') ||
+          lowerUrl.includes('player')
+        ) {
+          actualPage = 'Fixture Page';
+          navStatus = 'PASS';
+        }
+        
+        results.push({
+          page: 'Home Page',
+          field: 'Ultimate User Navigation Target',
+          expected: 'Preview Page or Fixture Page',
+          actual: `Navigated to: ${currentUrl} (${actualPage})`,
+          status: navStatus,
+        });
+
+        if (navStatus === 'FAIL') {
+          const errMsg = `❌ [Ultimate User] Not redirected to fixture page after clicking PPV tile. Landed on: ${currentUrl}`;
+          console.error(errMsg);
+          throw new Error(errMsg);
+        } else {
+          console.log(`✅ [Ultimate User] Successfully redirected to fixture/preview page: ${currentUrl} (${actualPage})`);
+        }
+        reachedEndPage = true;
+        return;
+      }
       // ── STRICT VALIDATION FOR BOXING-BANNER-ULTIMATE REDIRECT ──
       if (SOURCE === 'boxing-banner-ultimate') {
         console.log('\n🔍 Validating boxing-banner-ultimate redirect...');
@@ -642,9 +700,9 @@ test('PPV flow via existing user my account', async ({ browser }) => {
         console.log(`✅ [boxing-ultimate-subscription] Successfully redirected to plan selection page. URL: ${subUrl}`);
       }
 
-      // ── STRICT VALIDATION FOR BOXING-STANDARD-SUBSCRIPTION REDIRECT ──
-      if (SOURCE === 'boxing-standard-subscription') {
-        console.log('\n🔍 Validating boxing-standard-subscription redirect...');
+      // ── STRICT VALIDATION FOR BOXING-STANDARD-SUBSCRIPTION / HOME-PAGE-GET-STARTED / HOME-PAGE-DAZNTILE REDIRECT ──
+      if (SOURCE === 'boxing-standard-subscription' || SOURCE === 'home-page-get-started' || SOURCE === 'home-page-dazntile') {
+        console.log(`\n🔍 Validating ${SOURCE} redirect...`);
         await page.waitForFunction(() => {
           const href = window.location.href.toLowerCase();
           const text = document.body.innerText.toLowerCase();
@@ -665,20 +723,20 @@ test('PPV flow via existing user my account', async ({ browser }) => {
 
         // Must NOT land on the normal PPV page
         if (stdOnPPVPage && !stdUrlOk && !stdBodyOk) {
-          throw new Error('❌ [boxing-standard-subscription] Unexpectedly redirected to PPV page — expected PlanDetails (Standard).');
+          throw new Error(`❌ [${SOURCE}] Unexpectedly redirected to PPV page — expected PlanDetails (Standard).`);
         }
 
         if (!stdUrlOk && !stdBodyOk) {
-          throw new Error(`❌ [boxing-standard-subscription] Expected to land on PlanDetails or TierPlans (Standard), but landed on: ${stdUrl}`);
+          throw new Error(`❌ [${SOURCE}] Expected to land on PlanDetails or TierPlans (Standard), but landed on: ${stdUrl}`);
         }
 
         // defaultSignup=true means the plan page should contain a PPV option ("subscribe without a pay-per-view").
         // If it's absent, no PPV exists for this event — fail the test.
         if (!stdBody.includes('subscribe without a pay-per-view')) {
-          throw new Error(`❌ [boxing-standard-subscription] Landed on plan page but no PPV option found ("subscribe without a pay-per-view" absent). No PPV exists for this event.\nURL: ${stdUrl}`);
+          throw new Error(`❌ [${SOURCE}] Landed on plan page but no PPV option found ("subscribe without a pay-per-view" absent). No PPV exists for this event.\nURL: ${stdUrl}`);
         }
 
-        console.log(`✅ [boxing-standard-subscription] Successfully redirected to plan selection page with PPV option. URL: ${stdUrl}`);
+        console.log(`✅ [${SOURCE}] Successfully redirected to plan selection page with PPV option. URL: ${stdUrl}`);
       }
 
       // ── STRICT VALIDATION FOR BOXING-JOIN-THE-CLUB REDIRECT ──
@@ -1281,6 +1339,116 @@ test('PPV flow via existing user my account', async ({ browser }) => {
           throw new Error(`❌ [${SOURCE}] Expected to land on PlanDetails/TierPlans, but landed on My Account/Home page instead (flow bypassed plans/checkout).`);
         }
 
+        // ── MY ACCOUNT PPV (Purchased) ─────────────────────────────
+        // Ultimate users redirected to /myaccount/ppv after sign-in when PPV is already purchased
+        if (pageType === 'myaccount-ppv') {
+          console.log('\n✅ [Purchased] Landed on My Account PPV page — PPV is already purchased/included.');
+
+          // Wait for the PPV list to fully render
+          await page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => { });
+          await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => { });
+
+          // Wait for "Purchased" text to appear on the page
+          await page.locator('text=Purchased').first().waitFor({ state: 'visible', timeout: 10000 }).catch(() => {
+            console.log('⚠️ [Purchased] "Purchased" text not visible after 10s — proceeding with check');
+          });
+
+          // Verify PPV status on the page
+          const bodyText = await page.locator('body').innerText({ timeout: 5000 }).catch(() => '');
+          const hasPurchased = bodyText.toLowerCase().includes('purchased');
+          const hasEventName = bodyText.toLowerCase().includes(eventData.PPV_NAME.toLowerCase().split(' vs')[0]);
+
+          results.push({
+            page: 'My Account (PPV)',
+            variant: tier,
+            tier,
+            ratePlan,
+            field: 'PPV Status (Purchased)',
+            expected: 'Purchased',
+            actual: hasPurchased ? 'Purchased' : 'Not found',
+            status: hasPurchased ? 'PASS' : 'FAIL',
+          });
+
+          if (hasEventName) {
+            results.push({
+              page: 'My Account (PPV)',
+              variant: tier,
+              tier,
+              ratePlan,
+              field: 'PPV Event Present',
+              expected: eventData.PPV_NAME,
+              actual: 'Found',
+              status: 'PASS',
+            });
+          }
+
+          // Navigate to Schedule page and verify fixture
+          if (PPV_TYPE !== 'upsell') {
+            try {
+              console.log('\n📅 [Purchased] Navigating to Schedule page to verify purchased event...');
+              const schedulePagePurchased = new SchedulePage(page);
+              await schedulePagePurchased.navigate(baseUrl);
+              await schedulePagePurchased.selectSport(sport);
+
+              console.log(`🔍 Finding event tile: "${eventData.PPV_NAME}"`);
+              const eventCard = await schedulePagePurchased.findEvent(eventData.PPV_NAME);
+
+              console.log('🖱️ Clicking PPV event tile...');
+              await eventCard.click();
+
+              console.log('⏳ Waiting for navigation off the Schedule page...');
+              await page.waitForURL((url: URL) => !url.href.includes('/schedule'), { timeout: 15000 });
+              await page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => { });
+
+              const currentUrl = page.url();
+              console.log(`🔗 Post-Purchase redirected URL: ${currentUrl}`);
+
+              const lowerUrl = currentUrl.toLowerCase();
+              let navStatus: 'PASS' | 'FAIL' = 'FAIL';
+              let actualPage = 'Unknown Page';
+
+              if (lowerUrl.includes('preview')) {
+                actualPage = 'Preview Page';
+                navStatus = 'PASS';
+              } else if (
+                lowerUrl.includes('fixture') ||
+                lowerUrl.includes('event') ||
+                lowerUrl.includes('stream') ||
+                lowerUrl.includes('player')
+              ) {
+                actualPage = 'Fixture Page';
+                navStatus = 'PASS';
+              }
+
+              results.push({
+                page: 'Schedule',
+                field: 'Post-Purchase Navigation Target',
+                expected: 'Preview Page or Fixture Page',
+                actual: `Navigated to: ${currentUrl} (${actualPage})`,
+                status: navStatus,
+              });
+
+              if (navStatus === 'FAIL') {
+                console.error(`❌ Post-Purchase navigation target check failed. URL: ${currentUrl}`);
+              } else {
+                console.log(`✅ Post-Purchase navigation target check passed: ${actualPage}`);
+              }
+            } catch (scheduleErr: any) {
+              console.warn(`⚠️ [Purchased] Schedule page validation error: ${scheduleErr.message}`);
+              results.push({
+                page: 'Schedule',
+                field: 'Post-Purchase Navigation Target',
+                expected: 'Preview Page or Fixture Page',
+                actual: `Error: ${scheduleErr.message}`,
+                status: 'FAIL',
+              });
+            }
+          }
+
+          reachedEndPage = true;
+          break;
+        }
+
         // ── Default Signup validation check: Fail if no PPV ──
         // Skip for boxing-ultimate-subscription and boxing-join-the-club — they intentionally bypass the PPV page.
         // boxing-standard-subscription is NOT excluded here: it has defaultSignup=true and should show a PPV option.
@@ -1351,6 +1519,7 @@ test('PPV flow via existing user my account', async ({ browser }) => {
           const emailVisible = await emailInput.isVisible({ timeout: 500 }).catch(() => false);
           const passwordVisible = await passwordInput.isVisible({ timeout: 500 }).catch(() => false);
 
+          let signedIn = false;
           if (emailVisible && passwordVisible) {
             console.log(`📧 Entering email: ${userEmail} and password...`);
             await emailInput.fill(userEmail);
@@ -1364,6 +1533,7 @@ test('PPV flow via existing user my account', async ({ browser }) => {
               'button[type="submit"]'
             ).first();
             await clickAndWaitForNav(page, signInBtn, 'Sign In/Continue Both');
+            signedIn = true;
           } else if (passwordVisible) {
             console.log('🔑 Entering password...');
             await passwordInput.fill(userPassword);
@@ -1376,6 +1546,7 @@ test('PPV flow via existing user my account', async ({ browser }) => {
               'button[type="submit"]'
             ).first();
             await clickAndWaitForNav(page, signInBtn, 'Sign In/Continue');
+            signedIn = true;
           } else if (emailVisible) {
             console.log(`📧 Entering email: ${userEmail}`);
             await emailInput.fill(userEmail);
@@ -1386,6 +1557,56 @@ test('PPV flow via existing user my account', async ({ browser }) => {
               'button[type="submit"]'
             ).first();
             await clickAndWaitForNav(page, continueBtn, 'Email Continue');
+          }
+
+          if (signedIn && userStateKey === 'active_ultimate') {
+            console.log('⏳ [Ultimate User Login] Waiting for post-login redirection to fixture page...');
+            await page.waitForURL(
+              (url: URL) =>
+                !url.href.includes('signin') &&
+                !url.href.includes('signup') &&
+                !url.href.includes('PlanDetails') &&
+                !url.href.includes('TierPlans') &&
+                !url.href.includes('payment') &&
+                !url.href.includes('checkout'),
+              { timeout: 20000 }
+            ).catch(() => {});
+
+            const currentUrl = page.url();
+            const lowerUrl = currentUrl.toLowerCase();
+            let navStatus: 'PASS' | 'FAIL' = 'FAIL';
+            let actualPage = 'Unknown Page';
+
+            if (lowerUrl.includes('preview')) {
+              actualPage = 'Preview Page';
+              navStatus = 'PASS';
+            } else if (
+              lowerUrl.includes('fixture') ||
+              lowerUrl.includes('event') ||
+              lowerUrl.includes('stream') ||
+              lowerUrl.includes('player')
+            ) {
+              actualPage = 'Fixture Page';
+              navStatus = 'PASS';
+            }
+
+            results.push({
+              page: 'Sign In',
+              field: 'Post-Login Navigation Target',
+              expected: 'Preview Page or Fixture Page',
+              actual: `Navigated to: ${currentUrl} (${actualPage})`,
+              status: navStatus,
+            });
+
+            if (navStatus === 'FAIL') {
+              const errMsg = `❌ [Ultimate User Login] Not redirected to fixture page after signing in. Landed on: ${currentUrl}`;
+              console.error(errMsg);
+              throw new Error(errMsg);
+            } else {
+              console.log(`✅ [Ultimate User Login] Successfully redirected to fixture/preview page: ${currentUrl} (${actualPage})`);
+            }
+            reachedEndPage = true;
+            break;
           }
 
           await page.waitForLoadState('domcontentloaded').catch(() => { });
@@ -2191,6 +2412,14 @@ test('PPV flow via existing user my account', async ({ browser }) => {
 
     if (!reachedEndPage) {
       throw new Error(`❌ Flow "${SOURCE}" did not reach the expected end page: "payment" or "confirmation"`);
+    }
+
+    if (failed > 0) {
+      const failMsgs = results
+        .filter(r => r.status === 'FAIL')
+        .map(r => `  - [${r.page}] ${r.field}: expected "${r.expected}", actual "${r.actual}"`)
+        .join('\n');
+      throw new Error(`❌ Validation failures detected:\n${failMsgs}`);
     }
 
   } catch (error) {

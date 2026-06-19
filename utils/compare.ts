@@ -106,8 +106,15 @@ export function compare(
     return true;
   }
 
-  // ── Contains with length guard ─────────────────────────────────
-  if (a.includes(e) && actual.length < expected.length * 3) {
+  // ── Contains with length guard ─────────────────────────────
+  // Only allow substring match for very close-length strings to avoid false positives
+  // where a short expected matches inside a large page-text dump.
+  if (
+    a.includes(e) &&
+    e.length >= 10 &&
+    actual.length < expected.length * 1.5 &&
+    actual.length <= expected.length + 30
+  ) {
     if (a.includes('not ' + e) || a.includes('not' + e)) return false;
     return true;
   }
@@ -126,11 +133,17 @@ export function compare(
   const aParts = extractDateParts(a);
   const eParts = extractDateParts(e);
 
+  // Date-only flexibility: only use when NEITHER string contains a time component.
+  // If the actual has time info (e.g. "Sun 26th Jul at 00:30") but expected doesn't
+  // (e.g. "26 Jul"), this should NOT pass — the expected should include the time.
+  const actualHasTime = /\b\d{1,2}:\d{2}\b/.test(actual);
+  const expectedHasTime = /\b\d{1,2}:\d{2}\b/.test(expected);
   if (
     aParts.month && eParts.month &&
     aParts.day   && eParts.day   &&
     aParts.month === eParts.month &&
-    aParts.day   === eParts.day
+    aParts.day   === eParts.day &&
+    !actualHasTime && !expectedHasTime
   ) return true;
 
   // ── Time match flexibility ─────────────────────────────────────

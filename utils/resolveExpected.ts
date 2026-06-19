@@ -1,4 +1,4 @@
-import { getDynamicDateBadge } from './dateUtils';
+import { getDynamicDateBadge, getDynamicDateTimeBadge } from './dateUtils';
 
 export function resolveExpected(
   rule: any,
@@ -41,15 +41,29 @@ export function resolveExpected(
     currentSource === 'boxing-join-the-club';
 
   if (isSubscriptionOnly) {
+    // In subscription-only flow (no PPV), the plans page shows default descriptions
+    // instead of trial/offer text — no trial badge, no trial description
+    if (field === 'ppv name' || field === 'ppv price') {
+      return 'N/A| |';
+    }
+    // Flex: no trial badge/today/future text, but show default description
+    if (field === 'flex badge') {
+      return 'N/A| |';
+    }
+    if (field === 'flex description') {
+      return eventData.PLAN_DETAILS_FLEX_DESC || 'Billed monthly. Cancel anytime.|N/A| |';
+    }
+    if (field === 'flex today text' || field === 'flex future text') {
+      return 'N/A| |';
+    }
+    // Annual: no 1-month-free badge, but show default description
+    if (field === 'annual badge') {
+      return 'N/A| |';
+    }
+    if (field === 'annual price text') {
+      return eventData.PLAN_DETAILS_ANNUAL_MONTHLY_DESC || 'Annual contract. Auto renews.|N/A| |';
+    }
     if (
-      field === 'ppv name' ||
-      field === 'ppv price' ||
-      field === 'flex badge' ||
-      field === 'flex description' ||
-      field === 'flex today text' ||
-      field === 'flex future text' ||
-      field === 'annual badge' ||
-      field === 'annual price text' ||
       field === 'annual feature 1' ||
       field === 'annual feature 2' ||
       field === 'annual feature 3' ||
@@ -350,7 +364,7 @@ export function resolveExpected(
       
       // Override PPV_DATE specifically for landing/boxing/home pages
       const pageNameLower = pageName.toLowerCase();
-      if (k.toUpperCase() === 'PPV_DATE' && (pageNameLower === 'landing' || pageNameLower === 'boxing' || pageNameLower.includes('home'))) {
+      if (k.toUpperCase() === 'PPV_DATE' && (pageNameLower === 'landing' || pageNameLower === 'boxing' || pageNameLower.includes('home') || pageNameLower.includes('popup'))) {
         if (eventData.LANDING_PAGE_PPV_DATE) {
           return String(eventData.LANDING_PAGE_PPV_DATE);
         }
@@ -412,7 +426,8 @@ export function resolveExpected(
                        .replace(/\{\{RENEWAL_DATE\}\}/g, eventData.RENEWAL_DATE || '');
   }
 
-  const dateFields = [
+  // Date-only fields — use getDynamicDateBadge (generates candidates with and without time)
+  const dateOnlyFields = [
     'ppv date badge',
     'date badge',
     'banner date badge',
@@ -420,16 +435,28 @@ export function resolveExpected(
     'tile date badge',
     'ppv date',
     'popup date',
-    'ppv date and time',
+    'popup - event date',
     'welcome tile date',
     'event date',
-    'ppv date and time expected',
     'fury payment date',
-    'ppv date and time text',
-    'ppv1 date text on ultimate tier'
+    'landing page ppv date',
+    'ppv1 upsell tile date',
+    'ppv2 upsell tile date',
   ];
-  if (dateFields.includes(field)) {
+  if (dateOnlyFields.includes(field)) {
     return getDynamicDateBadge(template);
+  }
+
+  // Date+Time fields — use getDynamicDateTimeBadge (only generates candidates WITH time)
+  const dateTimeFields = [
+    'ppv date and time',
+    'ppv date and time expected',
+    'ppv date and time text',
+    'ppv1 date and time text on bundle',
+    'event date and time',
+  ];
+  if (dateTimeFields.includes(field)) {
+    return getDynamicDateTimeBadge(template);
   }
 
   return template;

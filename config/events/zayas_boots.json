@@ -20,6 +20,8 @@
       "LANDING_PAGE_PPV_DATE": "27 June",
       "PPV_PRICE": "£24.99",
       "TODAY_YOU_PAY_PRICE": "£24.99",
+      "UPSELL_PRICE_LENGTH": "/month",
+      "PPV1_UPSELL_TILE_DATE": "",
       "offers": []
     },
     "US": {
@@ -28,6 +30,8 @@
       "TODAY_YOU_PAY_PRICE": "$59.99",
       "UPSELL_PRICE": "",
       "UPSELL_CROSSED_PRICE": "",
+      "UPSELL_PRICE_LENGTH": "/month",
+      "PPV1_UPSELL_TILE_DATE": "",
       "offers": []
     },
     "AU": {
@@ -36,6 +40,8 @@
       "TODAY_YOU_PAY_PRICE": "$49.99",
       "UPSELL_PRICE": "$39.99",
       "UPSELL_CROSSED_PRICE": "N/A",
+      "UPSELL_PRICE_LENGTH": "/month",
+      "PPV1_UPSELL_TILE_DATE": "",
       "offers": []
     },
     "AE": {
@@ -44,6 +50,8 @@
       "TODAY_YOU_PAY_PRICE": "AED 72.99",
       "UPSELL_PRICE": "AED 72.99",
       "UPSELL_CROSSED_PRICE": "N/A",
+      "UPSELL_PRICE_LENGTH": "/month",
+      "PPV1_UPSELL_TILE_DATE": "",
       "offers": []
     }
   },

@@ -65,9 +65,12 @@ const GLOBAL_DEFAULTS: Record<string, string> = {
   CANCELLATION_TEXT_ANNUAL: "First month free, then {{CURRENCY}}{{ANNUAL_PRICE}}/month for 11 months ({{CURRENCY}}{{ANNUAL_TOTAL}} total over 12 months). 12-month minimum term. On {{RENEWAL_DATE}} your plan renews automatically|First month free, then {{CURRENCY}}{{ANNUAL_PRICE}}/month for 11 months",
   CANCELLATION_TEXT_ULTIMATE_APM: "Your Annual (pay over time) plan will renew automatically on {{RENEWAL_DATE}}. Manage or cancel your annual renewal anytime in My Account. 12-month minimum term",
   CANCELLATION_TEXT_ULTIMATE_APU: "You can cancel the renewal to this subscription in My Account. You will still have full access to DAZN until the end of your annual cycle.",
+  ULTIMATE_FEATURE_1: "Minimum 12 pay-per-views a year included at no extra cost.",
   ULTIMATE_FEATURE_2: "Every match from Lega Serie A, and highlights from LALIGA, Bundesliga and the Saudi Pro League.",
   ULTIMATE_FEATURE_3: "HDR and Dolby 5.1 surround sound on select events.",
   UPSELL_CROSSED_PRICE: "N/A",
+  UPSELL_PRICE_LENGTH: "month for 12 months",
+  PPV1_UPSELL_TILE_DATE: "{{LANDING_PAGE_PPV_DATE}}",
   BUNDLE_MONTHLY_PRICE: "N/A",
   // ── Plan Details card descriptions (shown when no promotional offer is active) ──
   PLAN_DETAILS_FLEX_DESC: "Billed monthly. Cancel anytime.",
@@ -120,6 +123,11 @@ export function buildEventData(
   // This fallback handles the case where neither plan nor event defines it.
   if (!base.OFFER_TYPE) {
     base.OFFER_TYPE = '1_month_free';
+  }
+
+  // PPV1_UPSELL_TILE_DATE: fallback to LANDING_PAGE_PPV_DATE (same short-date format)
+  if (!base.PPV1_UPSELL_TILE_DATE && base.LANDING_PAGE_PPV_DATE) {
+    base.PPV1_UPSELL_TILE_DATE = base.LANDING_PAGE_PPV_DATE;
   }
 
   // Auto-compute NEXT_PAYMENT_DAYS_OFFSET from OFFER_TYPE if not explicitly set
@@ -508,6 +516,19 @@ export function buildEventData(
   const offerType = (base.OFFER_TYPE || '1_month_free').toLowerCase();
   if (offerType === '7_day_trial') {
     base.FLEX_FUTURE_DATE = formatFlexFutureDate(7);
+    // Trial payment page shows trial cancellation text, not legacy "Cancel with 30 days' notice"
+    base.PAYMENT_FLEX_CANCEL_NOTICE = 'N/A';
+    base.PAYMENT_FLEX_LEGAL_TEXT = 'N/A';
+  } else if (offerType === '1_month_free') {
+    const futureDate = getNowIST();
+    futureDate.setMonth(futureDate.getMonth() + 1);
+    const day = futureDate.getDate();
+    const month = futureDate.toLocaleString('en-GB', { month: 'long' });
+    const year = futureDate.getFullYear();
+    base.FLEX_FUTURE_DATE = `In 1 month • ${day} ${month} ${year}`;
+    // 1-month free also uses different cancellation text, not "Cancel with 30 days' notice"
+    base.PAYMENT_FLEX_CANCEL_NOTICE = 'N/A';
+    base.PAYMENT_FLEX_LEGAL_TEXT = 'N/A';
   } else {
     const futureDate = getNowIST();
     futureDate.setMonth(futureDate.getMonth() + 1);

@@ -663,6 +663,14 @@ export class PaymentPage extends BasePage {
 
     // ── Page title ─────────────────────────────────────────────
     if (fieldLower === 'page title' || fieldLower === 'pagetitle' || fieldLower === 'page heading') {
+      const h1s = this.page.locator('h1');
+      const count = await h1s.count().catch(() => 0);
+      for (let i = 0; i < count; i++) {
+        const text = ((await h1s.nth(i).textContent().catch(() => '')) || '').trim();
+        if (text && text.toLowerCase() !== 'dazn') {
+          return text;
+        }
+      }
       const h1 = await this.page.locator('h1').first().textContent().catch(() => '');
       return (h1 || '').trim();
     }
