@@ -102,7 +102,7 @@ test('PPV flow via existing user my account', async ({ browser }) => {
   // Dev mode: bypass phone number on ultimate flows in GB/US.
   // Enabled on all environments (including prod) when tier is ultimate.
   const devModeEnabled = tier === 'ultimate' && isUSorGB;
-  const ratePlan = (json.RATE_PLAN || 'monthly').toLowerCase();
+  const ratePlan = (process.env.PLAN || json.RATE_PLAN || 'monthly').toLowerCase();
   const userEmail = eventData.USER_EMAIL || json.USER_EMAIL || '';
   const userPassword = eventData.USER_PASSWORD || json.USER_PASSWORD || '';
   let purchaseOption = (json.PURCHASE_OPTION || 'ppv').toLowerCase();

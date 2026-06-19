@@ -338,7 +338,7 @@ export function getDynamicDateBadge(configStr: string, referenceDate: Date = get
  * a time component (HH:MM). Use for "Date and Time" fields where the
  * expected value MUST include the time, not just the date.
  */
-export function getDynamicDateTimeBadge(configStr: string, referenceDate: Date = getNowIST()): string {
+export function getDynamicDateTimeBadge(configStr: string, referenceDate: Date = getNow()): string {
   if (!configStr) return '';
   const allCandidates = configStr.split('|').map(part => getDynamicDateBadgeSingle(part, referenceDate)).join('|');
   const timePattern = /\b\d{1,2}:\d{2}\b/;

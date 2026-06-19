@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import {
+  getNow,
   formatNextPaymentDate,
   formatNextPaymentDateMonthly,
   formatNextPaymentDateYearly,
@@ -519,7 +520,7 @@ export function buildEventData(
     base.PAYMENT_FLEX_CANCEL_NOTICE = 'N/A';
     base.PAYMENT_FLEX_LEGAL_TEXT = 'N/A';
   } else if (offerType === '1_month_free') {
-    const futureDate = getNowIST();
+    const futureDate = getNow();
     futureDate.setMonth(futureDate.getMonth() + 1);
     const day = futureDate.getDate();
     const month = futureDate.toLocaleString('en-GB', { month: 'long' });

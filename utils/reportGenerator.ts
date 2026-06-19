@@ -3,14 +3,6 @@ import path from 'path';
 import { chromium } from '@playwright/test';
  
 // HTML + PDF RUN REPORT GENERATOR
-// Produces an easy-to-read run report showing:
-//   • which country / surfacing point / rate plan was used
-//   • per-page pass & fail counts
-//   • total pass & fail
-// All artifacts (HTML, PDF, Excel, Video) go into a single
-// timestamped subfolder under reports/.
-// ─────────────────────────────────────────────────────────────────
-
 export interface ReportResult {
   page: string;
   field: string;
@@ -65,21 +57,6 @@ function prettySource(src: string): string {
     .map(w => w.charAt(0).toUpperCase() + w.slice(1))
     .join(' ');
 }
-
-function prettyPlan(ratePlan: string): string {
-  const rp = (ratePlan || '').toLowerCase();
-  if (rp === 'monthly') return 'Flex – Pay Monthly';
-  if (rp.includes('upfront')) return 'Annual – Pay Upfront';
-  if (rp.includes('annual')) return 'Annual – Pay Monthly';
-  return ratePlan || '';
-}
-
-function prettyTier(tier: string): string {
-  const t = (tier || '').toLowerCase();
-  if (t === 'standard') return 'DAZN Standard';
-  if (t === 'ultimate') return 'DAZN Ultimate';
-  if (t === 'freemium') return 'DAZN Free';
-  return tier.charAt(0).toUpperCase() + tier.slice(1);
  
 function prettyPlan(ratePlan: string): string {
   const rp = (ratePlan || '').toLowerCase();
@@ -104,14 +81,6 @@ function fmtDuration(ms: number): string {
   const r = s % 60;
   return m > 0 ? `${m}m ${r}s` : `${r}s`;
 }
-
-function buildFolderName(meta: ReportMeta): string {
-  const src = prettySource(meta.source).replace(/\s+/g, '-');
-  const tierPlan = `${prettyTier(meta.tier).replace(/\s+/g, '-')}_${prettyPlan(meta.ratePlan).replace(/[\s–]/g, '-').replace(/-+/g, '-')}`;
-  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-  return `${meta.region}_${src}_${tierPlan}_${stamp}`;
-}
-
  
 function buildHtml(results: ReportResult[], meta: ReportMeta): string {
   const pages = [...new Set(results.map(r => r.page))];
@@ -121,10 +90,6 @@ function buildHtml(results: ReportResult[], meta: ReportMeta): string {
   const passPct = total ? Math.round((totalPass / total) * 100) : 0;
   const now = meta.endTime || new Date();
   const dur = meta.startTime ? now.getTime() - meta.startTime.getTime() : 0;
-
-  const userStatus = meta.userStatus || (meta.userType === 'existing-user' ? 'Existing User' : 'New User');
-
-  // Donut: conic-gradient with pass(green)/fail(red)
   const passDeg = total ? (totalPass / total) * 360 : 0;
   const donut = `conic-gradient(#16a34a 0deg ${passDeg}deg, #dc2626 ${passDeg}deg 360deg)`;
   const overallBadge = totalFail === 0
@@ -193,10 +158,6 @@ function buildHtml(results: ReportResult[], meta: ReportMeta): string {
         </table>
       </div>`;
   }).join('');
-
-  const fmtTime = (d?: Date) => d ? d.toLocaleString('en-GB') : '—';
-
-  // ── Build meta items (conditionally include userStatus and paymentMethod) ──
  
   const fmtTime = (d?: Date) => d ? d.toLocaleString('en-GB') : '\u2014';
  
@@ -215,7 +176,6 @@ function buildHtml(results: ReportResult[], meta: ReportMeta): string {
       <div class="meta-item"><div class="k">Tier & Rate Plan</div><div class="v">💎 ${esc(prettyTier(meta.tier))} &middot; 💳 ${esc(prettyPlan(meta.ratePlan))}</div></div>
       ${(meta.env || '').toLowerCase() === 'stag' ? `<div class="meta-item"><div class="k">Payment Method</div><div class="v">💳 ${esc(meta.paymentMethod || 'N/A')}</div></div>` : ''}
       <div class="meta-item"><div class="k">Flow</div><div class="v">🔀 ${esc(meta.flowName)}</div></div>`;
-
  
   return `<!DOCTYPE html>
 <html lang="en">
@@ -268,7 +228,6 @@ function buildHtml(results: ReportResult[], meta: ReportMeta): string {
   .page-name { font-weight: 600; }
   .bar { height: 10px; border-radius: 5px; background: #e2e8f0; overflow: hidden; display: flex; min-width: 160px; }
   .bar-pass { background: #16a34a; height: 100%; } .bar-fail { background: #dc2626; height: 100%; }
-
   .meta-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
   .meta-item { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 11px 14px; }
   .meta-item .k { font-size: 10px; color: #64748b; text-transform: uppercase; letter-spacing: .6px; }
@@ -391,13 +350,6 @@ export async function generateReports(
   }
  
   const reportsDir = path.resolve(process.cwd(), 'reports');
-  const folderName = buildFolderName(meta);
-  const runDir = path.join(reportsDir, folderName);
-  if (!fs.existsSync(runDir)) fs.mkdirSync(runDir, { recursive: true });
-
-  const htmlPath = path.join(runDir, 'PPV_Report.html');
-  const pdfPath = path.join(runDir, 'PPV_Report.pdf');
-
   if (!fs.existsSync(reportsDir)) fs.mkdirSync(reportsDir, { recursive: true });
  
   // Create a dedicated subfolder for this run
@@ -431,20 +383,6 @@ export async function generateReports(
   } catch (e: any) {
     // PDF generation failed silently
   }
-
-  // Copy Excel results into the run folder
-  if (meta.excelPath && fs.existsSync(meta.excelPath)) {
-    fs.copyFileSync(meta.excelPath, path.join(runDir, 'PPV_Results.xlsx'));
-  }
-
-  // Copy Video into the run folder
-  if (meta.videoPath && fs.existsSync(meta.videoPath)) {
-    fs.copyFileSync(meta.videoPath, path.join(runDir, `PPV_Video${path.extname(meta.videoPath)}`));
-  }
-
-  console.log(`📂 Report folder: ${runDir}`);
-  return { htmlPath, pdfPath: pdfOk ? pdfPath : null, folderPath: runDir };
-}
  
   // Copy Excel file into the run folder if it exists
   if (meta.excelPath && fs.existsSync(meta.excelPath)) {
@@ -469,5 +407,9 @@ export async function generateReports(
     }
   }
  
-  return { htmlPath, pdfPath: pdfOk ? pdfPath : null };
+  return {
+    htmlPath,
+    pdfPath: pdfOk ? pdfPath : null,
+    folderPath: runDir
+  };
 }
