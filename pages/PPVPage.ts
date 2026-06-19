@@ -1,5 +1,6 @@
 import { Page, Locator } from '@playwright/test';
 import selectors from '../config/selectors.json';
+import { compare } from '../utils/compare';
 
 export class PPVPage {
   constructor(private page: Page) { }
@@ -85,6 +86,14 @@ export class PPVPage {
 
     // ── Page-level fields ──────────────────────────────────────
     if (fieldLower === 'page title' || fieldLower === 'pagetitle') {
+      const h1s = this.page.locator('h1');
+      const count = await h1s.count().catch(() => 0);
+      for (let i = 0; i < count; i++) {
+        const text = ((await h1s.nth(i).textContent().catch(() => '')) || '').trim();
+        if (text && text.toLowerCase() !== 'dazn') {
+          return text;
+        }
+      }
       const h1 = await this.page.locator('h1').first().textContent().catch(() => '');
       return (h1 || '').trim();
     }
@@ -260,26 +269,17 @@ export class PPVPage {
   private compareValues(actual: string, expected: string, field: string): string {
     if (!expected || expected === 'N/A') return 'SKIP';
 
-    // Boolean fields
-    if (expected.toLowerCase() === 'yes' || expected.toLowerCase() === 'no') {
-      return actual.toLowerCase() === expected.toLowerCase() ? 'PASS' : 'FAIL';
+    // Strictly validate N/A presence/absence
+    if (expected.toUpperCase() === 'N/A') {
+      return actual.toUpperCase() === 'N/A' ? 'PASS' : 'FAIL';
     }
 
-    // Numeric comparison (prices)
-    const actualNum = parseFloat(actual.replace(/[^\d.]/g, ''));
-    const expectedNum = parseFloat(expected.replace(/[^\d.]/g, ''));
-    if (!isNaN(actualNum) && !isNaN(expectedNum)) {
-      return actualNum === expectedNum ? 'PASS' : 'FAIL';
-    }
+    // Skip unresolved placeholders
+    if (expected.includes('{{') && expected.includes('}}')) return 'SKIP';
 
-    // Text comparison — case-insensitive contains
-    const actualNorm = actual.toLowerCase().replace(/\s+/g, ' ').trim();
-    const expectedNorm = expected.toLowerCase().replace(/\s+/g, ' ').trim();
-
-    if (actualNorm === expectedNorm) return 'PASS';
-    if (actualNorm.includes(expectedNorm) || expectedNorm.includes(actualNorm)) return 'PASS';
-
-    return 'FAIL';
+    // Delegate to the centralized compare utility for consistency
+    const result = compare(actual, expected);
+    return result ? 'PASS' : 'FAIL';
   }
 
   // ─────────────────────────────

@@ -49,9 +49,21 @@ export class PPVUpsellSuccessPage extends BasePage {
         actual = bodyLower.includes('payment was successful') ? 'Your payment was successful' : 'N/A';
 
       } else if (key.includes('upsell heading') || key.includes('upsell title')) {
-        const h1 = await this.page.locator('h1').first().textContent().catch(() => '');
+        let h1Text = '';
+        const h1s = this.page.locator('h1');
+        const h1Count = await h1s.count().catch(() => 0);
+        for (let i = 0; i < h1Count; i++) {
+          const text = ((await h1s.nth(i).textContent().catch(() => '')) || '').trim();
+          if (text && text.toLowerCase() !== 'dazn') {
+            h1Text = text;
+            break;
+          }
+        }
+        if (!h1Text) {
+          h1Text = (await h1s.first().textContent().catch(() => '')) || '';
+        }
         const h2 = await this.page.locator('h2').first().textContent().catch(() => '');
-        actual = (h1 || h2 || '').trim() || 'N/A';
+        actual = (h1Text || h2 || '').trim() || 'N/A';
         // Fallback: search body for heading text that matches expected
         if (actual === 'N/A' || (expected && !actual.toLowerCase().includes(expected.toLowerCase().substring(0, 15)))) {
           const headings = await this.page.locator('h1, h2, h3').allTextContents().catch(() => []);

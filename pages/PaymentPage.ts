@@ -133,6 +133,10 @@ export class PaymentPage extends BasePage {
         console.log(`  ⏭️  Skipping [${field}] in standard loop — validated via validateNextPaymentDetails`);
         continue;
       }
+      if (fieldLower === 'ultimate upsell price') {
+        console.log(`  ⏭️  Skipping [${field}] in standard loop — should not be validated before switching`);
+        continue;
+      }
 
       const rowFlow = (row['Flow'] || '').trim().toLowerCase();
       if (rowFlow) {
@@ -261,7 +265,12 @@ export class PaymentPage extends BasePage {
         // Date can be DD/MM/YYYY or DD Month YYYY
         const labelValid = /next\s+(?:annual\s+)?payment\s+on\s+(?:\d{1,2}[\/\s]\d{2}[\/\s]\d{4}|\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4})/i.test(actualLabel);
         
-        const labelExpected = 'Next [Annual] payment on <date>';
+        const expectedDateStr = eventData.NEXT_PAYMENT_DATE || '';
+        const labelExpected = expectedDateStr
+          ? ((eventData.RATE_PLAN || '').includes('upfront')
+            ? `Next Annual payment on ${expectedDateStr}`
+            : `Next payment on ${expectedDateStr}`)
+          : 'Next [Annual] payment on <date>';
         const labelActual = labelValid ? actualLabel : (actualLabel === 'N/A' ? 'Not visible' : actualLabel);
         const labelStatus = labelValid ? 'PASS' : 'FAIL';
         console.log(`  ${labelStatus === 'PASS' ? '✅' : '❌'} [Next Payment Label] expected="${labelExpected}" actual="${labelActual}"`);
@@ -353,48 +362,38 @@ export class PaymentPage extends BasePage {
     const banner = this.page.locator(bannerSelectors.join(', ')).first();
     const bannerVisible = await banner.isVisible({ timeout: 3000 }).catch(() => false);
 
-    // Validate 1: Banner presence
-    const presenceStatus = bannerVisible ? 'PASS' : 'FAIL';
-    console.log(`  ${presenceStatus === 'PASS' ? '✅' : '❌'} [Ultimate Upsell Banner Present] expected="Yes" actual="${bannerVisible ? 'Yes' : 'No'}"`);
-    results.push({
-      page: 'Payment',
-      field: 'Ultimate Upsell Banner Present',
-      expected: 'Yes',
-      actual: bannerVisible ? 'Yes' : 'No',
-      status: presenceStatus,
-    });
+    // Validate 1: Banner presence (if not already validated in standard loop)
+    const isBannerPresentAlreadyValidated = results.some(r => r.page === 'Payment' && r.field === 'Ultimate Upsell Banner Present');
+    if (!isBannerPresentAlreadyValidated) {
+      const presenceStatus = bannerVisible ? 'PASS' : 'FAIL';
+      console.log(`  ${presenceStatus === 'PASS' ? '✅' : '❌'} [Ultimate Upsell Banner Present] expected="Yes" actual="${bannerVisible ? 'Yes' : 'No'}"`);
+      results.push({
+        page: 'Payment',
+        field: 'Ultimate Upsell Banner Present',
+        expected: 'Yes',
+        actual: bannerVisible ? 'Yes' : 'No',
+        status: presenceStatus,
+      });
+    }
 
     if (!bannerVisible) {
       console.log('⚠️ [Ultimate Upsell] Banner not found — skipping text validation');
       return;
     }
 
-    // Validate 2: Banner text (contains "Switch to DAZN Ultimate")
-    const bannerText = ((await banner.textContent().catch(() => '')) || '').trim().replace(/\s+/g, ' ');
-    const expectedBannerText = 'Switch to DAZN Ultimate and enjoy pay-per-views at no extra cost';
-    const textStatus = compare(bannerText, expectedBannerText, 'contains') ? 'PASS' : 'FAIL';
-    console.log(`  ${textStatus === 'PASS' ? '✅' : '❌'} [Ultimate Upsell Text] expected="${expectedBannerText}" actual="${bannerText}"`);
-    results.push({
-      page: 'Payment',
-      field: 'Ultimate Upsell Text',
-      expected: expectedBannerText,
-      actual: bannerText,
-      status: textStatus,
-    });
-
-    // Validate 3: Ultimate price shown in banner (e.g. £24.99/month)
-    const ultimatePrice = eventData.ULTIMATE_ANNUAL_PAY_MONTHLY_PRICE || eventData.TODAY_YOU_PAY_ULTIMATE_APM || '';
-    if (ultimatePrice) {
-      const priceNumeric = ultimatePrice.replace(/[^\d.]/g, '');
-      const priceInBanner = bannerText.includes(priceNumeric);
-      const priceStatus = priceInBanner ? 'PASS' : 'FAIL';
-      console.log(`  ${priceStatus === 'PASS' ? '✅' : '❌'} [Ultimate Upsell Price] expected="${ultimatePrice}" actual="${bannerText}"`);
+    // Validate 2: Banner text (contains "Switch to DAZN Ultimate") (if not already validated)
+    const isTextAlreadyValidated = results.some(r => r.page === 'Payment' && r.field === 'Ultimate Upsell Text');
+    if (!isTextAlreadyValidated) {
+      const bannerText = ((await banner.textContent().catch(() => '')) || '').trim().replace(/\s+/g, ' ');
+      const expectedBannerText = 'Switch to DAZN Ultimate and enjoy pay-per-views at no extra cost';
+      const textStatus = compare(bannerText, expectedBannerText, 'contains') ? 'PASS' : 'FAIL';
+      console.log(`  ${textStatus === 'PASS' ? '✅' : '❌'} [Ultimate Upsell Text] expected="${expectedBannerText}" actual="${bannerText}"`);
       results.push({
         page: 'Payment',
-        field: 'Ultimate Upsell Price',
-        expected: ultimatePrice,
+        field: 'Ultimate Upsell Text',
+        expected: expectedBannerText,
         actual: bannerText,
-        status: priceStatus,
+        status: textStatus,
       });
     }
   }
@@ -612,7 +611,14 @@ export class PaymentPage extends BasePage {
         break;
       }
     }
-    const expectedCancelUltimate = eventData.CANCELLATION_TEXT_ULTIMATE_APM || '';
+    let expectedCancelUltimate = eventData.CANCELLATION_TEXT_ULTIMATE_APM || '';
+    if (expectedCancelUltimate.includes('{{')) {
+      expectedCancelUltimate = expectedCancelUltimate.replace(/\{\{(.*?)\}\}/g, (match, key) => {
+        const k = key.trim();
+        const val = eventData[k] ?? eventData[k.toUpperCase()] ?? eventData[k.toLowerCase()] ?? eventData[k.replace(/\s+/g, '_').toUpperCase()] ?? eventData[k.replace(/\s+/g, '_')];
+        return val !== undefined ? String(val) : match;
+      });
+    }
     const cancelStatus = expectedCancelUltimate
       ? (compare(actualCancelText, expectedCancelUltimate, 'contains') ? 'PASS' : 'FAIL')
       : (actualCancelText !== 'N/A' ? 'PASS' : 'FAIL');
@@ -657,6 +663,14 @@ export class PaymentPage extends BasePage {
 
     // ── Page title ─────────────────────────────────────────────
     if (fieldLower === 'page title' || fieldLower === 'pagetitle' || fieldLower === 'page heading') {
+      const h1s = this.page.locator('h1');
+      const count = await h1s.count().catch(() => 0);
+      for (let i = 0; i < count; i++) {
+        const text = ((await h1s.nth(i).textContent().catch(() => '')) || '').trim();
+        if (text && text.toLowerCase() !== 'dazn') {
+          return text;
+        }
+      }
       const h1 = await this.page.locator('h1').first().textContent().catch(() => '');
       return (h1 || '').trim();
     }
@@ -771,7 +785,14 @@ export class PaymentPage extends BasePage {
     // ── PPV Name ───────────────────────────────────────────────
     if (fieldLower === 'ppv name' || fieldLower === 'ppv event name' || fieldLower === 'event name') {
       const source = (eventData.SOURCE || eventData.source || '').toLowerCase();
-      if (source === 'boxing-ultimate') return 'N/A';
+      if (
+        source === 'boxing-ultimate' ||
+        source === 'boxing-bundle-ultimate' ||
+        source === 'boxing-banner-ultimate' ||
+        source === 'boxing-ultimate-subscription' ||
+        source === 'boxing-standard-subscription' ||
+        source === 'boxing-join-the-club'
+      ) return 'N/A';
 
       const ppvName = eventData.PPV_NAME || '';
       const regex = new RegExp(ppvName.split(/\s+/).join('.*'), 'i');
@@ -829,7 +850,14 @@ export class PaymentPage extends BasePage {
     // ── PPV Price ──────────────────────────────────────────────
     if (fieldLower === 'ppv price') {
       const source = (eventData.SOURCE || eventData.source || '').toLowerCase();
-      if (source === 'boxing-ultimate') return 'N/A';
+      if (
+        source === 'boxing-ultimate' ||
+        source === 'boxing-bundle-ultimate' ||
+        source === 'boxing-banner-ultimate' ||
+        source === 'boxing-ultimate-subscription' ||
+        source === 'boxing-standard-subscription' ||
+        source === 'boxing-join-the-club'
+      ) return 'N/A';
 
       const ppvName = eventData.PPV_NAME || '';
       let ppvIndex = -1;
@@ -953,12 +981,12 @@ export class PaymentPage extends BasePage {
             const activePrices = pricesInSection.filter(el => !isStrike(el));
             
             if (activePrices.length > 0) {
-              const activePriceVal = activePrices[0].textContent?.trim();
-              if (strikePrices.length > 0) {
+              // Expose duplicate active prices in the section if there are more than 1
+              const activePriceVal = activePrices.map(el => el.textContent?.trim() || '').filter(Boolean).join(' ');
+              if (activePrices.length === 1 && strikePrices.length > 0) {
                 const strikePriceVal = strikePrices[0].textContent?.trim();
                 if (strikePriceVal === activePriceVal) {
                   console.warn(`⚠️ Redundant strike-through price found showing same value: ${strikePriceVal}`);
-                  return activePriceVal;
                 }
               }
               return activePriceVal;
@@ -977,12 +1005,16 @@ export class PaymentPage extends BasePage {
         const prices = afterToday.match(/[\$£€₹]\s?\d+(?:\.\d{2})?/g) || [];
         const origPrice = eventData.ANNUAL_PAY_MONTHLY_ORIGINAL_PRICE || eventData.UPSELL_ORIGINAL_PRICE || '';
         const cleanOrig = origPrice.replace(/[^\d.]/g, '');
+        const filteredPrices = [];
         for (const p of prices) {
           const cleanP = p.replace(/[^\d.]/g, '');
           if (cleanOrig && cleanP === cleanOrig) {
             continue;
           }
-          return p.trim();
+          filteredPrices.push(p.trim());
+        }
+        if (filteredPrices.length > 0) {
+          return filteredPrices.join(' ');
         }
         if (prices[0]) return prices[0].trim();
       }
@@ -1190,7 +1222,7 @@ export class PaymentPage extends BasePage {
 
     // ── Bundle Name ───────────────────────────────────────────
     if (fieldLower === 'bundle name') {
-      const bundleName = (eventData?.BUNDLE_NAME || 'The Contender Bundle').toLowerCase();
+      const bundleName = (eventData?.BUNDLE_NAME || '').toLowerCase();
       const idx = lower.indexOf(bundleName);
       if (idx >= 0) {
         return bodyText.substring(idx, idx + bundleName.length);
@@ -1200,7 +1232,7 @@ export class PaymentPage extends BasePage {
 
     // ── Bundle Price ──────────────────────────────────────────
     if (fieldLower === 'bundle price') {
-      const bundleName = (eventData?.BUNDLE_NAME || 'The Contender Bundle').toLowerCase();
+      const bundleName = (eventData?.BUNDLE_NAME || '').toLowerCase();
       const bundleIdx = lower.indexOf(bundleName);
       if (bundleIdx >= 0) {
         const afterText = bodyText.substring(bundleIdx, bundleIdx + 150);
@@ -1223,7 +1255,7 @@ export class PaymentPage extends BasePage {
 
     // ── Bundle Original Price ──────────────────────────────────
     if (fieldLower === 'bundle original price') {
-      const bundleName = (eventData?.BUNDLE_NAME || 'The Contender Bundle').toLowerCase();
+      const bundleName = (eventData?.BUNDLE_NAME || '').toLowerCase();
       const bundleIdx = lower.indexOf(bundleName);
       if (bundleIdx >= 0) {
         const afterText = bodyText.substring(bundleIdx, bundleIdx + 150);
@@ -1243,7 +1275,7 @@ export class PaymentPage extends BasePage {
 
     // ── Bundle Discount ────────────────────────────────────────
     if (fieldLower === 'bundle discount') {
-      const bundleName = (eventData?.BUNDLE_NAME || 'The Contender Bundle').toLowerCase();
+      const bundleName = (eventData?.BUNDLE_NAME || '').toLowerCase();
       const bundleIdx = lower.indexOf(bundleName);
       if (bundleIdx >= 0) {
         const afterText = bodyText.substring(bundleIdx, bundleIdx + 150);
@@ -1715,7 +1747,7 @@ export class PaymentPage extends BasePage {
   private async _getGPayFrame(popup: import('@playwright/test').Page): Promise<import('@playwright/test').Frame | null> {
     console.log('🔍 [GPay] Looking for content iframe inside popup...');
 
-    // Wait for the page to have iframes
+    // Wait for the page to have iframes and load fully
     await popup.waitForTimeout(3000);
 
     // List all frames for debugging
@@ -1725,21 +1757,57 @@ export class PaymentPage extends BasePage {
       console.log(`   - ${f.url()}`);
     }
 
-    // Find the iframe that contains Google Pay content
-    // Usually it's the first child frame, or one that has pay.google.com URL
+    // Scan all frames for GPay content text
+    for (const frame of allFrames) {
+      try {
+        const bodyText = (await frame.locator('body').innerText({ timeout: 1000 }).catch(() => '')).toLowerCase();
+        if (
+          bodyText.includes('test card') ||
+          bodyText.includes('visa ••') ||
+          bodyText.includes('visa') ||
+          bodyText.includes("won't be charged") ||
+          bodyText.includes('test environment') ||
+          bodyText.includes('pay dazn')
+        ) {
+          console.log(`✅ [GPay] Found target content frame by content match: ${frame.url()}`);
+          return frame;
+        }
+      } catch (err) {
+        // Safe catch for cross-origin or closed frame errors
+      }
+    }
+
+    // Fallback 1: Look for buyflow iframe by URL
     for (const frame of allFrames) {
       if (frame === popup.mainFrame()) continue; // Skip main frame
       const url = frame.url();
-      if (url.includes('pay.google.com') || url.includes('payments.google.com') || url.includes('google.com')) {
-        console.log(`✅ [GPay] Found content frame: ${url}`);
+      if (url.includes('buyflow2') || url.includes('buyflow')) {
+        console.log(`✅ [GPay] Fallback: Found buyflow iframe by URL: ${url}`);
         return frame;
       }
     }
 
-    // If no matching child frame, try any non-main frame
+    // Fallback 2: Look for non-warmup matching URL
+    for (const frame of allFrames) {
+      if (frame === popup.mainFrame()) continue;
+      const url = frame.url();
+      if ((url.includes('pay.google.com') || url.includes('payments.google.com') || url.includes('google.com')) && !url.includes('auth_warmup') && !url.includes('bscframe')) {
+        console.log(`✅ [GPay] Fallback: Found matching URL frame: ${url}`);
+        return frame;
+      }
+    }
+
+    // Fallback 3: Use first child frame that isn't auth_warmup
     if (allFrames.length > 1) {
+      for (const frame of allFrames) {
+        if (frame === popup.mainFrame()) continue;
+        if (!frame.url().includes('auth_warmup')) {
+          console.log(`⚠️ [GPay] Fallback: Using non-warmup child frame: ${frame.url()}`);
+          return frame;
+        }
+      }
       const childFrame = allFrames[1];
-      console.log(`⚠️ [GPay] Using first child frame: ${childFrame.url()}`);
+      console.log(`⚠️ [GPay] Fallback: Using first child frame: ${childFrame.url()}`);
       return childFrame;
     }
 

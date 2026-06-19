@@ -99,7 +99,7 @@ export class HomePage extends LandingPage {
         );
       }
 
-      await sectionHeading.scrollIntoViewIfNeeded().catch(() => {});
+      await sectionHeading.scrollIntoViewIfNeeded().catch(() => { });
       console.log('✅ [HomePage Biggest Fights] Section heading found');
 
       // ── STEP 2: Find the rail wrapper ────────────────────────────────
@@ -166,7 +166,7 @@ export class HomePage extends LandingPage {
         return null;
       };
 
-      await sectionWrapper.hover({ force: true }).catch(() => {});
+      await sectionWrapper.hover({ force: true }).catch(() => { });
 
       let targetTile = await findMatchingTile();
       let clicks = 0;
@@ -184,9 +184,9 @@ export class HomePage extends LandingPage {
           break;
         }
 
-        await sectionWrapper.hover({ force: true }).catch(() => {});
+        await sectionWrapper.hover({ force: true }).catch(() => { });
         console.log(`  [Biggest Fights] Click ${clicks + 1}: advancing carousel...`);
-        await nextBtn.click({ force: true, timeout: 3000 }).catch(() => {});
+        await nextBtn.click({ force: true, timeout: 3000 }).catch(() => { });
         clicks++;
         await this.page.waitForTimeout(500);
         targetTile = await findMatchingTile();
@@ -209,7 +209,7 @@ export class HomePage extends LandingPage {
         (url: URL) => url.toString().includes('/competition/') || url.toString().includes('/sport/'),
         { timeout: 15000 }
       );
-      await this.page.waitForLoadState('domcontentloaded').catch(() => {});
+      await this.page.waitForLoadState('domcontentloaded').catch(() => { });
       console.log(`✅ [Biggest Fights] Competition page loaded: ${this.page.url()}`);
 
       // ── STEP 5: Scroll to "Coming Up" section on competition page ────
@@ -234,7 +234,7 @@ export class HomePage extends LandingPage {
         throw new Error('❌ [Competition Page] "Coming Up" section not found');
       }
 
-      await comingUpHeading.scrollIntoViewIfNeeded().catch(() => {});
+      await comingUpHeading.scrollIntoViewIfNeeded().catch(() => { });
       console.log('✅ [Competition Page] "Coming Up" section found');
 
       // ── STEP 6: Find PPV tile in "Coming Up" rail ────────────────────
@@ -269,7 +269,7 @@ export class HomePage extends LandingPage {
         return null;
       };
 
-      await comingUpRail.hover({ force: true }).catch(() => {});
+      await comingUpRail.hover({ force: true }).catch(() => { });
       let comingUpTile = await findComingUpTile();
       let cuClicks = 0;
 
@@ -281,8 +281,8 @@ export class HomePage extends LandingPage {
         ).catch(() => true);
         if (disabled) break;
 
-        await comingUpRail.hover({ force: true }).catch(() => {});
-        await comingUpNext.click({ force: true, timeout: 3000 }).catch(() => {});
+        await comingUpRail.hover({ force: true }).catch(() => { });
+        await comingUpNext.click({ force: true, timeout: 3000 }).catch(() => { });
         cuClicks++;
         await this.page.waitForTimeout(500);
         comingUpTile = await findComingUpTile();
@@ -688,7 +688,7 @@ export class HomePage extends LandingPage {
       }
 
       // Click the tile in "Coming Up" rail → popup modal appears
-      await container.scrollIntoViewIfNeeded().catch(() => {});
+      await container.scrollIntoViewIfNeeded().catch(() => { });
       await container.click({ timeout: 5000 });
       console.log('✅ [Biggest Fights] Clicked Coming Up tile, waiting for popup modal...');
 
@@ -761,8 +761,8 @@ export class HomePage extends LandingPage {
       }
 
       const ctaSelector = 'button:has-text("Buy now"), a:has-text("Buy now"), button:has-text("Buy Now"), ' +
-                          'button:has-text("Subscribe"), a:has-text("Subscribe"), ' +
-                          'button:has-text("Continue"), a:has-text("Continue")';
+        'button:has-text("Subscribe"), a:has-text("Subscribe"), ' +
+        'button:has-text("Continue"), a:has-text("Continue")';
 
       const dialog = container.locator('[role="dialog"], [aria-modal="true"], [class*="modal" i]').first();
       let buyNowBtn = dialog.locator(ctaSelector).first();

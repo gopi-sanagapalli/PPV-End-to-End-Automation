@@ -1,4 +1,4 @@
-import { getDynamicDateBadge } from './dateUtils';
+import { getDynamicDateBadge, getDynamicDateTimeBadge } from './dateUtils';
 
 export function resolveExpected(
   rule: any,
@@ -34,6 +34,77 @@ export function resolveExpected(
 
   let raw = rule.Expected ?? rule.Value;
 
+  const currentSource = (eventData.SOURCE || eventData.source || '').trim().toLowerCase();
+  const isSubscriptionOnly =
+    currentSource === 'boxing-ultimate-subscription' ||
+    currentSource === 'boxing-standard-subscription' ||
+    currentSource === 'boxing-join-the-club';
+
+  if (isSubscriptionOnly) {
+    // In subscription-only flow (no PPV), the plans page shows default descriptions
+    // instead of trial/offer text — no trial badge, no trial description
+    if (field === 'ppv name' || field === 'ppv price') {
+      return 'N/A| |';
+    }
+    // Flex: no trial badge/today/future text, but show default description
+    if (field === 'flex badge') {
+      return 'N/A| |';
+    }
+    if (field === 'flex description') {
+      return eventData.PLAN_DETAILS_FLEX_DESC || 'Billed monthly. Cancel anytime.|N/A| |';
+    }
+    if (field === 'flex today text' || field === 'flex future text') {
+      return 'N/A| |';
+    }
+    // Annual: no 1-month-free badge, but show default description
+    if (field === 'annual badge') {
+      return 'N/A| |';
+    }
+    if (field === 'annual price text') {
+      return eventData.PLAN_DETAILS_ANNUAL_MONTHLY_DESC || 'Annual contract. Auto renews.|N/A| |';
+    }
+    if (
+      field === 'annual feature 1' ||
+      field === 'annual feature 2' ||
+      field === 'annual feature 3' ||
+      field === 'rate plan original price' ||
+      field === 'rate plan discounted price'
+    ) {
+      return 'N/A| |';
+    }
+    if (field === 'cta button' || field === 'cta button text' || field === 'cta after apm selection') {
+      const currentTierVal = (eventData.TIER || '').toLowerCase();
+      if (currentTierVal === 'ultimate') {
+        return 'Continue with DAZN Ultimate|Continue';
+      } else {
+        return 'Continue with DAZN Standard|Continue';
+      }
+    }
+    if (field === 'today you pay price' || field === 'today price' || (field.includes('today you pay') && !field.includes('text'))) {
+      const currentTierVal = (eventData.TIER || '').toLowerCase();
+      if (currentTierVal === 'ultimate') {
+        return eventData.ANNUAL_PAY_MONTHLY_PRICE || '';
+      } else {
+        return eventData.CURRENCY && eventData.ANNUAL_PRICE ? `${eventData.CURRENCY}${eventData.ANNUAL_PRICE}` : '';
+      }
+    }
+    if (field === 'cancellation text' || field === 'cancel text') {
+      const currentTierVal = (eventData.TIER || '').toLowerCase();
+      const currentRatePlanVal = (eventData.RATE_PLAN || '').replace(/-/g, ' ').toLowerCase();
+      if (currentTierVal === 'ultimate' && currentRatePlanVal.includes('annual pay monthly')) {
+        return eventData.CANCELLATION_TEXT_ULTIMATE_APM || '';
+      } else if (currentTierVal === 'ultimate' && currentRatePlanVal.includes('annual pay upfront')) {
+        return eventData.CANCELLATION_TEXT_ULTIMATE_APU || '';
+      } else if (currentRatePlanVal.includes('annual')) {
+        const renewalDate = eventData.RENEWAL_DATE || '';
+        return `Your Annual (pay over time) plan will renew automatically on ${renewalDate}. Manage or cancel your annual renewal anytime in My Account. 12-month minimum term`;
+      }
+    }
+    if (field === 'annual savings badge' || field === 'save badge') {
+      return eventData.ANNUAL_SAVINGS_BADGE || 'N/A';
+    }
+  }
+
   if (field === 'popup date') {
     const pDate = eventData.PPV_DATE || '';
     const lpDate = eventData.LANDING_PAGE_PPV_DATE || '';
@@ -67,12 +138,31 @@ export function resolveExpected(
       raw = 'N/A';
     } else if (field === 'annual pay monthly contract text' && (!eventData.UPSELL_PRICE || eventData.UPSELL_PRICE.trim() === '' || eventData.UPSELL_PRICE.trim().toUpperCase() === 'N/A')) {
       raw = 'Annual contract. Auto renews.';
-    } else if (field === 'ppv name' && (currentSource === 'boxing-ultimate' || currentSource === 'boxing-bundle-ultimate')) {
+    } else if (field === 'ppv name' && (
+      currentSource === 'boxing-ultimate' ||
+      currentSource === 'boxing-bundle-ultimate' ||
+      currentSource === 'boxing-banner-ultimate' ||
+      currentSource === 'boxing-ultimate-subscription' ||
+      currentSource === 'boxing-standard-subscription' ||
+      currentSource === 'boxing-join-the-club'
+    )) {
       raw = 'N/A';
-    } else if (field === 'ppv price' && (currentSource === 'boxing-ultimate' || currentSource === 'boxing-bundle-ultimate')) {
+    } else if (field === 'ppv price' && (
+      currentSource === 'boxing-ultimate' ||
+      currentSource === 'boxing-bundle-ultimate' ||
+      currentSource === 'boxing-banner-ultimate' ||
+      currentSource === 'boxing-ultimate-subscription' ||
+      currentSource === 'boxing-standard-subscription' ||
+      currentSource === 'boxing-join-the-club'
+    )) {
       raw = 'N/A';
     } else if (field === 'ultimate feature 1' || field === 'ultimate feature 2' || field === 'ultimate feature 3') {
-      if (currentSource !== 'boxing-ultimate') {
+      if (
+        currentSource !== 'boxing-ultimate' &&
+        currentSource !== 'boxing-banner-ultimate' &&
+        currentSource !== 'boxing-ultimate-subscription' &&
+        currentSource !== 'boxing-join-the-club'
+      ) {
         raw = 'N/A';
       }
     } else if (field === 'saturday badge') {
@@ -252,7 +342,7 @@ export function resolveExpected(
   if (field === 'ppv card description') {
     const isStag = (process.env.DAZN_ENV || 'stag').toLowerCase().includes('stag');
     if (isStag && process.env.DEFAULT_SIGNUP === 'true') {
-      raw = 'The fight, including one month of discounted DAZN Standard plan';
+      raw = eventData.DEFAULT_SIGNUP_PPV_DESCRIPTION || 'The fight, including one month of discounted DAZN Standard plan';
     }
   } else if (field === 'upsell section heading') {
     if (process.env.DEFAULT_SIGNUP === 'true') {
@@ -274,7 +364,7 @@ export function resolveExpected(
       
       // Override PPV_DATE specifically for landing/boxing/home pages
       const pageNameLower = pageName.toLowerCase();
-      if (k.toUpperCase() === 'PPV_DATE' && (pageNameLower === 'landing' || pageNameLower === 'boxing' || pageNameLower.includes('home'))) {
+      if (k.toUpperCase() === 'PPV_DATE' && (pageNameLower === 'landing' || pageNameLower === 'boxing' || pageNameLower.includes('home') || pageNameLower.includes('popup'))) {
         if (eventData.LANDING_PAGE_PPV_DATE) {
           return String(eventData.LANDING_PAGE_PPV_DATE);
         }
@@ -329,14 +419,15 @@ export function resolveExpected(
     }
 
     // Resolve any remaining template placeholders
-    template = template.replace(/\{\{CURRENCY\}\}/g, eventData.CURRENCY || '£')
+    template = template.replace(/\{\{CURRENCY\}\}/g, eventData.CURRENCY || '')
                        .replace(/\{\{MONTHLY_PRICE\}\}/g, eventData.MONTHLY_PRICE || '')
                        .replace(/\{\{ANNUAL_PRICE\}\}/g, eventData.ANNUAL_PRICE || '')
                        .replace(/\{\{ANNUAL_TOTAL\}\}/g, eventData.ANNUAL_TOTAL || '')
                        .replace(/\{\{RENEWAL_DATE\}\}/g, eventData.RENEWAL_DATE || '');
   }
 
-  const dateFields = [
+  // Date-only fields — use getDynamicDateBadge (generates candidates with and without time)
+  const dateOnlyFields = [
     'ppv date badge',
     'date badge',
     'banner date badge',
@@ -344,16 +435,28 @@ export function resolveExpected(
     'tile date badge',
     'ppv date',
     'popup date',
-    'ppv date and time',
+    'popup - event date',
     'welcome tile date',
     'event date',
-    'ppv date and time expected',
     'fury payment date',
-    'ppv date and time text',
-    'ppv1 date text on ultimate tier'
+    'landing page ppv date',
+    'ppv1 upsell tile date',
+    'ppv2 upsell tile date',
   ];
-  if (dateFields.includes(field)) {
+  if (dateOnlyFields.includes(field)) {
     return getDynamicDateBadge(template);
+  }
+
+  // Date+Time fields — use getDynamicDateTimeBadge (only generates candidates WITH time)
+  const dateTimeFields = [
+    'ppv date and time',
+    'ppv date and time expected',
+    'ppv date and time text',
+    'ppv1 date and time text on bundle',
+    'event date and time',
+  ];
+  if (dateTimeFields.includes(field)) {
+    return getDynamicDateTimeBadge(template);
   }
 
   return template;

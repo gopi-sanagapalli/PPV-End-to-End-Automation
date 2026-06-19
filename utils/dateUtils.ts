@@ -300,6 +300,11 @@ function getDynamicDateBadgeSingle(configStr: string, referenceDate: Date = getN
       // Ordinal variants: "25th Jul", "25th July"
       `${dayNum}${ordinal} ${monthName}`,
       `${dayNum}${ordinal} ${fullMonthName}`,
+      // Month-first variants: "Jul 25", "July 25" (used on landing page tiles)
+      `${monthName} ${dayNum}`,
+      `${fullMonthName} ${dayNum}`,
+      `${monthName} ${dayNum}${ordinal}`,
+      `${fullMonthName} ${dayNum}${ordinal}`,
     ];
     
     // Weekday-prefixed variants: "Sat 25th Jul", "Sat 25 Jul"
@@ -326,4 +331,18 @@ function getDynamicDateBadgeSingle(configStr: string, referenceDate: Date = getN
 export function getDynamicDateBadge(configStr: string, referenceDate: Date = getNow()): string {
   if (!configStr) return '';
   return configStr.split('|').map(part => getDynamicDateBadgeSingle(part, referenceDate)).join('|');
+}
+
+/**
+ * Same as getDynamicDateBadge but ONLY returns candidates that include
+ * a time component (HH:MM). Use for "Date and Time" fields where the
+ * expected value MUST include the time, not just the date.
+ */
+export function getDynamicDateTimeBadge(configStr: string, referenceDate: Date = getNowIST()): string {
+  if (!configStr) return '';
+  const allCandidates = configStr.split('|').map(part => getDynamicDateBadgeSingle(part, referenceDate)).join('|');
+  const timePattern = /\b\d{1,2}:\d{2}\b/;
+  const withTime = allCandidates.split('|').filter(c => timePattern.test(c));
+  // If no candidates have time (e.g. config has no time info), fall back to all candidates
+  return withTime.length > 0 ? withTime.join('|') : allCandidates;
 }

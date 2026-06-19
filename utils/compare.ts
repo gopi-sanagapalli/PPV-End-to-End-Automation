@@ -3,7 +3,11 @@ export function compare(
   expected: string,
   type?:    string
 ): boolean {
-  if (!expected) return true;
+  if (!expected) {
+    // Empty expected: pass only if actual is also empty or N/A
+    const aTrimmed = actual.trim();
+    return aTrimmed === '' || aTrimmed.toUpperCase() === 'N/A';
+  }
 
   // ── N/A expected ───────────────────────────────────────────────
   if (expected.trim().toUpperCase() === 'N/A') {
@@ -33,6 +37,19 @@ export function compare(
 
   const a = norm(actual);
   const e = norm(expected);
+
+  // ── Price duplication check ─────────────────────────────────────
+  const priceRegex = /\d+(?:\.\d{2})?/;
+  const expectedPrices = e.match(new RegExp(priceRegex.source, 'g')) || [];
+  const actualPrices = a.match(new RegExp(priceRegex.source, 'g')) || [];
+  if (expectedPrices.length === 1 && actualPrices.length > 1) {
+    const singleExpected = expectedPrices[0];
+    const occurrences = actualPrices.filter(p => p === singleExpected).length;
+    if (occurrences > 1) {
+      console.log(`❌ [Compare] Price duplication detected: "${singleExpected}" appears ${occurrences} times in actual "${actual}"`);
+      return false;
+    }
+  }
 
   // ── Matchups Substring Match (e.g. "Beauty and The Beast: Fury vs. Hall" <-> "Fury vs. Hall") ──
   if (a.includes('vs') && e.includes('vs')) {
@@ -89,8 +106,15 @@ export function compare(
     return true;
   }
 
-  // ── Contains with length guard ─────────────────────────────────
-  if (a.includes(e) && actual.length < expected.length * 10) {
+  // ── Contains with length guard ─────────────────────────────
+  // Only allow substring match for very close-length strings to avoid false positives
+  // where a short expected matches inside a large page-text dump.
+  if (
+    a.includes(e) &&
+    e.length >= 10 &&
+    actual.length < expected.length * 1.5 &&
+    actual.length <= expected.length + 30
+  ) {
     if (a.includes('not ' + e) || a.includes('not' + e)) return false;
     return true;
   }
@@ -109,11 +133,17 @@ export function compare(
   const aParts = extractDateParts(a);
   const eParts = extractDateParts(e);
 
+  // Date-only flexibility: only use when NEITHER string contains a time component.
+  // If the actual has time info (e.g. "Sun 26th Jul at 00:30") but expected doesn't
+  // (e.g. "26 Jul"), this should NOT pass — the expected should include the time.
+  const actualHasTime = /\b\d{1,2}:\d{2}\b/.test(actual);
+  const expectedHasTime = /\b\d{1,2}:\d{2}\b/.test(expected);
   if (
     aParts.month && eParts.month &&
     aParts.day   && eParts.day   &&
     aParts.month === eParts.month &&
-    aParts.day   === eParts.day
+    aParts.day   === eParts.day &&
+    !actualHasTime && !expectedHasTime
   ) return true;
 
   // ── Time match flexibility ─────────────────────────────────────
