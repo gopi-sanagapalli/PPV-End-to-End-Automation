@@ -1,4 +1,4 @@
-name: AU PROD New User End-to-End Flows
+name: New User E2E - AU - PROD
 
 on:
   workflow_dispatch:
