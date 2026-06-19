@@ -203,6 +203,7 @@ async function findPPVBanner(driver: WdBrowser): Promise<boolean> {
 // ── Navigate to Schedule tab ─────────────────────────────────────────────────
 async function navigateToSchedule(driver: WdBrowser): Promise<void> {
   console.log('📅 Navigating to Schedule tab...');
+  await driver.saveScreenshot('./test-results/before_schedule_click.png');
   
   // Method 1: Find Schedule by text label (most reliable)
   try {
@@ -211,49 +212,51 @@ async function navigateToSchedule(driver: WdBrowser): Promise<void> {
       await scheduleText.click();
       await driver.pause(3000);
       console.log('✅ Schedule tab clicked (by text)');
+      await driver.saveScreenshot('./test-results/after_schedule_click.png');
       return;
     }
   } catch (e) {
-    console.log('  Text not found, trying XPath...');
+    console.log('  Text not found, trying coordinate tap...');
   }
   
-  // Method 2: Find Schedule tab icon by checking all nav items
+  // Method 2: Tap Schedule icon by coordinates (bottom nav, 3rd from left)
+  const screenSize = getScreenSize();
+  const bottomNavY = Math.round(screenSize.height * 0.92);  // Bottom nav area
+  const scheduleX = Math.round(screenSize.width * 0.5);     // 3rd icon (middle)
+  
+  console.log(`  Tapping Schedule at coordinates (${scheduleX}, ${bottomNavY})`);
+  adbTap(scheduleX, bottomNavY);
+  await driver.pause(3000);
+  await driver.saveScreenshot('./test-results/after_schedule_tap.png');
+  
+  // Verify we're on Schedule page
   try {
-    const navItems = await driver.$$(`android=new UiSelector().resourceId("com.dazn:id/navigation_bar_item_icon_view")`);
-    console.log(`  Found ${navItems.length} navigation items`);
+    const scheduleHeader = await driver.$(`android=new UiSelector().text("SCHEDULE")`);
+    if (await scheduleHeader.isDisplayed()) {
+      console.log('✅ Schedule tab clicked (coordinate tap)');
+      return;
+    }
+  } catch (e) {}
+  
+  // Method 3: Try tapping different positions (try 2nd, 3rd, 4th icons)
+  const iconPositions = [0.25, 0.5, 0.75];  // 25%, 50%, 75% of width
+  
+  for (const xPercent of iconPositions) {
+    const x = Math.round(screenSize.width * xPercent);
+    console.log(`  Trying nav icon at x=${x} (${Math.round(xPercent * 100)}%)`);
+    adbTap(x, bottomNavY);
+    await driver.pause(2000);
     
-    // Check each nav item to find Schedule
-    for (let i = 0; i < Math.min(navItems.length, 5); i++) {
-      try {
-        const item = navItems[i];
-        const parent = await item.$(`//..`);
-        const textEl = await parent.$(`android=new UiSelector().text("Schedule")`);
-        if (await textEl.isDisplayed()) {
-          await item.click();
-          await driver.pause(3000);
-          console.log(`✅ Schedule tab clicked (nav item ${i + 1})`);
-          return;
-        }
-      } catch (e) {}
-    }
-  } catch (e) {
-    console.log('  Nav items method failed...');
+    try {
+      const scheduleHeader = await driver.$(`android=new UiSelector().text("SCHEDULE")`);
+      if (await scheduleHeader.isDisplayed()) {
+        console.log(`✅ Schedule tab clicked (position ${Math.round(xPercent * 100)}%)`);
+        return;
+      }
+    } catch (e) {}
   }
   
-  // Method 3: Try clicking 3rd item (Schedule is now 3rd, not 4th)
-  try {
-    const navItems = await driver.$$(`android=new UiSelector().resourceId("com.dazn:id/navigation_bar_item_icon_view")`);
-    if (navItems.length >= 3) {
-      await navItems[2].click();  // 3rd item (index 2)
-      await driver.pause(3000);
-      console.log('✅ Schedule tab clicked (3rd nav item)');
-      return;
-    }
-  } catch (e) {
-    console.log('  3rd item method failed...');
-  }
-  
-  console.log('⚠️  Could not click Schedule tab');
+  console.log('⚠️  Could not navigate to Schedule tab');
 }
 
 // ── Scroll schedule and find Joshua PPV tile (then center it) ─────
