@@ -56,9 +56,9 @@ strategy:
 env:
   CI: 'true'
   HEADLESS: 'true'
-  DAZN_REGION: AU
+  DAZN_REGION: UK
   DAZN_ENV: prod
-  SOURCE: schedule
+  SOURCE: home-page-dont-miss
   PLAN: ${{ matrix.plan }}
   PPV_CONFIG: ${{ inputs.PPV_CONFIG }}
   PAYMENT_METHOD: ${{ inputs.PAYMENT_METHOD }}
