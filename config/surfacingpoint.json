@@ -10,7 +10,8 @@
     "defaultSignup": true
   },
   "landing-page-banner": {
-    "source": "landing-page-banner",
+    "source": "landing-page-banner"
+  },
   "home-page-banner": {
     "source": "home-page-banner",
     "endPage": "payment"
