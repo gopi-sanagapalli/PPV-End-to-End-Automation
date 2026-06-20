@@ -212,76 +212,42 @@ export class SearchPage extends BasePage {
     console.log('═══════════════════════════════════════════════════\n');
 
     try {
+      // ── Step 0: Check if dev mode is already active ────────────
+      const yellowDot = this.page.locator('div[class*="dev-mode__circle"], [class*="dev-mode"]').first();
+      const alreadyActive = await yellowDot.isVisible({ timeout: 1500 }).catch(() => false);
+      if (alreadyActive) {
+        console.log('✅ Dev mode is already active (yellow dot visible). Skipping activation flow.');
+        return;
+      }
+
       // Store the exact landing page URL to return to it robustly later
       const landingPageUrl = this.page.url();
       console.log(`📌 Storing landing page URL: ${landingPageUrl}`);
 
-      // ── Step 1: Click "Explore" button in top right ────────────
-      console.log('📸 [DevMode Step 1] Clicking "Explore" button...');
-      await this.page.screenshot({ path: 'test-results/devmode-01-before-explore.png', fullPage: false }).catch(() => { });
-
-      const exploreBtn = this.page.locator(
-        'a:has-text("Explore"), button:has-text("Explore")'
-      ).first();
-
-      await exploreBtn.waitFor({ state: 'visible', timeout: 10000 }).catch(() => { });
-      const exploreVisible = await exploreBtn.isVisible({ timeout: 3000 }).catch(() => false);
-
-      if (exploreVisible) {
-        console.log('✅ Found "Explore" button');
-        await exploreBtn.click({ force: true });
-        await this.page.waitForLoadState('domcontentloaded');
-        await this.page.waitForTimeout(2000);
-
-        console.log(`📍 After Explore click, URL: ${this.page.url()}`);
-      } else {
-        console.log('⚠️  "Explore" button not found — navigating to home page directly');
-        const baseUrl = landingPageUrl.match(/https:\/\/[^\/]+\/en-[A-Z]+/i)?.[0] || 'https://www.dazn.com/en-GB';
-        await this.page.goto(`${baseUrl}/home`, { waitUntil: 'domcontentloaded' });
-        await this.page.waitForTimeout(2000);
-      }
-
-      await this.page.screenshot({ path: 'test-results/devmode-02-after-explore-home.png', fullPage: false }).catch(() => { });
-
-      // ── Step 2: Click Search icon in the home page header ─────
-      console.log('📸 [DevMode Step 2] Clicking search icon...');
-
-      const baseUrl = this.page.url().match(/https:\/\/[^\/]+\/en-[A-Z]+/i)?.[0] || 'https://www.dazn.com/en-GB';
-
-      // Ensure cookies are dismissed before clicking search link
-      await this.waitForConsentAndDismiss().catch(() => {});
-
-      const searchLink = this.page.locator('header a[href*="/search"]').first();
-      const searchVisible = await searchLink.isVisible({ timeout: 5000 }).catch(() => false);
+      // ── Step 1 & 2: Navigate to search page ───────────
+      const searchLink = this.page.locator('header a[href*="/search"], a[href*="/search"]').first();
+      const searchVisible = await searchLink.isVisible({ timeout: 2000 }).catch(() => false);
 
       if (searchVisible) {
-        console.log('✅ Found search link in header');
+        console.log('✅ Found search link — navigating via client-side click to avoid redirect');
         await Promise.all([
           this.page.waitForURL('**/search', { timeout: 10000 }).catch(() => { }),
           searchLink.click({ force: true })
         ]);
-        await this.page.waitForTimeout(2000);
-
+        await this.page.waitForLoadState('domcontentloaded').catch(() => { });
+        await this.page.waitForTimeout(1000);
       } else {
-        console.log('⚠️  Search link not found, navigating directly');
-        for (let retries = 0; retries < 3; retries++) {
-          await this.page.goto(`${baseUrl}/search`, { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => { });
-          await this.page.waitForTimeout(2000);
-
-          if (this.page.url().includes('/search')) {
-            console.log('✅ Successfully landed on search page');
-            break;
-          }
-          console.log(`🔄 Direct navigation to /search failed (current URL: ${this.page.url()}) — retrying...`);
-        }
+        const baseUrl = landingPageUrl.match(/https:\/\/[^\/]+\/en-[A-Z]+/i)?.[0] || 'https://www.dazn.com/en-GB';
+        const searchUrl = `${baseUrl}/search`;
+        console.log(`🧭 Search link not visible — navigating directly to Search page: ${searchUrl}`);
+        await this.page.goto(searchUrl, { waitUntil: 'domcontentloaded' });
+        await this.waitForConsentAndDismiss().catch(() => {});
       }
-
-      console.log(`📍 URL: ${this.page.url()}`);
       await this.page.screenshot({ path: 'test-results/devmode-03-search-this.page.png', fullPage: false }).catch(() => { });
 
       // ── Step 3: Type [dev_mode_on] and press Enter ────────────
       console.log('📸 [DevMode Step 3] Entering "[dev_mode_on]" in search...');
-      await this.page.waitForTimeout(2000);
+      await this.page.waitForTimeout(1000);
 
       const searchInput = this.page.locator('input[placeholder*="Search sports" i], input[placeholder*="Search sports, teams, events" i], input[type="search"]').first();
       const searchInputVisible = await searchInput.isVisible({ timeout: 5000 }).catch(() => false);
@@ -298,8 +264,7 @@ export class SearchPage extends BasePage {
         console.log('⚠️  Search input not found');
       }
 
-      await this.page.waitForTimeout(3000);
-
+      await this.page.waitForTimeout(2000);
       await this.page.screenshot({ path: 'test-results/devmode-04-popup.png', fullPage: false }).catch(() => { });
 
       // Extract the dynamic Dev Mode ID from the page body
@@ -360,66 +325,30 @@ export class SearchPage extends BasePage {
 
       await this.page.screenshot({ path: 'test-results/devmode-05-after-copy-id.png', fullPage: false }).catch(() => { });
 
-      console.log('📸 [DevMode Step 4.5] Reloading search page to verify yellow dot indicator...');
+      // ── Step 4: Refresh search page to verify yellow dot ──────
+      console.log('📸 [DevMode Step 4] Refreshing search page to verify yellow dot indicator...');
       await this.page.reload({ waitUntil: 'domcontentloaded' });
       await this.page.waitForTimeout(2000);
 
       // Verify the yellow dot appears beside DAZN™
-      const yellowDot = this.page.locator('div[class*="dev-mode__circle"], [class*="dev-mode"]').first();
-      let yellowDotVisible = await yellowDot.isVisible({ timeout: 8000 }).catch(() => false);
-
-      if (!yellowDotVisible) {
-        console.log('⚠️ Yellow dot not visible on first reload. Trying second reload after 3s...');
-        await this.page.waitForTimeout(3000);
-        await this.page.reload({ waitUntil: 'domcontentloaded' });
-        await this.page.waitForTimeout(1000);
-        yellowDotVisible = await yellowDot.isVisible({ timeout: 8000 }).catch(() => false);
-      }
+      let yellowDotVisible = await yellowDot.isVisible({ timeout: 5000 }).catch(() => false);
 
       if (yellowDotVisible) {
-        console.log('✅ Yellow dot indicator visible — dev mode activation CONFIRMED ✨');
+        console.log('✅ Yellow dot indicator visible on search page — dev mode activation CONFIRMED ✨');
         await this.page.screenshot({ path: 'test-results/devmode-04-5-reload-with-yellow-dot.png', fullPage: false }).catch(() => { });
       } else {
-        console.log('❌ Yellow dot indicator not visible — dev mode activation FAILED');
+        console.log('❌ Yellow dot indicator not visible on search page — dev mode activation FAILED');
         await this.page.screenshot({ path: 'test-results/devmode-error-yellow-dot.png', fullPage: true }).catch(() => { });
-        throw new Error('❌ Yellow dot indicator not visible next to DAZN™ trademark in footer');
+        throw new Error('❌ Yellow dot indicator not visible next to DAZN™ trademark in footer on search page');
       }
 
-      // ── Step 5: Go back to return to landing page ──────
-      console.log('📸 [DevMode Step 5] Navigating back to landing this.page...');
-
+      // ── Step 5: Redirect to the original boxing/landing page ──────
+      console.log(`🧭 Redirecting back to original landing/boxing page: ${landingPageUrl}`);
       // Press Escape to dismiss any remaining modal/popup  
       await this.page.keyboard.press('Escape').catch(() => { });
-      await this.page.waitForTimeout(500);
-
-      // Remove any cookie overlay that might block interaction
-      await this.page.evaluate(() => {
-        document.querySelectorAll('#onetrust-banner-sdk, #onetrust-consent-sdk, [class*="onetrust"], [class*="ot-sdk"]').forEach(el => (el as HTMLElement).style.display = 'none');
-      }).catch(() => { });
-
-      // Navigate back twice
-      for (let i = 0; i < 2; i++) {
-        const beforeUrl = this.page.url();
-        await this.page.goBack({ waitUntil: 'domcontentloaded' }).catch(async () => {
-          await this.page.waitForTimeout(1000);
-          await this.page.goBack({ waitUntil: 'domcontentloaded' }).catch(() => { });
-        });
-        await this.page.waitForTimeout(1500);
-        const afterUrl = this.page.url();
-        console.log(`  ↩️  Back ${i + 1}: ${beforeUrl} → ${afterUrl}`);
-      }
-
-      // Direct fallback if history back navigation got stuck on home page
-      const finalUrl = this.page.url();
-      console.log(`📍 URL after back navigation: ${finalUrl}`);
-      if (finalUrl.includes('/home') || finalUrl === 'about:blank' || !finalUrl.includes('dazn.com')) {
-        console.log(`⚠️  Still on home or blank page — navigating directly back to landing page: ${landingPageUrl}`);
-        await this.page.goto(landingPageUrl, { waitUntil: 'domcontentloaded' });
-        await this.page.waitForTimeout(1500);
-        console.log(`📍 Final URL: ${this.page.url()}`);
-      } else {
-        console.log(`✅ Successfully returned to landing page: ${this.page.url()}`);
-      }
+      await this.page.waitForTimeout(200);
+      await this.page.goto(landingPageUrl, { waitUntil: 'domcontentloaded' });
+      await this.page.waitForTimeout(1500);
 
       await this.page.screenshot({ path: 'test-results/devmode-07-ready-to-checkout.png', fullPage: false }).catch(() => { });
 

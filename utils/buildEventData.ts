@@ -466,6 +466,13 @@ export function buildEventData(
   const isUSRegion = (base.BASE_URL || '').includes('/en-US');
   const ratePlanLower = base.RATE_PLAN.toLowerCase();
 
+  // Today's date for Upgrade Confirmation legal text
+  const todayIST = getNowIST();
+  const dd = String(todayIST.getDate()).padStart(2, '0');
+  const mm = String(todayIST.getMonth() + 1).padStart(2, '0');
+  const yyyy = todayIST.getFullYear();
+  base.TODAY_DATE = isUSRegion ? `${mm}/${dd}/${yyyy}` : `${dd}/${mm}/${yyyy}`;
+
   if (ratePlanLower === 'annual pay upfront') {
     base.NEXT_PAYMENT_DATE = isUSRegion
       ? formatNextPaymentDateYearlyUS()

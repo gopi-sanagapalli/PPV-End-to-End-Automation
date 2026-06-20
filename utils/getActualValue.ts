@@ -1287,6 +1287,13 @@ export async function getActualValue(
         return 'N/A';
       }
       const url = page.url();
+      if (url.includes('/myaccount') || (eventData?.CURRENT_PAGE && eventData.CURRENT_PAGE.toLowerCase() === 'my account')) {
+        const { MyAccountPage } = require('../pages/MyAccountPage');
+        const myAccountPage = new MyAccountPage(page);
+        const name = await myAccountPage.getPPVName(eventData?.PPV_NAME || '');
+        if (name && name !== 'N/A') return name;
+      }
+
       const isLandingOrHome = url.includes('/welcome') || url.includes('/home') || url.includes('/boxing') || 
                               (eventData?.CURRENT_PAGE && ['landing', 'boxing', 'home page', 'home of boxing'].includes(eventData.CURRENT_PAGE.toLowerCase()));
       if (isLandingOrHome) {
@@ -1458,7 +1465,15 @@ export async function getActualValue(
     // PPV DATE (schedule page)
     // ════════════════════════════════════════════════════════════
     case 'ppv date': {
+      const url = page.url();
+      if (url.includes('/myaccount') || (eventData?.CURRENT_PAGE && eventData.CURRENT_PAGE.toLowerCase() === 'my account')) {
+        const { MyAccountPage } = require('../pages/MyAccountPage');
+        const myAccountPage = new MyAccountPage(page);
+        const date = await myAccountPage.getPPVDate(eventData?.PPV_NAME || '');
+        if (date && date !== 'N/A') return date;
+      }
       const firstWord = (eventData?.PPV_NAME || '').toLowerCase().split(' ')[0];
+
       const arts = page.locator('article');
       const ac = await arts.count().catch(() => 0);
 
@@ -1636,7 +1651,15 @@ export async function getActualValue(
     case 'hero image':
     case 'ppv image present':
     case 'ppv image': {
+      const url = page.url();
+      if (url.includes('/myaccount') || (eventData?.CURRENT_PAGE && eventData.CURRENT_PAGE.toLowerCase() === 'my account')) {
+        const { MyAccountPage } = require('../pages/MyAccountPage');
+        const myAccountPage = new MyAccountPage(page);
+        const hasImg = await myAccountPage.hasPPVImage(eventData?.PPV_NAME || '');
+        return hasImg ? 'Yes' : 'No';
+      }
       const hasImg = snap.some(n => 
+
         n.tag === 'img' && 
         (
           (n.src && n.src.toLowerCase().includes('ppv')) || 
@@ -3657,8 +3680,16 @@ export async function getActualValue(
         if (offerText !== 'N/A') return offerText;
       }
 
+      // Direct match: "Annual contract. Auto renews." (exact leaf node)
+      const directMatch = snapFind(n =>
+        n.childCount === 0 &&
+        n.text.toLowerCase().includes('annual contract') &&
+        n.text.toLowerCase().includes('auto renews') &&
+        n.text.length < 50
+      );
+      if (directMatch !== 'N/A') return directMatch;
+
       // FIX: node [34] has children:1 so use childCount <= 1
-      // Also broaden text match to include 'paid in 12 monthly' and 'instalments'
       const exact = snapFind(n =>
         n.childCount <= 1 &&
         n.text.toLowerCase().includes('paid in 12 monthly') &&
@@ -3666,14 +3697,15 @@ export async function getActualValue(
       );
       if (exact !== 'N/A') return exact;
 
+      // Fallback: tighter length limit to avoid matching full card text
       return snapFind(n =>
-        n.childCount <= 2 &&
+        n.childCount <= 1 &&
         (n.text.toLowerCase().includes('12 monthly') ||
           n.text.toLowerCase().includes('instalments') ||
           n.text.toLowerCase().includes('installments') ||
-          (n.text.toLowerCase().includes('month') &&
-            n.text.toLowerCase().includes('contract'))) &&
-        n.text.length < 150
+          (n.text.toLowerCase().includes('annual contract') &&
+            !n.text.toLowerCase().includes('pay monthly'))) &&
+        n.text.length < 60
       );
     }
 
@@ -4214,23 +4246,27 @@ export async function getActualValue(
     }
 
     case 'rate plan price': {
-      const monthly = snapFind(n =>
-        n.childCount <= 2 &&
-        isPriceText(n.text.split('/')[0].trim()) &&
-        (n.text.toLowerCase().includes('/month') ||
-          n.text.toLowerCase().includes('/ month')) &&
-        n.text.length < 30
+      // Exact leaf node: price only (e.g. "£249.99")
+      const exactPrice = snapFind(n =>
+        n.childCount === 0 &&
+        isPriceText(n.text) &&
+        !n.text.includes('/') &&
+        n.text.length < 15
       );
-      if (monthly !== 'N/A') return monthly;
+      if (exactPrice !== 'N/A') return exactPrice;
 
-      const yearly = snapFind(n =>
-        n.childCount <= 2 &&
-        isPriceText(n.text.split('/')[0].trim()) &&
-        (n.text.toLowerCase().includes('/year') ||
-          n.text.toLowerCase().includes('/ year')) &&
-        n.text.length < 30
-      );
-      if (yearly !== 'N/A') return yearly;
+      // Combined price/period node: extract just the price
+      for (const n of snap) {
+        if (n.isInModal) continue;
+        if (n.childCount <= 2 && n.text.length < 30 &&
+            (n.text.toLowerCase().includes('/month') ||
+             n.text.toLowerCase().includes('/ month') ||
+             n.text.toLowerCase().includes('/year') ||
+             n.text.toLowerCase().includes('/ year'))) {
+          const pricePart = n.text.split('/')[0].trim();
+          if (isPriceText(pricePart)) return pricePart;
+        }
+      }
 
       const loc = page.locator('span, div, p');
       const count = await loc.count().catch(() => 0);
@@ -4244,7 +4280,11 @@ export async function getActualValue(
           t.length < 30 &&
           (t.includes('/month') || t.includes('/year') ||
             t.includes('/ month') || t.includes('/ year'))
-        ) return t;
+        ) {
+          const pricePart = t.split('/')[0].trim();
+          if (isPriceText(pricePart)) return pricePart;
+          return t;
+        }
       }
       return 'N/A';
     }
@@ -4377,12 +4417,28 @@ export async function getActualValue(
         }
       }
 
-      const nextPrice = eventData?.NEXT_PAYMENT_PRICE || '';
+      // Fallback: extract price from legal text (e.g. "From 20/06/2027 you will be charged £249.99/year.")
+      for (const n of snap) {
+        if (n.isInModal) continue;
+        if (n.text.toLowerCase().includes('you will be charged') &&
+            n.text.toLowerCase().includes('from')) {
+          const priceMatch = n.text.match(/charged\s+([£$€]?\d+(?:,\d{3})*\.\d{2})/);
+          if (priceMatch) return priceMatch[1];
+        }
+      }
+
+      // Fallback: use known price from eventData
+      const nextPrice = eventData?.NEXT_PAYMENT_PRICE || eventData?.ANNUAL_UPFRONT_PRICE || '';
       if (nextPrice) {
-        return snapFind(n =>
+        const found = snapFind(n =>
           n.childCount === 0 &&
-          n.text === nextPrice
+          n.text.includes(nextPrice.replace(/[£$€]/g, ''))
         );
+        if (found !== 'N/A') {
+          // Extract just the price
+          const pm = found.match(/([£$€]?\d+(?:,\d{3})*\.\d{2})/);
+          return pm ? pm[1] : found;
+        }
       }
       return 'N/A';
     }
@@ -4795,7 +4851,15 @@ export async function getActualValue(
     }
 
     case 'ppv status': {
+      const url = page.url();
+      if (url.includes('/myaccount') || (eventData?.CURRENT_PAGE && eventData.CURRENT_PAGE.toLowerCase() === 'my account')) {
+        const { MyAccountPage } = require('../pages/MyAccountPage');
+        const myAccountPage = new MyAccountPage(page);
+        const status = await myAccountPage.getPPVStatus(eventData?.PPV_NAME || '');
+        if (status && status !== 'N/A') return status;
+      }
       const ppvName = (eventData?.PPV_NAME || '').toLowerCase();
+
       const hasVs = ppvName.includes('vs');
 
       const nameParts = ppvName
@@ -4969,6 +5033,15 @@ export async function getActualValue(
         if (offerText !== 'N/A') return offerText;
       }
 
+      // Direct match: "Annual contract. Auto renews." (exact leaf node)
+      const directMatch2 = snapFind(n =>
+        n.childCount === 0 &&
+        n.text.toLowerCase().includes('annual contract') &&
+        n.text.toLowerCase().includes('auto renews') &&
+        n.text.length < 50
+      );
+      if (directMatch2 !== 'N/A') return directMatch2;
+
       // From snapshot: node [34] has children:1 so use childCount <= 1
       const exact = snapFind(n =>
         n.childCount <= 1 &&
@@ -4977,12 +5050,15 @@ export async function getActualValue(
       );
       if (exact !== 'N/A') return exact;
 
+      // Fallback: tighter length limit to avoid matching full card text
       return snapFind(n =>
-        n.childCount <= 2 &&
+        n.childCount <= 1 &&
         (n.text.toLowerCase().includes('12 monthly') ||
           n.text.toLowerCase().includes('instalments') ||
-          n.text.toLowerCase().includes('installments')) &&
-        n.text.length < 150
+          n.text.toLowerCase().includes('installments') ||
+          (n.text.toLowerCase().includes('annual contract') &&
+            !n.text.toLowerCase().includes('pay monthly'))) &&
+        n.text.length < 60
       );
     }
 
@@ -5215,7 +5291,66 @@ export async function getActualValue(
           n.text.toLowerCase().includes('confirm')) &&
         n.text.length < 40
       );
-      return found !== 'N/A' ? 'Yes' : 'No';
+      if (found !== 'N/A') return 'Yes';
+
+      // Live DOM fallback — button may not appear in snapshot
+      return firstExists(
+        'button:has-text("Pay now")',
+        'button:has-text("Pay Now")',
+        'button:has-text("Complete")',
+        'button:has-text("Confirm")',
+        'a:has-text("Pay now")',
+        'a:has-text("Pay Now")'
+      );
+    }
+
+    case 'payment type': {
+      // Look for 'One time payment' or 'Recurring payment' text
+      const found = snapFind(n =>
+        n.text.length > 5 &&
+        n.text.length < 80 &&
+        (n.text.toLowerCase().includes('one time payment') ||
+          n.text.toLowerCase().includes('one-time payment') ||
+          n.text.toLowerCase().includes('recurring payment') ||
+          n.text.toLowerCase().includes('subscription payment'))
+      );
+      if (found !== 'N/A') return found;
+
+      // Live DOM fallback
+      try {
+        const paymentTypeEl = page.locator(
+          'span:has-text("One time payment"), ' +
+          'p:has-text("One time payment"), ' +
+          'div:has-text("One time payment"), ' +
+          'span:has-text("Recurring payment"), ' +
+          'p:has-text("Recurring payment")'
+        ).first();
+        const text = await paymentTypeEl.textContent({ timeout: T || 3000 }).catch(() => '');
+        return clean(text) || 'N/A';
+      } catch { return 'N/A'; }
+    }
+
+    case 'payment instruction text': {
+      // Look for the instruction text starting with 'In order to purchase'
+      const found = snapFind(n =>
+        n.text.length > 30 &&
+        n.text.length < 200 &&
+        (n.text.toLowerCase().includes('in order to purchase') ||
+          n.text.toLowerCase().includes('payment options below') ||
+          n.text.toLowerCase().includes('choose from the payment'))
+      );
+      if (found !== 'N/A') return found;
+
+      // Live DOM fallback
+      try {
+        const instructionEl = page.locator(
+          'p:has-text("In order to purchase"), ' +
+          'span:has-text("In order to purchase"), ' +
+          'div:has-text("In order to purchase")'
+        ).first();
+        const text = await instructionEl.textContent({ timeout: T || 3000 }).catch(() => '');
+        return clean(text) || 'N/A';
+      } catch { return 'N/A'; }
     }
 
     case 'secure checkout': {
@@ -5509,6 +5644,17 @@ export async function getActualValue(
     }
 
     case 'page description': {
+      if (_variant === 'confirmation') {
+        const descNode = snapFind(n =>
+          (n.tag === 'p' || n.tag === 'span' || n.tag === 'div') &&
+          (n.text.toLowerCase().includes('subscription') || 
+           n.text.toLowerCase().includes('fights') || 
+           n.text.toLowerCase().includes('pay-per-view')) &&
+          n.text.length > 40 &&
+          n.text.length < 300
+        );
+        if (descNode !== 'N/A') return descNode;
+      }
       const found = snapFind(n =>
         (n.tag === 'p' || n.tag === 'span') &&
         n.text.length > 20 &&
@@ -5516,6 +5662,9 @@ export async function getActualValue(
         !n.text.toLowerCase().includes('terms') &&
         !n.text.toLowerCase().includes('privacy')
       );
+      if (_variant === 'confirmation') {
+        return found;
+      }
       return found !== 'N/A' ? 'Yes' : 'No';
     }
 
@@ -5624,21 +5773,53 @@ export async function getActualValue(
       );
       if (fromSnap !== 'N/A') return fromSnap;
 
-      return snapFind(n =>
+      const longerMatch = snapFind(n =>
         (n.text.toLowerCase().includes('/year') ||
           n.text.toLowerCase().includes('/ year') ||
           n.text.toLowerCase().includes('/month') ||
           n.text.toLowerCase().includes('/ month')) &&
-        n.text.length < 15
+        n.text.length < 40
       );
+      if (longerMatch !== 'N/A') {
+        const lower = longerMatch.toLowerCase();
+        if (lower.includes('/year') || lower.includes('/ year')) {
+          return lower.includes('/ year') ? '/ year' : '/year';
+        }
+        if (lower.includes('/month') || lower.includes('/ month')) {
+          return lower.includes('/ month') ? '/ month' : '/month';
+        }
+      }
+      return 'N/A';
     }
 
     case 'rate plan description': {
+      // Exact match for known upfront description
+      const upfrontDesc = snapFind(n =>
+        n.childCount === 0 &&
+        n.text.toLowerCase().includes('best value') &&
+        n.text.toLowerCase().includes('upfront') &&
+        n.text.length < 100
+      );
+      if (upfrontDesc !== 'N/A') return upfrontDesc;
+
+      // Exact match for known APM description
+      const apmDesc = snapFind(n =>
+        n.childCount === 0 &&
+        (n.text.toLowerCase().includes('instalments') ||
+          n.text.toLowerCase().includes('installments')) &&
+        n.text.length < 100
+      );
+      if (apmDesc !== 'N/A') return apmDesc;
+
+      // Fallback: description tag (p/span) containing relevant text, excluding title nodes
       return snapFind(n =>
         (n.tag === 'p' || n.tag === 'span') &&
+        !n.text.toLowerCase().startsWith('annual') &&
         (n.text.toLowerCase().includes('upfront') ||
           n.text.toLowerCase().includes('instalments') ||
-          n.text.toLowerCase().includes('installments')) &&
+          n.text.toLowerCase().includes('installments') ||
+          n.text.toLowerCase().includes('best value') ||
+          n.text.toLowerCase().includes('contract')) &&
         n.text.length > 10 &&
         n.text.length < 100
       );

@@ -15,7 +15,9 @@ export function resolveExpected(
   const rawPage = rule.Page || rule.page || eventData.CURRENT_PAGE || eventData.current_page || '';
   const pageName = rawPage.trim().toLowerCase();
 
-
+  if (field === 'upsell feature 1' && pageName === 'ppv') {
+    return 'Minimum 12 pay-per-views a year included at no extra cost.';
+  }
 
   if (pageName === 'payment') {
     const isReturning =

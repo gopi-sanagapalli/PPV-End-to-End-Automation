@@ -390,6 +390,7 @@ const myAccountData = [
   { Field: 'PPV Date', Expected: '{{PPV_DATE}}' },
   { Field: 'PPV Price', Expected: '{{PPV_PRICE}}' },
   { Field: 'PPV Status', Expected: '{{PPV_STATUS}}' },
+  { Field: 'PPV Image Present', Expected: 'Yes' },
 ];
 
 // ═══════════════════════════════════════════════════════════
@@ -439,6 +440,8 @@ const ppvPaymentData = [
   { Field: 'Legal Text Present', Expected: 'Yes' },
   { Field: 'Terms Link Present', Expected: 'Yes' },
   { Field: 'Privacy Policy Link Present', Expected: 'Yes' },
+  { Field: 'Payment Type', Expected: 'One time payment' },
+  { Field: 'Payment Instruction Text', Expected: 'In order to purchase this event, please choose from the payment options below' },
 ];
 
 // ═══════════════════════════════════════════════════════════
@@ -446,26 +449,26 @@ const ppvPaymentData = [
 // ═══════════════════════════════════════════════════════════
 const upgradeConfirmationData = [
   { Tier: 'common', Field: 'Page Title', Expected: 'DAZN Ultimate' },
-  { Tier: 'common', Field: 'Page Description', Expected: 'Yes' },
+  { Tier: 'common', Field: 'Page Description', Expected: 'All the action in one subscription. 12 pay-per-view fights a year with the ultimate viewing experience, plus football, basketball and more.' },
   { Tier: 'common', Field: 'Payment Method Present', Expected: 'Yes' },
   { Tier: 'common', Field: 'Confirm Button', Expected: 'Confirm' },
   { Tier: 'common', Field: 'Terms Link Present', Expected: 'Yes' },
-  { Tier: 'common', Field: 'Legal Text Line 1', Expected: 'Your plan will be changed to DAZN Ultimate today' },
-  { Tier: 'common', Field: 'Legal Text Line 2', Expected: 'Today you will be charged' },
+  { Tier: 'annual pay upfront', Field: 'Legal Text Line 1', Expected: 'Your plan will be changed to DAZN Ultimate today {{TODAY_DATE}} and your contract will last 12 months.' },
+  { Tier: 'annual pay upfront', Field: 'Legal Text Line 2', Expected: 'Today you will be charged {{CURRENCY}}{{ANNUAL_UPFRONT_PRICE}} minus the remainder of your last payment which was not used in full. From {{NEXT_PAYMENT_DATE}} you will be charged {{CURRENCY}}{{ANNUAL_UPFRONT_PRICE}}/year.' },
   { Tier: 'annual pay upfront', Field: 'Rate Plan', Expected: 'Annual - Pay Upfront' },
   { Tier: 'annual pay upfront', Field: 'Rate Plan Price', Expected: '{{ANNUAL_UPFRONT_PRICE}}' },
   { Tier: 'annual pay upfront', Field: 'Rate Plan Period', Expected: '/year' },
   { Tier: 'annual pay upfront', Field: 'Rate Plan Description', Expected: 'Get the best value when you pay upfront.' },
-  { Tier: 'annual pay upfront', Field: 'Next Payment Label', Expected: 'Next payment on' },
+  { Tier: 'annual pay upfront', Field: 'Next Payment Label', Expected: 'Next payment on {{NEXT_PAYMENT_DATE}}' },
   { Tier: 'annual pay upfront', Field: 'Next Payment Date', Expected: '{{NEXT_PAYMENT_DATE}}' },
-  { Tier: 'annual pay upfront', Field: 'Next Payment Price', Expected: '{{ANNUAL_UPFRONT_PRICE}}' },
+  { Tier: 'annual pay monthly', Field: 'Legal Text Line 1', Expected: 'Your plan will be changed to DAZN Ultimate today {{TODAY_DATE}} and your contract will last 12 months.' },
+  { Tier: 'annual pay monthly', Field: 'Legal Text Line 2', Expected: 'Today you will be charged {{CURRENCY}}{{ANNUAL_PAY_MONTHLY_PRICE}} minus the remainder of your last payment which was not used in full. From {{NEXT_PAYMENT_DATE}} you will be charged {{CURRENCY}}{{ANNUAL_PAY_MONTHLY_PRICE}} /month.' },
   { Tier: 'annual pay monthly', Field: 'Rate Plan', Expected: 'Annual - Pay Monthly' },
   { Tier: 'annual pay monthly', Field: 'Rate Plan Price', Expected: '{{ANNUAL_PAY_MONTHLY_PRICE}}' },
   { Tier: 'annual pay monthly', Field: 'Rate Plan Period', Expected: '/ month' },
   { Tier: 'annual pay monthly', Field: 'Rate Plan Description', Expected: 'Annual contract. Paid in 12 monthly instalments.' },
-  { Tier: 'annual pay monthly', Field: 'Next Payment Label', Expected: 'Next payment on' },
+  { Tier: 'annual pay monthly', Field: 'Next Payment Label', Expected: 'Next payment on {{NEXT_PAYMENT_DATE}}' },
   { Tier: 'annual pay monthly', Field: 'Next Payment Date', Expected: '{{NEXT_PAYMENT_DATE}}' },
-  { Tier: 'annual pay monthly', Field: 'Next Payment Price', Expected: '{{ANNUAL_PAY_MONTHLY_PRICE}}' },
 ];
 
 // ═══════════════════════════════════════════════════════════
