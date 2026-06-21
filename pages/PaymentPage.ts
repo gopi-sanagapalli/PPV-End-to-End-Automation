@@ -10,8 +10,8 @@ const CVV_FRAME = 'Secure card security code input frame';
 const CARD_HOLDER_FRAME = 'Secure text input frame';
 
 // ── Google Pay credentials (stag test account) ─────────────
-const GPAY_EMAIL    = 'srdazntest@gmail.com';
-const GPAY_PASSWORD = 'Dazn@123';
+const GPAY_EMAIL    = process.env.GPAY_EMAIL || 'srdazntest@gmail.com';
+const GPAY_PASSWORD = process.env.GPAY_PASSWORD || 'Dazn@123';
 
 export class PaymentPage extends BasePage {
   constructor(page: Page) {
@@ -2334,10 +2334,10 @@ export class PaymentPage extends BasePage {
    * Complete flow orchestrator
    */
   async fillPaymentAndSubmit(
-    cardNumber = '4111111111111111',
-    expiryDate = '03/30',
-    cvv = '737',
-    cardHolderName = 'Test User'
+    cardNumber = process.env.STAG_CARD_NUMBER || '4111111111111111',
+    expiryDate = process.env.STAG_CARD_EXPIRY || '03/30',
+    cvv = process.env.STAG_CARD_CVV || '737',
+    cardHolderName = process.env.STAG_CARD_HOLDER || 'Test User'
   ): Promise<void> {
     await this.selectCreditCard();
     await this.fillCardDetails(cardNumber, expiryDate, cvv, cardHolderName);

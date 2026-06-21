@@ -301,9 +301,21 @@ export class LandingPage extends BasePage {
   // ─────────────────────────────
   // FIND PPV IN "DON'T MISS LIVE" TILE SECTION
   // ─────────────────────────────
-  async findPPVInTileSection(eventData: Record<string, string>): Promise<any> {
+  async findPPVInTileSection(eventData: Record<string, string>, source?: string): Promise<any> {
     const ppvName = eventData.PPV_NAME || '';
-    console.log(`🔍 [Tile] Finding PPV in "Don't miss" section: ${ppvName}`);
+    const src = (source || '').toLowerCase();
+    
+    let headingPattern = /don'?t\s*miss/i;
+    let headingLabel = "Don't Miss";
+    if (src.includes('biggest-fights') || src === 'home-biggest-fights') {
+      headingPattern = /biggest\s*fights/i;
+      headingLabel = "Biggest Fights";
+    } else if (src.includes('upcoming')) {
+      headingPattern = /upcoming/i;
+      headingLabel = "Upcoming Fights";
+    }
+
+    console.log(`🔍 [Tile] Finding PPV in "${headingLabel}" section: ${ppvName}`);
 
     // Build multiple name parts for verification
     const nameParts = ppvName.split(/[:\-–]/).map(p => p.trim()).filter(p => p.length > 3);
@@ -340,15 +352,15 @@ export class LandingPage extends BasePage {
     };
 
     // ─────────────────────────────────────────────────────────────────────────
-    // PHASE 1: Scroll to "Don't Miss" heading and locate the rail wrapper
+    // PHASE 1: Scroll to heading and locate the rail wrapper
     // ─────────────────────────────────────────────────────────────────────────
-    console.log('📜 [Tile] Scrolling down to find "Don\'t miss" section...');
+    console.log(`📜 [Tile] Scrolling down to find "${headingLabel}" section...`);
     await this.page.evaluate(() => {
       window.scrollTo({ top: 1200, behavior: 'instant' });
     }).catch(() => { });
     await this.page.waitForTimeout(800);
 
-    const railHeadingLocator = this.page.getByText(/don.t miss/i);
+    const railHeadingLocator = this.page.locator('h1, h2, h3, h4, [class*="heading" i]').filter({ hasText: headingPattern });
     let railHeadingCount = 0;
     for (let attempt = 0; attempt < 4; attempt++) {
       railHeadingCount = await railHeadingLocator.count().catch(() => 0);
@@ -362,16 +374,16 @@ export class LandingPage extends BasePage {
     try {
       await railHeadingLocator.first().waitFor({ state: 'attached', timeout: 8000 });
     } catch (e) {
-      throw new Error(`❌ [Tile] "Don't Miss" rail heading not attached/found in DOM after timeout for event: "${ppvName}"`);
+      throw new Error(`❌ [Tile] "${headingLabel}" rail heading not attached/found in DOM after timeout for event: "${ppvName}"`);
     }
 
     railHeadingCount = await railHeadingLocator.count().catch(() => 0);
     if (railHeadingCount === 0) {
-      throw new Error(`❌ [Tile] "Don't Miss" rail heading count is 0 in DOM for event: "${ppvName}"`);
+      throw new Error(`❌ [Tile] "${headingLabel}" rail heading count is 0 in DOM for event: "${ppvName}"`);
     }
     const railHeading = railHeadingLocator.first();
     await railHeading.scrollIntoViewIfNeeded().catch(() => { });
-    console.log('✅ [Tile] "Don\'t miss" heading found');
+    console.log(`✅ [Tile] "${headingLabel}" heading found`);
 
     // ─────────────────────────────────────────────────────────────────────────
     // PHASE 2: Get the rail wrapper container and swiper next button
@@ -706,7 +718,7 @@ export class LandingPage extends BasePage {
     }
 
     if (src.includes('dont-miss') || src.includes('tile') || src.includes('upcoming')) {
-      return this.findPPVInTileSection(eventData);
+      return this.findPPVInTileSection(eventData, source);
     }
 
     // Strict source validation — no cross-source fallback

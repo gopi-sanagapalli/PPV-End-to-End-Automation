@@ -13,6 +13,7 @@ import { SearchPage } from '../../pages/SearchPage';
 import { PPVUpsellSuccessPage } from '../../pages/PPVUpsellSuccessPage';
 import { PPVUpsellPaymentPage } from '../../pages/PPVUpsellPaymentPage';
 import { RailsInterceptor } from '../../utils/railsInterceptor';
+import { GloryPage } from '../../pages/GloryPage';
 
 
 import {
@@ -433,7 +434,33 @@ test('PPV flow via existing user my account', async ({ browser }) => {
       const isSchedule = SOURCE.toLowerCase().includes('schedule');
       const isSearch = SOURCE.toLowerCase().includes('search');
 
-      if (isSchedule) {
+      const isGlory = SOURCE.toLowerCase() === 'glory';
+
+      if (isGlory) {
+        const gloryPage = new GloryPage(page);
+        await gloryPage.navigate();
+        await setupPage(page, 8000);
+        assertCountryMatch(page, REGION);
+
+        if (devModeEnabled) {
+          console.log('\n🎭 Dev mode flow detected — enabling dev mode on Glory page...');
+          const searchPage = new SearchPage(page);
+          await searchPage.enableDevMode();
+        }
+
+        console.log('\n📋 Validating Glory page...');
+        const isValid = await gloryPage.validateGloryPage();
+        results.push({
+          page: 'Glory Kickboxing',
+          field: 'Glory Page Validation',
+          expected: 'true',
+          actual: isValid ? 'true' : 'false',
+          status: isValid ? 'PASS' : 'FAIL',
+        });
+
+        await gloryPage.clickGloryCollision9();
+        await gloryPage.clickBuyNowInModal();
+      } else if (isSchedule) {
         const schedule = new SchedulePage(page);
         await schedule.navigate(baseUrl);
         await setupPage(page, 8000);
@@ -647,7 +674,9 @@ test('PPV flow via existing user my account', async ({ browser }) => {
       // Handle generic popup validations and click-through
       // Avoid double-clicking modal if already clicked by clickBuyNow
       const clickPopup = !SOURCE.includes('dont-miss') && !SOURCE.includes('tile');
-      await handlePopupModal(page, results, eventData, SOURCE, clickPopup);
+      if (SOURCE.toLowerCase() !== 'glory') {
+        await handlePopupModal(page, results, eventData, SOURCE, clickPopup);
+      }
 
       await page.waitForLoadState('domcontentloaded').catch(() => { });
       await page.waitForURL(

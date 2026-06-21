@@ -87,5 +87,9 @@
     "source": "boxing-join-the-club",
     "endPage": "payment",
     "defaultSignup": true
+  },
+  "glory": {
+    "source": "glory",
+    "endPage": "payment"
   }
 }

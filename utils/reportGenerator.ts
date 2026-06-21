@@ -128,6 +128,8 @@ function buildHtml(results: ReportResult[], meta: ReportMeta): string {
   const dur = meta.startTime ? now.getTime() - meta.startTime.getTime() : 0;
 
   const userStatus = meta.userStatus || (meta.userType === 'existing-user' ? 'Existing User' : 'New User');
+  const videoExt = meta.videoPath ? path.extname(meta.videoPath) : '.webm';
+  const videoName = `PPV_Video${videoExt}`;
 
   // Donut: conic-gradient with pass(green)/fail(red)
   const passDeg = total ? (totalPass / total) * 360 : 0;
@@ -294,6 +296,10 @@ function buildHtml(results: ReportResult[], meta: ReportMeta): string {
   .shot-label { font-size: 11px; color: #dc2626; font-weight: 600; margin-bottom: 6px; }
   .shot { max-width: 100%; width: auto; max-height: 480px; object-fit: contain; border-radius: 6px; 
           margin-top: 4px; border: 2px solid #fca5a5; display: block; }
+  table.report-files th { width: 30%; }
+  table.report-files td:nth-child(2) { font-weight: 600; }
+  table.report-files a { color: #2563eb; text-decoration: none; }
+  table.report-files a:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
@@ -319,6 +325,33 @@ function buildHtml(results: ReportResult[], meta: ReportMeta): string {
     <div class="meta-grid">
       ${metaItems}
     </div>
+
+    <h2>Report Files</h2>
+    <table class="report-files">
+      <thead>
+        <tr><th>File</th><th>Name</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>📊 HTML Report</td>
+          <td><a href="PPV_Report.html" target="_blank">PPV_Report.html</a></td>
+        </tr>
+        <tr>
+          <td>📄 PDF Report</td>
+          <td><a href="PPV_Report.pdf" target="_blank">PPV_Report.pdf</a></td>
+        </tr>
+        ${meta.excelPath ? `
+        <tr>
+          <td>📈 Excel Results</td>
+          <td><a href="PPV_Results.xlsx" target="_blank">PPV_Results.xlsx</a></td>
+        </tr>` : ''}
+        ${meta.videoPath ? `
+        <tr>
+          <td>🎥 Video Recording</td>
+          <td><a href="${videoName}" target="_blank">${videoName}</a></td>
+        </tr>` : ''}
+      </tbody>
+    </table>
 
     <h2>Per-Page Results</h2>
     <table>

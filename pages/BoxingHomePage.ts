@@ -269,13 +269,20 @@ export class BoxingHomePage extends HomePage {
       console.log('🔍 [Home Sport Tile] Flow: Tile + Modal popup flow');
 
       try {
-        // Step 1: Scroll to "Don't Miss" section
-        await this.scrollToDontMissSection();
+        let sectionPattern = /don'?t\s*miss/i;
+        if (src.includes('biggest-fights') || src === 'home-biggest-fights') {
+          sectionPattern = /biggest\s*fights/i;
+        } else if (src.includes('upcoming')) {
+          sectionPattern = /upcoming/i;
+        }
+
+        // Step 1: Scroll to expected section
+        await this.scrollToDontMissSection(sectionPattern);
 
         // Step 2: Find the PPV tile by navigating the swiper carousel
-        const tile = await this.findPPVTileInDontMissRail(eventData);
+        const tile = await this.findPPVTileInDontMissRail(eventData, sectionPattern);
         if (!tile) {
-          console.log('⚠️ [Home Sport Tile] PPV tile not found in "Don\'t Miss" rail');
+          console.log(`⚠️ [Home Sport Tile] PPV tile not found in section matching pattern: ${sectionPattern}`);
           return null;
         }
 
@@ -456,10 +463,9 @@ export class BoxingHomePage extends HomePage {
   // ─────────────────────────────
   // SCROLL TO "DON'T MISS" SECTION
   // ─────────────────────────────
-  private async scrollToDontMissSection(): Promise<void> {
+  private async scrollToDontMissSection(sectionPattern: RegExp = /don'?t\s*miss/i): Promise<void> {
     const env = this.detectEnvironment();
-    const sectionPattern = /don't miss|coming up|upcoming/i;
-    console.log(`📍 [Home Sport Tile] Scrolling to section matching pattern (env: ${env})...`);
+    console.log(`📍 [Home Sport Tile] Scrolling to section matching pattern ${sectionPattern} (env: ${env})...`);
 
     const railHeader = this.page.locator('section:not([class*="hero" i]):not([class*="banner" i]):not([class*="carousel" i]) h2, section:not([class*="hero" i]):not([class*="banner" i]):not([class*="carousel" i]) h3, [class*="rail" i] h1, [class*="rail" i] h2, [class*="rail" i] h3, [class*="rail" i] h4, [class*="rail" i] [class*="heading" i], [class*="rail" i] [class*="title" i]')
       .filter({ hasText: sectionPattern })
@@ -486,21 +492,21 @@ export class BoxingHomePage extends HomePage {
 
     if (!found) {
       throw new Error(
-        `❌ CRITICAL: Section heading matching pattern not found on ${env} environment. ` +
+        `❌ CRITICAL: Section heading matching pattern ${sectionPattern} not found on ${env} environment. ` +
         `The home-sport-tile flow cannot proceed without this section.`
       );
     }
 
     await railHeader.scrollIntoViewIfNeeded().catch(() => { });
-    console.log(`✅ [Home Sport Tile] Section heading is visible`);
+    console.log(`✅ [Home Sport Tile] Section heading matching pattern ${sectionPattern} is visible`);
   }
 
   // ─────────────────────────────
   // FIND PPV TILE IN "DON'T MISS" or "COMING UP" RAIL
   // ─────────────────────────────
-  private async findPPVTileInDontMissRail(eventData: Record<string, string>): Promise<any> {
+  private async findPPVTileInDontMissRail(eventData: Record<string, string>, sectionPattern: RegExp = /don'?t\s*miss/i): Promise<any> {
     const ppvName = eventData.PPV_NAME || '';
-    console.log(`🔍 [Home Sport Tile] Navigating rail to find: "${ppvName}"`);
+    console.log(`🔍 [Home Sport Tile] Navigating rail matching pattern ${sectionPattern} to find: "${ppvName}"`);
 
     const vsMatch = ppvName.match(/(\w+)\s+vs\.?\s+(\w+)/i);
     const fighter1 = vsMatch ? vsMatch[1] : '';
@@ -508,7 +514,6 @@ export class BoxingHomePage extends HomePage {
     console.log(`🔍 [Home Sport Tile] Searching for image with alt containing: "${fighter1}" and "${fighter2}"`);
 
     const env = this.detectEnvironment();
-    const sectionPattern = /don'?t miss|coming up|upcoming/i;
     const railHeader = this.page.locator('section:not([class*="hero" i]):not([class*="banner" i]):not([class*="carousel" i]) h2, section:not([class*="hero" i]):not([class*="banner" i]):not([class*="carousel" i]) h3, [class*="rail" i] h1, [class*="rail" i] h2, [class*="rail" i] h3, [class*="rail" i] h4, [class*="rail" i] [class*="heading" i], [class*="rail" i] [class*="title" i]')
       .filter({ hasText: sectionPattern })
       .first();

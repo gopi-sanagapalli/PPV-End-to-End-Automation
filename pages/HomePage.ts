@@ -77,12 +77,10 @@ export class HomePage extends LandingPage {
     if (src === 'home-biggest-fights') {
       console.log('🔍 [HomePage Biggest Fights] Flow: Home → Competition Page → Coming Up → Popup');
 
-      // ── STEP 1: Scroll to the boxing/promoter section heading ──────────────
-      // Section name may vary: "The Biggest Fights", "Saturday Fight Night", "Boxing", etc.
-      // Match any heading containing fight/boxing keywords
+      // ── STEP 1: Scroll to the biggest fights section heading ──────────────
       const sectionHeading = this.page.locator('h2, h3, [class*="title" i]')
         .filter({
-          hasText: /(?:biggest fights|saturday fight|fight night|boxing|matchroom|queensberry|golden boy)/i
+          hasText: /biggest\s*fights/i
         }).first();
 
       let foundHeading = false;
@@ -100,34 +98,13 @@ export class HomePage extends LandingPage {
       }
 
       if (!foundHeading) {
-        // Fallback: try to find the rail by looking for competition/promoter tiles directly
-        console.log('⚠️ [Biggest Fights] Heading not found by text — trying to locate rail by tile content');
-        const promoter = (eventData.PPV_PROMOTER || '').toLowerCase().trim();
-        if (promoter) {
-          const promoterTile = this.page.locator(`article[data-target-title="${promoter}"], a[href*="competition"]`).first();
-          if (await promoterTile.isVisible({ timeout: 3000 }).catch(() => false)) {
-            console.log(`✅ [Biggest Fights] Found promoter tile directly: "${promoter}"`);
-            const railWrapper = promoterTile.locator('xpath=ancestor::div[contains(@class,"rail")][1] | xpath=ancestor::section[1] | xpath=../..');
-            if (await railWrapper.isVisible().catch(() => false)) {
-              // Skip heading-based flow, go straight to rail
-              console.log('✅ [Biggest Fights] Using rail from promoter tile');
-              // Continue with railWrapper as sectionWrapper
-              // We'll set sectionWrapper below and skip the heading requirement
-              foundHeading = true;
-              // Need to restructure - use this rail as sectionWrapper
-            }
-          }
-        }
-
-        if (!foundHeading) {
-          throw new Error(
-            `❌ [HomePage Biggest Fights] Section heading not found on Home page.`
-          );
-        }
+        throw new Error(
+          `❌ [HomePage Biggest Fights] Section heading "Biggest Fights" not found on Home page.`
+        );
       }
 
       await sectionHeading.scrollIntoViewIfNeeded().catch(() => { });
-      console.log('✅ [HomePage Biggest Fights] Section heading found');
+      console.log('✅ [HomePage Biggest Fights] Section heading "Biggest Fights" found');
 
       // ── STEP 2: Find the rail wrapper ────────────────────────────────
       // DOM: <h2 class="rail__title___xxx">The Biggest Fights</h2>

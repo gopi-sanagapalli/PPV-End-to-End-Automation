@@ -19,7 +19,14 @@ async function getScopedLandingPPVContainer(
   const isTileSource = source.includes('dont-miss') || source.includes('tile') || source.includes('upcoming') || source.includes('rail') || source === 'home-biggest-fights';
 
   if (isTileSource) {
-    const railHeading = page.locator('h1, h2, h3, h4, [class*="heading" i]').filter({ hasText: /don.t miss|coming up|upcoming big fights|upcoming|biggest fights|saturday fight night|fight night/i }).first();
+    let headingPattern = /don'?t\s*miss/i;
+    if (source.includes('biggest-fights') || source === 'home-biggest-fights') {
+      headingPattern = /biggest\s*fights/i;
+    } else if (source.includes('upcoming')) {
+      headingPattern = /upcoming/i;
+    }
+
+    const railHeading = page.locator('h1, h2, h3, h4, [class*="heading" i]').filter({ hasText: headingPattern }).first();
     if (await railHeading.count().catch(() => 0) > 0) {
       let railWrapper = railHeading.locator('xpath=ancestor::*[contains(@class,"railWrapper")][1]');
       let hasWrapper = await railWrapper.count().catch(() => 0) > 0;
@@ -73,10 +80,8 @@ async function getScopedLandingPPVContainer(
         }
       }
     }
-    const fallbackTile = page.locator('.swiper-slide, [class*="tile" i], a').filter({ hasText: new RegExp(firstWord, 'i') }).first();
-    if (await fallbackTile.count().catch(() => 0) > 0) {
-      return fallbackTile;
-    }
+    // If the expected heading or rail wrapper does not exist, do not fall back. Return null.
+    return null;
   } else {
     // Banner source
     const banner = page.locator('main [class*="banner"], main [class*="hero"], main .swiper:not([class*="rail" i])').first();

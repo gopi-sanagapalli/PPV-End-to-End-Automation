@@ -14,6 +14,7 @@ import { PPVUpsellPaymentPage } from '../../pages/PPVUpsellPaymentPage';
 import { SchedulePage } from '../../pages/schedulepage';
 import { MyAccountPage } from '../../pages/MyAccountPage';
 import { RailsInterceptor } from '../../utils/railsInterceptor';
+import { GloryPage } from '../../pages/GloryPage';
 
 import {
   readSheet,
@@ -236,7 +237,27 @@ async function runFlow(
     const isSearch = source.toLowerCase().includes('search');
     const isSchedule = source.toLowerCase().includes('schedule');
 
-    if (isSchedule) {
+    const isGlory = source.toLowerCase() === 'glory';
+
+    if (isGlory) {
+      const gloryPage = new GloryPage(page);
+      await gloryPage.navigate();
+      await setupPage(page, 8000);
+      assertCountryMatch(page, region);
+
+      console.log('\n📋 Validating Glory page...');
+      const isValid = await gloryPage.validateGloryPage();
+      results.push({
+        page: 'Glory Kickboxing',
+        field: 'Glory Page Validation',
+        expected: 'true',
+        actual: isValid ? 'true' : 'false',
+        status: isValid ? 'PASS' : 'FAIL',
+      });
+
+      await gloryPage.clickGloryCollision9();
+      await gloryPage.clickBuyNowInModal();
+    } else if (isSchedule) {
       const schedule = new SchedulePage(page);
       await schedule.navigate(baseUrl);
       await setupPage(page, 8000);
@@ -436,7 +457,7 @@ async function runFlow(
     }
 
     // Handle generic popup validations and click-through
-    if (!isHomeSport || source === 'home-page-dont-miss') {
+    if ((!isHomeSport || source === 'home-page-dont-miss') && source !== 'glory') {
       await handlePopupModal(page, results, eventData, source, true);
     }
 
