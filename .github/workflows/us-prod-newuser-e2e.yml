@@ -109,7 +109,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report-prod-${{ matrix.plan }}
+          name: playwright-report-${{ matrix.source }}-${{ matrix.plan }}-${{ github.run_id }}-prod-${{ matrix.plan }}
           path: playwright-report/
           if-no-files-found: ignore
 
@@ -117,7 +117,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-results-prod-${{ matrix.plan }}
+          name: test-results-${{ matrix.source }}-${{ matrix.plan }}-${{ github.run_id }}-prod-${{ matrix.plan }}
           path: |
             test-results/
             reports/
