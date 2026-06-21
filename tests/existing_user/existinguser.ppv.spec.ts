@@ -12,6 +12,7 @@ import { SchedulePage } from '../../pages/schedulepage';
 import { SearchPage } from '../../pages/SearchPage';
 import { PPVUpsellSuccessPage } from '../../pages/PPVUpsellSuccessPage';
 import { PPVUpsellPaymentPage } from '../../pages/PPVUpsellPaymentPage';
+import { RailsInterceptor } from '../../utils/railsInterceptor';
 
 
 import {
@@ -545,7 +546,21 @@ test('PPV flow via existing user my account', async ({ browser }) => {
             await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => { });
           }
         } else {
+          // Start RailsInterceptor before navigation for home-biggest-fights
+          // to capture entitlement IDs from the Rails API for tile matching
+          let railsInterceptor: RailsInterceptor | undefined;
+          if (SOURCE === 'home-biggest-fights') {
+            railsInterceptor = new RailsInterceptor(page);
+            await railsInterceptor.startIntercepting();
+            console.log('🔌 [RailsInterceptor] Started for home-biggest-fights tile matching');
+          }
+
           await landing.navigate(baseUrl, SOURCE, eventData);
+
+          // Pass interceptor to eventData so HomePage can use it
+          if (railsInterceptor) {
+            eventData._railsInterceptor = railsInterceptor;
+          }
         }
         await setupPage(page, 8000);
         assertCountryMatch(page, REGION);
@@ -563,7 +578,7 @@ test('PPV flow via existing user my account', async ({ browser }) => {
 
         let sheetName = 'Landing page';
         let pageName = 'Landing';
-        let flowParam = 'landing';
+        let flowParam = SOURCE === 'landing-page-banner' ? 'landing-page-banner' : 'landing';
 
         if (isHomePageSourceInner) {
           sheetName = 'Home page';
@@ -588,6 +603,13 @@ test('PPV flow via existing user my account', async ({ browser }) => {
         }
 
         const container = await landing.findPPVContainer(eventData, SOURCE);
+
+        // Stop intercepting after findPPVContainer completes
+        if (eventData._railsInterceptor) {
+          await (eventData._railsInterceptor as RailsInterceptor).stopIntercepting();
+          delete eventData._railsInterceptor;
+        }
+
         if (!container) {
           throw new Error(`❌ PPV container not found on landing page via ${SOURCE}`);
         }

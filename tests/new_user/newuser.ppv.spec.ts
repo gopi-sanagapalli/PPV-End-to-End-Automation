@@ -13,6 +13,7 @@ import { PPVUpsellSuccessPage } from '../../pages/PPVUpsellSuccessPage';
 import { PPVUpsellPaymentPage } from '../../pages/PPVUpsellPaymentPage';
 import { SchedulePage } from '../../pages/schedulepage';
 import { MyAccountPage } from '../../pages/MyAccountPage';
+import { RailsInterceptor } from '../../utils/railsInterceptor';
 
 import {
   readSheet,
@@ -306,7 +307,22 @@ async function runFlow(
           : isBoxingSource
             ? new BoxingPage(page)
             : new LandingPage(page);
+
+      // Start RailsInterceptor before navigation for home-biggest-fights
+      // to capture entitlement IDs from the Rails API for tile matching
+      let railsInterceptor: RailsInterceptor | undefined;
+      if (source === 'home-biggest-fights') {
+        railsInterceptor = new RailsInterceptor(page);
+        await railsInterceptor.startIntercepting();
+        console.log('🔌 [RailsInterceptor] Started for home-biggest-fights tile matching');
+      }
+
       await landing.navigate(baseUrl, source, eventData);
+
+      // Pass interceptor to eventData so HomePage can use it
+      if (railsInterceptor) {
+        eventData._railsInterceptor = railsInterceptor;
+      }
       await setupPage(page, 8000);
       assertCountryMatch(page, region);
 
@@ -328,6 +344,13 @@ async function runFlow(
 
       // ── Step 2: Find PPV container ──────────
       const container = await landing.findPPVContainer(eventData, source);
+
+      // Stop intercepting after findPPVContainer completes
+      if (eventData._railsInterceptor) {
+        await (eventData._railsInterceptor as RailsInterceptor).stopIntercepting();
+        delete eventData._railsInterceptor;
+      }
+
       if (!container) {
         throw new Error(`❌ PPV container not found via ${source}`);
       }
@@ -354,7 +377,9 @@ async function runFlow(
             const landingData = readSheet(sheetName);
 
             let flowParam = 'landing';
-            if (source.startsWith('boxing-page-bundle') || source.startsWith('boxing-bundle')) {
+            if (source === 'landing-page-banner') {
+              flowParam = 'landing-page-banner';
+            } else if (source.startsWith('boxing-page-bundle') || source.startsWith('boxing-bundle')) {
               flowParam = 'boxing-bundle';
             } else if (source === 'boxing-upcoming-fights') {
               flowParam = 'boxing-upcoming';
