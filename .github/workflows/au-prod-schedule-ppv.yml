@@ -3,6 +3,15 @@ name: AU PROD Schedule PPV
 on:
   workflow_dispatch:
     inputs:
+      RUNNER_TYPE:
+        description: 'Choose Runner Architecture (ARM64 for Hari, X64 for SriDevi)'
+        required: true
+        default: 'ARM64'
+        type: choice
+        options:
+          - ARM64
+          - X64
+
       PPV_CONFIG:
         description: 'PPV config filename/key'
         required: true
@@ -36,8 +45,7 @@ jobs:
     runs-on:
       - self-hosted
       - macOS
-      - ARM64
-
+      - ${{ inputs.RUNNER_TYPE }}
     timeout-minutes: 10
 
     strategy:
