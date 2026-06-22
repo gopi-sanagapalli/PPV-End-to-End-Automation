@@ -7,10 +7,16 @@
   "home-page-dazntile": {
     "source": "home-page-dazntile",
     "endPage": "payment",
-    "defaultSignup": true
+    "defaultSignup": true,
+    "description": "Finds a tile on /home by matching EntitlementIds from the rails API response, then clicks it."
   },
   "landing-page-banner": {
-    "source": "landing-page-banner"
+    "source": "landing-page-banner",
+    "endPage": "payment"
+  },
+  "landing-page-dont-miss-live": {
+    "source": "landing-page-dont-miss-live",
+    "endPage": "payment"
   },
   "home-page-banner": {
     "source": "home-page-banner",
@@ -20,16 +26,9 @@
     "source": "home-page-dont-miss",
     "endPage": "payment"
   },
-
   "home-biggest-fights": {
     "source": "home-biggest-fights",
     "endPage": "payment"
-  },
-  "home-page-dazntile": {
-    "source": "home-page-dazntile",
-    "endPage": "payment",
-    "defaultSignup": true,
-    "description": "Finds a tile on /home by matching EntitlementIds from the rails API response, then clicks it."
   },
   "home-boxing-banner": {
     "source": "home-boxing-banner",
@@ -47,16 +46,6 @@
     "source": "home-kickboxing-tile",
     "endPage": "payment"
   },
-
-  "landing-page-banner": {
-    "source": "landing-page-banner",
-    "endPage": "payment"
-  },
-  "landing-page-dont-miss-live": {
-    "source": "landing-page-dont-miss-live",
-    "endPage": "payment"
-  },
-
   "boxing-page-banner": {
     "source": "boxing-page-banner",
     "endPage": "payment"
@@ -88,7 +77,6 @@
     "endPage": "payment",
     "defaultSignup": true
   },
-
   "search": {
     "source": "search",
     "endPage": "payment"
@@ -104,40 +92,5 @@
   "myaccount": {
     "source": "myaccount",
     "endPage": "payment"
-  },
-  "home-kickboxing-tile": {
-    "source": "home-kickboxing-tile",
-    "endPage": "payment"
-  },
-  "home-page-banner": {
-    "source": "home-page-banner",
-    "endPage": "payment"
-  },
-  "home-page-dont-miss": {
-    "source": "home-page-dont-miss",
-    "endPage": "payment"
-  },
-  "home-biggest-fights": {
-    "source": "home-biggest-fights",
-    "endPage": "payment"
-  },
-  "boxing-banner-ultimate": {
-    "source": "boxing-banner-ultimate",
-    "endPage": "payment"
-  },
-  "boxing-ultimate-subscription": {
-    "source": "boxing-ultimate-subscription",
-    "endPage": "payment",
-    "defaultSignup": true
-  },
-  "boxing-standard-subscription": {
-    "source": "boxing-standard-subscription",
-    "endPage": "payment",
-    "defaultSignup": true
-  },
-  "boxing-join-the-club": {
-    "source": "boxing-join-the-club",
-    "endPage": "payment",
-    "defaultSignup": true
   }
 }

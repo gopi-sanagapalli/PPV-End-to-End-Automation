@@ -1,4 +1,4 @@
-name: Existing User E2E - Already Signed In - AE - PROD
+name: Existing User E2E - Sign In During Flow - GB - PROD
 
 on:
   workflow_dispatch:
@@ -79,9 +79,9 @@ jobs:
     env:
       CI: 'true'
       HEADLESS: 'true'
-      DAZN_REGION: AE
+      DAZN_REGION: GB
       DAZN_ENV: prod
-      LOGIN_FIRST: 'true'
+      LOGIN_FIRST: 'false'
       SOURCE: ${{ matrix.source }}
       USER_STATE: ${{ matrix.user_state }}
       PPV_CONFIG: ${{ inputs.PPV_CONFIG }}
@@ -119,7 +119,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report-${{ matrix.source }}-${{ matrix.user_state }}-${{ matrix.plan }}-${{ github.run_id }}
+          name: playwright-report-prod-${{ matrix.source }}-${{ matrix.user_state }}
           path: playwright-report/
           if-no-files-found: ignore
 
@@ -127,7 +127,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-results-${{ matrix.source }}-${{ matrix.user_state }}-${{ matrix.plan }}-${{ github.run_id }}
+          name: test-results-prod-${{ matrix.source }}-${{ matrix.user_state }}
           path: |
             test-results/
             reports/
