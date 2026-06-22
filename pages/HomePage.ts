@@ -942,7 +942,8 @@ export class HomePage extends LandingPage {
 
   protected getFallbackBaseUrl(): string {
     const env = (process.env.DAZN_ENV || 'stag').toLowerCase();
-    const region = (process.env.DAZN_REGION || 'GB').toUpperCase();
+    let region = (process.env.DAZN_REGION || 'GB').toUpperCase();
+    if (region === 'UAE') region = 'AE';
     let domain = 'stag.dazn.com';
     if (env === 'beta') domain = 'beta.dazn.com';
     if (env === 'prod') domain = 'www.dazn.com';

@@ -54,7 +54,8 @@ import {
   assertCountryMatch,
 } from '../../utils/testHelpers';
 
-const REGION = process.env.DAZN_REGION || 'GB';
+let REGION = process.env.DAZN_REGION || 'GB';
+if (REGION === 'UAE') REGION = 'AE';
 const EVENT_CONFIG = process.env.PPV_CONFIG || 'aj_joshua_prenga.json';
 const SOURCE = process.env.SOURCE || 'my-account';
 

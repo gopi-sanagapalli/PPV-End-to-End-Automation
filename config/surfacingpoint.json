@@ -97,6 +97,10 @@
     "source": "schedule",
     "endPage": "payment"
   },
+  "my-account": {
+    "source": "myaccount",
+    "endPage": "payment"
+  },
   "myaccount": {
     "source": "myaccount",
     "endPage": "payment"
