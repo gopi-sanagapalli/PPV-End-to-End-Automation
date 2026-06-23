@@ -172,7 +172,9 @@ async function runFlow(
   const regionUpper = region.toUpperCase();
   // Create fresh context — viewport null to match --start-maximized
   const context = await browser.newContext({
-    viewport: { width: 1920, height: 1080 },
+    viewport: process.env.CI === 'true'
+      ? { width: 1920, height: 1080 }
+      : null,
     colorScheme: 'dark',
     reducedMotion: 'no-preference',
     timezoneId: 'Asia/Kolkata',
@@ -1181,6 +1183,8 @@ async function runFlow(
           stuckCount = 0;
 
           const standalonePPVPage = new StandalonePPVPage(page);
+
+          await standalonePPVPage.waitUntilPPVPageReady();
 
           if (!ppvValidated) {
             try {

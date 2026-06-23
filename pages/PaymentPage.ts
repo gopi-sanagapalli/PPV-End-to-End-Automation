@@ -782,6 +782,48 @@ export class PaymentPage extends BasePage {
 
       return 'N/A';
     }
+    // ── Plan Subtitle ──────────────────────────────────────────
+    if (
+      fieldLower === 'plan subtitle' ||
+      fieldLower === 'plan-subtitle' ||
+      fieldLower === 'plansubtitle'
+    ) {
+      const subtitlePattern = /Billed\s+monthly\.\s*12-month\s+contract\./i;
+
+      // The body text is already captured after the payment page load wait.
+      // Prefer it: this validates what the user can actually read.
+      for (const line of lines) {
+        if (subtitlePattern.test(line)) {
+          return line.replace(/\s+/g, ' ').trim();
+        }
+      }
+
+      // DOM fallback in case visual text is split across nested elements.
+      const candidates = this.page.locator('p, span, div, small').filter({
+        hasText: subtitlePattern,
+      });
+
+      const count = await candidates.count().catch(() => 0);
+
+      for (let i = 0; i < count; i++) {
+        const candidate = candidates.nth(i);
+
+        if (!(await candidate.isVisible().catch(() => false))) {
+          continue;
+        }
+
+        const text = ((await candidate.innerText().catch(() => '')) || '')
+          .replace(/\s+/g, ' ')
+          .trim();
+
+        if (subtitlePattern.test(text)) {
+          return text;
+        }
+      }
+
+      return 'N/A';
+    }
+
     // ── PPV Name ───────────────────────────────────────────────
     if (fieldLower === 'ppv name' || fieldLower === 'ppv event name' || fieldLower === 'event name') {
       const source = (eventData.SOURCE || eventData.source || '').toLowerCase();

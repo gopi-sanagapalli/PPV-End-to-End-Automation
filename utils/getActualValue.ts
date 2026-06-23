@@ -4,95 +4,104 @@ async function getScopedLandingPPVContainer(
   page: any,
   eventData?: Record<string, string>
 ): Promise<any> {
-  if (!page || page.isClosed()) return null;
-  const url = page.url();
-  const isLandingOrHome = url.includes('/welcome') || url.includes('/home') || url.includes('/boxing') || 
-                          (eventData?.CURRENT_PAGE && ['landing', 'boxing', 'home page', 'home of boxing'].includes(eventData.CURRENT_PAGE.toLowerCase()));
-  if (!isLandingOrHome) return null;
+  const ppvName = String(eventData?.PPV_NAME || '')
+    .replace(/\s+/g, ' ')
+    .trim();
 
-  const source = (eventData?.SOURCE || eventData?.source || '').toLowerCase();
-  const ppvName = (eventData?.PPV_NAME || '').toLowerCase();
-  const vsPart = ppvName.includes(':') ? ppvName.split(':')[1].trim() : ppvName;
-  const firstWord = vsPart.replace(/\bppv\b/gi, '').trim().split(/\s+/)[0] || '';
-  if (!firstWord) return null;
+  if (!ppvName) {
+    console.warn('[LP PPV] Missing eventData.PPV_NAME');
+    return null;
+  }
 
-  const isTileSource = source.includes('dont-miss') || source.includes('tile') || source.includes('upcoming') || source.includes('rail') || source === 'home-biggest-fights';
+  const normalize = (value: string) =>
+    value
+      .toLowerCase()
+      .replace(/[.:,–—-]/g, ' ')
+      .replace(/\bvs\b/g, ' ')
+      .replace(/\bv\b/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
 
-  if (isTileSource) {
-    const railHeading = page.locator('h1, h2, h3, h4, [class*="heading" i]').filter({ hasText: /don.t miss|coming up|upcoming big fights|upcoming|biggest fights|saturday fight night|fight night/i }).first();
-    if (await railHeading.count().catch(() => 0) > 0) {
-      let railWrapper = railHeading.locator('xpath=ancestor::*[contains(@class,"railWrapper")][1]');
-      let hasWrapper = await railWrapper.count().catch(() => 0) > 0;
-      if (!hasWrapper) {
-        railWrapper = railHeading.locator('xpath=ancestor::*[contains(@class,"rail__rail-wrapper")][1]');
-        hasWrapper = await railWrapper.count().catch(() => 0) > 0;
-      }
-      if (!hasWrapper) {
-        railWrapper = railHeading.locator('xpath=ancestor::*[contains(@class,"rail")][1]');
-        hasWrapper = await railWrapper.count().catch(() => 0) > 0;
-      }
-      if (!hasWrapper) {
-        railWrapper = railHeading.locator('xpath=ancestor::div[contains(@class,"fights")][1]');
-        hasWrapper = await railWrapper.count().catch(() => 0) > 0;
-      }
-      if (!hasWrapper) {
-        railWrapper = railHeading.locator('xpath=ancestor::div[contains(@class,"section")][1]');
-        hasWrapper = await railWrapper.count().catch(() => 0) > 0;
-      }
-      if (hasWrapper) {
-        const tile = railWrapper.locator('.swiper-slide, [class*="tile" i], [class*="card" i], [class*="fight" i], [class*="event" i], a, article, li').filter({ hasText: new RegExp(firstWord, 'i') }).first();
-        if (await tile.count().catch(() => 0) > 0) {
-          return tile;
-        }
+  const tokens = normalize(ppvName)
+    .split(' ')
+    .filter(token => token.length >= 3);
 
-        const nextBtn = railWrapper.locator([
-          'button[aria-label="Next slide"]',
-          'button[class*="swiper-button-next"]',
-          '.custom-swiper-button-next',
-          '[class*="next" i]'
-        ].join(', ')).first();
+  if (!tokens.length) {
+    console.warn(`[LP PPV] No usable tokens for "${ppvName}"`);
+    return null;
+  }
 
-        if (await nextBtn.count().catch(() => 0) > 0 && await nextBtn.isVisible().catch(() => false)) {
-          await railWrapper.hover({ force: true }).catch(() => {});
-          for (let click = 0; click < 15; click++) {
-            const disabled = await nextBtn.evaluate((el: Element) => 
-              el.classList.contains('swiper-button-disabled') || 
-              el.classList.contains('rail-module__disable') || 
-              el.className.includes('disable') || 
-              el.hasAttribute('disabled')
-            ).catch(() => false);
-            if (disabled) break;
-            
-            await nextBtn.click({ force: true }).catch(() => {});
-            await tile.waitFor({ state: 'attached', timeout: 1000 }).catch(() => {});
-            
-            if (await tile.count().catch(() => 0) > 0) {
-              return tile;
-            }
-          }
-        }
+  // Find text nodes matching every meaningful token from the configured PPV.
+  // Example: "Joshua vs. Prenga" -> Joshua + Prenga.
+  const matchingTitle = page.locator('*').filter({
+    hasText: new RegExp(tokens.map(token => `(?=.*\\b${token}\\b)`).join(''), 'i'),
+  });
+
+  const titleCount = await matchingTitle.count().catch(() => 0);
+
+  for (let i = 0; i < titleCount; i++) {
+    const title = matchingTitle.nth(i);
+
+    if (!(await title.isVisible().catch(() => false))) continue;
+
+    const titleText = (await title.innerText().catch(() => ''))
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    const normalizedTitle = normalize(titleText);
+
+    if (!tokens.every(token => normalizedTitle.includes(token))) continue;
+
+    // Return the nearest ancestor that behaves like one tile.
+    // The screenshot shows each PPV is an individual clickable card.
+    const tile = title.locator(
+      'xpath=ancestor-or-self::*[self::a or @role="link" or @data-testid[contains(., "tile")] or @data-testid[contains(., "card")]][1]'
+    );
+
+    if (await tile.count().catch(() => 0)) {
+      const tileText = (await tile.innerText().catch(() => ''))
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      const normalizedTile = normalize(tileText);
+
+      // Guard against accidentally returning the full rail/container.
+      if (tokens.every(token => normalizedTile.includes(token))) {
+        console.log(
+          `[LP PPV] Selected tile for "${ppvName}": ${JSON.stringify(tileText.slice(0, 300))}`
+        );
+        await tile.scrollIntoViewIfNeeded().catch(() => {});
+        await tile.scrollIntoViewIfNeeded().catch(() => {});
+        return tile;
       }
     }
-    const fallbackTile = page.locator('.swiper-slide, [class*="tile" i], a').filter({ hasText: new RegExp(firstWord, 'i') }).first();
-    if (await fallbackTile.count().catch(() => 0) > 0) {
-      return fallbackTile;
-    }
-  } else {
-    // Banner source
-    const banner = page.locator('main [class*="banner"], main [class*="hero"], main .swiper:not([class*="rail" i])').first();
-    if (await banner.count().catch(() => 0) > 0) {
-      const slide = banner.locator('.swiper-slide').filter({ hasText: new RegExp(firstWord, 'i') }).first();
-      if (await slide.count().catch(() => 0) > 0) {
-        return slide;
+
+    // Fallback: walk upward only a few levels and select the smallest
+    // ancestor containing the target title + a date badge/button.
+    const fallbackTile = title.locator(
+      'xpath=ancestor::*[.//button or .//*[contains(@data-testid, "date") or contains(@class, "date")]][1]'
+    );
+
+    if (await fallbackTile.count().catch(() => 0)) {
+      const fallbackText = (await fallbackTile.innerText().catch(() => ''))
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      if (tokens.every(token => normalize(fallbackText).includes(token))) {
+        console.log(
+          `[LP PPV] Selected fallback tile for "${ppvName}": ${JSON.stringify(fallbackText.slice(0, 300))}`
+        );
+        await fallbackTile.scrollIntoViewIfNeeded().catch(() => {});
+        await fallbackTile.scrollIntoViewIfNeeded().catch(() => {});
+        return fallbackTile;
       }
-    }
-    const activeSlide = page.locator('.swiper-slide-active, [class*="swiper-slide-active"]').first();
-    if (await activeSlide.count().catch(() => 0) > 0) {
-      return activeSlide;
     }
   }
+
+  console.warn(`[LP PPV] No tile found for "${ppvName}"`);
   return null;
 }
+
 
 export async function getActualValue(
   page: any,
@@ -2143,33 +2152,46 @@ export async function getActualValue(
                               (eventData?.CURRENT_PAGE && ['landing', 'boxing', 'home page', 'home of boxing'].includes(eventData.CURRENT_PAGE.toLowerCase()));
       if (isLandingOrHome) {
         const container = await getScopedLandingPPVContainer(page, eventData);
-        if (container) {
-          const children = container.locator('span, div, time, p');
-          const count = await children.count().catch(() => 0);
-          for (let i = 0; i < count; i++) {
-            const child = children.nth(i);
-            const hasChildren = await child.evaluate((node: HTMLElement) => node.children.length > 0).catch(() => true);
-            if (hasChildren) continue;
-            
-            const ct = (await child.textContent().catch(() => ''))?.trim() || '';
-            if (ct.length < 3 || ct.length > 50) continue;
 
-            const hasMonth = /\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|January|February|March|April|May|June|July|August|September|October|November|December)\b/i.test(ct);
-            const hasDay = /\b\d{1,2}(st|nd|rd|th)?\b/.test(ct);
-            const hasTime = /\b\d{1,2}:\d{2}\b/.test(ct);
-            const hasDayOfWeek = /\b(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Mon|Tue|Wed|Thu|Fri|Sat|Sun)\b/i.test(ct);
-
-            if ((hasMonth && hasDay) || (hasDayOfWeek && hasTime) || (hasMonth && hasTime)) {
-              if (!ct.toLowerCase().includes('buy') && !ct.toLowerCase().includes('dazn')) {
-                return ct;
-              }
-            }
-          }
-          const containerText = await container.textContent().catch(() => '');
-          const dateRegex = /(?:today|tomorrow|yesterday)\s+at\s+\d{2}:\d{2}|\b(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*\s+at\s+\d{2}:\d{2}|\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/i;
-          const match = (containerText || '').match(dateRegex);
-          if (match) return match[0].trim();
+        if (!container) {
+          throw new Error(
+            `Landing PPV tile not found for "${eventData?.PPV_NAME || 'unknown PPV'}".`
+          );
         }
+
+        const tileText = (
+          await container.innerText({ timeout: T }).catch(() => '')
+        ).replace(/\s+/g, ' ').trim();
+
+        console.log(
+          `[LP PPV] Date tile for "${eventData?.PPV_NAME || ''}": ${JSON.stringify(tileText)}`
+        );
+
+        // Screenshot format: "Jul 25 Joshua vs. Prenga Buy now"
+        // Return normalized expected format: "25 Jul".
+        const monthFirst = tileText.match(
+          /\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(\d{1,2})(?:st|nd|rd|th)?\b/i
+        );
+
+        if (monthFirst) {
+          const month = monthFirst[1].slice(0, 3);
+          const day = monthFirst[2];
+          return `${day} ${month}`;
+        }
+
+        const dayFirst = tileText.match(
+          /\b(\d{1,2})(?:st|nd|rd|th)?\s+(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\b/i
+        );
+
+        if (dayFirst) {
+          const day = dayFirst[1];
+          const month = dayFirst[2].slice(0, 3);
+          return `${day} ${month}`;
+        }
+
+        throw new Error(
+          `No date found inside landing PPV tile for "${eventData?.PPV_NAME || 'unknown PPV'}". Tile text: "${tileText}"`
+        );
       }
 
       const ppvDate = (eventData?.PPV_DATE || '').trim();
@@ -3646,35 +3668,30 @@ export async function getActualValue(
     }
 
     case 'annual pay monthly contract text': {
-      // If we have an active offer, try to find the offer description
-      const hasActiveOffer = eventData?.ACTIVE_OFFER_PRESENT === 'true';
-      if (hasActiveOffer) {
-        const offerText = snapFind(n =>
-          n.text.toLowerCase().includes('first 12 months') &&
-          n.text.toLowerCase().includes('annual contract') &&
-          n.text.length < 150
-        );
-        if (offerText !== 'N/A') return offerText;
+      // UI can combine plan name, contract copy and price in one text node.
+      const allText = await page.locator('body').innerText({ timeout: T }).catch(() => '');
+
+      const contractMatch = allText.match(
+        /annual\s+contract\.\s*auto\s+renews\.?/i
+      );
+
+      if (contractMatch) {
+        return contractMatch[0].replace(/\s+/g, ' ').trim().replace(/\.$/, '');
       }
 
-      // FIX: node [34] has children:1 so use childCount <= 1
-      // Also broaden text match to include 'paid in 12 monthly' and 'instalments'
-      const exact = snapFind(n =>
-        n.childCount <= 1 &&
-        n.text.toLowerCase().includes('paid in 12 monthly') &&
-        n.text.length < 80
+      const snapshotMatch = snapFind(n =>
+        /annual\s+contract\.\s*auto\s+renews\.?/i.test(n.text) &&
+        n.text.length < 250
       );
-      if (exact !== 'N/A') return exact;
 
-      return snapFind(n =>
-        n.childCount <= 2 &&
-        (n.text.toLowerCase().includes('12 monthly') ||
-          n.text.toLowerCase().includes('instalments') ||
-          n.text.toLowerCase().includes('installments') ||
-          (n.text.toLowerCase().includes('month') &&
-            n.text.toLowerCase().includes('contract'))) &&
-        n.text.length < 150
-      );
+      if (snapshotMatch !== 'N/A') {
+        const m = snapshotMatch.match(
+          /annual\s+contract\.\s*auto\s+renews\.?/i
+        );
+        if (m) return m[0].replace(/\s+/g, ' ').trim().replace(/\.$/, '');
+      }
+
+      return 'N/A';
     }
 
     case 'annual pay monthly selected': {
@@ -4957,35 +4974,6 @@ export async function getActualValue(
       return found !== 'N/A' ? 'Yes' : 'No';
     }
 
-    case 'annual pay monthly contract text': {
-      // If we have an active offer, try to find the offer description
-      const hasActiveOffer = eventData?.ACTIVE_OFFER_PRESENT === 'true';
-      if (hasActiveOffer) {
-        const offerText = snapFind(n =>
-          n.text.toLowerCase().includes('first 12 months') &&
-          n.text.toLowerCase().includes('annual contract') &&
-          n.text.length < 150
-        );
-        if (offerText !== 'N/A') return offerText;
-      }
-
-      // From snapshot: node [34] has children:1 so use childCount <= 1
-      const exact = snapFind(n =>
-        n.childCount <= 1 &&
-        n.text.toLowerCase().includes('paid in 12 monthly') &&
-        n.text.length < 80
-      );
-      if (exact !== 'N/A') return exact;
-
-      return snapFind(n =>
-        n.childCount <= 2 &&
-        (n.text.toLowerCase().includes('12 monthly') ||
-          n.text.toLowerCase().includes('instalments') ||
-          n.text.toLowerCase().includes('installments')) &&
-        n.text.length < 150
-      );
-    }
-
     case 'dazn ultimate price text': {
       return snapFind(n =>
         n.childCount === 0 &&
@@ -6118,6 +6106,40 @@ export async function getActualValue(
     // ════════════════════════════════════════════════════════════
     // DEFAULT FALLBACK
     // ════════════════════════════════════════════════════════════
+
+    case 'plan subtitle':
+    case 'plan-subtitle':
+    case 'plansubtitle': {
+      console.log('🔎 getActualValue: entered Plan Subtitle case | key:', JSON.stringify(key), '| URL:', page.url());
+      const expected = 'Billed monthly. 12-month contract.';
+
+      const subtitle = page.locator(
+        'p, span, div, small, [data-testid], [class]'
+      ).filter({
+        hasText: /Billed\s+monthly\.\s*12-month\s+contract\./i,
+      });
+
+      const count = await subtitle.count();
+
+      for (let index = 0; index < count; index++) {
+        const candidate = subtitle.nth(index);
+
+        if (!(await candidate.isVisible().catch(() => false))) {
+          continue;
+        }
+
+        const text = (await candidate.innerText())
+          .replace(/\s+/g, ' ')
+          .trim();
+
+        if (text === expected) {
+          return text;
+        }
+      }
+
+      return 'N/A';
+    }
+
     default: {
       const keyWords = key
         .split(' ')

@@ -214,7 +214,9 @@ const isActiveUltimate = [
   } : undefined;
 
   const context = await browser.newContext({
-    viewport: { width: 1920, height: 1080 },
+    viewport: process.env.CI === 'true'
+      ? { width: 1920, height: 1080 }
+      : null,
     colorScheme: 'dark',
     reducedMotion: 'no-preference',
     timezoneId: 'Asia/Kolkata',
