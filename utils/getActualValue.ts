@@ -4527,7 +4527,7 @@ export async function getActualValue(
     case '7-days free price': {
       return snapFind(n =>
         n.childCount === 0 &&
-        /^[£$$€₹]\s?0(\.00)?$$/.test(n.text)
+        /^(?:AED\s?|[£$€₹]\s?)0(\.00)?$/.test(n.text)
       );
     }
 
@@ -4592,7 +4592,7 @@ export async function getActualValue(
         if (foundTodayPay) {
           if (n.isStrike) continue;
           if (!isPriceText(n.text)) continue;
-          if (/^[£$$€₹]\s?0(\.00)?$$/.test(n.text)) continue;
+          if (/^(?:AED\s?|[£$€₹]\s?)0(\.00)?$/.test(n.text)) continue;
           if (monthlyPrice && n.text.includes(monthlyPrice)) continue;
           if (nextPrice && n.text === nextPrice) continue;
           return n.text;
