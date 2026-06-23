@@ -28,16 +28,17 @@ on:
 
 permissions:
   contents: read
+
+jobs:
   prod:
     name: PROD | ${{ matrix.plan }}
-
 
     runs-on:
       - self-hosted
       - macOS
       - ARM64
 
-    timeout-minutes: 10
+    timeout-minutes: 30
 
     strategy:
       fail-fast: false
@@ -52,9 +53,10 @@ permissions:
     env:
       CI: 'true'
       HEADLESS: 'true'
-      DAZN_REGION: UK
+      DAZN_REGION: GB
       DAZN_ENV: prod
-SOURCE: home-page-dont-miss      PLAN: ${{ matrix.plan }}
+      SOURCE: home-page-dont-miss
+      PLAN: ${{ matrix.plan }}
       PPV_CONFIG: ${{ inputs.PPV_CONFIG }}
       PAYMENT_METHOD: ${{ inputs.PAYMENT_METHOD }}
       SWITCH: ${{ inputs.SWITCH }}
@@ -69,16 +71,13 @@ SOURCE: home-page-dont-miss      PLAN: ${{ matrix.plan }}
           echo "OS: $RUNNER_OS"
           hostname
 
-- name: Verify Node
-  run: |
-    node -v
-    npm -v
+      - name: Verify Node
+        run: |
+          node -v
+          npm -v
 
-  - name: Install dependencies if needed
-  run: |
-    if [ ! -d node_modules ]; then
-      npm ci
-    fi
+      - name: Install dependencies
+        run: npm ci
 
       - name: Verify Playwright
         run: npx playwright --version
@@ -90,7 +89,7 @@ SOURCE: home-page-dont-miss      PLAN: ${{ matrix.plan }}
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report-prod-${{ matrix.plan }}
+          name: playwright-report-uk-dont-miss-${{ matrix.plan }}-${{ github.run_id }}
           path: playwright-report/
           if-no-files-found: ignore
 
@@ -98,7 +97,7 @@ SOURCE: home-page-dont-miss      PLAN: ${{ matrix.plan }}
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-results-prod-${{ matrix.plan }}
+          name: ppv-results-uk-dont-miss-${{ matrix.plan }}-${{ github.run_id }}
           path: |
             test-results/
             reports/
