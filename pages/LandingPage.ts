@@ -340,38 +340,35 @@ export class LandingPage extends BasePage {
     };
 
     // ─────────────────────────────────────────────────────────────────────────
-    // PHASE 1: Scroll to "Don't Miss" heading and locate the rail wrapper
+    // PHASE 1: Locate "Don't Miss" heading, then position it once at viewport top
     // ─────────────────────────────────────────────────────────────────────────
-    console.log('📜 [Tile] Scrolling down to find "Don\'t miss" section...');
-    await this.page.evaluate(() => {
-      window.scrollTo({ top: 1200, behavior: 'instant' });
-    }).catch(() => { });
-    await this.page.waitForTimeout(800);
-
+    console.log('📜 [Tile] Locating "Don\'t miss" section...');
     const railHeadingLocator = this.page.getByText(/don.t miss/i);
-    let railHeadingCount = 0;
-    for (let attempt = 0; attempt < 4; attempt++) {
-      railHeadingCount = await railHeadingLocator.count().catch(() => 0);
-      if (railHeadingCount > 0) break;
-      await this.page.evaluate(() => {
-        window.scrollTo({ top: 2500 + Math.random() * 500, behavior: 'instant' });
-      }).catch(() => { });
-      await this.page.waitForTimeout(600);
-    }
+    const railHeading = railHeadingLocator.first();
 
     try {
-      await railHeadingLocator.first().waitFor({ state: 'attached', timeout: 8000 });
-    } catch (e) {
+      await railHeading.waitFor({ state: 'attached', timeout: 15000 });
+    } catch {
       throw new Error(`❌ [Tile] "Don't Miss" rail heading not attached/found in DOM after timeout for event: "${ppvName}"`);
     }
 
-    railHeadingCount = await railHeadingLocator.count().catch(() => 0);
+    const railHeadingCount = await railHeadingLocator.count().catch(() => 0);
     if (railHeadingCount === 0) {
       throw new Error(`❌ [Tile] "Don't Miss" rail heading count is 0 in DOM for event: "${ppvName}"`);
     }
-    const railHeading = railHeadingLocator.first();
-    await railHeading.scrollIntoViewIfNeeded().catch(() => { });
-    console.log('✅ [Tile] "Don\'t miss" heading found');
+
+    // Do not use scrollIntoViewIfNeeded(): it centers partially-visible rails.
+    // Align the rail heading once, predictably, near the top of the viewport.
+    await railHeading.evaluate((heading: HTMLElement) => {
+      const absoluteTop = heading.getBoundingClientRect().top + window.scrollY;
+      window.scrollTo({
+        top: Math.max(0, Math.round(absoluteTop - 24)),
+        behavior: 'instant',
+      });
+    }).catch(() => { });
+
+    await this.page.waitForTimeout(300);
+    console.log('✅ [Tile] "Don\'t miss" heading found and top-aligned');
 
     // ─────────────────────────────────────────────────────────────────────────
     // PHASE 2: Get the rail wrapper container and swiper next button
