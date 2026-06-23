@@ -157,12 +157,12 @@ export class PPVUpsellPaymentPage extends BasePage {
 
       // ── Today You Pay Price ──
       } else if (key === 'today you pay price' || key.includes('today you pay') || key.includes('total price')) {
-        const todayMatch = bodyText.match(/today you pay[^£$€]*([£$€]\d+\.\d{2})/i);
-        actual = todayMatch ? todayMatch[1] : 'N/A';
+        const todayMatch = bodyText.match(/today you pay[^£$€AED]*(?:AED\s?|[£$€])\d+\.\d{2}/i);
+        actual = todayMatch ? todayMatch[0].match(/(?:AED\s?|[£$€])\d+\.\d{2}/)?.[0] || 'N/A' : 'N/A';
 
       // ── PPV Price / Event Price (in the order summary line) ──
       } else if (key === 'ppv price' || key === 'event price') {
-        const priceMatch = bodyText.match(/[£$€]\d+\.\d{2}/);
+        const priceMatch = bodyText.match(/(?:AED\s?|[£$€])\d+\.\d{2}/);
         actual = priceMatch ? priceMatch[0] : 'N/A';
 
       // ── Payment Type (One time payment) ──

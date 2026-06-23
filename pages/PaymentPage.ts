@@ -266,7 +266,7 @@ export class PaymentPage extends BasePage {
       const idx = nextAnnualIdx >= 0 ? nextAnnualIdx : nextIdx;
       if (idx >= 0) {
         const afterText = bodyText.substring(idx, idx + 100);
-        const priceMatch = afterText.match(/[\$£€₹]\s?\d+(?:\.\d{2})?/);
+        const priceMatch = afterText.match(/(?:AED\s?|[\$£€₹]\s?)\d+(?:\.\d{2})?/);
         if (priceMatch) {
           actualPrice = priceMatch[0].trim();
         }
@@ -543,7 +543,7 @@ export class PaymentPage extends BasePage {
       status: tierStatus,
     });
 
-    // Validate 2: PPV Price = £0 / $0 / €0 (included in Ultimate — no extra cost)
+    // Validate 2: PPV Price = AED 0 / £0 / $0 / €0 (included in Ultimate — no extra cost)
     const ppvName = eventData.PPV_NAME || '';
     const vsMatch = ppvName.match(/(\w+)\s+vs\.?\s+(\w+)/i);
     const fighter1 = vsMatch ? vsMatch[1].toLowerCase() : '';
@@ -551,10 +551,10 @@ export class PaymentPage extends BasePage {
     let actualPPVPrice = 'N/A';
     if (ppvIdx >= 0) {
       const nearText = bodyText.substring(ppvIdx, ppvIdx + 200);
-      const priceMatch = nearText.match(/[\$£€₹]\s?0(?:\.00)?/);
+      const priceMatch = nearText.match(/(?:AED\s?|[\$£€₹]\s?)0(?:\.00)?/);
       if (priceMatch) actualPPVPrice = priceMatch[0].trim();
     }
-    const ppvPriceStatus = /^[£$€₹]\s?0/.test(actualPPVPrice) ? 'PASS' : 'FAIL';
+    const ppvPriceStatus = /^(?:AED\s?|[£$€₹]\s?)0/.test(actualPPVPrice) ? 'PASS' : 'FAIL';
     console.log(`  ${ppvPriceStatus === 'PASS' ? '✅' : '❌'} [Ultimate Switch - PPV Price] expected="£0/$0/€0" actual="${actualPPVPrice}"`);
     results.push({
       page: 'Payment',
@@ -585,11 +585,11 @@ export class PaymentPage extends BasePage {
       status: planStatus,
     });
 
-    // Validate 4: Today You Pay (Ultimate price e.g. £24.99)
+    // Validate 4: Today You Pay (Ultimate price e.g. £24.99, AED 72.99)
     const todaySplit = bodyText.split(/today\s+you\s+pay/i);
     let actualTodayPrice = 'N/A';
     if (todaySplit.length > 1) {
-      const prices = todaySplit[1].match(/[\$£€₹]\s?\d+(?:\.\d{2})?/g) || [];
+      const prices = todaySplit[1].match(/(?:AED\s?|[\$£€₹]\s?)\d+(?:\.\d{2})?/g) || [];
       if (prices[0]) actualTodayPrice = prices[0].trim();
     }
     const expectedUltimatePrice = eventData.TODAY_YOU_PAY_ULTIMATE_APM || eventData.ULTIMATE_ANNUAL_PAY_MONTHLY_PRICE || '';
@@ -896,7 +896,7 @@ export class PaymentPage extends BasePage {
 
       if (ppvIndex >= 0) {
         const nearText = bodyText.substring(ppvIndex, ppvIndex + 300);
-        const priceMatch = nearText.match(/[\$£€₹]\s?\d+(?:\.\d{2})?/);
+        const priceMatch = nearText.match(/(?:AED\s?|[\$£€₹]\s?)\d+(?:\.\d{2})?/);
         if (priceMatch) return priceMatch[0].trim();
       }
 
@@ -905,7 +905,7 @@ export class PaymentPage extends BasePage {
         return expectedPrice;
       }
 
-      const allPrices = bodyText.match(/[\$£€₹]\s?\d+(?:\.\d{2})?/g) || [];
+      const allPrices = bodyText.match(/(?:AED\s?|[\$£€₹]\s?)\d+(?:\.\d{2})?/g) || [];
       if (allPrices.length > 0) {
         const sorted = allPrices
           .map(p => ({ raw: p, val: parseFloat(p.replace(/[^\d.]/g, '')) }))
@@ -917,8 +917,8 @@ export class PaymentPage extends BasePage {
 
     // ── First Month Free Price ─────────────────────────────────
     if (fieldLower === 'first month free price') {
-      if (bodyText.includes('£0') || bodyText.includes('$0') || bodyText.includes('€0')) {
-        const match = bodyText.match(/[\$£€₹]\s?0/);
+      if (bodyText.includes('£0') || bodyText.includes('$0') || bodyText.includes('€0') || bodyText.includes('AED 0') || bodyText.includes('AED0')) {
+        const match = bodyText.match(/(?:AED\s?|[\$£€₹]\s?)0/);
         return match ? match[0].trim() : 'N/A';
       }
       return 'N/A';
@@ -939,7 +939,7 @@ export class PaymentPage extends BasePage {
     // ── 7 Days Free Badge ──────────────────────────────────────
     if (fieldLower.includes('7 days free') || fieldLower.includes('7-days free')) {
       if (fieldLower.includes('price')) {
-        const match = bodyText.match(/[\$£€₹]\s?0/);
+        const match = bodyText.match(/(?:AED\s?|[\$£€₹]\s?)0/);
         return match ? match[0].trim() : 'N/A';
       }
       const lines = bodyText.split('\n').map(l => l.trim());
@@ -970,7 +970,7 @@ export class PaymentPage extends BasePage {
         const priceElements = allElements.filter(el => {
           if (el.children.length > 0) return false;
           const text = cleanText(el.textContent || '');
-          return /^[£$€₹]\s?\d+(?:\.\d{2})?$/.test(text);
+          return /^(?:AED\s?|[£$€₹]\s?)\d+(?:\.\d{2})?$/.test(text);
         });
 
         let todayEl: HTMLElement | null = null;
@@ -1014,7 +1014,7 @@ export class PaymentPage extends BasePage {
       const todaySplit = bodyText.split(/today\s+you\s+pay/i);
       if (todaySplit.length > 1) {
         const afterToday = todaySplit[1];
-        const prices = afterToday.match(/[\$£€₹]\s?\d+(?:\.\d{2})?/g) || [];
+        const prices = afterToday.match(/(?:AED\s?|[\$£€₹]\s?)\d+(?:\.\d{2})?/g) || [];
         const origPrice = eventData.ANNUAL_PAY_MONTHLY_ORIGINAL_PRICE || eventData.UPSELL_ORIGINAL_PRICE || '';
         const cleanOrig = origPrice.replace(/[^\d.]/g, '');
         const filteredPrices = [];
@@ -1091,7 +1091,7 @@ export class PaymentPage extends BasePage {
       }
       if (nextIdx >= 0) {
         const afterText = bodyText.substring(nextIdx, nextIdx + 100);
-        const price = afterText.match(/[\$£€₹]\s?\d+(?:\.\d{2})?/);
+        const price = afterText.match(/(?:AED\s?|[\$£€₹]\s?)\d+(?:\.\d{2})?/);
         if (price) return price[0].trim();
       }
       return 'N/A';
@@ -1448,7 +1448,7 @@ export class PaymentPage extends BasePage {
 
     // ── Rate Plan Price ────────────────────────────────────────
     if (fieldLower === 'rate plan price') {
-      const priceWithPeriod = bodyText.match(/[\$£€₹]\s?\d+(?:\.\d{2})?\s*\/\s*(?:month|year)/i);
+      const priceWithPeriod = bodyText.match(/(?:AED\s?|[\$£€₹]\s?)\d+(?:\.\d{2})?\s*\/\s*(?:month|year)/i);
       if (priceWithPeriod) return priceWithPeriod[0].trim();
       return 'N/A';
     }

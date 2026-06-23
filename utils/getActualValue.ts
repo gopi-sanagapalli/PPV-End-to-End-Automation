@@ -2044,8 +2044,8 @@ export async function getActualValue(
       // Strategy 1: Find a single node that contains both PPV name and price
       for (const n of snap) {
         if (n.isInModal) continue;
-        if (priceMatchesName(n.text) && /[\$£€₹]\s?\d+(?:\.\d{2})?/.test(n.text) && n.text.length < 200) {
-          const priceMatch = n.text.match(/[\$£€₹]\s?\d+(?:\.\d{2})?/);
+        if (priceMatchesName(n.text) && /(?:AED\s?|[\$£€₹]\s?)\d+(?:\.\d{2})?/.test(n.text) && n.text.length < 200) {
+          const priceMatch = n.text.match(/(?:AED\s?|[\$£€₹]\s?)\d+(?:\.\d{2})?/);
           if (priceMatch) return priceMatch[0].trim();
         }
       }
@@ -2062,7 +2062,7 @@ export async function getActualValue(
         }
         if (foundName) {
           nodesAfterName++;
-          if (n.childCount === 0 && /^[\$£€₹]\s?\d+(?:\.\d{2})?$/.test(n.text.trim())) {
+          if (n.childCount === 0 && /^(?:AED\s?|[\$£€₹]\s?)\d+(?:\.\d{2})?$/.test(n.text.trim())) {
             return n.text.trim();
           }
           // Stop after 8 nodes or if we hit another event name
@@ -2093,7 +2093,7 @@ export async function getActualValue(
 
       const zero = snapFind(n =>
         n.childCount === 0 &&
-        /^[\$£€₹]\s?0(\.00)?$/.test(n.text)
+        /^(?:AED\s?|[\$£€₹]\s?)0(\.00)?$/.test(n.text)
       );
       if (zero !== 'N/A') return zero;
 
@@ -2141,7 +2141,7 @@ export async function getActualValue(
         const allEls = document.querySelectorAll<HTMLElement>('span, p, div, strong, b');
         for (const el of allEls) {
           const text = (el.textContent || '').trim();
-          if (!/[£$€₹]/.test(text) || text.length > 30) continue;
+          if (!/[£$€₹]/.test(text) && !/AED/.test(text) || text.length > 30) continue;
           // Walk up 5 levels to check for line-through on any ancestor
           let current: HTMLElement | null = el;
           for (let depth = 0; depth < 5 && current; depth++) {
@@ -2149,7 +2149,7 @@ export async function getActualValue(
             if (style.textDecorationLine?.includes('line-through') ||
                 style.textDecoration?.includes('line-through')) {
               // Return the price-only portion
-              const priceMatch = text.match(/[£$€₹]\s?\d+(?:\.\d{2})?/);
+              const priceMatch = text.match(/(?:AED\s?|[£$€₹]\s?)\d+(?:\.\d{2})?/);
               if (priceMatch) return priceMatch[0].trim();
             }
             current = current.parentElement;
@@ -2161,9 +2161,9 @@ export async function getActualValue(
 
       // Strategy 4: "Was £X" pattern in body text
       const bodyLower = (await page.locator('body').innerText().catch(() => '')).toLowerCase();
-      const wasMatch = bodyLower.match(/was\s+[\$£€₹]\s?[\d,]+(?:\.\d{2})?/i);
+      const wasMatch = bodyLower.match(/was\s+(?:AED\s?|[\$£€₹]\s?)[\d,]+(?:\.\d{2})?/i);
       if (wasMatch) {
-        const priceMatch = wasMatch[0].match(/[\$£€₹]\s?\d+(?:\.\d{2})?/);
+        const priceMatch = wasMatch[0].match(/(?:AED\s?|[\$£€₹]\s?)\d+(?:\.\d{2})?/);
         if (priceMatch) return priceMatch[0].trim();
       }
 
@@ -2755,7 +2755,7 @@ export async function getActualValue(
       const offerPrice = eventData?.UPSELL_PRICE || '';
       const originalPrice = eventData?.UPSELL_ORIGINAL_PRICE || eventData?.['ULTIMATE_OFFER.ORIGINAL_PRICE'] || '';
       if (originalPrice && offerPrice && originalPrice !== offerPrice) {
-        const cleanOrig = originalPrice.replace(/[£$€₹]/g, '').trim();
+        const cleanOrig = originalPrice.replace(/[£$€₹]|AED\s?/g, '').trim();
         const hasStrikeOriginal = snap.some(n => n.isStrike && n.text.includes(cleanOrig));
         if (!hasStrikeOriginal) {
           console.warn(`⚠️  Upsell verification failed: Original price ${originalPrice} is not struck off on the page`);
@@ -4560,7 +4560,7 @@ export async function getActualValue(
           if (style.textDecorationLine?.includes('line-through') ||
             style.textDecoration?.includes('line-through')) {
             const text = (el.textContent || '').trim();
-            if (/[£$€₹]/.test(text) && text.length < 20) return text;
+            if ((/[£$€₹]/.test(text) || /AED/.test(text)) && text.length < 20) return text;
           }
         }
         return null;
@@ -4575,7 +4575,7 @@ export async function getActualValue(
       // Match "£0", "£0.00", "$0", "€0", etc.
       const zeroPrice = snapFind(n =>
         n.childCount === 0 &&
-        /^[£$€₹]\s?0(\.00)?$/.test(n.text) &&
+        /^(?:AED\s?|[£$€₹]\s?)0(\.00)?$/.test(n.text) &&
         (currency ? n.text.includes(currency) : true)
       );
       if (zeroPrice !== 'N/A') return zeroPrice;
@@ -4592,7 +4592,7 @@ export async function getActualValue(
         const allEls = document.querySelectorAll<HTMLElement>('span, p, div');
         for (const el of allEls) {
           const text = (el.textContent || '').trim();
-          const re = new RegExp(`^[£$€₹]\\s?0(\\.00)?$`);
+          const re = new RegExp(`^(?:AED\\s?|[£$€₹]\\s?)0(\\.00)?$`);
           if (re.test(text)) return text;
           if (/^free$/i.test(text)) return `${curr}0`;
         }
@@ -4660,7 +4660,7 @@ export async function getActualValue(
         if (n.isInModal) continue;
         if (n.text.toLowerCase().includes('you will be charged') &&
             n.text.toLowerCase().includes('from')) {
-          const priceMatch = n.text.match(/charged\s+([£$€]?\d+(?:,\d{3})*\.\d{2})/);
+          const priceMatch = n.text.match(/charged\s+(?:AED\s?)?([£$€]?\d+(?:,\d{3})*\.\d{2})/);
           if (priceMatch) return priceMatch[1];
         }
       }
@@ -4670,11 +4670,11 @@ export async function getActualValue(
       if (nextPrice) {
         const found = snapFind(n =>
           n.childCount === 0 &&
-          n.text.includes(nextPrice.replace(/[£$€]/g, ''))
+          n.text.includes(nextPrice.replace(/[£$€]|AED\s?/g, ''))
         );
         if (found !== 'N/A') {
           // Extract just the price
-          const pm = found.match(/([£$€]?\d+(?:,\d{3})*\.\d{2})/);
+          const pm = found.match(/(?:AED\s?)?([£$€]?\d+(?:,\d{3})*\.\d{2})/);
           return pm ? pm[1] : found;
         }
       }
@@ -4814,7 +4814,7 @@ export async function getActualValue(
     case '7-days free price': {
       return snapFind(n =>
         n.childCount === 0 &&
-        /^[£$$€₹]\s?0(\.00)?$$/.test(n.text)
+        /^(?:AED\s?|[£$€₹]\s?)0(\.00)?$/.test(n.text)
       );
     }
 
@@ -5426,7 +5426,7 @@ export async function getActualValue(
       let foundPrice = false;
       for (const n of snap) {
         if (n.isInModal) continue;
-        if (upsellPrice && n.text.includes(upsellPrice.replace(/[£$€₹]/g, ''))) {
+        if (upsellPrice && n.text.includes(upsellPrice.replace(/[£$€₹]|AED\s?/g, ''))) {
           foundPrice = true;
           continue;
         }

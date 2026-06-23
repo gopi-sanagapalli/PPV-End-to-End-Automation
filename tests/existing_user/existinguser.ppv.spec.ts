@@ -1765,6 +1765,28 @@ test('PPV flow via existing user my account', async ({ browser }) => {
           stuckCount = 0;
           emailProcessedCount++;
 
+          // ── Error popup detection (e.g. "No key found!", error codes) ──
+          const bodyTextForError = await page.locator('body').innerText({ timeout: 3000 }).catch(() => '');
+          const errorPatterns = [
+            /no key found/i,
+            /error code:\s*\d/i,
+            /something went wrong/i,
+            /try refreshing the page/i,
+            /unexpected error/i,
+          ];
+          const matchedError = errorPatterns.find(p => p.test(bodyTextForError));
+          if (matchedError) {
+            const errorSnippet = bodyTextForError.split('\n').filter(l => errorPatterns.some(p => p.test(l))).join(' | ').substring(0, 200);
+            console.log(`❌ [Signup/Signin Error] Detected error popup on page: "${errorSnippet}"`);
+            try {
+              await page.screenshot({ path: 'test-results/signup_error_popup.png', fullPage: true });
+              console.log('📸 Screenshot saved to test-results/signup_error_popup.png');
+            } catch (se: any) {
+              console.warn('⚠️  Could not save screenshot:', se.message);
+            }
+            throw new Error(`❌ Signup/Signin error popup detected: "${errorSnippet}". The signup page shows an error — test cannot proceed.`);
+          }
+
           if (emailProcessedCount > 5) {
             console.log('⚠️  Email/Login loop detected — breaking');
             try {

@@ -1111,6 +1111,28 @@ async function runFlow(
         console.log('✅ Reached email/personal-details page');
         emailProcessedCount++;
 
+        // ── Error popup detection (e.g. "No key found!", error codes) ──
+        const bodyTextForError = await page.locator('body').innerText({ timeout: 3000 }).catch(() => '');
+        const errorPatterns = [
+          /no key found/i,
+          /error code:\s*\d/i,
+          /something went wrong/i,
+          /try refreshing the page/i,
+          /unexpected error/i,
+        ];
+        const matchedError = errorPatterns.find(p => p.test(bodyTextForError));
+        if (matchedError) {
+          const errorSnippet = bodyTextForError.split('\n').filter((l: string) => errorPatterns.some(p => p.test(l))).join(' | ').substring(0, 200);
+          console.log(`❌ [Signup Error] Detected error popup on page: "${errorSnippet}"`);
+          try {
+            await page.screenshot({ path: 'test-results/signup_error_popup.png', fullPage: true });
+            console.log('📸 Screenshot saved to test-results/signup_error_popup.png');
+          } catch (se: any) {
+            console.warn('⚠️  Could not save screenshot:', se.message);
+          }
+          throw new Error(`❌ Signup error popup detected: "${errorSnippet}". The signup page shows an error — test cannot proceed.`);
+        }
+
         // CRITICAL FIX: After 2 email processing attempts, the flow is stuck
         // on personalDetails page. Break out and treat as reached end page
         // (the email personal details will lead to payment after manual intervention)
