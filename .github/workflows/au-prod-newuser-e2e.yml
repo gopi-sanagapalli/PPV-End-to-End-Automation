@@ -51,6 +51,11 @@ jobs:
           - boxing-page-banner
           - boxing-page-bundle
           - boxing-upcoming-fights
+          - home-page-dazntile
+          - boxing-standard-subscription
+          - boxing-banner-ultimate
+          - boxing-ultimate-subscription
+          - boxing-join-the-club
           - home-boxing-banner
           - home-boxing-tile
           - home-boxing-upcoming
@@ -66,6 +71,19 @@ jobs:
           - standard_apm
           - ultimate_apm
           - ultimate_upfront
+        exclude:
+          - source: boxing-banner-ultimate
+            plan: standard_monthly
+          - source: boxing-banner-ultimate
+            plan: standard_apm
+          - source: boxing-ultimate-subscription
+            plan: standard_monthly
+          - source: boxing-ultimate-subscription
+            plan: standard_apm
+          - source: boxing-join-the-club
+            plan: standard_monthly
+          - source: boxing-join-the-club
+            plan: standard_apm
 
     env:
       CI: 'true'
