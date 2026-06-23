@@ -431,6 +431,7 @@ export function resolveExpected(
     'ppv date badge',
     'date badge',
     'banner date badge',
+    'banner - event date',
     'upsell date badge',
     'tile date badge',
     'ppv date',
