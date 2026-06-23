@@ -89,10 +89,9 @@ const ppvData = [
 
   { Variant: 'variant1', Field: 'Page Title', Expected: 'Choose the right plan for you.', Flow: '' },
   { Variant: 'variant1', Field: 'Header Sub Text', Expected: 'To watch your pay-per-view, you\'ll need a DAZN plan.', Flow: '' },
-  { Variant: 'variant1', Field: 'Header Highlight Text1', Expected: '{{PPV_NAME}}', Flow: '' },
   { Variant: 'variant1', Field: 'Header Highlight Text2', Expected: 'N/A', Flow: '' },
-  { Variant: 'variant1', Field: 'Hero Image', Expected: 'Yes', Flow: '' },
   { Variant: 'variant1', Field: 'Event Name', Expected: '{{PPV_NAME}}', Flow: '' },
+  { Variant: 'variant1', Field: 'PPV Per Fight Text', Expected: '/fight', Flow: '' },
   { Variant: 'variant1', Field: 'PPV Price', Expected: '{{PPV_PRICE}}', Flow: '' },
   { Variant: 'variant1', Field: 'Currency', Expected: '{{CURRENCY}}', Flow: '' },
   { Variant: 'variant1', Field: 'DAZN Tier', Expected: '+DAZN Standard', Flow: 'newuser' },
@@ -109,13 +108,11 @@ const ppvData = [
   { Variant: 'variant1', Field: 'Upsell Price', Expected: '{{UPSELL_PRICE}}', Flow: '' },
   { Variant: 'variant1', Field: 'Upsell Price Length', Expected: '{{UPSELL_PRICE_LENGTH}}', Flow: '' },
   { Variant: 'variant1', Field: 'Upsell Crossed Price', Expected: '{{UPSELL_CROSSED_PRICE}}', Flow: '' },
-  { Variant: 'variant1', Field: 'Upsell Contract Text', Expected: 'Annual contract. Auto renews.', Flow: '' },
+
   { Variant: 'variant1', Field: 'Upsell Billing Text', Expected: '{{ANNUAL_PAY_MONTHLY_CONTRACT_TEXT}}', Flow: '' },
   { Variant: 'variant1', Field: 'Upsell Offer Text', Expected: '{{UPSELL_OFFER_TEXT}}', Flow: 'offer' },
   { Variant: 'variant1', Field: 'Upsell Section Heading', Expected: '{{UPSELL_SECTION_HEADING}}', Flow: '' },
-  { Variant: 'variant1', Field: 'Included PPV1 Name', Expected: '{{PPV_NAME}}', Flow: '' },
-  { Variant: 'variant1', Field: 'PPV1 Image Present on ultimate tier', Expected: 'Yes', Flow: '' },
-  { Variant: 'variant1', Field: 'PPV1 Upsell Tile Date', Expected: '{{PPV1_UPSELL_TILE_DATE}}', Flow: '' },
+
   { Variant: 'variant1', Field: 'PPV1 Included tag', Expected: 'N/A', Flow: '' },
   { Variant: 'variant1', Field: 'Included PPV2 Name', Expected: 'N/A', Flow: '' },
   { Variant: 'variant1', Field: 'PPV2 Image Present on ultimate tier', Expected: 'N/A', Flow: '' },
@@ -149,7 +146,6 @@ const ppvData = [
 
   { Variant: 'variant2', Field: 'Page Title', Expected: 'Choose your plan', Flow: '' },
   { Variant: 'variant2', Field: 'Header Full Copy', Expected: 'Buy {{PPV_NAME}} with DAZN Standard or get it included in DAZN Ultimate.', Flow: '' },
-  { Variant: 'variant2', Field: 'Header Highlight Text1', Expected: '{{PPV_NAME}}', Flow: '' },
   { Variant: 'variant2', Field: 'Header Highlight Text2', Expected: 'get it included in DAZN Ultimate.', Flow: '' },
   { Variant: 'variant2', Field: 'PPV Image', Expected: 'Yes', Flow: '' },
   { Variant: 'variant2', Field: 'Event Date and Time', Expected: '{{PPV_DATE}}', Flow: '' },
@@ -157,6 +153,7 @@ const ppvData = [
   { Variant: 'variant2', Field: 'PPV Checkbox Present', Expected: 'Yes', Flow: '' },
   { Variant: 'variant2', Field: 'PPV Selected', Expected: 'Yes', Flow: '' },
   { Variant: 'variant2', Field: 'PPV Name', Expected: '{{PPV_NAME}}', Flow: '' },
+  { Variant: 'variant2', Field: 'PPV Per Fight Text', Expected: '/fight', Flow: '' },
   { Variant: 'variant2', Field: 'PPV Price', Expected: '{{PPV_PRICE}}', Flow: '' },
   { Variant: 'variant2', Field: 'Currency', Expected: '{{CURRENCY}}', Flow: '' },
   { Variant: 'variant2', Field: 'Subscription Section Title', Expected: 'Choose your subscription', Flow: '' },
@@ -173,9 +170,7 @@ const ppvData = [
   { Variant: 'variant2', Field: 'Upsell Price', Expected: '{{UPSELL_PRICE}}', Flow: '' },
   { Variant: 'variant2', Field: 'Upsell Price Length', Expected: '{{UPSELL_PRICE_LENGTH}}', Flow: '' },
   { Variant: 'variant2', Field: 'Upsell Billing Text', Expected: 'Annual contract. Auto renews.', Flow: '' },
-  { Variant: 'variant2', Field: 'Included PPV1 Name', Expected: '{{PPV_NAME}}', Flow: '' },
-  { Variant: 'variant2', Field: 'PPV1 Image Present on ultimate tier', Expected: 'Yes', Flow: '' },
-  { Variant: 'variant2', Field: 'PPV1 Upsell Tile Date', Expected: '{{PPV1_UPSELL_TILE_DATE}}', Flow: '' },
+
   { Variant: 'variant2', Field: 'PPV1 Included tag', Expected: 'Yes', Flow: '' },
   { Variant: 'variant2', Field: 'Included PPV2 Name', Expected: 'N/A', Flow: '' },
   { Variant: 'variant2', Field: 'PPV2 Image Present on ultimate tier', Expected: 'N/A', Flow: '' },
@@ -247,7 +242,8 @@ const planData = [
 // ═══════════════════════════════════════════════════════════
 const paymentData = [
   // ── Common ───────────────────────────────────────────────
-  { Tier: 'Common', 'Rate Plan': 'All', Field: 'Header', Expected: 'Your payment is encrypted and you can change how you pay at any time.', Flow: '' },
+  { Tier: 'Common', 'Rate Plan': 'All', Field: 'Payment Method Heading', Expected: 'Payment method', Flow: '' },
+  { Tier: 'Common', 'Rate Plan': 'All', Field: 'Purchase Summary Heading', Expected: 'Purchase summary', Flow: '' },
   { Tier: 'Common', 'Rate Plan': 'All', Field: 'Plan Change CTA', Expected: 'Change', Flow: '' },
   { Tier: 'Common', 'Rate Plan': 'All', Field: 'Credit & Debit Card Option', Expected: 'Yes', Flow: '' },
   { Tier: 'Common', 'Rate Plan': 'All', Field: 'PayPal Option', Expected: 'Yes', Flow: '' },

@@ -116,7 +116,7 @@ for (const stateKey of userStatesToRun) {
   // Enabled on all environments (including prod) when tier is ultimate.
   // Can also be forced via DEV_MODE_ON=on env variable for prod verification.
   const devModeForced = (process.env.DEV_MODE_ON || '').toLowerCase() === 'on';
-  const devModeEnabled = devModeForced || (tier === 'ultimate' && isUSorGB) || (SOURCE === 'landing-page-dont-miss-live');
+  const devModeEnabled = devModeForced || (tier === 'ultimate' && isUSorGB) || (SOURCE === 'landing-page-dont-miss-live-switch');
   const ratePlan = (process.env.RATE_PLAN || json.RATE_PLAN || 'monthly').toLowerCase();
   const userEmail = eventData.USER_EMAIL || json.USER_EMAIL || '';
   const userPassword = eventData.USER_PASSWORD || json.USER_PASSWORD || '';
@@ -1971,7 +1971,7 @@ for (const stateKey of userStatesToRun) {
               await paymentPage.validateUltimateUpsellBannerText(results, eventData);
 
               // Click arrow only if SWITCH=true is explicitly set
-              const shouldClickUpsell = SWITCH_TO_ULTIMATE || SOURCE === 'landing-page-dont-miss-live';
+              const shouldClickUpsell = SWITCH_TO_ULTIMATE || SOURCE === 'landing-page-dont-miss-live-switch';
 
               if (shouldClickUpsell) {
                 // STEP C: Click > arrow and validate DAZN Ultimate summary

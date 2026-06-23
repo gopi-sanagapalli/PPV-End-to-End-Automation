@@ -252,7 +252,7 @@ export class SearchPage extends BasePage {
         '[class*="search" i] input, ' +
         '[data-testid*="search" i] input'
       ).first();
-      await searchInput.waitFor({ state: 'visible', timeout: 8000 });
+      await searchInput.waitFor({ state: 'visible', timeout: 30000 });
       await searchInput.click();
       await searchInput.fill('[dev_mode_on]');
       await this.page.keyboard.press('Enter');

@@ -293,6 +293,10 @@ export async function getPageSnapshot(page: Page): Promise<DOMNode[]> {
         }
         if (node.nodeType === Node.ELEMENT_NODE) {
           const htmlEl = node as HTMLElement;
+          const tagName = htmlEl.tagName.toUpperCase();
+          if (tagName === 'SCRIPT' || tagName === 'STYLE') {
+            return '';
+          }
           if (isStrikethrough(htmlEl)) {
             return '';
           }
