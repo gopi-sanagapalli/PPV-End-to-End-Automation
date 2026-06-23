@@ -92,13 +92,21 @@ export class SchedulePage {
       await sportEl.click();
     } else {
       console.log('ℹ️ Horizontal filter container not visible. Looking for "All Sports" dropdown...');
-      const allSportsBtn = this.page.locator('button:has-text("All Sports"), [class*="sportsFilter" i] button, [class*="filter" i] button').first();
+      const allSportsBtn = this.page.locator('button:has-text("All Sports")')
+        .or(this.page.locator('[class*="sportsFilter" i] button'))
+        .or(this.page.locator('[class*="filter" i] button'))
+        .first();
       await expect(allSportsBtn).toBeVisible({ timeout: 8000 });
       await allSportsBtn.click();
       console.log(' Clicked "All Sports" dropdown');
 
       // Now click the sport from the dropdown/menu
-      const sportItem = this.page.locator(`role=option[name="${sport}" i], [role="menuitem"][name="${sport}" i], button:has-text("${sport}"), a:has-text("${sport}"), li:has-text("${sport}")`).first();
+      const sportItem = this.page.getByRole('option', { name: sport })
+        .or(this.page.locator(`[role="menuitem"]:has-text("${sport}")`))
+        .or(this.page.locator(`button:has-text("${sport}")`))
+        .or(this.page.locator(`a:has-text("${sport}")`))
+        .or(this.page.locator(`li:has-text("${sport}")`))
+        .first();
       await expect(sportItem).toBeVisible({ timeout: 8000 });
       await sportItem.click();
       console.log(`✅ Selected ${sport} from dropdown`);
@@ -122,7 +130,7 @@ export class SchedulePage {
     await handleCookies(this.page);
 
     const regex = new RegExp(
-      eventName.replace(/\s+/g, '.*'),
+      eventName.replace(/[:\-–]/g, '').replace(/\s+/g, '.*'),
       'i'
     );
 
@@ -177,6 +185,7 @@ export class SchedulePage {
 
     // Save scroll position BEFORE any scrolling
     const scrollY = await this.page.evaluate(() => window.scrollY);
+    console.log(`📍 Saved scroll position: ${scrollY}px`);
 
     // Click using Playwright's built-in click
     try {
@@ -193,11 +202,19 @@ export class SchedulePage {
       );
     }
 
-    // Immediately restore scroll and lock background BEFORE waiting for Buy Now
+    // Immediately lock scroll AND background to prevent DAZN snap-back
     await this.page.evaluate((y) => {
-      window.scrollTo(0, y);
       document.body.style.overflow = 'hidden';
       document.documentElement.style.overflow = 'hidden';
+      // Persistent scroll lock — holds position during modal animation
+      const interval = setInterval(() => {
+        if (Math.abs(window.scrollY - y) > 30) {
+          window.scrollTo({ top: y, behavior: 'instant' });
+        }
+      }, 50);
+      // Keep lock for 3s to cover modal open animation
+      setTimeout(() => clearInterval(interval), 3000);
+      (window as any).__scheduleScrollLock = interval;
     }, scrollY);
 
     // Wait for Buy Now button using manual poll (not expect, which can trigger scrollIntoView)
@@ -212,23 +229,25 @@ export class SchedulePage {
     for (let attempt = 0; attempt < 30; attempt++) {
       buyVisible = await buyNowButton.isVisible({ timeout: 500 }).catch(() => false);
       if (buyVisible) break;
-      // Re-restore scroll position in case the modal opening caused a scroll change
-      await this.page.evaluate((y) => {
-        window.scrollTo(0, y);
-      }, scrollY);
+      await this.page.waitForTimeout(200);
     }
 
     if (!buyVisible) {
       throw new Error('❌ Buy Now button not visible in modal after 15s');
     }
 
-    // Final scroll restoration
+    // Final scroll restoration & keep overflow hidden for validation
     await this.page.evaluate((y) => {
-      window.scrollTo(0, y);
+      window.scrollTo({ top: y, behavior: 'instant' });
       document.body.style.overflow = 'hidden';
       document.documentElement.style.overflow = 'hidden';
     }, scrollY);
 
+    // Brief wait for scroll to settle
+    await this.page.waitForTimeout(300);
+
+    const finalY = await this.page.evaluate(() => window.scrollY).catch(() => -1);
+    console.log(`📍 Final scroll position: ${finalY}px (target: ${scrollY}px)`);
     console.log('🔒 Background scroll locked');
     console.log('✅ Modal opened & Buy button located');
   }
