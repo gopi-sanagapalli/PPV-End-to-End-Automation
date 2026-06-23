@@ -119,10 +119,23 @@ const isActiveUltimate = [
   const ratePlan = (process.env.PLAN || json.RATE_PLAN || 'monthly').toLowerCase();
   const userEmail = eventData.USER_EMAIL || json.USER_EMAIL || '';
   const userPassword = eventData.USER_PASSWORD || json.USER_PASSWORD || '';
-  let purchaseOption = (json.PURCHASE_OPTION || 'ppv').toLowerCase();
+  const purchasePath = (process.env.PURCHASE_PATH || '').toLowerCase();
+
+  // Workflow matrix controls the Active Standard decision:
+  // ppv_only => buy PPV only
+  // ultimate_monthly / ultimate_apm / ultimate_upfront => choose Ultimate upgrade
+  let purchaseOption = purchasePath === 'ppv_only'
+    ? 'ppv'
+    : purchasePath.startsWith('ultimate_')
+      ? 'ultimate'
+      : (json.PURCHASE_OPTION || 'ppv').toLowerCase();
+
+  // Existing Ultimate users always remain on the Ultimate branch.
   if (tier === 'ultimate') {
     purchaseOption = 'ultimate';
   }
+
+  console.log(`🔀 Purchase path: ${purchasePath || 'default'} → option: ${purchaseOption}`);
   const baseUrl = eventData.BASE_URL;
   const variantConfig = json.variants;
   const pagesConfig = json.pages;
