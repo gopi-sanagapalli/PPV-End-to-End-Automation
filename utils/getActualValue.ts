@@ -32,8 +32,16 @@ async function getScopedLandingPPVContainer(
 
     const railHeading = page.locator('h1, h2, h3, h4, [class*="heading" i]').filter({ hasText: headingPattern }).first();
     if (await railHeading.count().catch(() => 0) > 0) {
-      await railHeading.scrollIntoViewIfNeeded().catch(() => {});
-      await page.waitForTimeout(500);
+      await railHeading.evaluate((heading: HTMLElement) => {
+        const absoluteTop = heading.getBoundingClientRect().top + window.scrollY;
+
+        window.scrollTo({
+          top: Math.max(0, Math.round(absoluteTop - 24)),
+          behavior: 'instant',
+        });
+      }).catch(() => {});
+
+      await page.waitForTimeout(300);
       let railWrapper = railHeading.locator('xpath=ancestor::*[contains(@class,"railWrapper")][1]');
       let hasWrapper = await railWrapper.count().catch(() => 0) > 0;
       if (!hasWrapper) {
