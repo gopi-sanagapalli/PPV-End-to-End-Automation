@@ -16,7 +16,7 @@ export function compare(
 
   const norm = (s: string) =>
     s.replace(/[\u200B-\u200D\uFEFF\u200E\u200F\u00A0]/g, '')
-     .replace(/[£$€₹]/g, '')
+     .replace(/(?:AED\s?|[£$€₹])/g, '')
      .replace(/'/gi, "'")
      .replace(/&#39;/gi, "'")
      .replace(/&apos;/gi, "'")
@@ -96,7 +96,7 @@ export function compare(
 
   // ── Price comparison ───────────────────────────────────────────
   const normPrice = (s: string) =>
-    s.replace(/[£$€₹,\s]/g, '').trim();
+    s.replace(/(?:AED\s?|[£$€₹,\s])/g, '').trim();
   const aPrice = normPrice(actual);
   const ePrice = normPrice(expected);
   if (aPrice && ePrice && aPrice === ePrice) return true;

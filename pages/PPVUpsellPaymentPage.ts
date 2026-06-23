@@ -77,15 +77,18 @@ export class PPVUpsellPaymentPage extends BasePage {
         }
 
       } else if (key === 'ppv price' || key === 'event price') {
-        const priceMatch = bodyText.match(/£\d+\.\d{2}/);
-        actual = priceMatch ? priceMatch[0] : 'N/A';
+        const priceMatch = bodyText.match(/(?:AED\s?|[£$€₹]\s?)\d+(?:\.\d{2})?/);
+        actual = priceMatch ? priceMatch[0].trim() : 'N/A';
 
       } else if (key.includes('payment type')) {
         actual = bodyLower.includes('one time payment') ? 'One time payment' : 'N/A';
 
       } else if (key.includes('today you pay') || key.includes('total price')) {
-        const todayMatch = bodyText.match(/today you pay[^£]*£(\d+\.\d{2})/i);
-        actual = todayMatch ? `£${todayMatch[1]}` : 'N/A';
+        const todayMatch = bodyText.match(
+          /today you pay[\s\S]{0,120}?(?:AED\s?|[£$€₹]\s?)\d+(?:\.\d{2})?/i
+        );
+        const priceMatch = todayMatch?.[0].match(/(?:AED\s?|[£$€₹]\s?)\d+(?:\.\d{2})?/);
+        actual = priceMatch ? priceMatch[0].trim() : 'N/A';
 
       } else if (key.includes('payment instruction') || key.includes('payment text')) {
         actual = bodyLower.includes('please choose from the payment options') ? expected : 'N/A';
