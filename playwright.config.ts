@@ -1,19 +1,21 @@
 import { defineConfig } from '@playwright/test';
+import * as dotenv from 'dotenv';
+
+// Load environment variables from .env file
+dotenv.config();
 
 export default defineConfig({
-  testDir:   './tests',
-  timeout:   300_000,
-  retries:   0,
-  workers:   process.env.CI ? 4 : 1,
+  testDir: './tests',
+  timeout: 300_000,
+  retries: 0,
+  workers: process.env.CI ? 4 : 4,
   outputDir: 'test-results',
 
   use: {
-    headless:  process.env.HEADLESS === 'true',
-    viewport: process.env.CI === 'true'
-      ? { width: 1920, height: 1080 }
-      : null,
+    headless: process.env.HEADLESS === 'true',
+    viewport: null,
     timezoneId: 'Asia/Kolkata',
-    locale:    'en-IN',
+    locale: 'en-IN',
 
     launchOptions: {
       args: [
@@ -28,7 +30,7 @@ export default defineConfig({
       ],
     },
 
-    actionTimeout:     15_000,
+    actionTimeout: 15_000,
     navigationTimeout: 30_000,
 
     video: {
@@ -37,20 +39,18 @@ export default defineConfig({
     },
 
     screenshot: 'only-on-failure',
-    trace:      'retain-on-failure',
+    trace: 'retain-on-failure',
   },
 
   projects: [
     {
       name: 'chromium',
       use: {
-        channel:  'chrome',
+        channel: 'chrome',
         headless: process.env.HEADLESS === 'true',
-        viewport: process.env.CI === 'true'
-      ? { width: 1920, height: 1080 }
-      : null,
+        viewport: null,
         timezoneId: 'Asia/Kolkata',
-        locale:    'en-IN',
+        locale: 'en-IN',
 
         launchOptions: {
           args: [

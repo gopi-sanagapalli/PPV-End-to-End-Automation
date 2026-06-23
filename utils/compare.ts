@@ -16,7 +16,7 @@ export function compare(
 
   const norm = (s: string) =>
     s.replace(/[\u200B-\u200D\uFEFF\u200E\u200F\u00A0]/g, '')
-     .replace(/(?:AED\s?|[£$€₹])/g, '')
+     .replace(/[£$€₹]|AED\s?/g, '')
      .replace(/'/gi, "'")
      .replace(/&#39;/gi, "'")
      .replace(/&apos;/gi, "'")
@@ -29,7 +29,7 @@ export function compare(
      .replace(/[\u2018\u2019\u201A\u201B\u2032\u0060\u00B4]/g, "'")
      .replace(/[\u201C\u201D\u201E\u201F\u2033]/g, '"')
      .replace(/\bppv\b/gi, '')
-     .replace(/[:\-–—]/g, ' ')
+     .replace(/[\-–—\u2014\u2013]/g, ' ')
      .replace(/\s+/g, ' ')
      .trim()
      .toLowerCase()
@@ -96,7 +96,7 @@ export function compare(
 
   // ── Price comparison ───────────────────────────────────────────
   const normPrice = (s: string) =>
-    s.replace(/(?:AED\s?|[£$€₹,\s])/g, '').trim();
+    s.replace(/[£$€₹,\s]|AED\s?/g, '').trim();
   const aPrice = normPrice(actual);
   const ePrice = normPrice(expected);
   if (aPrice && ePrice && aPrice === ePrice) return true;
@@ -117,6 +117,24 @@ export function compare(
   ) {
     if (a.includes('not ' + e) || a.includes('not' + e)) return false;
     return true;
+  }
+
+  // ── PPV Name: Abbreviated promotion prefix matching ─────────────
+  // Config may use abbreviated names like "AEW: Forbidden Door" or "PFL: Champions"
+  // but the live site displays "All Elite Wrestling Forbidden Door" or "Professional Fighters League Champions".
+  // Match if the part after the colon appears in the actual text and lengths are reasonable.
+  if (expected.includes(':')) {
+    const afterColon = norm(expected.split(':').slice(1).join(':').trim());
+    if (afterColon.length >= 5 && a.includes(afterColon) && actual.length < expected.length * 2.5) {
+      return true;
+    }
+  }
+  // Reverse: actual has colon, expected doesn't
+  if (actual.includes(':') && !expected.includes(':')) {
+    const afterColonActual = norm(actual.split(':').slice(1).join(':').trim());
+    if (afterColonActual.length >= 5 && e.includes(afterColonActual) && expected.length < actual.length * 2.5) {
+      return true;
+    }
   }
 
   // ── Date flexibility ───────────────────────────────────────────
