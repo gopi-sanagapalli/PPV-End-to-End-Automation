@@ -6,8 +6,8 @@ async function getScopedLandingPPVContainer(
 ): Promise<any> {
   if (!page || page.isClosed()) return null;
   const url = page.url();
-  const isLandingOrHome = url.includes('/welcome') || url.includes('/home') || url.includes('/boxing') || 
-                          (eventData?.CURRENT_PAGE && ['landing', 'boxing', 'home page', 'home of boxing'].includes(eventData.CURRENT_PAGE.toLowerCase()));
+  const isLandingOrHome = url.includes('/welcome') || url.includes('/home') || url.includes('/boxing') ||
+    (eventData?.CURRENT_PAGE && ['landing', 'boxing', 'home page', 'home of boxing'].includes(eventData.CURRENT_PAGE.toLowerCase()));
   if (!isLandingOrHome) return null;
 
   const source = (eventData?.SOURCE || eventData?.source || '').toLowerCase();
@@ -57,10 +57,24 @@ async function getScopedLandingPPVContainer(
         const allTiles = railWrapper.locator('.swiper-slide, [class*="tile" i], [class*="card" i], [class*="fight" i], [class*="event" i], a, article, li');
         const tileCount = await allTiles.count().catch(() => 0);
 
+        const getTileSearchText = async (tileLoc: any): Promise<string> => {
+          const textContent = await tileLoc.textContent().catch(() => '') || '';
+          const imgAlts: string[] = [];
+          const imgs = tileLoc.locator('img');
+          const imgCount = await imgs.count().catch(() => 0);
+          for (let ii = 0; ii < imgCount; ii++) {
+            const alt = await imgs.nth(ii).getAttribute('alt').catch(() => '') || '';
+            if (alt) imgAlts.push(alt);
+          }
+          const ariaLabel = await tileLoc.getAttribute('aria-label').catch(() => '') || '';
+          const titleAttr = await tileLoc.getAttribute('title').catch(() => '') || '';
+          return `${textContent} ${imgAlts.join(' ')} ${ariaLabel} ${titleAttr}`.toLowerCase();
+        };
+
         // Strategy 1: Find tile matching ALL name words (most precise)
         for (let ti = 0; ti < tileCount; ti++) {
-          const tileText = (await allTiles.nth(ti).textContent().catch(() => '') || '').toLowerCase();
-          if (nameWords.every(w => tileText.includes(w))) {
+          const combinedText = await getTileSearchText(allTiles.nth(ti));
+          if (nameWords.every(w => combinedText.includes(w))) {
             return allTiles.nth(ti);
           }
         }
@@ -69,17 +83,19 @@ async function getScopedLandingPPVContainer(
         if (prefixPart) {
           const prefixWords = prefixPart.split(/\s+/).filter(w => w.length > 1);
           for (let ti = 0; ti < tileCount; ti++) {
-            const tileText = (await allTiles.nth(ti).textContent().catch(() => '') || '').toLowerCase();
-            if (tileText.includes(firstWord) && prefixWords.some(pw => tileText.includes(pw))) {
+            const combinedText = await getTileSearchText(allTiles.nth(ti));
+            if (combinedText.includes(firstWord) && prefixWords.some(pw => combinedText.includes(pw))) {
               return allTiles.nth(ti);
             }
           }
         }
 
-        // Strategy 3: Fall back to firstWord-only match (original behavior)
-        const tile = railWrapper.locator('.swiper-slide, [class*="tile" i], [class*="card" i], [class*="fight" i], [class*="event" i], a, article, li').filter({ hasText: new RegExp(firstWord, 'i') }).first();
-        if (await tile.count().catch(() => 0) > 0) {
-          return tile;
+        // Strategy 3: Fall back to firstWord-only match
+        for (let ti = 0; ti < tileCount; ti++) {
+          const combinedText = await getTileSearchText(allTiles.nth(ti));
+          if (combinedText.includes(firstWord)) {
+            return allTiles.nth(ti);
+          }
         }
 
         const nextBtn = railWrapper.locator([
@@ -90,21 +106,26 @@ async function getScopedLandingPPVContainer(
         ].join(', ')).first();
 
         if (await nextBtn.count().catch(() => 0) > 0 && await nextBtn.isVisible().catch(() => false)) {
-          await railWrapper.hover({ force: true }).catch(() => {});
+          await railWrapper.hover({ force: true }).catch(() => { });
           for (let click = 0; click < 15; click++) {
-            const disabled = await nextBtn.evaluate((el: Element) => 
-              el.classList.contains('swiper-button-disabled') || 
-              el.classList.contains('rail-module__disable') || 
-              el.className.includes('disable') || 
+            const disabled = await nextBtn.evaluate((el: Element) =>
+              el.classList.contains('swiper-button-disabled') ||
+              el.classList.contains('rail-module__disable') ||
+              el.className.includes('disable') ||
               el.hasAttribute('disabled')
             ).catch(() => false);
             if (disabled) break;
-            
-            await nextBtn.click({ force: true }).catch(() => {});
-            await tile.waitFor({ state: 'attached', timeout: 1000 }).catch(() => {});
-            
-            if (await tile.count().catch(() => 0) > 0) {
-              return tile;
+
+            await nextBtn.click({ force: true }).catch(() => { });
+            await page.waitForTimeout(600);
+
+            const currentTiles = railWrapper.locator('.swiper-slide, [class*="tile" i], [class*="card" i], [class*="fight" i], [class*="event" i], a, article, li');
+            const currentCount = await currentTiles.count().catch(() => 0);
+            for (let ti = 0; ti < currentCount; ti++) {
+              const combinedText = await getTileSearchText(currentTiles.nth(ti));
+              if (nameWords.every(w => combinedText.includes(w))) {
+                return currentTiles.nth(ti);
+              }
             }
           }
         }
@@ -407,19 +428,19 @@ export async function getActualValue(
       return snapFind(n =>
         n.tag === 'span' &&
         (n.text.toLowerCase().includes('today') ||
-         n.text.toLowerCase().includes('tomorrow') ||
-         n.text.toLowerCase().includes('yesterday') ||
-         /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun)\b/i.test(n.text) ||
-         /\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/i.test(n.text) ||
-         /\d{1,2}:\d{2}/.test(n.text)) &&
+          n.text.toLowerCase().includes('tomorrow') ||
+          n.text.toLowerCase().includes('yesterday') ||
+          /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun)\b/i.test(n.text) ||
+          /\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/i.test(n.text) ||
+          /\d{1,2}:\d{2}/.test(n.text)) &&
         n.text.length < 50
       );
     }
 
     case 'ppv checkbox state': {
       const mainName = eventData?.PPV_NAME ? eventData.PPV_NAME.split(/[:\-–]/)[0].trim() : '';
-      const btnExists = snap.some(n => 
-        (mainName && n.tag === 'button' && n.text.toLowerCase().includes(mainName.toLowerCase())) || 
+      const btnExists = snap.some(n =>
+        (mainName && n.tag === 'button' && n.text.toLowerCase().includes(mainName.toLowerCase())) ||
         (n.tag === 'button' && n.classes.toLowerCase().includes('ni7rx'))
       );
       let checked = false;
@@ -1230,7 +1251,7 @@ export async function getActualValue(
           const t = await goldEl.textContent().catch(() => '');
           if (t && t.trim().length < 60) return t.trim();
         }
-      } catch {}
+      } catch { }
 
       return 'N/A';
     }
@@ -1259,8 +1280,8 @@ export async function getActualValue(
     // ════════════════════════════════════════════════════════════
     case 'ppv tile present': {
       const url = page.url();
-      const isLandingOrHome = url.includes('/welcome') || url.includes('/home') || url.includes('/boxing') || 
-                              (eventData?.CURRENT_PAGE && ['landing', 'boxing', 'home page', 'home of boxing'].includes(eventData.CURRENT_PAGE.toLowerCase()));
+      const isLandingOrHome = url.includes('/welcome') || url.includes('/home') || url.includes('/boxing') ||
+        (eventData?.CURRENT_PAGE && ['landing', 'boxing', 'home page', 'home of boxing'].includes(eventData.CURRENT_PAGE.toLowerCase()));
       if (isLandingOrHome) {
         const container = await getScopedLandingPPVContainer(page, eventData);
         if (container) {
@@ -1413,15 +1434,15 @@ export async function getActualValue(
         if (name && name !== 'N/A') return name;
       }
 
-      const isLandingOrHome = url.includes('/welcome') || url.includes('/home') || url.includes('/boxing') || 
-                              (eventData?.CURRENT_PAGE && ['landing', 'boxing', 'home page', 'home of boxing'].includes(eventData.CURRENT_PAGE.toLowerCase()));
+      const isLandingOrHome = url.includes('/welcome') || url.includes('/home') || url.includes('/boxing') ||
+        (eventData?.CURRENT_PAGE && ['landing', 'boxing', 'home page', 'home of boxing'].includes(eventData.CURRENT_PAGE.toLowerCase()));
       if (isLandingOrHome) {
         const container = await getScopedLandingPPVContainer(page, eventData);
         if (container) {
           const ppvNameFull = (eventData?.PPV_NAME || '').toLowerCase();
           const vsPart = ppvNameFull.includes(':') ? ppvNameFull.split(':')[1].trim() : ppvNameFull;
           const nameParts = vsPart.replace(/\bppv\b/gi, '').trim().split(/\s+/).filter(w => w.length > 2);
-          
+
           // Try to find the exact text in the container first
           const containerText = await container.textContent().catch(() => '');
           if (containerText) {
@@ -1873,12 +1894,12 @@ export async function getActualValue(
         const hasImg = await myAccountPage.hasPPVImage(eventData?.PPV_NAME || '');
         return hasImg ? 'Yes' : 'No';
       }
-      const hasImg = snap.some(n => 
+      const hasImg = snap.some(n =>
 
-        n.tag === 'img' && 
+        n.tag === 'img' &&
         (
-          (n.src && n.src.toLowerCase().includes('ppv')) || 
-          (n.text && n.text.toLowerCase().includes('vs')) || 
+          (n.src && n.src.toLowerCase().includes('ppv')) ||
+          (n.text && n.text.toLowerCase().includes('vs')) ||
           n.classes.toLowerCase().includes('hero')
         )
       ) || snap.some(n => n.tag === 'img');
@@ -2147,7 +2168,7 @@ export async function getActualValue(
           for (let depth = 0; depth < 5 && current; depth++) {
             const style = window.getComputedStyle(current);
             if (style.textDecorationLine?.includes('line-through') ||
-                style.textDecoration?.includes('line-through')) {
+              style.textDecoration?.includes('line-through')) {
               // Return the price-only portion
               const priceMatch = text.match(/(?:AED\s?|[£$€₹]\s?)\d+(?:\.\d{2})?/);
               if (priceMatch) return priceMatch[0].trim();
@@ -2335,8 +2356,8 @@ export async function getActualValue(
         return broader !== 'N/A' ? 'Yes' : 'No';
       }
 
-      const isLandingOrHome = url.includes('/welcome') || url.includes('/home') || url.includes('/boxing') || 
-                              (eventData?.CURRENT_PAGE && ['landing', 'boxing', 'home page', 'home of boxing'].includes(eventData.CURRENT_PAGE.toLowerCase()));
+      const isLandingOrHome = url.includes('/welcome') || url.includes('/home') || url.includes('/boxing') ||
+        (eventData?.CURRENT_PAGE && ['landing', 'boxing', 'home page', 'home of boxing'].includes(eventData.CURRENT_PAGE.toLowerCase()));
       if (isLandingOrHome) {
         const container = await getScopedLandingPPVContainer(page, eventData);
         if (container) {
@@ -2377,8 +2398,8 @@ export async function getActualValue(
     case 'ppv1 date text on ultimate tier':
     case 'landing page ppv date': {
       const url = page.url();
-      const isLandingOrHome = url.includes('/welcome') || url.includes('/home') || url.includes('/boxing') || 
-                              (eventData?.CURRENT_PAGE && ['landing', 'boxing', 'home page', 'home of boxing'].includes(eventData.CURRENT_PAGE.toLowerCase()));
+      const isLandingOrHome = url.includes('/welcome') || url.includes('/home') || url.includes('/boxing') ||
+        (eventData?.CURRENT_PAGE && ['landing', 'boxing', 'home page', 'home of boxing'].includes(eventData.CURRENT_PAGE.toLowerCase()));
       if (isLandingOrHome) {
         const container = await getScopedLandingPPVContainer(page, eventData);
         if (container) {
@@ -2388,7 +2409,7 @@ export async function getActualValue(
             const child = children.nth(i);
             const hasChildren = await child.evaluate((node: HTMLElement) => node.children.length > 0).catch(() => true);
             if (hasChildren) continue;
-            
+
             const ct = (await child.textContent().catch(() => ''))?.trim() || '';
             if (ct.length < 3 || ct.length > 50) continue;
 
@@ -2584,8 +2605,8 @@ export async function getActualValue(
     // RADIO / CHECKBOX
     // ════════════════════════════════════════════════════════════
     case 'radio selected': {
-      const hasChecked = snap.some(n => 
-        (n.tag === 'input' && n.type === 'radio' && n.isChecked) || 
+      const hasChecked = snap.some(n =>
+        (n.tag === 'input' && n.type === 'radio' && n.isChecked) ||
         (n.ariaChecked === 'true' || n.ariaPressed === 'true')
       );
       if (hasChecked) return 'Yes';
@@ -3762,8 +3783,8 @@ export async function getActualValue(
     case 'buy now cta':
     case 'buy now button': {
       const url = page.url();
-      const isLandingOrHome = url.includes('/welcome') || url.includes('/home') || url.includes('/boxing') || 
-                              (eventData?.CURRENT_PAGE && ['landing', 'boxing', 'home page', 'home of boxing'].includes(eventData.CURRENT_PAGE.toLowerCase()));
+      const isLandingOrHome = url.includes('/welcome') || url.includes('/home') || url.includes('/boxing') ||
+        (eventData?.CURRENT_PAGE && ['landing', 'boxing', 'home page', 'home of boxing'].includes(eventData.CURRENT_PAGE.toLowerCase()));
       if (isLandingOrHome) {
         const container = await getScopedLandingPPVContainer(page, eventData);
         if (container) {
@@ -4497,10 +4518,10 @@ export async function getActualValue(
       for (const n of snap) {
         if (n.isInModal) continue;
         if (n.childCount <= 2 && n.text.length < 30 &&
-            (n.text.toLowerCase().includes('/month') ||
-             n.text.toLowerCase().includes('/ month') ||
-             n.text.toLowerCase().includes('/year') ||
-             n.text.toLowerCase().includes('/ year'))) {
+          (n.text.toLowerCase().includes('/month') ||
+            n.text.toLowerCase().includes('/ month') ||
+            n.text.toLowerCase().includes('/year') ||
+            n.text.toLowerCase().includes('/ year'))) {
           const pricePart = n.text.split('/')[0].trim();
           if (isPriceText(pricePart)) return pricePart;
         }
@@ -4659,7 +4680,7 @@ export async function getActualValue(
       for (const n of snap) {
         if (n.isInModal) continue;
         if (n.text.toLowerCase().includes('you will be charged') &&
-            n.text.toLowerCase().includes('from')) {
+          n.text.toLowerCase().includes('from')) {
           const priceMatch = n.text.match(/charged\s+(?:AED\s?)?([£$€]?\d+(?:,\d{3})*\.\d{2})/);
           if (priceMatch) return priceMatch[1];
         }
@@ -5928,9 +5949,9 @@ export async function getActualValue(
       if (_variant === 'confirmation') {
         const descNode = snapFind(n =>
           (n.tag === 'p' || n.tag === 'span' || n.tag === 'div') &&
-          (n.text.toLowerCase().includes('subscription') || 
-           n.text.toLowerCase().includes('fights') || 
-           n.text.toLowerCase().includes('pay-per-view')) &&
+          (n.text.toLowerCase().includes('subscription') ||
+            n.text.toLowerCase().includes('fights') ||
+            n.text.toLowerCase().includes('pay-per-view')) &&
           n.text.length > 40 &&
           n.text.length < 300
         );
@@ -6333,7 +6354,7 @@ export async function getActualValue(
       // If we are on the standard DAZN Plan page (not standalone PPV landing page),
       // we only want the "1 MONTH FREE" badge inside the card.
       const isStandalone = _variant === 'standalone-ppv' || page.url().toLowerCase().includes('standalone') || page.url().toLowerCase().includes('pay-per-view');
-      
+
       if (!isStandalone) {
         // Find badge containing "month free" or "months free"
         const freeBadge = snapFind(n =>
@@ -6552,10 +6573,11 @@ export async function getActualValue(
       return 'N/A';
     }
     case 'banner image present':
+    case 'banner - image present':
     case 'image present': {
       const url = page.url();
-      const isLandingOrHome = url.includes('/welcome') || url.includes('/home') || url.includes('/boxing') || 
-                              (eventData?.CURRENT_PAGE && ['landing', 'boxing', 'home page', 'home of boxing'].includes(eventData.CURRENT_PAGE.toLowerCase()));
+      const isLandingOrHome = url.includes('/welcome') || url.includes('/home') || url.includes('/boxing') ||
+        (eventData?.CURRENT_PAGE && ['landing', 'boxing', 'home page', 'home of boxing'].includes(eventData.CURRENT_PAGE.toLowerCase()));
       let container = page.locator('.swiper-slide-active, [class*="swiper-slide-active"]').first();
       if (isLandingOrHome) {
         const scoped = await getScopedLandingPPVContainer(page, eventData);
@@ -6579,8 +6601,8 @@ export async function getActualValue(
     case 'date badge':
     case 'banner date badge': {
       const url = page.url();
-      const isLandingOrHome = url.includes('/welcome') || url.includes('/home') || url.includes('/boxing') || 
-                              (eventData?.CURRENT_PAGE && ['landing', 'boxing', 'home page', 'home of boxing'].includes(eventData.CURRENT_PAGE.toLowerCase()));
+      const isLandingOrHome = url.includes('/welcome') || url.includes('/home') || url.includes('/boxing') ||
+        (eventData?.CURRENT_PAGE && ['landing', 'boxing', 'home page', 'home of boxing'].includes(eventData.CURRENT_PAGE.toLowerCase()));
       let container = page.locator('.swiper-slide-active, [class*="swiper-slide-active"]').first();
       if (isLandingOrHome) {
         const scoped = await getScopedLandingPPVContainer(page, eventData);
@@ -6595,8 +6617,8 @@ export async function getActualValue(
     case 'description':
     case 'banner description': {
       const url = page.url();
-      const isLandingOrHome = url.includes('/welcome') || url.includes('/home') || url.includes('/boxing') || 
-                              (eventData?.CURRENT_PAGE && ['landing', 'boxing', 'home page', 'home of boxing'].includes(eventData.CURRENT_PAGE.toLowerCase()));
+      const isLandingOrHome = url.includes('/welcome') || url.includes('/home') || url.includes('/boxing') ||
+        (eventData?.CURRENT_PAGE && ['landing', 'boxing', 'home page', 'home of boxing'].includes(eventData.CURRENT_PAGE.toLowerCase()));
       let container = page.locator('.swiper-slide-active, [class*="swiper-slide-active"]').first();
       if (isLandingOrHome) {
         const scoped = await getScopedLandingPPVContainer(page, eventData);

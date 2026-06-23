@@ -10,9 +10,16 @@ const outputPath = path.resolve(process.cwd(), 'data', 'PPV_Input.xlsx');
 const landingData = [
   { Field: 'Don\'t Miss Live on DAZN Section', Expected: 'Yes', Flow: 'landing' },
   { Field: 'PPV Tile Present', Expected: 'Yes', Flow: 'landing' },
-  { Field: 'PPV Name', Expected: '{{PPV_NAME}}', Flow: 'landing' },
+  { Field: 'PPV Name', Expected: '{{PPV_FULL_NAME}}', Flow: 'landing' },
   { Field: 'Landing Page PPV Date', Expected: '{{LANDING_PAGE_PPV_DATE}}', Flow: 'landing' },
   { Field: 'Buy Now Button', Expected: 'Buy now', Flow: 'landing' },
+  // ── Landing Page Banner validations ───────────────────────
+  { Field: 'Banner - Event Title', Expected: '{{PPV_NAME}}', Flow: 'landing-page-banner' },
+  { Field: 'Banner - Event Date', Expected: '{{PPV_DATE}}', Flow: 'landing-page-banner' },
+  { Field: 'Banner - Event Description', Expected: '{{PPV_DESCRIPTION}}', Flow: 'landing-page-banner' },
+  { Field: 'Banner Image Present', Expected: 'Yes', Flow: 'landing-page-banner' },
+  { Field: 'Banner - Buy Now CTA', Expected: 'Visible', Flow: 'landing-page-banner' },
+  { Field: 'Banner - Fight Card CTA', Expected: 'Visible', Flow: 'landing-page-banner' },
 ];
 
 const boxingLandingData = [
@@ -527,6 +534,14 @@ const homePageData = [
   { Flow: 'home-page-dont-miss', Field: 'Popup - Buy Now CTA', Expected: 'Visible' },
   { Flow: 'home-page-dont-miss', Field: 'Popup - Event Description', Expected: 'Catch the biggest moment of the year. Select a DAZN plan to pair with your pay-per-view.' },
   { Flow: 'home-page-dont-miss', Field: 'Popup - Close Button', Expected: 'Visible' },
+  // ── Home Page Biggest Fights validations ───────────────────
+  { Flow: 'home-biggest-fights', Field: 'Biggest Fights Section', Expected: 'The Biggest Fights|Saturday Fight Night|Fight Night|Upcoming Big Fights|Big Fights' },
+  { Flow: 'home-biggest-fights', Field: 'Popup - Event Title', Expected: '{{PPV_NAME}}' },
+  { Flow: 'home-biggest-fights', Field: 'Popup - Event Date', Expected: '{{PPV_DATE}}' },
+  { Flow: 'home-biggest-fights', Field: 'Popup - Promoter', Expected: '{{PPV_PROMOTER}}' },
+  { Flow: 'home-biggest-fights', Field: 'Popup - Buy Now CTA', Expected: 'Visible' },
+  { Flow: 'home-biggest-fights', Field: 'Popup - Event Description', Expected: 'Catch the biggest moment of the year. Select a DAZN plan to pair with your pay-per-view.' },
+  { Flow: 'home-biggest-fights', Field: 'Popup - Close Button', Expected: 'Visible' },
 ];
 
 // ═══════════════════════════════════════════════════════════

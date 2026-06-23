@@ -6,15 +6,6 @@ import { Page, BrowserContext } from '@playwright/test';
 export const sleep = (ms: number): Promise<void> =>
   new Promise(r => setTimeout(r, ms));
 
-// ─────────────────────────────────────────────────────────────────
-// PRE-INJECT CONSENT COOKIES (DEPRECATED — no-op)
-// ── Kept for backward compatibility. Cookie banner is now dismissed
-//    by clicking the Accept button via handleCookies().
-// ─────────────────────────────────────────────────────────────────
-export async function injectConsentCookies(_context: BrowserContext): Promise<void> {
-  // No-op — cookie banner is now handled via UI click in handleCookies()
-  console.log('🍪 [DEPRECATED] injectConsentCookies is a no-op — cookie banner will be dismissed via UI click');
-}
 
 // ─────────────────────────────────────────────────────────────────
 // HANDLE COOKIES — dismiss cookie banner via UI click

@@ -1,5 +1,5 @@
 import fs from 'fs';
-import { injectConsentCookies } from './helpers';
+
 import path from 'path';
 
 // ─────────────────────────────────────────────────────────────────
@@ -94,8 +94,7 @@ export async function createFreshContext(browser: any): Promise<{ context: any; 
     },
   });
 
-  // Pre-inject OneTrust consent cookies so banner never appears
-  await injectConsentCookies(context);
+
 
   await context.addInitScript(() => {
     try {

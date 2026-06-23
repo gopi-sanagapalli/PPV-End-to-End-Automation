@@ -543,23 +543,42 @@ export class PaymentPage extends BasePage {
       status: tierStatus,
     });
 
-    // Validate 2: PPV Price = AED 0 / £0 / $0 / €0 (included in Ultimate — no extra cost)
+    // Validate 2: PPV Price = 0 (included in Ultimate — no extra cost)
     const ppvName = eventData.PPV_NAME || '';
-    const vsMatch = ppvName.match(/(\w+)\s+vs\.?\s+(\w+)/i);
-    const fighter1 = vsMatch ? vsMatch[1].toLowerCase() : '';
-    const ppvIdx = fighter1 ? lower.indexOf(fighter1) : -1;
+    let ppvIdx = -1;
+    const parts = ppvName.toLowerCase().split(/[:\-–]/).map(p => p.trim());
+    for (const part of parts) {
+      const idx = lower.indexOf(part);
+      if (idx >= 0) {
+        ppvIdx = idx;
+        break;
+      }
+    }
+    if (ppvIdx === -1) {
+      const words = ppvName.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+      for (const word of words) {
+        const idx = lower.indexOf(word);
+        if (idx >= 0) {
+          ppvIdx = idx;
+          break;
+        }
+      }
+    }
+
     let actualPPVPrice = 'N/A';
     if (ppvIdx >= 0) {
-      const nearText = bodyText.substring(ppvIdx, ppvIdx + 200);
+      const nearText = bodyText.substring(ppvIdx, ppvIdx + 300);
       const priceMatch = nearText.match(/(?:AED\s?|[\$£€₹]\s?)0(?:\.00)?/);
       if (priceMatch) actualPPVPrice = priceMatch[0].trim();
     }
-    const ppvPriceStatus = /^(?:AED\s?|[£$€₹]\s?)0/.test(actualPPVPrice) ? 'PASS' : 'FAIL';
-    console.log(`  ${ppvPriceStatus === 'PASS' ? '✅' : '❌'} [Ultimate Switch - PPV Price] expected="£0/$0/€0" actual="${actualPPVPrice}"`);
+    const currency = eventData.CURRENCY || '£';
+    const expectedPPVPrice = `${currency}0`;
+    const ppvPriceStatus = (actualPPVPrice !== 'N/A' && /0/.test(actualPPVPrice)) ? 'PASS' : 'FAIL';
+    console.log(`  ${ppvPriceStatus === 'PASS' ? '✅' : '❌'} [Ultimate Switch - PPV Price] expected="${expectedPPVPrice}" actual="${actualPPVPrice}"`);
     results.push({
       page: 'Payment',
       field: 'Ultimate Switch - PPV Price',
-      expected: '£0 / $0 / €0',
+      expected: expectedPPVPrice,
       actual: actualPPVPrice,
       status: ppvPriceStatus,
     });

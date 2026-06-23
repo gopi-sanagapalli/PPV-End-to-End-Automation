@@ -112,6 +112,7 @@ export function buildEventData(
 
   const base: Record<string, any> = {
     PPV_NAME:      merged.PPV_NAME,
+    PPV_FULL_NAME: merged.PPV_FULL_NAME || merged.PPV_NAME,
     SECONDARY_PPV: merged.SECONDARY_PPV,
     ...merged.global,
     ...regional,
@@ -559,16 +560,20 @@ export function buildEventData(
   // When the event overrides OFFER_TYPE away from 1_month_free, recalculate
   // savings badge and Today You Pay price dynamically.
   if (offerType !== '1_month_free') {
-    // Annual Savings Badge: (MONTHLY_PRICE - ANNUAL_PRICE) * 12
+    const isAnnualFreeMonth = (base.ANNUAL_FREE_BADGE || base.ANNUAL_BADGE || '').toLowerCase().includes('1 month free') || (base.ANNUAL_FREE_BADGE || base.ANNUAL_BADGE || '').toLowerCase().includes('1 month');
+    // Annual Savings Badge:
+    // - With free month: (MONTHLY_PRICE * 12) - (ANNUAL_PRICE * 11)
+    // - Without free month: (MONTHLY_PRICE - ANNUAL_PRICE) * 12
     // Recalculate for ALL plans since the DAZN Plan page shows both flex and annual options
     const monthlyNum = parseFloat((base.MONTHLY_PRICE || '').replace(/[^0-9.]/g, ''));
     const annualNum = parseFloat((base.ANNUAL_PRICE || '').replace(/[^0-9.]/g, ''));
     if (!isNaN(monthlyNum) && !isNaN(annualNum) && monthlyNum > annualNum) {
-      // Round to 2dp first to fix floating point (e.g. (25.99-15.99)*12 = 119.999…)
-      const savings = Math.round((monthlyNum - annualNum) * 12 * 100) / 100;
+      const savings = isAnnualFreeMonth
+        ? Math.round(((monthlyNum * 12) - (annualNum * 11)) * 100) / 100
+        : Math.round((monthlyNum - annualNum) * 12 * 100) / 100;
       const savingsStr = savings % 1 === 0 ? savings.toFixed(0) : savings.toFixed(2);
       base.ANNUAL_SAVINGS_BADGE = `SAVE ${base.CURRENCY}${savingsStr} A YEAR`;
-      console.log(`💡 Recalculated ANNUAL_SAVINGS_BADGE for non-1-month-free: ${base.ANNUAL_SAVINGS_BADGE}`);
+      console.log(`💡 Recalculated ANNUAL_SAVINGS_BADGE (isAnnualFreeMonth: ${isAnnualFreeMonth}): ${base.ANNUAL_SAVINGS_BADGE}`);
     }
 
     // Today You Pay: depends on tier
@@ -731,6 +736,49 @@ export function buildEventData(
   if (!base.BUNDLE_MONTHLY_PRICE || base.BUNDLE_MONTHLY_PRICE === 'N/A') {
     if (base.BUNDLE_PRICE && base.BUNDLE_PRICE !== 'N/A') {
       base.BUNDLE_MONTHLY_PRICE = base.BUNDLE_PRICE;
+    }
+  }
+
+  // Prepend currency to raw price fields if currency is missing in expected event data
+  const currencySymbol = base.CURRENCY || '';
+  if (currencySymbol) {
+    const priceKeysToPrepend = [
+      'MONTHLY_PRICE',
+      'ANNUAL_PRICE',
+      'ANNUAL_PAY_MONTHLY_PRICE',
+      'ANNUAL_UPFRONT_PRICE',
+      'PPV_PRICE',
+      'TODAY_YOU_PAY_PRICE',
+      'UPSELL_PRICE',
+      'UPSELL_CROSSED_PRICE',
+      'BUNDLE_PRICE',
+      'BUNDLE_ORIGINAL_PRICE',
+      'FLEX_OFFER_PRICE',
+      'FLEX_ORIGINAL_PRICE',
+      'ANNUAL_PAY_MONTHLY_ORIGINAL_PRICE',
+      'UPSELL_ORIGINAL_PRICE',
+      'NEXT_PAYMENT_PRICE',
+      'TRIAL_MONTHLY_PRICE',
+      'BUNDLE_MONTHLY_PRICE',
+      'ANNUAL_TOTAL',
+      'ULTIMATE_ANNUAL_PAY_MONTHLY_PRICE',
+      'TODAY_YOU_PAY_ULTIMATE_APM',
+      'OFFER_PRICE',
+      'ORIGINAL_PRICE',
+      'TODAY_YOU_PAY',
+      'TODAY_YOU_PAY_ORIGINAL'
+    ];
+
+    for (const key of priceKeysToPrepend) {
+      if (base[key] && typeof base[key] === 'string' && base[key] !== 'N/A' && base[key] !== '') {
+        const val = base[key].trim();
+        if (!val.startsWith(currencySymbol)) {
+          if (currencySymbol === 'AED' && val.startsWith('AED')) {
+            continue;
+          }
+          base[key] = `${currencySymbol}${val}`;
+        }
+      }
     }
   }
 

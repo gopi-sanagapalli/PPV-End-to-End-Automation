@@ -1220,6 +1220,58 @@ export class HomePage extends LandingPage {
       if (activeContainer !== this.page.locator('body')) break;
     }
 
+    // Helper: check if element's own text matches exactly (not a parent with extra text)
+    const isExactTextMatch = async (el: any, name: string): Promise<boolean> => {
+      const ownText = await el.evaluate((node: HTMLElement) => {
+        // Get only the direct text content of this element (not descendants)
+        let text = '';
+        for (const child of Array.from(node.childNodes)) {
+          if (child.nodeType === Node.TEXT_NODE) {
+            text += child.textContent || '';
+          }
+        }
+        // If no direct text, use innerText (for elements like <button><span>Boxing</span></button>)
+        return text.trim() || node.innerText?.trim() || '';
+      }).catch(() => '');
+      return ownText.toLowerCase() === name.toLowerCase();
+    };
+
+    // ── Strategy 1: Exact text match via getByText ───────────────
+    // This uses Playwright's built-in exact matching
+    const exactSelectors = [
+      activeContainer.getByRole('link', { name: sportName, exact: true }),
+      activeContainer.getByRole('button', { name: sportName, exact: true }),
+      activeContainer.getByRole('menuitem', { name: sportName, exact: true }),
+    ];
+
+    for (const locator of exactSelectors) {
+      const count = await locator.count().catch(() => 0);
+      for (let i = 0; i < count; i++) {
+        const el = locator.nth(i);
+        if (await el.isVisible().catch(() => false)) {
+          const box = await el.boundingBox().catch(() => null);
+          if (box && box.width > 0 && box.height > 0) {
+            console.log(`🎯 Clicking sport link (exact match): "${sportName}" inside container`);
+            await el.scrollIntoViewIfNeeded().catch(() => { });
+            const beforeUrl = this.page.url();
+            await el.click({ force: true });
+
+            const navigated = await this.page.waitForURL(
+              (url: URL) => url.toString() !== beforeUrl,
+              { timeout: 8000 }
+            ).then(() => true).catch(() => false);
+
+            if (navigated) {
+              return true;
+            } else {
+              console.log(`⚠️ Clicked sport link (exact) but URL did not change from "${beforeUrl}"`);
+            }
+          }
+        }
+      }
+    }
+
+    // ── Strategy 2: has-text selectors with exact text verification ──
     const selectors = [
       `button:has-text("${sportName}")`,
       `button span:has-text("${sportName}")`,
@@ -1237,6 +1289,13 @@ export class HomePage extends LandingPage {
       for (let i = 0; i < count; i++) {
         const el = locator.nth(i);
         if (await el.isVisible().catch(() => false)) {
+          // Verify the element's own text is an exact match (not "Misfits Boxing" for "Boxing")
+          const exact = await isExactTextMatch(el, sportName);
+          if (!exact) {
+            const elText = await el.innerText().catch(() => '');
+            console.log(`⏭️ Skipping "${elText.trim()}" — not exact match for "${sportName}"`);
+            continue;
+          }
           const box = await el.boundingBox().catch(() => null);
           if (box && box.width > 0 && box.height > 0) {
             console.log(`🎯 Clicking sport link: "${selector}" inside container`);

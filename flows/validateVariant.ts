@@ -1,7 +1,7 @@
 import { resolveExpected }          from '../utils/resolveExpected';
 import { getActualValue }           from '../utils/getActualValue';
 import { compare }                  from '../utils/compare';
-import { getPageSnapshot, DOMNode } from '../utils/helpers';
+import { getPageSnapshot, DOMNode, stabilisePage } from '../utils/helpers';
 import { captureFailures }          from '../utils/failureCapture';
 
 export const validateVariant = async (
@@ -38,7 +38,16 @@ export const validateVariant = async (
     //   - If no flow provided to validateVariant → exclude flow-restricted rows
     if (rf) {
       if (!normalizedFlow)          return false; // no flow context → skip restricted rows
-      if (rf !== normalizedFlow && !(rf === 'landing' && normalizedFlow.startsWith('landing')))    return false; // flow mismatch → skip
+      // Exact flow match required. Flow='landing' rows only match flow='landing'
+      // or tile-based landing flows (dont-miss) that don't have their own dedicated rows.
+      // Banner flow has its own rows (Flow='landing-page-banner'), so exclude generic 'landing' rows.
+      if (rf !== normalizedFlow) {
+        if (rf === 'landing' && (normalizedFlow === 'landing-page-dont-miss-live' || normalizedFlow === 'landing-page-dont-miss')) {
+          // Allow: tile flows without dedicated rows fall back to generic 'landing' rows
+        } else {
+          return false; // flow mismatch → skip
+        }
+      }
     }
 
     // ── Variant / Tier filtering (existing logic) ─────────────────
@@ -62,12 +71,13 @@ export const validateVariant = async (
   // ── Scroll to trigger lazy load before snapshot ───────────────
   // Only scroll on pages that need lazy loading
   const url = page.url();
+  const urlLower = url.toLowerCase();
   const isModalOpen = await page.locator('[role="dialog"], [aria-modal="true"], [class*="modal" i]').first().isVisible().catch(() => false);
   const needsScroll =
-    (url.includes('/schedule') && !isModalOpen) ||
-    url.includes('/addon/purchase') ||     // Choose How To Buy
-    url.includes('upsellTierShown=true') || // PPV page — upsell section is below fold
-    (url.includes('page=PlanDetails') && !url.includes('upsellTierShown=true'));
+    (urlLower.includes('/schedule') && !isModalOpen) ||
+    urlLower.includes('/addon/purchase') ||     // Choose How To Buy
+    urlLower.includes('upselltiershown=true') || // PPV page — upsell section is below fold
+    (urlLower.includes('page=plandetails') && !urlLower.includes('upselltiershown=true'));
 
   if (needsScroll) {
     // Save original scroll position
@@ -103,7 +113,8 @@ export const validateVariant = async (
 
   // ── Wait for page content if on plan/upgrade/PPV pages ──────
   const snapUrl = page.url();
-  if (snapUrl.includes('PlanDetails') || pageName.toLowerCase().includes('ppv')) {
+  const snapUrlLower = snapUrl.toLowerCase();
+  if (snapUrlLower.includes('plandetails') || pageName.toLowerCase().includes('ppv')) {
     // Wait for page to load — look for radio buttons or continue button
     await page.waitForSelector('input[type="radio"], button:has-text("Continue"), [data-test-id*="radio" i]', 
       { state: 'visible', timeout: 5000 }
@@ -135,6 +146,15 @@ export const validateVariant = async (
     ).catch(() => {});
   }
 
+
+  // Wait for loading and stabilize page
+  try {
+    await page.waitForLoadState('domcontentloaded', { timeout: 8000 });
+    await page.waitForLoadState('load', { timeout: 8000 });
+  } catch (e) {
+    console.log('⚠️ Timeout waiting for load states in validateVariant');
+  }
+  await stabilisePage(page);
 
   // ── Pre-fetch DOM snapshot ONCE ───────────────────────────────
   const snapshot = await getPageSnapshot(page);
@@ -354,6 +374,15 @@ export const validateVariant = async (
       `  ${status === 'PASS' ? '✅' : '❌'} [${field}]` +
       `  expected="${expected}"  actual="${actual}"`
     );
+
+    // Print descriptive failure reason for each failed validation
+    if (status === 'FAIL') {
+      if (actual === 'N/A' || actual === 'Not found' || actual === 'Not found in banner' || actual === 'Not visible') {
+        console.log(`  ⛔ FAIL REASON: ${field} not found in ${pageName} page`);
+      } else {
+        console.log(`  ⛔ FAIL REASON: ${field} mismatch in ${pageName} — expected "${expected}" but got "${actual}"`);
+      }
+    }
 
     results.push({
       page:     pageName,

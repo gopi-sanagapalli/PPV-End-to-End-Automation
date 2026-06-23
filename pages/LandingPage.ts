@@ -304,7 +304,7 @@ export class LandingPage extends BasePage {
   async findPPVInTileSection(eventData: Record<string, string>, source?: string): Promise<any> {
     const ppvName = eventData.PPV_NAME || '';
     const src = (source || '').toLowerCase();
-    
+
     let headingPattern = /don'?t\s*miss/i;
     let headingLabel = "Don't Miss";
     if (src.includes('biggest-fights') || src === 'home-biggest-fights') {
@@ -446,13 +446,13 @@ export class LandingPage extends BasePage {
             const match = matchesPPV(text) ||
               (fighter1 && text.toLowerCase().includes(fighter1.toLowerCase())) ||
               (fighter2 && text.toLowerCase().includes(fighter2.toLowerCase()));
-            
+
             if (match) {
               const inView = await el.evaluate((node: HTMLElement) => {
                 const r = node.getBoundingClientRect();
                 return r.width > 0 && r.right > 0 && r.left < window.innerWidth;
               }).catch(() => false);
-              
+
               if (inView) {
                 const buyNowBtn = el.locator('button:has-text("Buy now"), button:has-text("Buy"), a:has-text("Buy now"), a:has-text("Buy")').first();
                 if (await buyNowBtn.isVisible().catch(() => false)) {
@@ -708,6 +708,9 @@ export class LandingPage extends BasePage {
 
   async findPPVContainer(eventData: Record<string, string>, source?: string): Promise<any> {
     const src = (source || '').toLowerCase();
+
+    // Dismiss cookie banner if it appeared late
+    await this.waitForConsentAndDismiss(5000).catch(() => { });
 
     if (src === 'welcome-rail') {
       return this.findPPVInWelcomeRail(eventData);

@@ -45,7 +45,6 @@ import {
   setupPage,
   stabilisePage,
   handleCookies,
-  injectConsentCookies,
   dismissMarketingPopup,
 } from '../../utils/helpers';
 import {
@@ -68,10 +67,22 @@ const LOGIN_FIRST = (process.env.LOGIN || process.env.LOGIN_FIRST || '').toLower
 const ENV = (process.env.DAZN_ENV || 'stag').toLowerCase();
 const PAYMENT_METHOD = (process.env.PAYMENT_METHOD || 'credit_card').toLowerCase();
 
-test('PPV flow via existing user my account', async ({ browser }) => {
-  test.setTimeout(300_000);
+// ═══════════════════════════════════════════════════════════════
+// TEST DEFINITION — Dynamically defines tests for parallel runs
+// ═══════════════════════════════════════════════════════════════
+const userStatesToRun = (process.env.USER_STATE || 'freemium,frozen,active_standard,active_ultimate')
+  .split(',')
+  .map(p => p.trim());
 
-  const json = loadEventConfig(EVENT_CONFIG);
+// Configure tests to run in parallel using configured workers
+test.describe.configure({ mode: 'parallel' });
+
+for (const stateKey of userStatesToRun) {
+  test(`PPV flow via existing user - ${stateKey}`, async ({ browser }) => {
+    test.setTimeout(300_000);
+    process.env.USER_STATE = stateKey;
+
+    const json = loadEventConfig(EVENT_CONFIG);
   const PPV_TYPE = (process.env.PPV_TYPE || json.PPV_TYPE || 'normal').toLowerCase();
   configureExcelPathForEvent(json.eventKey || '');
   const eventData = buildEventData(json, REGION);
@@ -105,7 +116,7 @@ test('PPV flow via existing user my account', async ({ browser }) => {
   // Enabled on all environments (including prod) when tier is ultimate.
   // Can also be forced via DEV_MODE_ON=on env variable for prod verification.
   const devModeForced = (process.env.DEV_MODE_ON || '').toLowerCase() === 'on';
-  const devModeEnabled = devModeForced || (tier === 'ultimate' && isUSorGB);
+  const devModeEnabled = devModeForced || (tier === 'ultimate' && isUSorGB) || (SOURCE === 'landing-page-dont-miss-live');
   const ratePlan = (process.env.RATE_PLAN || json.RATE_PLAN || 'monthly').toLowerCase();
   const userEmail = eventData.USER_EMAIL || json.USER_EMAIL || '';
   const userPassword = eventData.USER_PASSWORD || json.USER_PASSWORD || '';
@@ -214,8 +225,6 @@ test('PPV flow via existing user my account', async ({ browser }) => {
     ...(recordVideo ? { recordVideo } : {}),
   });
 
-  // Pre-inject OneTrust consent cookies so banner never appears
-  await injectConsentCookies(context);
 
   await context.addInitScript(() => {
     try {
@@ -285,8 +294,8 @@ test('PPV flow via existing user my account', async ({ browser }) => {
           const bodyLen = document.body?.innerText?.trim().length || 0;
           // Wait until URL gets a page= param (SPA routing) OR body has meaningful content
           return href.includes('page=') ||
-                 href.includes('upselltiershown') ||
-                 bodyLen > 200;
+            href.includes('upselltiershown') ||
+            bodyLen > 200;
         }, { timeout: 10000 });
       } catch {
         // Timeout — proceed with what we have
@@ -303,7 +312,7 @@ test('PPV flow via existing user my account', async ({ browser }) => {
           .then((t: string) => t.toLowerCase())
           .catch(() => '');
         if (routedBody.includes('pay-per-view') || routedBody.includes('choose how to buy') ||
-            routedBody.includes('subscribe without a pay-per-view')) {
+          routedBody.includes('subscribe without a pay-per-view')) {
           return 'ppv';
         }
         return 'plan';
@@ -404,7 +413,14 @@ test('PPV flow via existing user my account', async ({ browser }) => {
     if (lower.includes('add your phone number')) return 'phone';
     if (lower.includes('choose your plan')) return 'ppv';
     if (lower.includes('choose how to buy')) return 'choose-how-to-buy';
-    if (lower.includes("choose the right plan") || lower.includes("choose a plan") || lower.includes("choose a subscription")) return 'plan';
+    // "Choose the right plan for you" appears on BOTH PPV and Plan pages.
+    // If the page also mentions PPV-related content, it's the PPV page, not the plan page.
+    if (lower.includes("choose the right plan") || lower.includes("choose a plan") || lower.includes("choose a subscription")) {
+      if (lower.includes('pay-per-view') || lower.includes('continue with pay-per-view') || lower.includes('to watch your pay-per-view')) {
+        return 'ppv';
+      }
+      return 'plan';
+    }
     if (lower.includes('your plan will be changed')) return 'confirmation';
 
     return 'unknown';
@@ -1585,7 +1601,7 @@ test('PPV flow via existing user my account', async ({ browser }) => {
                 if (!nextVisible) break;
                 const nextText = (await nextBtn.textContent().catch(() => '') || '').trim().toLowerCase();
                 if (nextText === 'agree' || nextText === 'i agree') {
-                  await nextBtn.click({ timeout: 2000 }).catch(() => {});
+                  await nextBtn.click({ timeout: 2000 }).catch(() => { });
                   console.log(`🛡️  Dismissed Terms overlay (${agreeIdx + 1})`);
                   await page.waitForTimeout(500);
                 } else {
@@ -1593,7 +1609,7 @@ test('PPV flow via existing user my account', async ({ browser }) => {
                 }
               }
               // Wait for actual page content to render after overlay dismissal
-              await page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => {});
+              await page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => { });
               await page.waitForTimeout(1500);
             }
           }
@@ -1955,7 +1971,7 @@ test('PPV flow via existing user my account', async ({ browser }) => {
               await paymentPage.validateUltimateUpsellBannerText(results, eventData);
 
               // Click arrow only if SWITCH=true is explicitly set
-              const shouldClickUpsell = SWITCH_TO_ULTIMATE;
+              const shouldClickUpsell = SWITCH_TO_ULTIMATE || SOURCE === 'landing-page-dont-miss-live';
 
               if (shouldClickUpsell) {
                 // STEP C: Click > arrow and validate DAZN Ultimate summary
@@ -3153,7 +3169,7 @@ test('PPV flow via existing user my account', async ({ browser }) => {
       ratePlan,
       tier,
       env: process.env.DAZN_ENV || 'prod',
-      flowName: `${SOURCE} → ${tier} → ${ratePlan}`,
+      flowName: `${SOURCE} → ${stateKey} → ${tier} → ${ratePlan}`,
       endTime: new Date(),
       excelPath,
       videoPath,
@@ -3168,15 +3184,15 @@ test('PPV flow via existing user my account', async ({ browser }) => {
     const failed = results.filter(r => r.status === 'FAIL').length;
     const total = passed + failed;
 
-    console.log(`\n✅ Flow "${SOURCE}" complete: ${passed}/${total} passed (${total > 0 ? ((passed / total) * 100).toFixed(1) : 0}%)`);
+    console.log(`\n✅ Flow "${SOURCE} (${stateKey})" complete: ${passed}/${total} passed (${total > 0 ? ((passed / total) * 100).toFixed(1) : 0}%)`);
     console.log(`${'─'.repeat(55)}`);
 
     if (total === 0) {
-      throw new Error(`❌ Flow "${SOURCE}" had 0 validation checks`);
+      throw new Error(`❌ Flow "${SOURCE} (${stateKey})" had 0 validation checks`);
     }
 
     if (!reachedEndPage) {
-      throw new Error(`❌ Flow "${SOURCE}" did not reach the expected end page: "payment" or "confirmation"`);
+      throw new Error(`❌ Flow "${SOURCE} (${stateKey})" did not reach the expected end page: "payment" or "confirmation"`);
     }
 
     if (failed > 0) {
@@ -3203,3 +3219,4 @@ test('PPV flow via existing user my account', async ({ browser }) => {
     await context.close().catch(() => { });
   }
 });
+}
