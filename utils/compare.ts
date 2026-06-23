@@ -122,17 +122,33 @@ export function compare(
   // ── PPV Name: Abbreviated promotion prefix matching ─────────────
   // Config may use abbreviated names like "AEW: Forbidden Door" or "PFL: Champions"
   // but the live site displays "All Elite Wrestling Forbidden Door" or "Professional Fighters League Champions".
-  // Match if the part after the colon appears in the actual text and lengths are reasonable.
+  // Match if the part after the colon appears in the actual text and the actual text is
+  // genuinely longer (full name expansion), NOT just the colon removed.
   if (expected.includes(':')) {
+    const beforeColon = norm(expected.split(':')[0].trim());
     const afterColon = norm(expected.split(':').slice(1).join(':').trim());
-    if (afterColon.length >= 5 && a.includes(afterColon) && actual.length < expected.length * 2.5) {
+    // Only match if: (a) the part after colon appears in actual,
+    // (b) the actual text is genuinely longer than expected (suggesting full name expansion),
+    // (c) the prefix before the colon is NOT present as-is in actual (it was expanded).
+    if (
+      afterColon.length >= 5 &&
+      a.includes(afterColon) &&
+      actual.length > expected.length * 1.1 &&
+      !a.includes(beforeColon + ' ' + afterColon)
+    ) {
       return true;
     }
   }
-  // Reverse: actual has colon, expected doesn't
+  // Reverse: actual has colon, expected doesn't — only if expected is genuinely longer
   if (actual.includes(':') && !expected.includes(':')) {
+    const beforeColonActual = norm(actual.split(':')[0].trim());
     const afterColonActual = norm(actual.split(':').slice(1).join(':').trim());
-    if (afterColonActual.length >= 5 && e.includes(afterColonActual) && expected.length < actual.length * 2.5) {
+    if (
+      afterColonActual.length >= 5 &&
+      e.includes(afterColonActual) &&
+      expected.length > actual.length * 1.1 &&
+      !e.includes(beforeColonActual + ' ' + afterColonActual)
+    ) {
       return true;
     }
   }

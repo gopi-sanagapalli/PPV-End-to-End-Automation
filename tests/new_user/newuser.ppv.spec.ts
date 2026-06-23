@@ -925,7 +925,7 @@ async function runFlow(
             await payment.validateUltimateUpsellBannerText(results, eventData);
 
             // Click arrow only if SWITCH=true is explicitly set
-            const shouldClickUpsell = SWITCH_TO_ULTIMATE || source === 'landing-page-dont-miss-live';
+            const shouldClickUpsell = SWITCH_TO_ULTIMATE || SOURCE === 'landing-page-dont-miss-live-switch';
 
             if (shouldClickUpsell) {
               // STEP C: Click > arrow and validate DAZN Ultimate summary
@@ -1786,7 +1786,7 @@ for (const planKey of plansToRun) {
       // Enabled on all environments (including prod) when tier is ultimate.
       // Can also be forced via DEV_MODE_ON=on env variable for prod verification.
       const devModeForced = (process.env.DEV_MODE_ON || '').toLowerCase() === 'on';
-      const devMode = devModeForced || (isUltimate && isUSorGB) || (!!srcConfig.enableDevMode) || (SOURCE === 'landing-page-dont-miss-live');
+      const devMode = devModeForced || (isUltimate && isUSorGB) || (!!srcConfig.enableDevMode);
       const endPage = srcConfig.endPage || 'payment';
       if (srcConfig.defaultSignup) {
         process.env.DEFAULT_SIGNUP = 'true';

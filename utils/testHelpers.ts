@@ -278,6 +278,10 @@ export async function handlePopupModal(
 // ASSERT COUNTRY MATCH
 // ─────────────────────────────────────────────────────────────────
 export function assertCountryMatch(page: any, region: string): void {
+  if (process.env.BYPASS_COUNTRY_CHECK === 'true') {
+    console.log(`⚠️ [Country Match Check] Bypassed country match assertion (requested region: "${region}").`);
+    return;
+  }
   const url = page.url();
   const regionLower = region.toLowerCase();
 

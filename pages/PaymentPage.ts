@@ -755,6 +755,40 @@ export class PaymentPage extends BasePage {
       return 'N/A';
     }
 
+    // ── Payment Method Heading ──────────────────────────────────
+    if (fieldLower === 'payment method heading') {
+      for (const line of lines) {
+        if (line.toLowerCase() === 'payment method') return line;
+      }
+      for (const line of lines) {
+        if (line.toLowerCase().includes('payment method') && line.length < 40) return line;
+      }
+      const live = await this.page.locator('h1, h2, h3, h4, h5, p, span, div')
+        .filter({ hasText: /payment method/i }).first()
+        .innerText({ timeout: 3000 }).catch(() => '');
+      if (live.toLowerCase().includes('payment method') && live.length < 40) {
+        return live.trim();
+      }
+      return 'N/A';
+    }
+
+    // ── Purchase Summary Heading ────────────────────────────────
+    if (fieldLower === 'purchase summary heading') {
+      for (const line of lines) {
+        if (line.toLowerCase() === 'purchase summary') return line;
+      }
+      for (const line of lines) {
+        if (line.toLowerCase().includes('purchase summary') && line.length < 40) return line;
+      }
+      const live = await this.page.locator('h1, h2, h3, h4, h5, p, span, div')
+        .filter({ hasText: /purchase summary/i }).first()
+        .innerText({ timeout: 3000 }).catch(() => '');
+      if (live.toLowerCase().includes('purchase summary') && live.length < 40) {
+        return live.trim();
+      }
+      return 'N/A';
+    }
+
     // ── DAZN Tier ──────────────────────────────────────────────
     if (fieldLower === 'dazn tier' || fieldLower === 'tier') {
       const tierMatch = bodyText.match(/DAZN\s+(Standard|Ultimate|Premium)/i);

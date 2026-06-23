@@ -32,6 +32,8 @@ async function getScopedLandingPPVContainer(
 
     const railHeading = page.locator('h1, h2, h3, h4, [class*="heading" i]').filter({ hasText: headingPattern }).first();
     if (await railHeading.count().catch(() => 0) > 0) {
+      await railHeading.scrollIntoViewIfNeeded().catch(() => {});
+      await page.waitForTimeout(500);
       let railWrapper = railHeading.locator('xpath=ancestor::*[contains(@class,"railWrapper")][1]');
       let hasWrapper = await railWrapper.count().catch(() => 0) > 0;
       if (!hasWrapper) {
@@ -54,7 +56,7 @@ async function getScopedLandingPPVContainer(
         // Build a regex that matches tiles containing ALL significant name words
         // e.g. for "Forbidden Door" → must contain both "Forbidden" and "Door"
         // Also try matching with prefix words (e.g. "AEW" or "All Elite Wrestling")
-        const allTiles = railWrapper.locator('.swiper-slide, [class*="tile" i], [class*="card" i], [class*="fight" i], [class*="event" i], a, article, li');
+        const allTiles = railWrapper.locator('.swiper-slide, [class*="tile" i], article, li');
         const tileCount = await allTiles.count().catch(() => 0);
 
         const getTileSearchText = async (tileLoc: any): Promise<string> => {
@@ -119,7 +121,7 @@ async function getScopedLandingPPVContainer(
             await nextBtn.click({ force: true }).catch(() => { });
             await page.waitForTimeout(600);
 
-            const currentTiles = railWrapper.locator('.swiper-slide, [class*="tile" i], [class*="card" i], [class*="fight" i], [class*="event" i], a, article, li');
+            const currentTiles = railWrapper.locator('.swiper-slide, [class*="tile" i], article, li');
             const currentCount = await currentTiles.count().catch(() => 0);
             for (let ti = 0; ti < currentCount; ti++) {
               const combinedText = await getTileSearchText(currentTiles.nth(ti));
@@ -2019,6 +2021,28 @@ export async function getActualValue(
       if (fallback !== 'N/A') return fallback;
 
       return 'N/A';
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // PPV PER FIGHT TEXT (e.g. "/fight")
+    // ════════════════════════════════════════════════════════════
+    case 'ppv per fight text': {
+      // Strategy 1: snapshot search for "/fight" text
+      const found = snapFind(n =>
+        n.text.trim() === '/fight' && n.childCount === 0
+      );
+      if (found !== 'N/A') return found;
+
+      // Strategy 2: broader snapshot search
+      const broader = snapFind(n =>
+        n.text.toLowerCase().includes('/fight') && n.text.length < 20
+      );
+      if (broader !== 'N/A') return broader;
+
+      // Strategy 3: live DOM fallback — look for the specific span
+      const live = await page.locator('span').filter({ hasText: /^\/fight$/i }).first()
+        .innerText({ timeout: 3000 }).catch(() => '');
+      return live.trim() || 'N/A';
     }
 
     // ════════════════════════════════════════════════════════════
@@ -5604,6 +5628,54 @@ export async function getActualValue(
         'a:has-text("Pay now")',
         'a:has-text("Pay Now")'
       );
+    }
+
+    case 'payment method heading': {
+      // Search all elements in the snapshot regardless of whether they are in modal/overlay
+      const found = snap.find(n =>
+        n.text.toLowerCase().trim() === 'payment method' &&
+        n.text.length < 30
+      );
+      if (found) return found.text.trim();
+
+      const broader = snap.find(n =>
+        n.text.toLowerCase().includes('payment method') &&
+        n.text.length < 40
+      );
+      if (broader) return broader.text.trim();
+
+      // Fallback
+      const live = await page.locator('h1, h2, h3, h4, h5, p, span, div')
+        .filter({ hasText: /payment method/i }).first()
+        .innerText({ timeout: 3000 }).catch(() => '');
+      if (live.toLowerCase().includes('payment method') && live.length < 40) {
+        return live.trim();
+      }
+      return 'N/A';
+    }
+
+    case 'purchase summary heading': {
+      // Search all elements in the snapshot regardless of whether they are in modal/overlay
+      const found = snap.find(n =>
+        n.text.toLowerCase().trim() === 'purchase summary' &&
+        n.text.length < 30
+      );
+      if (found) return found.text.trim();
+
+      const broader = snap.find(n =>
+        n.text.toLowerCase().includes('purchase summary') &&
+        n.text.length < 40
+      );
+      if (broader) return broader.text.trim();
+
+      // Fallback
+      const live = await page.locator('h1, h2, h3, h4, h5, p, span, div')
+        .filter({ hasText: /purchase summary/i }).first()
+        .innerText({ timeout: 3000 }).catch(() => '');
+      if (live.toLowerCase().includes('purchase summary') && live.length < 40) {
+        return live.trim();
+      }
+      return 'N/A';
     }
 
     case 'payment type': {

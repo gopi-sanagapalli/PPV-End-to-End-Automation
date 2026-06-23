@@ -4,6 +4,33 @@ import { compare }                  from '../utils/compare';
 import { getPageSnapshot, DOMNode, stabilisePage } from '../utils/helpers';
 import { captureFailures }          from '../utils/failureCapture';
 
+async function getVisibleTextList(locator: any): Promise<string[]> {
+  try {
+    return await locator.evaluate((el: HTMLElement) => {
+      const clean = (s: string) => s.replace(/\u200B/g, '').replace(/\s+/g, ' ').trim();
+      const texts: string[] = [];
+      const walk = (node: Node) => {
+        if (node.nodeType === Node.TEXT_NODE) {
+          const t = clean(node.textContent || '');
+          if (t.length > 0) texts.push(t);
+        } else if (node.nodeType === Node.ELEMENT_NODE) {
+          const htmlEl = node as HTMLElement;
+          const tag = htmlEl.tagName.toUpperCase();
+          if (tag === 'SCRIPT' || tag === 'STYLE') return;
+          if (htmlEl.offsetWidth === 0 && htmlEl.offsetHeight === 0) return;
+          for (let i = 0; i < htmlEl.childNodes.length; i++) {
+            walk(htmlEl.childNodes[i]);
+          }
+        }
+      };
+      walk(el);
+      return texts;
+    });
+  } catch {
+    return [];
+  }
+}
+
 export const validateVariant = async (
   page:      any,
   variant:   string,
@@ -156,6 +183,18 @@ export const validateVariant = async (
   }
   await stabilisePage(page);
 
+  // Wait for dynamic text content to be populated (minimum length for SPA rendering)
+  try {
+    const minChars = parseInt(process.env.VALIDATION_MIN_CHARS || '30', 10);
+    await page.waitForFunction((len: number) => {
+      const text = document.body ? document.body.innerText.trim() : '';
+      return text.length >= len;
+    }, minChars, { timeout: 5000 });
+    console.log(`✅ Page body text reached minimum length of ${minChars} chars`);
+  } catch (e) {
+    console.log('⚠️ Timeout waiting for body text rendering in validateVariant');
+  }
+
   // ── Pre-fetch DOM snapshot ONCE ───────────────────────────────
   const snapshot = await getPageSnapshot(page);
   console.log(`📸 ${pageName} snapshot: ${snapshot.length} nodes`);
@@ -243,8 +282,7 @@ export const validateVariant = async (
           for (const sel of modalSels) {
             const modal = page.locator(sel).first();
             if (!await modal.isVisible({ timeout: 500 }).catch(() => false)) continue;
-            const allText = await modal.locator('span, p, h1, h2, h3, h4, h5, strong, b, label, time, div')
-              .allTextContents().catch(() => []);
+            const allText = await getVisibleTextList(modal);
             const cleanTexts = allText
               .map((t: string) => t.replace(/\s+/g, ' ').trim())
               .filter((t: string) => t.length > 2 && t.length < 200);
@@ -276,8 +314,7 @@ export const validateVariant = async (
           const bannerSel = 'main [class*="banner"], main [class*="hero"], .swiper-slide-active';
           const banner = page.locator(bannerSel).first();
           if (await banner.isVisible({ timeout: 500 }).catch(() => false)) {
-            const allText = await banner.locator('span, p, h1, h2, h3, h4, h5, strong, b, label, time, div')
-              .allTextContents().catch(() => []);
+            const allText = await getVisibleTextList(banner);
             const cleanTexts = allText
               .map((t: string) => t.replace(/\s+/g, ' ').trim())
               .filter((t: string) => t.length > 2 && t.length < 200);
@@ -323,8 +360,7 @@ export const validateVariant = async (
           for (let ci = 0; ci < Math.min(containerCount, 3); ci++) {
             const container = containers.nth(ci);
             if (!await container.isVisible({ timeout: 500 }).catch(() => false)) continue;
-            const allText = await container.locator('span, p, h1, h2, h3, h4, h5, strong, b, label, time, div, small')
-              .allTextContents().catch(() => []);
+            const allText = await getVisibleTextList(container);
             const cleanTexts = allText
               .map((t: string) => t.replace(/\s+/g, ' ').trim())
               .filter((t: string) => t.length > 2 && t.length < 200);

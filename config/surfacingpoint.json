@@ -17,6 +17,11 @@
     "source": "landing-page-dont-miss-live",
     "endPage": "payment"
   },
+  "landing-page-dont-miss-live-switch": {
+    "source": "landing-page-dont-miss-live",
+    "endPage": "payment",
+    "enableDevMode": true
+  },
   "boxing-page-banner": {
     "source": "boxing-page-banner",
     "endPage": "payment"

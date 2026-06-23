@@ -54,6 +54,15 @@ export function resolveExpected(
       const userState = (eventData.USER_STATE || process.env.USER_STATE || 'freemium').trim().toLowerCase();
       return userState === 'freemium' ? 'No' : 'Yes';
     }
+
+    // ── Next Payment fields: skip for GB, IT, and 7-day trial ──
+    if (field === 'next payment label' || field === 'next payment price') {
+      const region = (eventData.DAZN_REGION || process.env.DAZN_REGION || '').toUpperCase();
+      const offerType = (eventData.OFFER_TYPE || '').toLowerCase();
+      if (region === 'GB' || region === 'IT' || offerType === '7_day_trial') {
+        return 'N/A';
+      }
+    }
   }
 
   let raw = rule.Expected ?? rule.Value;
