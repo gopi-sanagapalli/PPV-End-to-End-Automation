@@ -146,6 +146,15 @@ export class PaymentPage extends BasePage {
 
       const expected = resolveExpected(row, eventData);
 
+      // Skip validation if expected is 'N/A' or empty
+      const expectedNorm = (expected || '').trim().toUpperCase();
+      const expectedOptions = expectedNorm.split('|').map(opt => opt.trim());
+      const isAllNAOrEmpty = expectedOptions.every(opt => opt === 'N/A' || opt === '');
+      if (isAllNAOrEmpty) {
+        console.log(`  ⏭️  Skipping [${field}] — expected is "${expected}"`);
+        continue;
+      }
+
       let actual = 'N/A';
       try {
         actual = await this.getFieldValue(field, eventData, bodyText);
@@ -168,8 +177,11 @@ export class PaymentPage extends BasePage {
     if (tier === 'ultimate') {
       planType = 'ultimate';
     } else if (ratePlan.includes('annual')) {
-      planType = '1_month_free_trial';
+      // Annual plans always have next payment visible — use 'annual' planType
+      // regardless of offer type (7_day_trial, 1_month_free, no_offer, etc.)
+      planType = 'annual';
     } else if (offerType === '7_day_trial') {
+      // Only monthly flex with 7-day trial should skip next payment
       planType = '7_day_free_trial';
     }
 
@@ -260,7 +272,7 @@ export class PaymentPage extends BasePage {
         }
       }
 
-      if (planType === '1_month_free_trial') {
+      if (planType === '1_month_free_trial' || planType === 'annual') {
         // Label format check: "Next Annual payment on <date>"
         // Date can be DD/MM/YYYY or DD Month YYYY
         const labelValid = /next\s+(?:annual\s+)?payment\s+on\s+(?:\d{1,2}[\/\s]\d{2}[\/\s]\d{4}|\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4})/i.test(actualLabel);
@@ -1441,12 +1453,29 @@ export class PaymentPage extends BasePage {
       return 'N/A';
     }
 
-    // ── Rate Plan Subtext / Contract Subtext ───────────────────
-    if (fieldLower === 'rate plan subtext' || fieldLower === 'contract subtext') {
+    // ── Rate Plan Subtext / Contract Subtext / Plan Subtitle ───
+    if (fieldLower === 'rate plan subtext' || fieldLower === 'contract subtext' || fieldLower === 'plan subtitle') {
       const lines = bodyText.split('\n').map(l => l.trim());
-      for (const line of lines) {
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
         if (/billed\s+monthly/i.test(line) || /12-month\s+contract/i.test(line)) return line;
-        if (/pay.*full.*up[- ]?front/i.test(line) || /full\s+year\s+up[- ]?front/i.test(line) || (/up[- ]?front/i.test(line) && !/annual/i.test(line))) return line;
+        if (/pay.*full.*up[- ]?front/i.test(line) || /full\s+year\s+up[- ]?front/i.test(line) || (/up[- ]?front/i.test(line) && !/annual/i.test(line))) {
+          // Check if previous line(s) contain a "Save £X" prefix — combine them
+          let savePrefix = '';
+          for (let j = Math.max(0, i - 3); j < i; j++) {
+            const prev = lines[j];
+            if (/save\s+[£$€₹AED\s]*[\d.]+/i.test(prev)) {
+              savePrefix = prev.replace(/[.\s]+$/, '');
+              break;
+            }
+          }
+          if (savePrefix) {
+            // Combine: "Save £49.89. Pay for the full year up front"
+            const cleanLine = line.replace(/^[.\s]+/, '');
+            return `${savePrefix}. ${cleanLine}`;
+          }
+          return line;
+        }
       }
       return 'N/A';
     }

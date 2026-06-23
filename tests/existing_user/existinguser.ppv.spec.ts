@@ -103,7 +103,9 @@ test('PPV flow via existing user my account', async ({ browser }) => {
   const isUSorGB = REGION === 'GB' || REGION === 'US';
   // Dev mode: bypass phone number on ultimate flows in GB/US.
   // Enabled on all environments (including prod) when tier is ultimate.
-  const devModeEnabled = tier === 'ultimate' && isUSorGB;
+  // Can also be forced via DEV_MODE_ON=on env variable for prod verification.
+  const devModeForced = (process.env.DEV_MODE_ON || '').toLowerCase() === 'on';
+  const devModeEnabled = devModeForced || (tier === 'ultimate' && isUSorGB);
   const ratePlan = (process.env.RATE_PLAN || json.RATE_PLAN || 'monthly').toLowerCase();
   const userEmail = eventData.USER_EMAIL || json.USER_EMAIL || '';
   const userPassword = eventData.USER_PASSWORD || json.USER_PASSWORD || '';
@@ -119,15 +121,19 @@ test('PPV flow via existing user my account', async ({ browser }) => {
   // Resolve payment page expected variables to avoid skipping validation
   const offerType = (eventData.OFFER_TYPE || '1_month_free').toLowerCase();
   const isTrial = ratePlan === 'monthly' && offerType === '7_day_trial';
+  const isNoOffer = offerType === 'no_offer' || offerType === 'none';
   const activeOfferPresent = eventData.ACTIVE_OFFER_PRESENT === 'true';
 
   if (tier === 'ultimate') {
     eventData.PLAN_CTA_BUTTON = eventData.PLAN_CTA_BUTTON_ULTIMATE || 'Continue with DAZN Ultimate';
     eventData.DAZN_TIER = 'DAZN Ultimate';
   } else {
-    // Standard tier: CTA depends on rate plan
-    // Flex - Pay Monthly is always selected by default initially, so CTA is Continue with 7-day Free Trial
-    eventData.PLAN_CTA_BUTTON = eventData.PLAN_CTA_BUTTON_STANDARD || 'Continue with 7-day Free Trial';
+    // Standard tier: CTA depends on offer type
+    if (isNoOffer) {
+      eventData.PLAN_CTA_BUTTON = eventData.PLAN_CTA_BUTTON_STANDARD || 'Continue with DAZN Standard';
+    } else {
+      eventData.PLAN_CTA_BUTTON = eventData.PLAN_CTA_BUTTON_STANDARD || 'Continue with 7-day Free Trial';
+    }
     eventData.DAZN_TIER = 'DAZN Standard';
   }
 
@@ -137,15 +143,20 @@ test('PPV flow via existing user my account', async ({ browser }) => {
     eventData.PAYMENT_FREE_TEXT = 'N/A';
     eventData.CANCELLATION_TEXT = eventData.CANCELLATION_TEXT_TRIAL || '';
   } else if (isTrial) {
-    eventData.PAYMENT_PAGE_TITLE = eventData.PAYMENT_PAGE_TITLE_STANDARD || 'Choose how to pay';
+    eventData.PAYMENT_PAGE_TITLE = eventData.PAYMENT_PAGE_TITLE_TRIAL || 'Choose how to pay after your free trial';
     eventData.PAYMENT_PLAN_NAME = eventData.PAYMENT_FREE_TEXT_TRIAL || '7-days free';
     eventData.PAYMENT_FREE_TEXT = eventData.PAYMENT_FREE_TEXT_TRIAL || '7-days free';
     eventData.CANCELLATION_TEXT = eventData.CANCELLATION_TEXT_TRIAL || '';
   } else if (ratePlan === 'annual pay monthly' || ratePlan === 'annual pay upfront') {
-    // APM / APU — 1 month free offer
+    // APM / APU
     eventData.PAYMENT_PAGE_TITLE = eventData.PAYMENT_PAGE_TITLE_STANDARD || 'Choose how to pay';
     eventData.PAYMENT_PLAN_NAME = eventData.PAYMENT_PLAN_NAME_ANNUAL || 'Annual - Pay Monthly';
-    eventData.PAYMENT_FREE_TEXT = eventData.PAYMENT_FREE_TEXT_MONTHLY || 'First month free';
+    if (offerType === '1_month_free') {
+      eventData.PAYMENT_FREE_TEXT = eventData.PAYMENT_FREE_TEXT_MONTHLY || 'First month free';
+    } else {
+      // No 1-month-free offer (7_day_trial or no_offer) — no free text
+      eventData.PAYMENT_FREE_TEXT = 'N/A';
+    }
     if (tier === 'ultimate') {
       eventData.CANCELLATION_TEXT = ratePlan === 'annual pay monthly'
         ? (eventData.CANCELLATION_TEXT_ULTIMATE_APM || '')
@@ -159,6 +170,12 @@ test('PPV flow via existing user my account', async ({ browser }) => {
     eventData.PAYMENT_PLAN_NAME = eventData.PAYMENT_PLAN_NAME_FLEX || 'Flex – Pay Monthly';
     eventData.PAYMENT_FREE_TEXT = eventData.PAYMENT_FREE_TEXT_MONTHLY || 'First month free';
     eventData.CANCELLATION_TEXT = eventData.CANCELLATION_TEXT_TRIAL || '';
+  } else if (isNoOffer && ratePlan === 'monthly') {
+    // Monthly plan with no offer at all — no trial, no free month
+    eventData.PAYMENT_PAGE_TITLE = eventData.PAYMENT_PAGE_TITLE_STANDARD || 'Choose how to pay';
+    eventData.PAYMENT_PLAN_NAME = eventData.PAYMENT_PLAN_NAME_FLEX || 'Flex – Pay Monthly';
+    eventData.PAYMENT_FREE_TEXT = 'N/A';
+    eventData.CANCELLATION_TEXT = eventData.CANCELLATION_TEXT || "Monthly subscription. Cancel with 30 days' notice. Your subscription auto-renews unless you cancel.";
   } else {
     eventData.PAYMENT_PAGE_TITLE = eventData.PAYMENT_PAGE_TITLE_STANDARD || 'Choose how to pay';
     eventData.PAYMENT_PLAN_NAME = eventData.PAYMENT_PLAN_NAME_FLEX || 'Flex – Pay Monthly';
@@ -229,10 +246,10 @@ test('PPV flow via existing user my account', async ({ browser }) => {
       try {
         await p.waitForFunction(() => {
           const bodyText = document.body ? document.body.innerText.toLowerCase() : '';
-          return bodyText.includes('choose how to buy') || 
-                 bodyText.includes('pay now') || 
-                 bodyText.includes('one time payment') ||
-                 bodyText.includes('****');
+          return bodyText.includes('choose how to buy') ||
+            bodyText.includes('pay now') ||
+            bodyText.includes('one time payment') ||
+            bodyText.includes('****');
         }, { timeout: 6000 });
       } catch (e) {
         console.log('⚠️ detectPageType: Timeout waiting for addon purchase page content');
@@ -243,10 +260,10 @@ test('PPV flow via existing user my account', async ({ browser }) => {
         .then((t: string) => t.toLowerCase())
         .catch(() => '');
 
-      if (addonBody.includes('choose your plan') || 
-          addonBody.includes('choose a plan') || 
-          addonBody.includes('choose the right plan') || 
-          addonBody.includes('to watch your pay-per-view')) {
+      if (addonBody.includes('choose your plan') ||
+        addonBody.includes('choose a plan') ||
+        addonBody.includes('choose the right plan') ||
+        addonBody.includes('to watch your pay-per-view')) {
         return 'ppv';
       }
 
@@ -260,7 +277,47 @@ test('PPV flow via existing user my account', async ({ browser }) => {
     }
 
     // PPV page detection via contextualPpvId query param (before email fallback)
-    if (urlLower.includes('/signup') && urlLower.includes('contextualppvid=') && !urlLower.includes('page=')) return 'ppv';
+    // Wait for SPA routing to complete — the URL may get a page= parameter
+    if (urlLower.includes('/signup') && urlLower.includes('contextualppvid=') && !urlLower.includes('page=')) {
+      try {
+        await p.waitForFunction(() => {
+          const href = window.location.href.toLowerCase();
+          const bodyLen = document.body?.innerText?.trim().length || 0;
+          // Wait until URL gets a page= param (SPA routing) OR body has meaningful content
+          return href.includes('page=') ||
+                 href.includes('upselltiershown') ||
+                 bodyLen > 200;
+        }, { timeout: 10000 });
+      } catch {
+        // Timeout — proceed with what we have
+      }
+      // Re-check URL after SPA routing completes
+      const routedUrl = p.url().toLowerCase();
+      if (routedUrl.includes('paymentdetails')) return 'payment';
+      if (routedUrl.includes('page=personaldetails') || routedUrl.includes('emaildetails')) return 'email';
+      if (routedUrl.includes('upselltiershown=true')) return 'ppv';
+      if (routedUrl.includes('page=plandetails') || routedUrl.includes('page=tierplans')) {
+        // Check if it's actually a PPV page with plan selection
+        const routedBody = await p.locator('body')
+          .innerText({ timeout: 3000 })
+          .then((t: string) => t.toLowerCase())
+          .catch(() => '');
+        if (routedBody.includes('pay-per-view') || routedBody.includes('choose how to buy') ||
+            routedBody.includes('subscribe without a pay-per-view')) {
+          return 'ppv';
+        }
+        return 'plan';
+      }
+      // Still no page= param — check body content
+      const bodyCheck = await p.locator('body')
+        .innerText({ timeout: 3000 })
+        .then((t: string) => t.toLowerCase())
+        .catch(() => '');
+      if (bodyCheck.includes('pay-per-view') || bodyCheck.includes('choose how to buy')) return 'ppv';
+      if (bodyCheck.includes('choose your plan') || bodyCheck.includes('choose the right plan')) return 'ppv';
+      if (bodyCheck.includes('choose a plan')) return 'plan';
+      return 'ppv'; // Default fallback if contextualppvid present
+    }
 
     // Email/signup checks (highest priority URL checks, must be before tier checks)
     if (urlLower.includes('page=personaldetails')) return 'email';
@@ -472,22 +529,44 @@ test('PPV flow via existing user my account', async ({ browser }) => {
           await searchPage.enableDevMode();
         }
 
-        await schedule.selectSport(sport);
-
-        const eventCard = await schedule.findEvent(eventData.PPV_NAME);
-        await schedule.clickEvent(eventCard);
-
-        console.log('\n📋 Validating Schedule page...');
+        let scheduleEventClicked = false;
         try {
-          const scheduleData = readSheet('Schedule page');
-          await validateVariant(
-            page, 'schedule', scheduleData, results, eventData, 'Schedule'
-          );
-        } catch (err: any) {
-          console.warn(`⚠️  Schedule page validation error: ${err.message}`);
+          await schedule.selectSport(sport);
+          const eventCard = await schedule.findEvent(eventData.PPV_NAME);
+          await schedule.clickEvent(eventCard);
+          scheduleEventClicked = true;
+        } catch (schedErr: any) {
+          console.error(`❌ Schedule flow failed: ${schedErr.message}`);
+          let shotPath: string | undefined;
+          try {
+            const dir = path.resolve(process.cwd(), 'test-results', 'screenshots');
+            if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+            shotPath = path.join(dir, `FAIL_Schedule_Event_Click_${Date.now()}.jpg`);
+            await page.screenshot({ path: shotPath, type: 'jpeg', quality: 75, fullPage: false });
+          } catch { shotPath = undefined; }
+          results.push({
+            page: 'Schedule',
+            field: 'PPV Event Click',
+            expected: `${eventData.PPV_NAME} clickable via ${sport} filter`,
+            actual: schedErr.message,
+            status: 'FAIL',
+            screenshot: shotPath,
+          });
         }
 
-        await schedule.clickBuyNow();
+        if (scheduleEventClicked) {
+          console.log('\n📋 Validating Schedule page...');
+          try {
+            const scheduleData = readSheet('Schedule page');
+            await validateVariant(
+              page, 'schedule', scheduleData, results, eventData, 'Schedule'
+            );
+          } catch (err: any) {
+            console.warn(`⚠️  Schedule page validation error: ${err.message}`);
+          }
+
+          await schedule.clickBuyNow();
+        }
       } else if (isSearch) {
         const searchPage = new SearchPage(page);
         await searchPage.navigate(baseUrl);
@@ -551,6 +630,15 @@ test('PPV flow via existing user my account', async ({ browser }) => {
               ? new BoxingPage(page)
               : new LandingPage(page);
 
+        // Start RailsInterceptor before navigation for home-biggest-fights
+        // to capture entitlement IDs from the Rails API for tile matching
+        let railsInterceptor: RailsInterceptor | undefined;
+        if (SOURCE === 'home-biggest-fights') {
+          railsInterceptor = new RailsInterceptor(page);
+          await railsInterceptor.startIntercepting();
+          console.log('🔌 [RailsInterceptor] Started for home-biggest-fights tile matching');
+        }
+
         // If LOGIN_FIRST=true the user is already signed in. Skip welcome page
         // navigation and go directly to sport/boxing pages if needed, otherwise stay on home.
         if (LOGIN_FIRST) {
@@ -558,7 +646,11 @@ test('PPV flow via existing user my account', async ({ browser }) => {
           const baseNoSlash = baseUrl.replace(/\/$/, '');
           if (isHomeSport) {
             const targetSport = (eventData?.SPORT || 'Boxing').trim();
-            const sportId = targetSport.toLowerCase() === 'kickboxing' ? 'Sport:5rocwbb1fbfub9yh4yrff8khj' : 'Sport:2x2oqzx60orpoeugkd754ga17';
+            const sportIdMap: Record<string, string> = {
+              kickboxing: 'Sport:5rocwbb1fbfub9yh4yrff8khj',
+              wrestling: 'Sport:50dsk39gxuwwbkss8k2e24mca',
+            };
+            const sportId = sportIdMap[targetSport.toLowerCase()] || 'Sport:2x2oqzx60orpoeugkd754ga17';
             const targetUrl = `${baseNoSlash}/sport/${sportId}`;
             console.log(`🧭 [Login First] Navigating directly to sport page: ${targetUrl}`);
             await page.goto(targetUrl, { waitUntil: 'domcontentloaded' });
@@ -573,21 +665,12 @@ test('PPV flow via existing user my account', async ({ browser }) => {
             await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => { });
           }
         } else {
-          // Start RailsInterceptor before navigation for home-biggest-fights
-          // to capture entitlement IDs from the Rails API for tile matching
-          let railsInterceptor: RailsInterceptor | undefined;
-          if (SOURCE === 'home-biggest-fights') {
-            railsInterceptor = new RailsInterceptor(page);
-            await railsInterceptor.startIntercepting();
-            console.log('🔌 [RailsInterceptor] Started for home-biggest-fights tile matching');
-          }
-
           await landing.navigate(baseUrl, SOURCE, eventData);
+        }
 
-          // Pass interceptor to eventData so HomePage can use it
-          if (railsInterceptor) {
-            eventData._railsInterceptor = railsInterceptor;
-          }
+        // Pass interceptor to eventData so HomePage can use it
+        if (railsInterceptor) {
+          eventData._railsInterceptor = railsInterceptor;
         }
         await setupPage(page, 8000);
         assertCountryMatch(page, REGION);
@@ -648,6 +731,11 @@ test('PPV flow via existing user my account', async ({ browser }) => {
 
         if (isBoxingSubscriptionSource) {
           console.log(`ℹ️ [${SOURCE}] Subscription source — skipping boxing banner/landing validation.`);
+        } else if (SOURCE === 'home-biggest-fights') {
+          // Skip pre-clickBuyNow validation for home-biggest-fights — the popup
+          // only appears AFTER clicking the Coming Up tile (inside clickBuyNow).
+          // handlePopupModal will handle validation + Buy Now click.
+          console.log('ℹ️ [home-biggest-fights] Popup validation deferred to handlePopupModal (after tile click)');
         } else {
           console.log(`\n📋 Validating ${pageName} page...`);
           try {
@@ -672,8 +760,9 @@ test('PPV flow via existing user my account', async ({ browser }) => {
       }
 
       // Handle generic popup validations and click-through
-      // Avoid double-clicking modal if already clicked by clickBuyNow
-      const clickPopup = !SOURCE.includes('dont-miss') && !SOURCE.includes('tile');
+      // For home-biggest-fights: clickBuyNow only clicks the tile, handlePopupModal validates + clicks Buy Now
+      // For dont-miss/tile sources: avoid double-clicking modal
+      const clickPopup = SOURCE === 'home-biggest-fights' || (!SOURCE.includes('dont-miss') && !SOURCE.includes('tile'));
       if (SOURCE.toLowerCase() !== 'glory') {
         await handlePopupModal(page, results, eventData, SOURCE, clickPopup);
       }
@@ -709,13 +798,13 @@ test('PPV flow via existing user my account', async ({ browser }) => {
             !url.href.includes('payment') &&
             !url.href.includes('checkout'),
           { timeout: 15000 }
-        ).catch(() => {});
-        
+        ).catch(() => { });
+
         const currentUrl = page.url();
         const lowerUrl = currentUrl.toLowerCase();
         let navStatus: 'PASS' | 'FAIL' = 'FAIL';
         let actualPage = 'Unknown Page';
-        
+
         if (lowerUrl.includes('preview')) {
           actualPage = 'Preview Page';
           navStatus = 'PASS';
@@ -728,7 +817,7 @@ test('PPV flow via existing user my account', async ({ browser }) => {
           actualPage = 'Fixture Page';
           navStatus = 'PASS';
         }
-        
+
         results.push({
           page: 'Home Page',
           field: 'Ultimate User Navigation Target',
@@ -905,7 +994,8 @@ test('PPV flow via existing user my account', async ({ browser }) => {
       await homePage.dismissPopup();
 
       if (devModeEnabled) {
-        console.log('\n🎭 Dev mode flow detected — enabling dev mode for existing user...');
+        const reason = devModeForced ? '(forced via DEV_MODE_ON=on)' : '(auto: ultimate tier in GB/US)';
+        console.log(`\n🎭 Dev mode flow detected ${reason} — enabling dev mode for existing user...`);
         const searchPage = new SearchPage(page);
         await searchPage.enableDevMode();
         console.log('✅ dev mode enabled — continuing with ultimate flow');
@@ -976,13 +1066,6 @@ test('PPV flow via existing user my account', async ({ browser }) => {
         eventData['DAZN_TIER'] = 'DAZN Ultimate';
       }
 
-      const originalScrollY = await page.evaluate(() => window.scrollY).catch(() => 0);
-      await page.evaluate(() => {
-        document.documentElement.style.overflow = 'hidden';
-        document.body.style.overflow = 'hidden';
-      });
-      // Restore scroll position immediately after hiding overflow to prevent page snapping back to top (0, 0)
-      await page.evaluate((y) => window.scrollTo(0, y), originalScrollY).catch(() => { });
 
       await validateVariant(
         page, 'myaccount', filteredMyAccountData, results, eventData, 'My Account'
@@ -1000,10 +1083,10 @@ test('PPV flow via existing user my account', async ({ browser }) => {
       if (expectedConfig) {
         const subStatusResult = results.find(r => r.page === 'My Account' && r.field === 'Subscription Status');
         const currSubResult = results.find(r => r.page === 'My Account' && r.field === 'Current Subscription');
-        
+
         const actualStatus = subStatusResult ? subStatusResult.actual : 'N/A';
         const actualSub = currSubResult ? currSubResult.actual : 'N/A';
-        
+
         const expectedStatus = expectedConfig.status;
         const expectedSub = expectedConfig.subscription;
 
@@ -1030,9 +1113,6 @@ test('PPV flow via existing user my account', async ({ browser }) => {
         document.documentElement.style.overflow = '';
         document.body.style.overflow = '';
       });
-      // Restore original scroll position since setting overflow: hidden resets scroll position in some environments
-      await page.evaluate((y) => window.scrollTo(0, y), originalScrollY).catch(() => { });
-
       // ══════════════════════════════════════════════════════════════
       // STEP 4b — EXTRACT DYNAMIC USER DATA FROM MY ACCOUNT
       // Reads first name, last name, returning status from live page
@@ -1488,6 +1568,38 @@ test('PPV flow via existing user my account', async ({ browser }) => {
           eventData['FULL_NAME'] = namePart;
           eventData['SIGNED_IN_AS_TEXT'] = signedInText;
         }
+        // ── Dismiss AGREE/Terms overlay if present (US-specific) ──────
+        // US users may see a Terms & Conditions overlay with "AGREE" buttons
+        // before the actual page loads. Dismiss it before page detection so
+        // detectPageType sees the real page content underneath.
+        try {
+          const agreeBtn = page.locator('button:has-text("AGREE"), button:has-text("Agree")').first();
+          const agreeVisible = await agreeBtn.isVisible({ timeout: 1500 }).catch(() => false);
+          if (agreeVisible) {
+            const btnText = (await agreeBtn.textContent().catch(() => '') || '').trim().toLowerCase();
+            if (btnText === 'agree' || btnText === 'i agree') {
+              // Click all AGREE buttons (there may be multiple sections)
+              for (let agreeIdx = 0; agreeIdx < 5; agreeIdx++) {
+                const nextBtn = page.locator('button:has-text("AGREE"), button:has-text("Agree")').first();
+                const nextVisible = await nextBtn.isVisible({ timeout: 800 }).catch(() => false);
+                if (!nextVisible) break;
+                const nextText = (await nextBtn.textContent().catch(() => '') || '').trim().toLowerCase();
+                if (nextText === 'agree' || nextText === 'i agree') {
+                  await nextBtn.click({ timeout: 2000 }).catch(() => {});
+                  console.log(`🛡️  Dismissed Terms overlay (${agreeIdx + 1})`);
+                  await page.waitForTimeout(500);
+                } else {
+                  break;
+                }
+              }
+              // Wait for actual page content to render after overlay dismissal
+              await page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => {});
+              await page.waitForTimeout(1500);
+            }
+          }
+        } catch {
+          // Non-critical — continue with page detection
+        }
 
         const pageType = await detectPageType(page, pagesConfig);
         console.log(`\nstep ${step + 1} → pageType: ${pageType} | url: ${page.url()}`);
@@ -1732,7 +1844,7 @@ test('PPV flow via existing user my account', async ({ browser }) => {
                 !url.href.includes('payment') &&
                 !url.href.includes('checkout'),
               { timeout: 20000 }
-            ).catch(() => {});
+            ).catch(() => { });
 
             const currentUrl = page.url();
             const lowerUrl = currentUrl.toLowerCase();
@@ -1966,7 +2078,7 @@ test('PPV flow via existing user my account', async ({ browser }) => {
               console.error(`❌ Payment filling failed: ${paymentErr.message}`);
               throw paymentErr;
             }
-            continue;
+            break;
           }
 
           if (PPV_TYPE === 'upsell') {
@@ -2584,12 +2696,12 @@ test('PPV flow via existing user my account', async ({ browser }) => {
         // ── CONFIRMATION ──────────────────────────────────────
         if (pageType === 'confirmation') {
           console.log('✅ Upgrade confirmation page');
-          
+
           // Expand the description if "... More" is visible
           const moreLink = page.locator('text=/\\.\\.\\.\\s*More|More/i').first();
           if (await moreLink.isVisible({ timeout: 2000 }).catch(() => false)) {
             console.log('🖱️ Clicking "... More" to expand page description...');
-            await moreLink.click({ force: true }).catch(() => {});
+            await moreLink.click({ force: true }).catch(() => { });
             await page.waitForTimeout(500);
           }
 
@@ -2853,12 +2965,12 @@ test('PPV flow via existing user my account', async ({ browser }) => {
 
         // ── Validate Upgrade Confirmation ─────────────────────
         console.log('\n📋 Validating Upgrade Confirmation page...');
-        
+
         // Expand the description if "... More" is visible
         const moreLink = page.locator('text=/\\.\\.\\.\\s*More|More/i').first();
         if (await moreLink.isVisible({ timeout: 2000 }).catch(() => false)) {
           console.log('🖱️ Clicking "... More" to expand page description...');
-          await moreLink.click({ force: true }).catch(() => {});
+          await moreLink.click({ force: true }).catch(() => { });
           await page.waitForTimeout(500);
         }
 

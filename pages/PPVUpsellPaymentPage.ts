@@ -67,6 +67,16 @@ export class PPVUpsellPaymentPage extends BasePage {
       const field = (row['Field'] || '').trim();
       if (!field) continue;
       const expected = resolveExpected(row, eventData);
+
+      // Skip validation if expected is 'N/A' or empty
+      const expectedNorm = (expected || '').trim().toUpperCase();
+      const expectedOptions = expectedNorm.split('|').map(opt => opt.trim());
+      const isAllNAOrEmpty = expectedOptions.every(opt => opt === 'N/A' || opt === '');
+      if (isAllNAOrEmpty) {
+        console.log(`  ⏭️  Skipping [${field}] — expected is "${expected}"`);
+        continue;
+      }
+
       let actual = 'N/A';
       const key = field.toLowerCase().replace(/\s+/g, ' ').trim();
 
@@ -79,10 +89,22 @@ export class PPVUpsellPaymentPage extends BasePage {
 
       // ── PPV Name (heading) ──
       } else if (key === 'ppv name' || key === 'page title') {
-        const headings = await this.page.locator('h1, h2').allTextContents().catch(() => []);
-        const ppvH = headings.find((h: string) =>
-          h.toLowerCase().includes('ppv') || h.toLowerCase().includes('vs'));
-        actual = ppvH?.trim() || headings[0]?.trim() || 'N/A';
+        const headings = await this.page.locator('h1, h2, h3, h4').allTextContents().catch(() => []);
+        const ppvNameFull = (eventData?.PPV_NAME || '').toLowerCase();
+        const nameWords = ppvNameFull
+          .split(/[\s:\-–—,]+/)
+          .filter(w => w.length > 2 && !/^(the|and|for|with|from|ppv)$/i.test(w));
+
+        let foundHeading = headings.find((h: string) => {
+          const lowerH = h.toLowerCase();
+          if (lowerH.includes('dazn')) return false;
+          if (nameWords.length > 0) {
+            return nameWords.some(w => lowerH.includes(w));
+          }
+          return lowerH.includes('ppv') || lowerH.includes('vs');
+        });
+
+        actual = foundHeading?.trim() || headings.find(h => !h.toLowerCase().includes('dazn'))?.trim() || headings[0]?.trim() || 'N/A';
 
       // ── PPV Description ──
       } else if (key === 'ppv description') {

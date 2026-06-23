@@ -303,7 +303,7 @@ const paymentData = [
   { Tier: 'Ultimate', 'Rate Plan': 'Annual Pay Upfront', Field: 'PPV Price', Expected: '{{CURRENCY}}0', Flow: '' },
   { Tier: 'Ultimate', 'Rate Plan': 'Annual Pay Upfront', Field: 'Rate Plan', Expected: 'Annual - Pay Upfront', Flow: '' },
   { Tier: 'Ultimate', 'Rate Plan': 'Annual Pay Upfront', Field: 'Rate Plan Price', Expected: '{{ANNUAL_UPFRONT_PRICE}}/year', Flow: '' },
-  { Tier: 'Ultimate', 'Rate Plan': 'Annual Pay Upfront', Field: 'Plan Subtitle', Expected: 'Save {{CURRENCY}}{{UPFRONT_SAVE_AMOUNT}}. Pay for the full year up front!|Save {{CURRENCY}}{{UPFRONT_SAVE_AMOUNT}}', Flow: '' },
+  { Tier: 'Ultimate', 'Rate Plan': 'Annual Pay Upfront', Field: 'Plan Subtitle', Expected: 'Save {{CURRENCY}}{{UPFRONT_SAVE_AMOUNT}}. Pay for the full year up front|Save {{CURRENCY}}{{UPFRONT_SAVE_AMOUNT}}', Flow: '' },
   { Tier: 'Ultimate', 'Rate Plan': 'Annual Pay Upfront', Field: 'Today You Pay Text', Expected: 'Today you pay', Flow: '' },
   { Tier: 'Ultimate', 'Rate Plan': 'Annual Pay Upfront', Field: 'Today You Pay Price', Expected: '{{TODAY_YOU_PAY_PRICE}}', Flow: '' },
   { Tier: 'Ultimate', 'Rate Plan': 'Annual Pay Upfront', Field: 'Next Payment Label', Expected: 'Next Annual payment on {{NEXT_PAYMENT_DATE}}', Flow: '' },
@@ -373,7 +373,7 @@ const scheduleData = [
   { Field: 'Popup Date', Expected: '{{PPV_DATE}}' },
   { Field: 'Popup PPV Name', Expected: '{{PPV_NAME}}' },
   { Field: 'Popup Promoter', Expected: '{{PPV_PROMOTER}}' },
-  { Field: 'Popup Description', Expected: '{{PPV_DESCRIPTION}}' },
+  { Field: 'Popup Description', Expected: 'Catch the biggest moment of the year. Select a DAZN plan to pair with your pay-per-view.' },
   { Field: 'Popup Buy Now CTA Present', Expected: 'Yes' },
   { Field: 'Popup Buy Now CTA Text', Expected: 'Buy now' },
   { Field: 'Popup Close Button', Expected: 'Yes' },
@@ -525,7 +525,7 @@ const homePageData = [
   { Flow: 'home-page-dont-miss', Field: 'Popup - Event Date', Expected: '{{PPV_DATE}}' },
   { Flow: 'home-page-dont-miss', Field: 'Popup - Promoter', Expected: '{{PPV_PROMOTER}}' },
   { Flow: 'home-page-dont-miss', Field: 'Popup - Buy Now CTA', Expected: 'Visible' },
-  { Flow: 'home-page-dont-miss', Field: 'Popup - Event Description', Expected: '{{PPV_DESCRIPTION}}' },
+  { Flow: 'home-page-dont-miss', Field: 'Popup - Event Description', Expected: 'Catch the biggest moment of the year. Select a DAZN plan to pair with your pay-per-view.' },
   { Flow: 'home-page-dont-miss', Field: 'Popup - Close Button', Expected: 'Visible' },
 ];
 

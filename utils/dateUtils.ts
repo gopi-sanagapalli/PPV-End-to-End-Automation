@@ -274,6 +274,31 @@ function getDynamicDateBadgeSingle(configStr: string, referenceDate: Date = getN
   } else if (diffDays > 1 && diffDays <= 7) {
     addDayVariations(dayName);
     addDayVariations(fullDayName);
+    // Also add date-format candidates (DAZN sometimes shows "29 June" even for near events)
+    const dayNum = eventDate.getDate();
+    const monthNames2 = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const fullMonthNames2 = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    const mn = monthNames2[eventDate.getMonth()];
+    const fmn = fullMonthNames2[eventDate.getMonth()];
+    const getOrd = (d: number): string => {
+      if (d >= 11 && d <= 13) return 'th';
+      switch (d % 10) { case 1: return 'st'; case 2: return 'nd'; case 3: return 'rd'; default: return 'th'; }
+    };
+    const ord = getOrd(dayNum);
+    const dateFmts = [
+      `${dayNum} ${mn}`, `${dayNum} ${fmn}`,
+      `${dayNum}${ord} ${mn}`, `${dayNum}${ord} ${fmn}`,
+      `${mn} ${dayNum}`, `${fmn} ${dayNum}`,
+      `${dayName} ${dayNum}${ord} ${mn}`, `${dayName} ${dayNum} ${mn}`,
+      `${dayName} ${dayNum}${ord} ${fmn}`, `${dayName} ${dayNum} ${fmn}`,
+    ];
+    for (const f of dateFmts) {
+      candidates.add(f);
+      for (const t of times) {
+        candidates.add(`${f} at ${t}`);
+        candidates.add(`${f} ${t}`);
+      }
+    }
   } else {
     // Far date
     const dayNum = eventDate.getDate();

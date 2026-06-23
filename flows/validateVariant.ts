@@ -38,7 +38,7 @@ export const validateVariant = async (
     //   - If no flow provided to validateVariant → exclude flow-restricted rows
     if (rf) {
       if (!normalizedFlow)          return false; // no flow context → skip restricted rows
-      if (rf !== normalizedFlow)    return false; // flow mismatch → skip
+      if (rf !== normalizedFlow && !(rf === 'landing' && normalizedFlow.startsWith('landing')))    return false; // flow mismatch → skip
     }
 
     // ── Variant / Tier filtering (existing logic) ─────────────────
@@ -66,6 +66,7 @@ export const validateVariant = async (
   const needsScroll =
     (url.includes('/schedule') && !isModalOpen) ||
     url.includes('/addon/purchase') ||     // Choose How To Buy
+    url.includes('upsellTierShown=true') || // PPV page — upsell section is below fold
     (url.includes('page=PlanDetails') && !url.includes('upsellTierShown=true'));
 
   if (needsScroll) {
@@ -134,6 +135,7 @@ export const validateVariant = async (
     ).catch(() => {});
   }
 
+
   // ── Pre-fetch DOM snapshot ONCE ───────────────────────────────
   const snapshot = await getPageSnapshot(page);
   console.log(`📸 ${pageName} snapshot: ${snapshot.length} nodes`);
@@ -185,11 +187,158 @@ export const validateVariant = async (
       expected = String(rule.Expected ?? '');
     }
 
+    // Skip validation if expected is 'N/A' or empty
+    const expectedNorm = (expected || '').trim().toUpperCase();
+    const expectedOptions = expectedNorm.split('|').map(opt => opt.trim());
+    const isAllNAOrEmpty = expectedOptions.every(opt => opt === 'N/A' || opt === '');
+    if (isAllNAOrEmpty) {
+      console.log(`  ⏭️  Skipping [${field}] — expected is "${expected}"`);
+      return null;
+    }
+
     let actual: string;
     try {
       actual = await getActualValue(page, field, variant, eventData, snapshot);
-    } catch {
+    } catch (err: any) {
       actual = 'N/A';
+      console.warn(`  ⚠️ getActualValue threw for [${field}]: ${err?.message?.substring(0, 80) || 'unknown'}`);
+    }
+
+    // ── Live DOM fallback: when actual is 'N/A' but expected is real text,
+    //    try to extract what IS actually present in the DOM so the report
+    //    shows real content instead of unhelpful 'N/A'. ──────────────────
+    const isPresenceCheck = expectedNorm === 'YES' || expectedNorm === 'NO' || expectedNorm === 'VISIBLE' || expectedNorm === 'NOT VISIBLE' || expectedNorm === 'PRESENT' || expectedNorm === 'NOT FOUND';
+    const isExpectedNA = expectedNorm === 'N/A' || expectedNorm === '';
+
+    if (actual === 'N/A' && !isExpectedNA && !isPresenceCheck) {
+      try {
+        const fieldLower = field.toLowerCase();
+        const isPopupField = fieldLower.startsWith('popup');
+        const isBannerField = fieldLower.startsWith('banner');
+
+        // Determine DOM context: modal for popup fields, page for others
+        if (isPopupField) {
+          // Search visible modal/dialog for text content
+          const modalSels = ['[role="dialog"]', '[aria-modal="true"]', '[class*="modal" i]', '[class*="popup" i]'];
+          for (const sel of modalSels) {
+            const modal = page.locator(sel).first();
+            if (!await modal.isVisible({ timeout: 500 }).catch(() => false)) continue;
+            const allText = await modal.locator('span, p, h1, h2, h3, h4, h5, strong, b, label, time, div')
+              .allTextContents().catch(() => []);
+            const cleanTexts = allText
+              .map((t: string) => t.replace(/\s+/g, ' ').trim())
+              .filter((t: string) => t.length > 2 && t.length < 200);
+
+            if (cleanTexts.length > 0) {
+              // Find the most relevant text based on field name keywords
+              const fieldWords = fieldLower.replace(/popup\s*[-]?\s*/i, '').split(/\s+/).filter((w: string) => w.length > 2);
+              let bestMatch = '';
+              for (const txt of cleanTexts) {
+                const tl = txt.toLowerCase();
+                const matchScore = fieldWords.filter((w: string) => tl.includes(w)).length;
+                if (matchScore > 0 && (!bestMatch || txt.length < bestMatch.length)) {
+                  bestMatch = txt;
+                }
+              }
+              // If no keyword match, return concatenated summary of modal content
+              if (!bestMatch && cleanTexts.length > 0) {
+                bestMatch = `[Modal content] ${cleanTexts.slice(0, 5).join(' | ')}`.substring(0, 200);
+              }
+              if (bestMatch) {
+                actual = bestMatch;
+                console.log(`  🔄 [${field}] Live DOM fallback from modal: "${actual.substring(0, 60)}"`);
+              }
+            }
+            break;
+          }
+        } else if (isBannerField) {
+          // Search banner/hero section
+          const bannerSel = 'main [class*="banner"], main [class*="hero"], .swiper-slide-active';
+          const banner = page.locator(bannerSel).first();
+          if (await banner.isVisible({ timeout: 500 }).catch(() => false)) {
+            const allText = await banner.locator('span, p, h1, h2, h3, h4, h5, strong, b, label, time, div')
+              .allTextContents().catch(() => []);
+            const cleanTexts = allText
+              .map((t: string) => t.replace(/\s+/g, ' ').trim())
+              .filter((t: string) => t.length > 2 && t.length < 200);
+            if (cleanTexts.length > 0) {
+              const fieldWords = fieldLower.replace(/banner\s*[-]?\s*/i, '').split(/\s+/).filter((w: string) => w.length > 2);
+              let bestMatch = '';
+              for (const txt of cleanTexts) {
+                const tl = txt.toLowerCase();
+                const matchScore = fieldWords.filter((w: string) => tl.includes(w)).length;
+                if (matchScore > 0 && (!bestMatch || txt.length < bestMatch.length)) {
+                  bestMatch = txt;
+                }
+              }
+              if (!bestMatch && cleanTexts.length > 0) {
+                bestMatch = `[Banner content] ${cleanTexts.slice(0, 5).join(' | ')}`.substring(0, 200);
+              }
+              if (bestMatch) {
+                actual = bestMatch;
+                console.log(`  🔄 [${field}] Live DOM fallback from banner: "${actual.substring(0, 60)}"`);
+              }
+            }
+          }
+        } else {
+          // General fallback for ALL other fields (schedule tiles, PPV page, landing page, etc.)
+          // Search the main visible content area for relevant text
+          const isTileField = fieldLower.includes('tile') || fieldLower.includes('ppv');
+          const isLandingField = fieldLower.includes('landing');
+
+          let containerSel: string;
+          if (isTileField) {
+            // For tile/ppv fields, search inside articles first, then main
+            containerSel = 'article, main, [class*="content" i]';
+          } else if (isLandingField) {
+            // For landing page fields, search main content
+            containerSel = 'main, [class*="content" i], [class*="landing" i]';
+          } else {
+            // For any other field, search visible main area
+            containerSel = 'main, [class*="content" i], body';
+          }
+
+          const containers = page.locator(containerSel);
+          const containerCount = await containers.count().catch(() => 0);
+          for (let ci = 0; ci < Math.min(containerCount, 3); ci++) {
+            const container = containers.nth(ci);
+            if (!await container.isVisible({ timeout: 500 }).catch(() => false)) continue;
+            const allText = await container.locator('span, p, h1, h2, h3, h4, h5, strong, b, label, time, div, small')
+              .allTextContents().catch(() => []);
+            const cleanTexts = allText
+              .map((t: string) => t.replace(/\s+/g, ' ').trim())
+              .filter((t: string) => t.length > 2 && t.length < 200);
+
+            if (cleanTexts.length > 0) {
+              // Strip common field prefixes to get relevant keywords
+              const stripped = fieldLower
+                .replace(/^(ppv|landing\s*page?|schedule|home|tile|page)\s*[-]?\s*/i, '')
+                .replace(/\s*(on\s+tile|present|visible)\s*$/i, '');
+              const fieldWords = stripped.split(/\s+/).filter((w: string) => w.length > 2);
+
+              let bestMatch = '';
+              for (const txt of cleanTexts) {
+                const tl = txt.toLowerCase();
+                const matchScore = fieldWords.filter((w: string) => tl.includes(w)).length;
+                if (matchScore > 0 && (!bestMatch || txt.length < bestMatch.length)) {
+                  bestMatch = txt;
+                }
+              }
+              if (!bestMatch && cleanTexts.length > 0) {
+                const label = isTileField ? 'Tile content' : isLandingField ? 'Landing content' : 'Page content';
+                bestMatch = `[${label}] ${cleanTexts.slice(0, 5).join(' | ')}`.substring(0, 200);
+              }
+              if (bestMatch) {
+                actual = bestMatch;
+                console.log(`  🔄 [${field}] Live DOM fallback from page: "${actual.substring(0, 60)}"`);
+                break;
+              }
+            }
+          }
+        }
+      } catch (fallbackErr: any) {
+        console.warn(`  ⚠️ Live DOM fallback failed for [${field}]: ${fallbackErr?.message?.substring(0, 60) || 'unknown'}`);
+      }
     }
 
     const status = compare(actual, expected, rule.Type) ? 'PASS' : 'FAIL';

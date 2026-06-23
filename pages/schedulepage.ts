@@ -92,13 +92,21 @@ export class SchedulePage {
       await sportEl.click();
     } else {
       console.log('ℹ️ Horizontal filter container not visible. Looking for "All Sports" dropdown...');
-      const allSportsBtn = this.page.locator('button:has-text("All Sports"), [class*="sportsFilter" i] button, [class*="filter" i] button').first();
+      const allSportsBtn = this.page.locator('button:has-text("All Sports")')
+        .or(this.page.locator('[class*="sportsFilter" i] button'))
+        .or(this.page.locator('[class*="filter" i] button'))
+        .first();
       await expect(allSportsBtn).toBeVisible({ timeout: 8000 });
       await allSportsBtn.click();
       console.log(' Clicked "All Sports" dropdown');
 
       // Now click the sport from the dropdown/menu
-      const sportItem = this.page.locator(`role=option[name="${sport}" i], [role="menuitem"][name="${sport}" i], button:has-text("${sport}"), a:has-text("${sport}"), li:has-text("${sport}")`).first();
+      const sportItem = this.page.getByRole('option', { name: sport })
+        .or(this.page.locator(`[role="menuitem"]:has-text("${sport}")`))
+        .or(this.page.locator(`button:has-text("${sport}")`))
+        .or(this.page.locator(`a:has-text("${sport}")`))
+        .or(this.page.locator(`li:has-text("${sport}")`))
+        .first();
       await expect(sportItem).toBeVisible({ timeout: 8000 });
       await sportItem.click();
       console.log(`✅ Selected ${sport} from dropdown`);
@@ -122,7 +130,7 @@ export class SchedulePage {
     await handleCookies(this.page);
 
     const regex = new RegExp(
-      eventName.replace(/\s+/g, '.*'),
+      eventName.replace(/[:\-–]/g, '').replace(/\s+/g, '.*'),
       'i'
     );
 

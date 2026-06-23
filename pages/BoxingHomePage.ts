@@ -43,14 +43,15 @@ export class BoxingHomePage extends HomePage {
 
     console.log(`✅ Home page loaded: ${this.page.url()}`);
 
-    let targetSport = (eventData?.SPORT || 'Boxing').trim();
-    if (source) {
+    let targetSport = (eventData?.SPORT || '').trim();
+    if (!targetSport && source) {
       if (source.toLowerCase().includes('kickboxing')) {
         targetSport = 'Kickboxing';
       } else if (source.toLowerCase().includes('boxing')) {
         targetSport = 'Boxing';
       }
     }
+    if (!targetSport) targetSport = 'Boxing';
     console.log(`🏅 Target sport resolved for navigation: "${targetSport}" (from source: "${source || ''}")`);
 
     console.log(`🧭 Navigating to "${targetSport}" landing page via All Sports dropdown...`);
@@ -139,6 +140,8 @@ export class BoxingHomePage extends HomePage {
     let sportId = 'Sport:2x2oqzx60orpoeugkd754ga17'; // default Boxing
     if (sportName.toLowerCase() === 'kickboxing') {
       sportId = 'Sport:5rocwbb1fbfub9yh4yrff8khj';
+    } else if (sportName.toLowerCase() === 'wrestling') {
+      sportId = 'Sport:50dsk39gxuwwbkss8k2e24mca';
     } else if (sportName.toLowerCase().includes('misfits')) {
       sportId = 'Sport:2x2oqzx60orpoeugkd754ga17';
     }
@@ -269,15 +272,42 @@ export class BoxingHomePage extends HomePage {
       console.log('🔍 [Home Sport Tile] Flow: Tile + Modal popup flow');
 
       try {
-        let sectionPattern = /don'?t\s*miss/i;
+        // Determine section pattern based on sport — Boxing has "Don't miss",
+        // Kickboxing/Wrestling/other sports have "Coming up"
+        const sportName = (eventData?.SPORT || '').toLowerCase();
+        const isBoxingSport = sportName === 'boxing' || sportName === '' || sportName.includes('misfits');
+        let sectionPattern: RegExp = isBoxingSport ? /don'?t\s*miss/i : /coming\s*up/i;
         if (src.includes('biggest-fights') || src === 'home-biggest-fights') {
           sectionPattern = /biggest\s*fights/i;
         } else if (src.includes('upcoming')) {
           sectionPattern = /upcoming/i;
         }
 
-        // Step 1: Scroll to expected section
-        await this.scrollToDontMissSection(sectionPattern);
+        // Step 1: Scroll to expected section — try fallback patterns if primary not found
+        const fallbackPatterns = isBoxingSport
+          ? [/coming\s*up/i, /upcoming/i, /events/i]
+          : [/don'?t\s*miss/i, /upcoming/i, /events/i];
+        let sectionFound = false;
+        try {
+          await this.scrollToDontMissSection(sectionPattern);
+          sectionFound = true;
+        } catch {
+          console.log(`⚠️ [Home Sport Tile] Section "${sectionPattern}" not found, trying fallback patterns...`);
+          for (const fallback of fallbackPatterns) {
+            try {
+              await this.scrollToDontMissSection(fallback);
+              sectionPattern = fallback;
+              sectionFound = true;
+              console.log(`✅ [Home Sport Tile] Found section via fallback pattern: ${fallback}`);
+              break;
+            } catch {
+              continue;
+            }
+          }
+          if (!sectionFound) {
+            throw new Error(`❌ [Home Sport Tile] No matching section found (tried: ${sectionPattern}, ${fallbackPatterns.join(', ')})`);
+          }
+        }
 
         // Step 2: Find the PPV tile by navigating the swiper carousel
         const tile = await this.findPPVTileInDontMissRail(eventData, sectionPattern);
@@ -554,7 +584,6 @@ export class BoxingHomePage extends HomePage {
     const ppvTile = ppvImg.locator('xpath=ancestor::a[contains(@class,"tile__link") or contains(@class,"tile")][1]');
 
     const isTileInView = async (): Promise<any> => {
-      // 1. Try to find by text content match — score all candidates and pick best
       const tileCandidates = railWrapper.locator('a[class*="tile__link" i], a[class*="tile" i], div[class*="tile" i], div[class*="card" i], a, button');
       const candidateCount = await tileCandidates.count().catch(() => 0);
 

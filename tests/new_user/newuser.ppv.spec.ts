@@ -112,17 +112,22 @@ async function runFlow(
   const fYear = futureDate.getFullYear();
   eventData.FLEX_FUTURE_DATE_SHORT = `${fDay} ${fMonth} ${fYear}`;
 
+  const offerType = eventData.OFFER_TYPE || '1_month_free';
+  const isNoOffer = offerType === 'no_offer' || offerType === 'none';
+
   if (tier === 'ultimate') {
     eventData.PLAN_CTA_BUTTON = eventData.PLAN_CTA_BUTTON_ULTIMATE || 'Continue with DAZN Ultimate';
     eventData.DAZN_TIER = 'DAZN Ultimate';
   } else {
-    // Standard tier: CTA depends on rate plan
-    // Flex - Pay Monthly is always selected by default initially, so CTA is Continue with 7-day Free Trial
-    eventData.PLAN_CTA_BUTTON = eventData.PLAN_CTA_BUTTON_STANDARD || 'Continue with 7-day Free Trial';
+    // Standard tier: CTA depends on offer type
+    if (isNoOffer) {
+      eventData.PLAN_CTA_BUTTON = eventData.PLAN_CTA_BUTTON_STANDARD || 'Continue with DAZN Standard';
+    } else {
+      eventData.PLAN_CTA_BUTTON = eventData.PLAN_CTA_BUTTON_STANDARD || 'Continue with 7-day Free Trial';
+    }
     eventData.DAZN_TIER = 'DAZN Standard';
   }
 
-  const offerType = eventData.OFFER_TYPE || '1_month_free';
   const activeOfferPresent = eventData.ACTIVE_OFFER_PRESENT === 'true';
   if (activeOfferPresent && ratePlan === 'monthly') {
     eventData.PAYMENT_PAGE_TITLE = eventData.PAYMENT_PAGE_TITLE_STANDARD || 'Choose how to pay';
@@ -135,10 +140,15 @@ async function runFlow(
     eventData.PAYMENT_FREE_TEXT = eventData.PAYMENT_FREE_TEXT_TRIAL || '7-days free';
     eventData.CANCELLATION_TEXT = eventData.CANCELLATION_TEXT_TRIAL || '';
   } else if (ratePlan === 'annual pay monthly' || ratePlan === 'annual pay upfront') {
-    // APM / APU — 1 month free offer
+    // APM / APU
     eventData.PAYMENT_PAGE_TITLE = eventData.PAYMENT_PAGE_TITLE_STANDARD || 'Choose how to pay';
     eventData.PAYMENT_PLAN_NAME = eventData.PAYMENT_PLAN_NAME_ANNUAL || 'Annual - Pay Monthly';
-    eventData.PAYMENT_FREE_TEXT = eventData.PAYMENT_FREE_TEXT_MONTHLY || 'First month free';
+    if (offerType === '1_month_free') {
+      eventData.PAYMENT_FREE_TEXT = eventData.PAYMENT_FREE_TEXT_MONTHLY || 'First month free';
+    } else {
+      // No 1-month-free offer (7_day_trial or no_offer) — no free text
+      eventData.PAYMENT_FREE_TEXT = 'N/A';
+    }
     if (tier === 'ultimate') {
       eventData.CANCELLATION_TEXT = ratePlan === 'annual pay monthly'
         ? (eventData.CANCELLATION_TEXT_ULTIMATE_APM || '')
@@ -152,6 +162,12 @@ async function runFlow(
     eventData.PAYMENT_PLAN_NAME = eventData.PAYMENT_PLAN_NAME_FLEX || 'Flex – Pay Monthly';
     eventData.PAYMENT_FREE_TEXT = eventData.PAYMENT_FREE_TEXT_MONTHLY || 'First month free';
     eventData.CANCELLATION_TEXT = eventData.CANCELLATION_TEXT_TRIAL || '';
+  } else if (isNoOffer && ratePlan === 'monthly') {
+    // Monthly plan with no offer at all — no trial, no free month
+    eventData.PAYMENT_PAGE_TITLE = eventData.PAYMENT_PAGE_TITLE_STANDARD || 'Choose how to pay';
+    eventData.PAYMENT_PLAN_NAME = eventData.PAYMENT_PLAN_NAME_FLEX || 'Flex – Pay Monthly';
+    eventData.PAYMENT_FREE_TEXT = 'N/A';
+    eventData.CANCELLATION_TEXT = eventData.CANCELLATION_TEXT || "Monthly subscription. Cancel with 30 days' notice. Your subscription auto-renews unless you cancel.";
   } else {
     eventData.PAYMENT_PAGE_TITLE = eventData.PAYMENT_PAGE_TITLE_STANDARD || 'Choose how to pay';
     eventData.PAYMENT_PLAN_NAME = eventData.PAYMENT_PLAN_NAME_FLEX || 'Flex – Pay Monthly';
@@ -264,20 +280,36 @@ async function runFlow(
       assertCountryMatch(page, region);
 
       const sport = json.SPORT || 'Boxing';
-      await schedule.selectSport(sport);
-
-      const eventCard = await schedule.findEvent(eventData.PPV_NAME);
-      await schedule.clickEvent(eventCard);
-
-      console.log('\n📋 Validating Schedule page...');
+      let scheduleEventClicked = false;
       try {
-        const scheduleData = readSheet('Schedule page');
-        await validateVariant(page, 'schedule', scheduleData, results, eventData, 'Schedule');
-      } catch (err: any) {
-        console.warn(`⚠️  Schedule page validation error: ${err.message}`);
+        await schedule.selectSport(sport);
+        const eventCard = await schedule.findEvent(eventData.PPV_NAME);
+        await schedule.clickEvent(eventCard);
+        scheduleEventClicked = true;
+      } catch (schedErr: any) {
+        console.error(`❌ Schedule flow failed: ${schedErr.message}`);
+        const shotPath = await captureFailShot(page, 'Schedule_Event_Click');
+        results.push({
+          page: 'Schedule',
+          field: 'PPV Event Click',
+          expected: `${eventData.PPV_NAME} clickable via ${sport} filter`,
+          actual: schedErr.message,
+          status: 'FAIL',
+          screenshot: shotPath,
+        });
       }
 
-      await schedule.clickBuyNow();
+      if (scheduleEventClicked) {
+        console.log('\n📋 Validating Schedule page...');
+        try {
+          const scheduleData = readSheet('Schedule page');
+          await validateVariant(page, 'schedule', scheduleData, results, eventData, 'Schedule');
+        } catch (err: any) {
+          console.warn(`⚠️  Schedule page validation error: ${err.message}`);
+        }
+
+        await schedule.clickBuyNow();
+      }
     } else if (isSearch) {
       const searchPage = new SearchPage(page);
       await searchPage.navigate(baseUrl);
@@ -395,20 +427,24 @@ async function runFlow(
 
           if (!isBoxingSubscriptionSource) {
             console.log(`\n📋 Validating ${pageName} page...`);
-            const landingData = readSheet(sheetName);
+            try {
+              const landingData = readSheet(sheetName);
 
-            let flowParam = 'landing';
-            if (source === 'landing-page-banner') {
-              flowParam = 'landing-page-banner';
-            } else if (source.startsWith('boxing-page-bundle') || source.startsWith('boxing-bundle')) {
-              flowParam = 'boxing-bundle';
-            } else if (source === 'boxing-upcoming-fights') {
-              flowParam = 'boxing-upcoming';
-            } else if (source.startsWith('boxing')) {
-              flowParam = 'boxing';
+              let flowParam = 'landing';
+              if (source === 'landing-page-banner') {
+                flowParam = 'landing-page-banner';
+              } else if (source.startsWith('boxing-page-bundle') || source.startsWith('boxing-bundle')) {
+                flowParam = 'boxing-bundle';
+              } else if (source === 'boxing-upcoming-fights') {
+                flowParam = 'boxing-upcoming';
+              } else if (source.startsWith('boxing')) {
+                flowParam = 'boxing';
+              }
+
+              await validateVariant(page, 'landing', landingData, results, eventData, pageName, flowParam);
+            } catch (err: any) {
+              console.warn(`⚠️  Entry page validation error: ${err.message}`);
             }
-
-            await validateVariant(page, 'landing', landingData, results, eventData, pageName, flowParam);
           } else {
             console.log(`ℹ️ [${source}] Subscription source — skipping boxing banner/landing validation.`);
           }
@@ -424,7 +460,9 @@ async function runFlow(
       }
 
       // Home of Sport & Home Page: validate banner/popup content before clicking Buy Now
-      if (isHomeSport || isHomePageSource) {
+      // NOTE: Skip for home-biggest-fights — the popup only appears AFTER clicking the
+      // Coming Up tile (which happens inside clickBuyNow). handlePopupModal handles it.
+      if ((isHomeSport || isHomePageSource) && source !== 'home-biggest-fights') {
         const onOnboarding = page.url().includes('signup') || page.url().includes('PlanDetails') || page.url().includes('payment');
         if (onOnboarding) {
           console.log('ℹ️ Already on onboarding page — skipping popup modal validations');
@@ -982,14 +1020,14 @@ async function runFlow(
 
                 console.log(`🔍 Finding event tile: "${eventData.PPV_NAME}"`);
                 const eventCard = await schedulePagePostPayment.findEvent(eventData.PPV_NAME);
-                
+
                 console.log('🖱️ Clicking PPV event tile...');
                 await eventCard.click();
 
                 console.log('⏳ Waiting for navigation off the Schedule page...');
                 await page.waitForURL((url: URL) => !url.href.includes('/schedule'), { timeout: 15000 });
-                await page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => {});
-                
+                await page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => { });
+
                 const currentUrl = page.url();
                 console.log(`🔗 Post-payment redirected URL: ${currentUrl}`);
 
@@ -1716,7 +1754,9 @@ test('PPV flow for new user', async ({ browser }) => {
     const isUSorGB = REGION === 'GB' || REGION === 'US';
     // Dev mode: bypass phone number on ultimate flows in GB/US.
     // Enabled on all environments (including prod) when tier is ultimate.
-    const devMode = (isUltimate && isUSorGB) || (!!srcConfig.enableDevMode);
+    // Can also be forced via DEV_MODE_ON=on env variable for prod verification.
+    const devModeForced = (process.env.DEV_MODE_ON || '').toLowerCase() === 'on';
+    const devMode = devModeForced || (isUltimate && isUSorGB) || (!!srcConfig.enableDevMode);
     const endPage = srcConfig.endPage || 'payment';
     if (srcConfig.defaultSignup) {
       process.env.DEFAULT_SIGNUP = 'true';

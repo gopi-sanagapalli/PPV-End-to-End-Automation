@@ -99,11 +99,133 @@ export function resolveExpected(
         return eventData.CANCELLATION_TEXT_ULTIMATE_APU || '';
       } else if (currentRatePlanVal.includes('annual')) {
         const renewalDate = eventData.RENEWAL_DATE || '';
-        return `Your Annual (pay over time) plan will renew automatically on ${renewalDate}. Manage or cancel your annual renewal anytime in My Account. 12-month minimum term`;
+        let cancelText = eventData.CANCELLATION_TEXT_STANDARD_APM || `Your Annual (pay over time) plan will renew automatically on ${renewalDate}. Manage or cancel your annual renewal anytime in My Account. 12-month minimum term`;
+        cancelText = cancelText.replace(/\{\{RENEWAL_DATE\}\}/g, renewalDate)
+                               .replace(/\{\{CURRENCY\}\}/g, eventData.CURRENCY || '')
+                               .replace(/\{\{MONTHLY_PRICE\}\}/g, eventData.MONTHLY_PRICE || '');
+        return cancelText;
       }
     }
     if (field === 'annual savings badge' || field === 'save badge') {
       return eventData.ANNUAL_SAVINGS_BADGE || 'N/A';
+    }
+  }
+
+  // ── Non-1-month-free offer handling (7_day_trial, no_offer, etc.) ──
+  // When OFFER_TYPE is not 1_month_free, the DAZN Plan page should not show
+  // 1-month-free promotional expectations (badge, features, price text).
+  const currentOfferType = (eventData.OFFER_TYPE || '1_month_free').toLowerCase();
+  const currentRatePlan = (eventData.RATE_PLAN || '').replace(/-/g, ' ').toLowerCase();
+  const currentTier = (eventData.TIER || '').toLowerCase();
+  const isNonFreeMonthOffer = currentOfferType !== '1_month_free';
+  const isAnnualFreeMonth = (eventData.ANNUAL_FREE_BADGE || '').toLowerCase().includes('1 month free') || (eventData.ANNUAL_FREE_BADGE || '').toLowerCase().includes('1 month');
+
+  if (isNonFreeMonthOffer && !isSubscriptionOnly) {
+    // DAZN Plan page: no "1 MONTH FREE" badge, no promotional features/price text
+    if (pageName === 'dazn plan' || pageName === 'plan' || pageName === '') {
+      if (field === 'annual badge') {
+        return isAnnualFreeMonth ? (eventData.ANNUAL_FREE_BADGE || '') : 'N/A| |';
+      }
+      if (field === 'annual price text') {
+        return isAnnualFreeMonth ? (eventData.ANNUAL_PRICE_TEXT || '') : (eventData.PLAN_DETAILS_ANNUAL_MONTHLY_DESC || 'Annual contract. Auto renews.|N/A| |');
+      }
+      if (
+        field === 'annual feature 1' ||
+        field === 'annual feature 2' ||
+        field === 'annual feature 3'
+      ) {
+        if (isAnnualFreeMonth) {
+          const featKey = field.toUpperCase().replace(/\s+/g, '_');
+          return eventData[featKey] || '';
+        }
+        return 'N/A| |';
+      }
+      if (field === 'annual savings badge') {
+        return eventData.ANNUAL_SAVINGS_BADGE || 'N/A';
+      }
+    }
+
+    // Payment page overrides for non-1-month-free offers
+    if (pageName === 'payment' || pageName === '') {
+      // Payment page header for 7-day trial (monthly only — APM/APU always shows 'Choose how to pay')
+      if (currentOfferType === '7_day_trial' && !currentRatePlan.includes('annual') && (field === 'header' || field === 'payment page title')) {
+        return eventData.PAYMENT_PAGE_TITLE_TRIAL || 'Choose how to pay after your free trial';
+      }
+      if (field === 'rate plan original price' || field === 'rate plan discounted price') {
+        return 'N/A| |';
+      }
+      if (field === 'today you pay price' || field === 'today price' || (field.includes('today you pay') && !field.includes('text'))) {
+        return eventData.TODAY_YOU_PAY_PRICE || '';
+      }
+      if (currentRatePlan.includes('annual')) {
+        if (field === 'cancellation text' || field === 'cancel text') {
+          if (currentTier === 'ultimate' && currentRatePlan.includes('annual pay monthly')) {
+            return eventData.CANCELLATION_TEXT_ULTIMATE_APM || '';
+          }
+          if (currentTier === 'ultimate' && currentRatePlan.includes('annual pay upfront')) {
+            return eventData.CANCELLATION_TEXT_ULTIMATE_APU || '';
+          }
+          // Standard APM with no 1-month-free: use region-specific standard APM text
+          const renewalDate = eventData.RENEWAL_DATE || '';
+          let cancelText = eventData.CANCELLATION_TEXT_STANDARD_APM || eventData.CANCELLATION_TEXT_APM_NO_FREE || '';
+          if (!cancelText) {
+            cancelText = `Your Annual (pay over time) plan will renew automatically on ${renewalDate}. Manage or cancel your annual renewal anytime in My Account. 12-month minimum term`;
+          }
+          cancelText = cancelText.replace(/\{\{CURRENCY\}\}/g, eventData.CURRENCY || '')
+                                 .replace(/\{\{MONTHLY_PRICE\}\}/g, eventData.MONTHLY_PRICE || '')
+                                 .replace(/\{\{ANNUAL_PRICE\}\}/g, eventData.ANNUAL_PRICE || '')
+                                 .replace(/\{\{ANNUAL_TOTAL\}\}/g, eventData.ANNUAL_TOTAL || '')
+                                 .replace(/\{\{RENEWAL_DATE\}\}/g, renewalDate);
+          return cancelText;
+        }
+      }
+    }
+  }
+
+  // ── Monthly flex with no offer at all (no_offer / none) ──
+  // For PPVs/regions with no 7-day trial and no 1-month-free
+  const isNoOffer = currentOfferType === 'no_offer' || currentOfferType === 'none';
+  const isMonthlyNoOffer = isNoOffer && (currentRatePlan === 'monthly' || currentRatePlan === '');
+
+  if (isMonthlyNoOffer && !isSubscriptionOnly) {
+    // DAZN Plan page: no trial badge, no trial description
+    if (pageName === 'dazn plan' || pageName === 'plan' || pageName === '') {
+      if (field === 'flex badge') {
+        return 'N/A| |';
+      }
+      if (field === 'flex description') {
+        return eventData.PLAN_DETAILS_FLEX_DESC || 'Billed monthly. Cancel anytime.|N/A| |';
+      }
+      if (field === 'flex today text' || field === 'flex future text') {
+        return 'N/A| |';
+      }
+      // Annual fields: no 1 MONTH FREE badge either
+      if (field === 'annual badge') {
+        return 'N/A| |';
+      }
+      if (field === 'annual price text') {
+        return eventData.PLAN_DETAILS_ANNUAL_MONTHLY_DESC || 'Annual contract. Auto renews.|N/A| |';
+      }
+      if (
+        field === 'annual feature 1' ||
+        field === 'annual feature 2' ||
+        field === 'annual feature 3'
+      ) {
+        return 'N/A| |';
+      }
+    }
+
+    // Payment page: no free pricing
+    if (pageName === 'payment' || pageName === '') {
+      if (field === 'first month free price' || field === 'first month free text') {
+        return 'N/A| |';
+      }
+      if (field === 'today you pay price' || field === 'today price' || (field.includes('today you pay') && !field.includes('text'))) {
+        return eventData.TODAY_YOU_PAY_PRICE || '';
+      }
+      if (field === 'cancellation text' || field === 'cancel text') {
+        return eventData.CANCELLATION_TEXT || "Monthly subscription. Cancel with 30 days' notice. Your subscription auto-renews unless you cancel.";
+      }
     }
   }
 
@@ -407,8 +529,8 @@ export function resolveExpected(
       // Ultimate Annual Pay Upfront
       template = eventData.CANCELLATION_TEXT_ULTIMATE_APU || '';
     } else if (currentRatePlanVal.includes('annual')) {
-      // Standard Annual (1 month free offer)
-      template = eventData.CANCELLATION_TEXT_ANNUAL || '';
+      // Standard Annual — use region-specific APM text if available, else fallback to annual text
+      template = eventData.CANCELLATION_TEXT_STANDARD_APM || eventData.CANCELLATION_TEXT_ANNUAL || '';
     } else if (offerTypeVal === '7_day_trial') {
       // 7-day trial (monthly flex)
       template = eventData.CANCELLATION_TEXT_TRIAL || "In 7 days, you'll be charged {{CURRENCY}}{{MONTHLY_PRICE}}/month. Cancel anytime before the end of the trial.";

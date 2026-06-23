@@ -132,7 +132,14 @@ export function buildEventData(
 
   // Auto-compute NEXT_PAYMENT_DAYS_OFFSET from OFFER_TYPE if not explicitly set
   if (!base.NEXT_PAYMENT_DAYS_OFFSET) {
-    base.NEXT_PAYMENT_DAYS_OFFSET = base.OFFER_TYPE === '7_day_trial' ? 7 : 30;
+    const ot = (base.OFFER_TYPE || '1_month_free').toLowerCase();
+    if (ot === '7_day_trial') {
+      base.NEXT_PAYMENT_DAYS_OFFSET = 7;
+    } else if (ot === 'no_offer' || ot === 'none') {
+      base.NEXT_PAYMENT_DAYS_OFFSET = 30; // No trial/free period, next payment in ~1 month
+    } else {
+      base.NEXT_PAYMENT_DAYS_OFFSET = 30;
+    }
   }
 
   const env = (process.env.DAZN_ENV || 'stag').toLowerCase();
@@ -507,7 +514,7 @@ export function buildEventData(
     const monthly = parseFloat(base.ANNUAL_PAY_MONTHLY_PRICE.replace(/[^0-9.]/g, ''));
     const upfront = parseFloat(base.ANNUAL_UPFRONT_PRICE.replace(/[^0-9.]/g, ''));
     if (!isNaN(monthly) && !isNaN(upfront)) {
-      const saved = monthly * 12 - upfront;
+      const saved = Math.round((monthly * 12 - upfront) * 100) / 100;
       base.UPFRONT_SAVE_AMOUNT = saved % 1 === 0 ? saved.toFixed(0) : saved.toFixed(2);
     }
   }
@@ -536,6 +543,9 @@ export function buildEventData(
     // 1-month free also uses different cancellation text, not "Cancel with 30 days' notice"
     base.PAYMENT_FLEX_CANCEL_NOTICE = 'N/A';
     base.PAYMENT_FLEX_LEGAL_TEXT = 'N/A';
+  } else if (offerType === 'no_offer' || offerType === 'none') {
+    // No offer — keep default "Cancel with 30 days' notice" messaging
+    base.FLEX_FUTURE_DATE = 'N/A';
   } else {
     const futureDate = getNowIST();
     futureDate.setMonth(futureDate.getMonth() + 1);
@@ -543,6 +553,40 @@ export function buildEventData(
     const month = futureDate.toLocaleString('en-GB', { month: 'long' });
     const year = futureDate.getFullYear();
     base.FLEX_FUTURE_DATE = `In 1 month • ${day} ${month} ${year}`;
+  }
+
+  // ── Dynamic calculations for non-1-month-free plans ──
+  // When the event overrides OFFER_TYPE away from 1_month_free, recalculate
+  // savings badge and Today You Pay price dynamically.
+  if (offerType !== '1_month_free') {
+    // Annual Savings Badge: (MONTHLY_PRICE - ANNUAL_PRICE) * 12
+    // Recalculate for ALL plans since the DAZN Plan page shows both flex and annual options
+    const monthlyNum = parseFloat((base.MONTHLY_PRICE || '').replace(/[^0-9.]/g, ''));
+    const annualNum = parseFloat((base.ANNUAL_PRICE || '').replace(/[^0-9.]/g, ''));
+    if (!isNaN(monthlyNum) && !isNaN(annualNum) && monthlyNum > annualNum) {
+      // Round to 2dp first to fix floating point (e.g. (25.99-15.99)*12 = 119.999…)
+      const savings = Math.round((monthlyNum - annualNum) * 12 * 100) / 100;
+      const savingsStr = savings % 1 === 0 ? savings.toFixed(0) : savings.toFixed(2);
+      base.ANNUAL_SAVINGS_BADGE = `SAVE ${base.CURRENCY}${savingsStr} A YEAR`;
+      console.log(`💡 Recalculated ANNUAL_SAVINGS_BADGE for non-1-month-free: ${base.ANNUAL_SAVINGS_BADGE}`);
+    }
+
+    // Today You Pay: depends on tier
+    // - Ultimate: PPV is included, so Today You Pay = plan price only
+    // - Standard: PPV + plan price (no free month discount)
+    const isAnnualPlan = base.RATE_PLAN && base.RATE_PLAN.toLowerCase().includes('annual');
+    if (isAnnualPlan && base.TIER !== 'ultimate') {
+      const ppvPriceNum = parseFloat((base.PPV_PRICE || '').replace(/[^0-9.]/g, ''));
+      const planPriceNum = parseFloat((base.ANNUAL_PRICE || base.ANNUAL_PAY_MONTHLY_PRICE || '').replace(/[^0-9.]/g, ''));
+      if (!isNaN(ppvPriceNum) && !isNaN(planPriceNum)) {
+        const totalPay = Math.round((ppvPriceNum + planPriceNum) * 100) / 100;
+        const totalPayStr = totalPay % 1 === 0 ? totalPay.toFixed(0) : totalPay.toFixed(2);
+        base.TODAY_YOU_PAY_PRICE = `${base.CURRENCY}${totalPayStr}`;
+        console.log(`💡 Recalculated TODAY_YOU_PAY_PRICE for standard annual: ${base.TODAY_YOU_PAY_PRICE}`);
+      }
+    }
+    // For ultimate plans, TODAY_YOU_PAY_PRICE stays as set from event/plan config (plan price only)
+    // For monthly plans, TODAY_YOU_PAY_PRICE stays as PPV_PRICE (set from event config)
   }
 
   // ── FLATTEN upsell_ppv SECTION ─────────────────────────────────────

@@ -77,38 +77,57 @@ export class HomePage extends LandingPage {
     if (src === 'home-biggest-fights') {
       console.log('🔍 [HomePage Biggest Fights] Flow: Home → Competition Page → Coming Up → Popup');
 
-      // ── STEP 1: Scroll to the biggest fights section heading ──────────────
-      const sectionHeading = this.page.locator('h2, h3, [class*="title" i]')
-        .filter({
-          hasText: /biggest\s*fights/i
-        }).first();
+      // ── STEP 1: Scroll to the fights section heading ──────────────
+      // Section name is dynamic — could be "The Biggest Fights", "Saturday Fight Night", etc.
+      // Each source must verify from its specific section — if it doesn't exist, the test should fail.
+      const sectionPatterns = [
+        /biggest\s*fights/i,
+        /saturday\s*fight\s*night/i,
+        /fight\s*night/i,
+      ];
 
+      let sectionHeading: any = null;
       let foundHeading = false;
-      for (let i = 0; i < 15; i++) {
-        if (await sectionHeading.isVisible().catch(() => false)) {
-          foundHeading = true;
-          break;
+      let matchedPattern = '';
+
+      // Check all patterns at each scroll position (not one pattern at a time)
+      for (let i = 0; i < 15 && !foundHeading; i++) {
+        for (const pattern of sectionPatterns) {
+          const candidate = this.page.locator('h2, h3, [class*="title" i]')
+            .filter({ hasText: pattern }).first();
+          if (await candidate.isVisible().catch(() => false)) {
+            sectionHeading = candidate;
+            foundHeading = true;
+            matchedPattern = pattern.source;
+            break;
+          }
+          const attached = await candidate.waitFor({ state: 'attached', timeout: 200 })
+            .then(() => true).catch(() => false);
+          if (attached) {
+            sectionHeading = candidate;
+            foundHeading = true;
+            matchedPattern = pattern.source;
+            break;
+          }
         }
-        await this.page.evaluate((pos: number) => {
-          window.scrollTo({ top: pos, behavior: 'instant' });
-        }, (i + 1) * 500);
-        foundHeading = await sectionHeading.waitFor({ state: 'attached', timeout: 400 })
-          .then(() => true).catch(() => false);
-        if (foundHeading) break;
+        if (!foundHeading) {
+          await this.page.evaluate((pos: number) => {
+            window.scrollTo({ top: pos, behavior: 'instant' });
+          }, (i + 1) * 500);
+        }
       }
 
       if (!foundHeading) {
         throw new Error(
-          `❌ [HomePage Biggest Fights] Section heading "Biggest Fights" not found on Home page.`
+          `❌ [HomePage Biggest Fights] No fights section heading found on Home page. ` +
+          `Tried patterns: ${sectionPatterns.map(p => p.source).join(', ')}`
         );
       }
 
       await sectionHeading.scrollIntoViewIfNeeded().catch(() => { });
-      console.log('✅ [HomePage Biggest Fights] Section heading "Biggest Fights" found');
+      console.log(`✅ [HomePage Biggest Fights] Section heading found (matched: ${matchedPattern})`);
 
       // ── STEP 2: Find the rail wrapper ────────────────────────────────
-      // DOM: <h2 class="rail__title___xxx">The Biggest Fights</h2>
-      // Parent chain has div with class containing "rail"
       let sectionWrapper = sectionHeading.locator('xpath=ancestor::div[contains(@class,"rail")][1]');
       let hasWrapper = await sectionWrapper.isVisible({ timeout: 3000 }).catch(() => false);
       if (!hasWrapper) {
@@ -116,7 +135,6 @@ export class HomePage extends LandingPage {
         hasWrapper = await sectionWrapper.isVisible({ timeout: 2000 }).catch(() => false);
       }
       if (!hasWrapper) {
-        // Fallback: use parent's parent
         sectionWrapper = sectionHeading.locator('xpath=../..');
         hasWrapper = await sectionWrapper.isVisible({ timeout: 1000 }).catch(() => false);
       }
@@ -178,11 +196,9 @@ export class HomePage extends LandingPage {
         railsInterceptor.printRailsSummary();
       }
 
-      // Search for matching tile, navigating carousel if needed
-      // We collect promoter competition page URLs because there may be multiple
-      // competition tiles with the same promoter name (e.g., "Matchroom Boxing")
-      // Each navigates to a different competition page. We'll try each one until
-      // we find our PPV in the "Coming Up" section.
+      // For biggest-fights, tiles are competition tiles (show promoter names, not fighter names).
+      // The image alt attribute contains Competition:<ID> which matches our PPV_ENTITLEMENT_ID.
+      // Strategy: use Competition ID to find the correct tile, navigate carousel with > until visible.
       const tiles = sectionWrapper.locator('a[class*="tile" i], a[href*="competition"], a[href*="sport"], div[class*="tile" i] a, .swiper-slide a');
       const nextBtn = sectionWrapper.locator([
         'button[aria-label="Next slide"]',
@@ -191,16 +207,30 @@ export class HomePage extends LandingPage {
         'button[class*="next" i]',
       ].join(', ')).first();
 
-      const seenPromoterHrefs = new Set<string>();
-      const promoterHrefs: string[] = [];
-
       const findMatchingTile = async (): Promise<any> => {
-        const promoter = (eventData.PPV_PROMOTER || '').toLowerCase().trim();
         const count = await tiles.count().catch(() => 0);
 
-        // Priority 1: Entitlement-based — match by data-target-id from API tile index
-        // The RailsInterceptor tells us WHICH tile index has our PPV.
-        // We use this to click the correct tile in the DOM.
+        // Priority 1: Competition ID — match via image alt attribute (most reliable for competition tiles)
+        if (ppvEntitlementId) {
+          const competitionImg = sectionWrapper.locator(`img[alt*="Competition:${ppvEntitlementId}" i]:not(.swiper-slide-duplicate img)`).first();
+          const imgFound = await competitionImg.count().catch(() => 0);
+          if (imgFound > 0) {
+            const inView = await competitionImg.evaluate((el: HTMLElement) => {
+              const r = el.getBoundingClientRect();
+              return r.width > 0 && r.right > 0 && r.left < window.innerWidth;
+            }).catch(() => false);
+            if (inView) {
+              // Walk up to the parent tile link
+              const parentTile = competitionImg.locator('xpath=ancestor::a[1]');
+              if (await parentTile.count().catch(() => 0) > 0) {
+                console.log(`🎯 [Biggest Fights] ✅ Found PPV tile via Competition ID: ${ppvEntitlementId}`);
+                return parentTile;
+              }
+            }
+          }
+        }
+
+        // Priority 2: Entitlement-based — match by data-target-id from API tile index
         if (entitlementTileIndex >= 0 && entitlementTileIndex < count) {
           const tile = tiles.nth(entitlementTileIndex);
           if (await tile.isVisible().catch(() => false)) {
@@ -209,51 +239,33 @@ export class HomePage extends LandingPage {
           }
         }
 
+        // Priority 3: fighter name / PPV name text match
         let dateMatchTile: any = null;
+        const promoter = (eventData.PPV_PROMOTER || '').toLowerCase().trim();
 
         for (let i = 0; i < count; i++) {
           const tile = tiles.nth(i);
           if (!await tile.isVisible().catch(() => false)) continue;
           const text = (await tile.textContent().catch(() => '')) || '';
-          const href = (await tile.getAttribute('href').catch(() => '') || '');
           const textLower = text.toLowerCase().trim();
 
-          // Priority 2: fighter name / PPV name match
           if (matchesTileText(text)) {
             console.log(`🔍 [Biggest Fights] Matched tile by text: "${text.replace(/\s+/g, ' ').trim().substring(0, 80)}"`);
             return tile;
           }
 
-          // Priority 3: promoter + date disambiguation
-          // e.g., tile shows "Matchroom Boxing" + "JUL 25" → match by month/day
-          if (promoter && (textLower === promoter || textLower.includes(promoter))) {
+          // Priority 4: promoter + date disambiguation
+          if (promoter && textLower.includes(promoter)) {
             if (ppvMonth && textLower.includes(ppvMonth)) {
-              // Check day too if available
               if (!ppvDay || textLower.includes(ppvDay)) {
                 console.log(`📅 [Biggest Fights] Date-matched promoter tile: "${textLower.substring(0, 80)}" (month=${ppvMonth}, day=${ppvDay})`);
                 dateMatchTile = tile;
-                // Don't return yet — keep scanning for a stronger text match
               }
             }
-
-            // Priority 4: promoter name match - collect href URLs for later navigation
-            if (href) {
-              const fullUrl = href.startsWith('http')
-                ? href
-                : `${new URL(this.page.url()).origin}${href.startsWith('/') ? '' : '/'}${href}`;
-              if (!seenPromoterHrefs.has(fullUrl)) {
-                seenPromoterHrefs.add(fullUrl);
-                promoterHrefs.push(fullUrl);
-                console.log(`🔍 [Biggest Fights] Collected promoter URL ${promoterHrefs.length}: ${fullUrl.substring(0, 100)}`);
-              }
-            }
-            continue;
           }
         }
 
-        // Return date-matched tile if found (Priority 3)
         if (dateMatchTile) return dateMatchTile;
-
         return null;
       };
 
@@ -286,13 +298,13 @@ export class HomePage extends LandingPage {
       if (!targetTile) {
         throw new Error(
           `❌ [HomePage Biggest Fights] PPV tile for "${ppvName}" not found in ` +
-          `"The Biggest Fights" section after ${clicks} carousel slides.`
+          `"Saturday Fight Night" section after ${clicks} carousel slides. ` +
+          `Competition ID: ${ppvEntitlementId || 'N/A'}`
         );
       }
 
-      console.log(`✅ [Biggest Fights] PPV tile found after ${clicks} carousel clicks`);
-
       // ── STEP 4: Click tile → Navigate to competition page ────────────
+      console.log(`✅ [Biggest Fights] PPV tile found after ${clicks} carousel clicks`);
       await targetTile.click({ timeout: 5000 });
       console.log('🔗 [Biggest Fights] Clicked tile, waiting for competition page...');
 
@@ -301,58 +313,17 @@ export class HomePage extends LandingPage {
         { timeout: 15000 }
       );
       await this.page.waitForLoadState('domcontentloaded').catch(() => { });
+      await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });
       console.log(`✅ [Biggest Fights] Competition page loaded: ${this.page.url()}`);
 
-      // ── STEP 4b: If "Coming Up" doesn't have our PPV, try next promoter URL ──
-      // Multiple competition tiles may have the same promoter name (e.g., "Matchroom Boxing")
-      // Each navigates to a different competition page. We try each until we find our PPV.
-      const tryNextPromoterUrl = async (): Promise<boolean> => {
-        for (let attempt = 0; attempt < promoterHrefs.length; attempt++) {
-          // Look ahead: check if current page has our PPV in "Coming Up"
-          const comingUpCheck = this.page.locator('h2, h3, h4, [class*="title" i]')
-            .filter({ hasText: /Coming [Uu]p/i }).first();
-          const hasComingUp = await comingUpCheck.isVisible({ timeout: 3000 }).catch(() => false);
-          
-          if (!hasComingUp) {
-            console.log('⚠️ [Biggest Fights] No "Coming Up" section found on current competition page');
-          } else {
-            // Search for our PPV tile in Coming Up
-            const rail = comingUpCheck.locator('xpath=ancestor::div[contains(@class,"rail")][1] | xpath=../..');
-            const ppvTile = rail.locator('a, div[class*="tile" i]')
-              .filter({ hasText: new RegExp(`${fighter1}|${fighter2}|${ppvName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i') }).first();
-            if (await ppvTile.isVisible({ timeout: 2000 }).catch(() => false)) {
-              console.log('✅ [Biggest Fights] Our PPV found in "Coming Up" on this competition page');
-              return true; // Found it, stay on this page
-            }
-            console.log('⚠️ [Biggest Fights] Our PPV NOT in "Coming Up" — trying next promoter URL');
-          }
-
-          // Navigate to next promoter URL
-          if (attempt < promoterHrefs.length - 1) {
-            const nextUrl = promoterHrefs[attempt + 1];
-            console.log(`🔗 [Biggest Fights] Trying next competition URL: ${nextUrl.substring(0, 100)}`);
-            await this.page.goto(nextUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
-            await this.page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => { });
-            await this.page.waitForTimeout(500);
-          }
-        }
-        return false;
-      };
-
-      const foundCorrectPage = await tryNextPromoterUrl();
-      if (!foundCorrectPage && promoterHrefs.length > 0) {
-        console.log('⚠️ [Biggest Fights] Our PPV not found in any competition page — using last one');
-        await this.page.goto(promoterHrefs[promoterHrefs.length - 1], { waitUntil: 'domcontentloaded', timeout: 15000 });
-        await this.page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => { });
-      }
-      console.log(`✅ [Biggest Fights] Final competition page: ${this.page.url()}`);
-
       // ── STEP 5: Scroll to "Coming Up" section on competition page ────
+      // Wait for rails content to appear (async API-loaded) instead of hard timeout
+
       const comingUpHeading = this.page.locator('h2, h3, h4, [class*="title" i]')
-        .filter({ hasText: /Coming [Uu]p/i }).first();
+        .filter({ hasText: /coming\s*up/i }).first();
 
       let foundComingUp = false;
-      for (let i = 0; i < 10; i++) {
+      for (let i = 0; i < 15; i++) {
         if (await comingUpHeading.isVisible().catch(() => false)) {
           foundComingUp = true;
           break;
@@ -360,7 +331,7 @@ export class HomePage extends LandingPage {
         await this.page.evaluate((pos: number) => {
           window.scrollTo({ top: pos, behavior: 'instant' });
         }, (i + 1) * 400);
-        foundComingUp = await comingUpHeading.waitFor({ state: 'attached', timeout: 300 })
+        foundComingUp = await comingUpHeading.waitFor({ state: 'attached', timeout: 500 })
           .then(() => true).catch(() => false);
         if (foundComingUp) break;
       }
@@ -503,6 +474,7 @@ export class HomePage extends LandingPage {
 
       const ppvImg = railWrapper.locator(imgSelector).first();
       const ppvTileLink = ppvImg.locator('xpath=ancestor::a[1]');
+
 
       const isTileInView = async (): Promise<any> => {
         // First check candidates by text
@@ -816,7 +788,7 @@ export class HomePage extends LandingPage {
     }
 
     if (src === 'home-biggest-fights') {
-      console.log('💳 [Biggest Fights] Clicking PPV tile on Competition page → Popup → Buy now');
+      console.log('💳 [Biggest Fights] Clicking PPV tile on Competition page → Popup');
 
       if (!container) {
         throw new Error('❌ [Biggest Fights] Coming Up tile container is null');
@@ -827,7 +799,7 @@ export class HomePage extends LandingPage {
       await container.click({ timeout: 5000 });
       console.log('✅ [Biggest Fights] Clicked Coming Up tile, waiting for popup modal...');
 
-      // Wait for popup modal to appear
+      // Wait for popup modal to appear — then return so handlePopupModal can validate + click Buy Now
       const modalSelectors = [
         '[role="dialog"]',
         '[aria-modal="true"]',
@@ -836,56 +808,17 @@ export class HomePage extends LandingPage {
         '[class*="Dialog" i]',
       ];
 
-      let foundModal: any = null;
-      const ctaSelector =
-        'button:has-text("Buy now"), a:has-text("Buy now"), ' +
-        'button:has-text("Buy Now"), a:has-text("Buy Now"), ' +
-        'button:has-text("Subscribe"), a:has-text("Subscribe"), ' +
-        'button:has-text("Continue"), a:has-text("Continue")';
-
       for (const selector of modalSelectors) {
-        const modalLocator = this.page.locator(selector)
-          .filter({ has: this.page.locator(ctaSelector) }).first();
-        try {
-          await modalLocator.waitFor({ state: 'visible', timeout: 5000 });
-          if (await modalLocator.isVisible().catch(() => false)) {
-            foundModal = modalLocator;
-            break;
-          }
-        } catch {
-          // Try next selector
-        }
-      }
-
-      if (!foundModal) {
-        throw new Error('❌ [Biggest Fights] Popup modal not found after clicking Coming Up tile');
-      }
-
-      console.log('✅ [Biggest Fights] Popup modal appeared');
-
-      // Click "Buy now" inside the popup modal
-      const buyNowBtn = foundModal.locator(ctaSelector).first();
-      const visible = await buyNowBtn.isVisible({ timeout: 3000 }).catch(() => false);
-      if (!visible) {
-        throw new Error('❌ [Biggest Fights] "Buy now" button not visible inside popup modal');
-      }
-
-      try {
-        await buyNowBtn.click({ timeout: 5000 });
-        console.log('✅ [Biggest Fights] Clicked Buy now in popup modal');
-        return;
-      } catch (clickErr: any) {
-        console.log(`⚠️ Standard click failed: ${clickErr.message} — trying JS click`);
-        const handle = await buyNowBtn.elementHandle().catch(() => null);
-        if (handle) {
-          await this.page.evaluate((el: any) => el.click(), handle);
-          console.log('✅ [Biggest Fights] JS click on Buy now executed');
+        const modalLocator = this.page.locator(selector).first();
+        const appeared = await modalLocator.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false);
+        if (appeared) {
+          console.log('✅ [Biggest Fights] Popup modal appeared — handing off to popup handler for validation + Buy Now click');
           return;
         }
-        await buyNowBtn.click({ force: true, timeout: 5000 });
-        console.log('✅ [Biggest Fights] Force-clicked Buy now');
-        return;
       }
+
+      console.log('⚠️ [Biggest Fights] Popup modal not detected — handlePopupModal will attempt to find it');
+      return;
     }
 
     if (src === 'home-page-dont-miss') {
