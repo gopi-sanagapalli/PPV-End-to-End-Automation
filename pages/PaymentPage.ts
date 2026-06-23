@@ -531,23 +531,61 @@ export class PaymentPage extends BasePage {
       status: tierStatus,
     });
 
-    // Validate 2: PPV Price = £0 / $0 / €0 (included in Ultimate — no extra cost)
+    // Validate 2: PPV price is zero because it is included in Ultimate.
+    // Event titles are not always in a "Fighter vs Fighter" format.
     const ppvName = eventData.PPV_NAME || '';
-    const vsMatch = ppvName.match(/(\w+)\s+vs\.?\s+(\w+)/i);
-    const fighter1 = vsMatch ? vsMatch[1].toLowerCase() : '';
-    const ppvIdx = fighter1 ? lower.indexOf(fighter1) : -1;
+    let ppvIdx = -1;
+
+    const titleParts = ppvName
+      .toLowerCase()
+      .split(/[:\-–]/)
+      .map(part => part.trim())
+      .filter(part => part.length > 3);
+
+    for (const part of titleParts) {
+      const idx = lower.indexOf(part);
+      if (idx >= 0) {
+        ppvIdx = idx;
+        break;
+      }
+    }
+
+    if (ppvIdx === -1) {
+      const titleWords = ppvName
+        .toLowerCase()
+        .split(/\s+/)
+        .filter(word => word.length > 3);
+
+      for (const word of titleWords) {
+        const idx = lower.indexOf(word);
+        if (idx >= 0) {
+          ppvIdx = idx;
+          break;
+        }
+      }
+    }
+
     let actualPPVPrice = 'N/A';
     if (ppvIdx >= 0) {
-      const nearText = bodyText.substring(ppvIdx, ppvIdx + 200);
-      const priceMatch = nearText.match(/[\$£€₹]\s?0(?:\.00)?/);
+      const nearText = bodyText.substring(ppvIdx, ppvIdx + 300);
+      const priceMatch = nearText.match(/(?:AED\s?|[\$£€₹]\s?)0(?:\.00)?\b/);
       if (priceMatch) actualPPVPrice = priceMatch[0].trim();
     }
-    const ppvPriceStatus = /^[£$€₹]\s?0/.test(actualPPVPrice) ? 'PASS' : 'FAIL';
-    console.log(`  ${ppvPriceStatus === 'PASS' ? '✅' : '❌'} [Ultimate Switch - PPV Price] expected="£0/$0/€0" actual="${actualPPVPrice}"`);
+
+    const ppvPriceStatus =
+      /^(?:AED\s?|[£$€₹]\s?)0(?:\.00)?$/.test(actualPPVPrice)
+        ? 'PASS'
+        : 'FAIL';
+
+    console.log(
+      `  ${ppvPriceStatus === 'PASS' ? '✅' : '❌'} ` +
+      `[Ultimate Switch - PPV Price] expected="zero PPV price" actual="${actualPPVPrice}"`
+    );
+
     results.push({
       page: 'Payment',
       field: 'Ultimate Switch - PPV Price',
-      expected: '£0 / $0 / €0',
+      expected: 'zero PPV price',
       actual: actualPPVPrice,
       status: ppvPriceStatus,
     });
