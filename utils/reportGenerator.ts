@@ -428,6 +428,16 @@ export async function generateReports(
     fs.copyFileSync(meta.videoPath, path.join(runDir, `PPV_Video${path.extname(meta.videoPath)}`));
   }
 
-  console.log(`📂 Report folder: ${runDir}`);
+  const bundledExcelPath = path.join(runDir, 'PPV_Results.xlsx');
+  const bundledVideoPath = meta.videoPath
+    ? path.join(runDir, `PPV_Video${path.extname(meta.videoPath)}`)
+    : null;
+
+  console.log('\n📊 Final report bundle');
+  console.log(`  HTML : ${htmlPath}`);
+  console.log(`  PDF  : ${pdfOk ? pdfPath : 'not generated'}`);
+  console.log(`  Excel: ${fs.existsSync(bundledExcelPath) ? bundledExcelPath : 'not generated'}`);
+  console.log(`  Video: ${bundledVideoPath && fs.existsSync(bundledVideoPath) ? bundledVideoPath : 'not generated'}`);
+
   return { htmlPath, pdfPath: pdfOk ? pdfPath : null, folderPath: runDir };
 }

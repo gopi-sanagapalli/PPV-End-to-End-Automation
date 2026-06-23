@@ -1859,7 +1859,6 @@ for (const planKey of plansToRun) {
         videoPath,
         userType: 'new-user',
       });
-      if (folderPath) console.log(`\n📂 Report folder: ${folderPath}`);
 
       // Playwright manages the browser lifecycle. Closing the browser manually is not recommended.
 
