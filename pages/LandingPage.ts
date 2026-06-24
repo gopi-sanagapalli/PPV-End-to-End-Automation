@@ -200,6 +200,8 @@ export class LandingPage extends BasePage {
       return null;
     }
 
+    // Scroll to the carousel to ensure it is in view for hover/click interactions
+    await carousel.scrollIntoViewIfNeeded().catch(() => {});
     await stopAllAutoSlide();
 
     // Helper to get the currently active slide text
@@ -251,9 +253,13 @@ export class LandingPage extends BasePage {
       'button[aria-label*="next" i]',
       'button[class*="swiper-next" i]',
       'button[class*="chevron" i]',
+      '[class*="chevron-right" i]',
+      '[class*="chevron-next" i]',
+      '[class*="next-button" i]',
+      '[class*="button-next" i]',
     ].filter(Boolean).join(', ');
 
-    const nextBtn = carousel.locator(nextBtnSelectors).first();
+    let nextBtn = carousel.locator(nextBtnSelectors).first();
     let firstSlideText = activeText.substring(0, 100);
     const maxSlides = Math.max(totalSlideCount + 2, 10); // Navigate at most totalSlides + buffer
 
@@ -291,7 +297,23 @@ export class LandingPage extends BasePage {
 
       // Click next
       console.log(`  slide ${attempt + 1}: "${currentText.substring(0, 50)}..." — clicking next`);
-      if (await nextBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
+
+      // Hover over the carousel to reveal chevron/navigation buttons
+      await carousel.hover().catch(() => {});
+      await this.page.waitForTimeout(200);
+
+      // Check visibility at carousel level, fallback to page level if needed
+      let nextBtnVisible = await nextBtn.isVisible({ timeout: 1000 }).catch(() => false);
+      if (!nextBtnVisible) {
+        const pageNextBtn = this.page.locator(nextBtnSelectors).first();
+        if (await pageNextBtn.isVisible({ timeout: 500 }).catch(() => false)) {
+          console.log('ℹ️  [Banner] Next button found at page-level instead of carousel-level');
+          nextBtn = pageNextBtn;
+          nextBtnVisible = true;
+        }
+      }
+
+      if (nextBtnVisible) {
         const prevText = currentText;
         await nextBtn.click({ force: true }).catch(() => {});
 
