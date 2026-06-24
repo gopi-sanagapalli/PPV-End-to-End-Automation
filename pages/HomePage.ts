@@ -662,10 +662,14 @@ export class HomePage extends LandingPage {
         'header button:has-text("Get started")',
         'header a:has-text("Sign up")',
         'header button:has-text("Sign up")',
+        'header a:has-text("Sign up now")',
+        'header button:has-text("Sign up now")',
         '[class*="header" i] a:has-text("Get started")',
         '[class*="header" i] button:has-text("Get started")',
         '[class*="header" i] a:has-text("Sign up")',
-        '[class*="header" i] button:has-text("Sign up")'
+        '[class*="header" i] button:has-text("Sign up")',
+        '[class*="header" i] a:has-text("Sign up now")',
+        '[class*="header" i] button:has-text("Sign up now")'
       ].join(', ')).first();
 
       let found = await getStartedBtn.waitFor({ state: 'visible', timeout: 3000 })
@@ -678,10 +682,12 @@ export class HomePage extends LandingPage {
       }
 
       console.log('⚠️ [HomePage] Header "Get Started" CTA not visible — trying page-wide search');
-      getStartedBtn = this.page.locator(
-        'button:has-text("Get started "), a:has-text("Get started"), ' +
-        'button:has-text("Get started"), a:has-text("Get started")'
-      ).first();
+      getStartedBtn = this.page.locator([
+        'button:has-text("Get started ")', 'a:has-text("Get started")',
+        'button:has-text("Get started")', 'a:has-text("Get started")',
+        'button:has-text("Sign up")', 'a:has-text("Sign up")',
+        'button:has-text("Sign up now")', 'a:has-text("Sign up now")'
+      ].join(', ')).first();
 
       found = await getStartedBtn.waitFor({ state: 'visible', timeout: 12000 })
         .then(() => true)

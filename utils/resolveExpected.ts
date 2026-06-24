@@ -68,10 +68,15 @@ export function resolveExpected(
   let raw = rule.Expected ?? rule.Value;
 
   const currentSource = (eventData.SOURCE || eventData.source || '').trim().toLowerCase();
+  
+  // Check if a PPV event is active. If a PPV event is active, the boxing subscription-only sources
+  // will render the PPV-bundled offers on the live site, so they should be validated using the PPV rules.
+  const hasPPVEvent = eventData.PPV_NAME && eventData.PPV_NAME !== 'N/A' && eventData.PPV_NAME !== 'none';
   const isSubscriptionOnly =
-    currentSource === 'boxing-ultimate-subscription' ||
-    currentSource === 'boxing-standard-subscription' ||
-    currentSource === 'boxing-join-the-club';
+    (currentSource === 'boxing-ultimate-subscription' ||
+     currentSource === 'boxing-standard-subscription' ||
+     currentSource === 'boxing-join-the-club') &&
+    !hasPPVEvent;
 
   if (isSubscriptionOnly) {
     // In subscription-only flow (no PPV), the plans page shows default descriptions
@@ -289,27 +294,22 @@ export function resolveExpected(
       }
     }
 
+    const currentTier = (eventData.TIER || '').trim().toLowerCase();
+    const isDefaultSignup =
+      process.env.DEFAULT_SIGNUP === 'true' ||
+      currentSource === 'home-page-get-started' ||
+      currentSource === 'home-page-dazntile' ||
+      currentSource === 'boxing-ultimate-subscription' ||
+      currentSource === 'boxing-standard-subscription' ||
+      currentSource === 'boxing-join-the-club';
+
     if (field === 'upsell offer text' && (!eventData.UPSELL_PRICE || eventData.UPSELL_PRICE.trim() === '' || eventData.UPSELL_PRICE.trim().toUpperCase() === 'N/A')) {
       raw = 'N/A';
     } else if (field === 'annual pay monthly contract text' && (!eventData.UPSELL_PRICE || eventData.UPSELL_PRICE.trim() === '' || eventData.UPSELL_PRICE.trim().toUpperCase() === 'N/A')) {
       raw = 'Annual contract. Auto renews.';
-    } else if (field === 'ppv name' && (
-      currentSource === 'boxing-ultimate' ||
-      currentSource === 'boxing-bundle-ultimate' ||
-      currentSource === 'boxing-banner-ultimate' ||
-      currentSource === 'boxing-ultimate-subscription' ||
-      currentSource === 'boxing-standard-subscription' ||
-      currentSource === 'boxing-join-the-club'
-    )) {
+    } else if (field === 'ppv name' && isDefaultSignup) {
       raw = 'N/A';
-    } else if (field === 'ppv price' && (
-      currentSource === 'boxing-ultimate' ||
-      currentSource === 'boxing-bundle-ultimate' ||
-      currentSource === 'boxing-banner-ultimate' ||
-      currentSource === 'boxing-ultimate-subscription' ||
-      currentSource === 'boxing-standard-subscription' ||
-      currentSource === 'boxing-join-the-club'
-    )) {
+    } else if (field === 'ppv price' && isDefaultSignup) {
       raw = 'N/A';
     } else if (field === 'ultimate feature 1' || field === 'ultimate feature 2' || field === 'ultimate feature 3') {
       if (
@@ -562,8 +562,12 @@ export function resolveExpected(
       // Ultimate Annual Pay Upfront
       template = eventData.CANCELLATION_TEXT_ULTIMATE_APU || '';
     } else if (currentRatePlanVal.includes('annual')) {
-      // Standard Annual — use region-specific APM text if available, else fallback to annual text
-      template = eventData.CANCELLATION_TEXT_STANDARD_APM || eventData.CANCELLATION_TEXT_ANNUAL || '';
+      // Standard Annual — if we have a 1-month free offer, prefer offer-specific CANCELLATION_TEXT_ANNUAL
+      if (offerTypeVal === '1_month_free') {
+        template = eventData.CANCELLATION_TEXT_ANNUAL || eventData.CANCELLATION_TEXT_STANDARD_APM || '';
+      } else {
+        template = eventData.CANCELLATION_TEXT_STANDARD_APM || eventData.CANCELLATION_TEXT_ANNUAL || '';
+      }
     } else if (offerTypeVal === '7_day_trial') {
       // 7-day trial (monthly flex)
       template = eventData.CANCELLATION_TEXT_TRIAL || "In 7 days, you'll be charged {{CURRENCY}}{{MONTHLY_PRICE}}/month. Cancel anytime before the end of the trial.";
@@ -581,6 +585,15 @@ export function resolveExpected(
       .replace(/\{\{ANNUAL_PRICE\}\}/g, eventData.ANNUAL_PRICE || '')
       .replace(/\{\{ANNUAL_TOTAL\}\}/g, eventData.ANNUAL_TOTAL || '')
       .replace(/\{\{RENEWAL_DATE\}\}/g, eventData.RENEWAL_DATE || '');
+  }
+
+  // Clean up any duplicate currency symbols (e.g., $$ or ££)
+  const currencySymbol = eventData.CURRENCY || '';
+  if (currencySymbol) {
+    const doubleCurrency = `${currencySymbol}${currencySymbol}`;
+    while (template.includes(doubleCurrency)) {
+      template = template.replace(doubleCurrency, currencySymbol);
+    }
   }
 
   // Date-only fields — use getDynamicDateBadge (generates candidates with and without time)

@@ -751,7 +751,7 @@ export async function getActualValue(
       return found !== 'N/A' ? found : 'Not found';
     }
     case 'banner - event description': {
-      const expectedDesc = eventData?.PPV_DESCRIPTION || '';
+      const expectedDesc = eventData?.BANNER_DESCRIPTION || '';
       const words = expectedDesc.split(/[\s,.:;\-–]+/)
         .map(w => w.toLowerCase())
         .filter(w => w.length > 3 && !['with', 'from', 'that', 'this', 'then', 'takes', 'their'].includes(w));
@@ -1426,14 +1426,14 @@ export async function getActualValue(
     // ════════════════════════════════════════════════════════════
     case 'ppv name': {
       const source = (eventData?.SOURCE || eventData?.source || '').toLowerCase();
-      if (
-        source === 'boxing-ultimate' ||
-        source === 'boxing-bundle-ultimate' ||
-        source === 'boxing-banner-ultimate' ||
+      const isDefaultSignup =
+        process.env.DEFAULT_SIGNUP === 'true' ||
+        source === 'home-page-get-started' ||
+        source === 'home-page-dazntile' ||
         source === 'boxing-ultimate-subscription' ||
         source === 'boxing-standard-subscription' ||
-        source === 'boxing-join-the-club'
-      ) {
+        source === 'boxing-join-the-club';
+      if (isDefaultSignup) {
         return 'N/A';
       }
       const url = page.url();
@@ -2058,14 +2058,14 @@ export async function getActualValue(
     // ════════════════════════════════════════════════════════════
     case 'ppv price': {
       const source = (eventData?.SOURCE || eventData?.source || '').toLowerCase();
-      if (
-        source === 'boxing-ultimate' ||
-        source === 'boxing-bundle-ultimate' ||
-        source === 'boxing-banner-ultimate' ||
+      const isDefaultSignup =
+        process.env.DEFAULT_SIGNUP === 'true' ||
+        source === 'home-page-get-started' ||
+        source === 'home-page-dazntile' ||
         source === 'boxing-ultimate-subscription' ||
         source === 'boxing-standard-subscription' ||
-        source === 'boxing-join-the-club'
-      ) {
+        source === 'boxing-join-the-club';
+      if (isDefaultSignup) {
         return 'N/A';
       }
       const expectedPrice = eventData?.PPV_PRICE || '';
