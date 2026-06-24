@@ -11,3 +11,12 @@ reports/
 videos/
 auth/dazn-storage-state.json
 .env
+
+# IDE & Local Settings
+.claude/
+.cursor/
+.vscode/
+
+# Scratch & Temporary files
+scratch/
+~$*.xlsx
