@@ -127,14 +127,42 @@ export async function stabilisePage(page: Page): Promise<void> {
 // ─────────────────────────────────────────────────────────────────
 // DISMISS MARKETING POPUP ("Unlock exclusive content")
 // ─────────────────────────────────────────────────────────────────
-export async function dismissMarketingPopup(page: Page): Promise<void> {
+export async function dismissMarketingPopup(page: Page, timeout: number = 0): Promise<void> {
   if (page.isClosed()) return;
   try {
-    const keepMeUpdatedBtn = page.locator('button:has-text("Keep me updated"), button:has-text("Keep Me Updated")').first();
-    if (await keepMeUpdatedBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
-      console.log('🔔 Marketing popup ("Unlock exclusive content") detected. Clicking "Keep me updated"...');
-      await keepMeUpdatedBtn.click({ force: true }).catch(() => { });
-      console.log('✅ Clicked "Keep me updated"');
+    const dismissSelectors = [
+      'button:has-text("Maybe later")',
+      'button:has-text("Maybe Later")',
+      'button:has-text("No thanks")',
+      'button:has-text("No Thanks")',
+      'button:has-text("Not now")',
+      'button:has-text("Not Now")',
+      'button:has-text("Close")',
+      'button:has-text("Dismiss")',
+      'button:has-text("Keep me updated")',
+      'button:has-text("Keep Me Updated")',
+      '[aria-label="Close"]',
+      '[aria-label="close"]',
+      '[aria-label*="close" i]',
+      '[data-testid*="close" i]',
+    ].join(', ');
+
+    const popup = page.locator(dismissSelectors).first();
+    
+    let isVisible = false;
+    if (timeout > 0) {
+      isVisible = await popup.waitFor({ state: 'visible', timeout })
+        .then(() => true)
+        .catch(() => false);
+    } else {
+      isVisible = await popup.isVisible().catch(() => false);
+    }
+
+    if (isVisible) {
+      const btnText = await popup.textContent().catch(() => '');
+      console.log(`🔔 Marketing popup detected ("${btnText?.trim()}"). Dismissing...`);
+      await popup.click({ force: true }).catch(() => { });
+      console.log('✅ Dismissed marketing popup');
     }
   } catch (e) {
     console.warn('⚠️ Error in dismissMarketingPopup:', e);

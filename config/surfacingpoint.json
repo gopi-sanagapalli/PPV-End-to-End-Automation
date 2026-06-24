@@ -58,6 +58,11 @@
     "source": "myaccount",
     "endPage": "payment"
   },
+  "myaccount-subscription-status": {
+    "source": "myaccount-subscription-status",
+    "endPage": "payment",
+    "defaultSignup": true
+  },
   "home-kickboxing-tile": {
     "source": "home-kickboxing-tile",
     "endPage": "payment"

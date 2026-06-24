@@ -12,6 +12,15 @@ videos/
 auth/dazn-storage-state.json
 .env
 
+# IDE & Local Settings
+.claude/
+.cursor/
+.vscode/
+
+# Scratch & Temporary files
+scratch/
+~$*.xlsx
+
 # GitHub Actions runners
 actions-runner/
 actions-runner-2/
@@ -27,3 +36,4 @@ actions-runner-5/
 _work/
 _diag/
 
+playwright-report/

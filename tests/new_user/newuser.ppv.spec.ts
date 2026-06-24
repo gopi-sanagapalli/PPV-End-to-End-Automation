@@ -618,14 +618,33 @@ async function runFlow(
     // ── STRICT VALIDATION FOR BOXING-STANDARD-SUBSCRIPTION / HOME-PAGE-GET-STARTED / HOME-PAGE-DAZNTILE REDIRECT ──
     if (source === 'boxing-standard-subscription' || source === 'home-page-get-started' || source === 'home-page-dazntile') {
       console.log(`\n🔍 Validating ${source} redirect...`);
+      
+      // Step 1: Wait for URL to update to one of the target pages
       await page.waitForFunction(() => {
         const href = window.location.href.toLowerCase();
-        const text = document.body.innerText.toLowerCase();
         return href.includes('plandetails') ||
           href.includes('tierplans') ||
+          href.includes('signup');
+      }, { timeout: 15000 }).catch(() => { });
+
+      // Step 2: Wait for page load states to settle
+      await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => { });
+      await page.waitForLoadState('load', { timeout: 5000 }).catch(() => { });
+
+      // Step 3: Wait for the page body text to render and settle (not loading/empty, and contains common page or PPV elements)
+      await page.waitForFunction(() => {
+        const text = document.body.innerText.toLowerCase();
+        if (text.trim() === '' || text.includes('loading')) {
+          return false;
+        }
+        return text.includes('subscribe without a pay-per-view') ||
+          text.includes('continue without pay-per-view') ||
+          text.includes('continue without a pay-per-view') ||
           text.includes('choose a plan') ||
           text.includes('dazn standard') ||
-          text.includes('subscribe without a pay-per-view');
+          text.includes('create an account') ||
+          text.includes('email address') ||
+          text.includes('password');
       }, { timeout: 15000 }).catch(() => { });
 
       const stdUrl = page.url();
@@ -633,31 +652,40 @@ async function runFlow(
 
       // Must NOT land on PPV page
       if (stdBody.toLowerCase().includes('to watch your pay-per-view') &&
-        !stdUrl.includes('PlanDetails') && !stdUrl.includes('TierPlans')) {
-        throw new Error(`❌ [${source}] Unexpectedly redirected to PPV page — expected PlanDetails (Standard).`);
+        !stdUrl.includes('PlanDetails') && !stdUrl.includes('TierPlans') && !stdUrl.includes('signup')) {
+        throw new Error(`❌ [${source}] Unexpectedly redirected to PPV page — expected PlanDetails or signup (Standard).`);
       }
 
-      if (!stdUrl.includes('PlanDetails') && !stdUrl.includes('TierPlans')) {
-        throw new Error(`❌ [${source}] Expected to land on PlanDetails or TierPlans (Standard), but landed on: ${stdUrl}`);
+      if (!stdUrl.includes('PlanDetails') && !stdUrl.includes('TierPlans') && !stdUrl.includes('signup')) {
+        throw new Error(`❌ [${source}] Expected to land on PlanDetails, TierPlans, or signup (Standard), but landed on: ${stdUrl}`);
       }
 
-      // defaultSignup=true means the plan page should contain a PPV option ("subscribe without a pay-per-view").
-      // For the DAZN entitlement-tile journey, reaching TierPlans is the
-      // verified end state. PPV availability is configuration-dependent.
-      if (!stdBody.toLowerCase().includes('subscribe without a pay-per-view')) {
+      // defaultSignup=true means the plan/signup page must contain a PPV option.
+      const hasPPVOption =
+        stdBody.toLowerCase().includes('subscribe without a pay-per-view') ||
+        stdBody.toLowerCase().includes('continue without pay-per-view') ||
+        stdBody.toLowerCase().includes('continue without a pay-per-view');
+
+      if (!hasPPVOption) {
         if (source === 'home-page-dazntile') {
-          console.log(
-            `ℹ️ [${source}] PPV is not enabled in default sign-up. ` +
-            `Tile → Subscribe → TierPlans journey completed.\nURL: ${stdUrl}`
+          throw new Error(
+            `❌ [${source}] PPV is not configured in default sign-up after ` +
+            `DAZN entitlement tile → Subscribe.\n` +
+            `URL: ${stdUrl}`
           );
+        }
 
-          await context.close().catch(() => {});
-          return { results, reachedEndPage: true };
+        if (source === 'home-page-get-started') {
+          throw new Error(
+            `❌ [${source}] PPV is not configured in default sign-up after ` +
+            `Home Page Get Started → default sign-up.\n` +
+            `URL: ${stdUrl}`
+          );
         }
 
         throw new Error(
-          `❌ [${source}] Landed on plan page but no PPV option found ` +
-          `("subscribe without a pay-per-view" absent). No PPV exists for this event.\n` +
+          `❌ [${source}] Landed on plan/signup page but no PPV option found ` +
+          `("subscribe without a pay-per-view" or "continue without pay-per-view" absent). No PPV exists for this event.\n` +
           `URL: ${stdUrl}`
         );
       }
@@ -720,19 +748,42 @@ async function runFlow(
       console.log(`\nstep ${step + 1} → pageType: ${pageType} | planClicks: ${planClickCount} | url: ${page.url()}`);
 
       // ── Default Signup validation check: Fail if no PPV ──
-      // Skip this check for boxing subscription sources — they intentionally bypass the PPV page
-      // and go directly to plans. DEFAULT_SIGNUP=true is still set for them (they are sub-only flows)
-      // but the "no PPV" check only applies to home-page / landing-page default signup sources.
+      // Source-specific redirect validation above owns this check for
+      // home-page-dazntile and home-page-get-started, avoiding duplicate
+      // or less-specific failures later in the flow.
       const isBoxingSubscriptionSource =
         SOURCE === 'boxing-ultimate-subscription' ||
         SOURCE === 'boxing-standard-subscription' ||
         SOURCE === 'boxing-join-the-club';
-      if (process.env.DEFAULT_SIGNUP === 'true' && !ppvValidated && !isBoxingSubscriptionSource) {
+
+      const isAlreadyValidatedDefaultSignupSource =
+        SOURCE === 'home-page-dazntile' ||
+        SOURCE === 'home-page-get-started';
+
+      if (
+        process.env.DEFAULT_SIGNUP === 'true' &&
+        !ppvValidated &&
+        !isBoxingSubscriptionSource &&
+        !isAlreadyValidatedDefaultSignupSource
+      ) {
         const url = page.url().toLowerCase();
-        if (url.includes('page=tierplans') || url.includes('page=plandetails') || pageType === 'plan' || pageType === 'email') {
-          const bodyText = await page.locator('body').innerText({ timeout: 2000 }).then((t: string) => t.toLowerCase()).catch(() => '');
+
+        if (
+          url.includes('page=tierplans') ||
+          url.includes('page=plandetails') ||
+          pageType === 'plan' ||
+          pageType === 'email'
+        ) {
+          const bodyText = await page
+            .locator('body')
+            .innerText({ timeout: 2000 })
+            .then((text: string) => text.toLowerCase())
+            .catch(() => '');
+
           if (!bodyText.includes('subscribe without a pay-per-view')) {
-            throw new Error('❌ [DefaultSignup] No PPV exists in default signup — redirected directly to plans page');
+            throw new Error(
+              '❌ [DefaultSignup] No PPV exists in default signup — redirected directly to plans page'
+            );
           }
         }
       }
@@ -1399,9 +1450,57 @@ async function runFlow(
         }
         console.log(`✅ [DefaultSignup] Verified PPV on page matches: "${ppvName}"`);
 
-        console.log('🖱️ [DefaultSignup] Clicking "Continue with pay-per-view"...');
-        await page.locator('button:has-text("Continue with pay-per-view"), a:has-text("Continue with pay-per-view")').first().click({ force: true });
-        console.log('✅ [DefaultSignup] Clicked "Continue with pay-per-view"');
+        // Select Ultimate card first if tier is ultimate
+        if (tier === 'ultimate') {
+          console.log('💎 [DefaultSignup] Selecting DAZN Ultimate card...');
+          const ultimateSelectors = [
+            'div:has-text("The Ultimate Fan Package") >> text=DAZN Ultimate',
+            '[class*="upsell" i]:has-text("Ultimate")',
+            '[class*="ultimate" i]:has-text("Ultimate")',
+            'div:has-text("DAZN Ultimate"):has-text("/month")',
+            'label:has-text("DAZN Ultimate")'
+          ];
+          let clicked = false;
+          for (const sel of ultimateSelectors) {
+            const el = page.locator(sel).first();
+            if (await el.isVisible({ timeout: 500 }).catch(() => false)) {
+              await safeScrollToElement(page, el);
+              await el.click({ force: true }).catch(() => { });
+              console.log(`✅ [DefaultSignup] Clicked Ultimate card via selector: ${sel}`);
+              clicked = true;
+              break;
+            }
+          }
+
+          if (!clicked) {
+            const radios = page.locator('input[type="radio"]');
+            const count = await radios.count().catch(() => 0);
+            for (let i = 0; i < count; i++) {
+              const radio = radios.nth(i);
+              const radioLabel = await radio
+                .locator('xpath=ancestor::label | xpath=ancestor::div[1]')
+                .first();
+              const text = await radioLabel.innerText({ timeout: 500 }).catch(() => '');
+              if (text.toLowerCase().includes('ultimate')) {
+                await safeScrollToElement(page, radio);
+                await radio.click({ force: true }).catch(() => { });
+                console.log(`✅ [DefaultSignup] Clicked Ultimate radio at index ${i}`);
+                clicked = true;
+                break;
+              }
+            }
+          }
+        }
+
+        let btn = page.locator('button:has-text("Continue with DAZN Ultimate"), button:has-text("Continue with pay-per-view"), button:has-text("Continue"), button[type="submit"]').first();
+        if (tier === 'ultimate') {
+          const ultBtn = page.locator('button:has-text("Continue with DAZN Ultimate")').first();
+          if (await ultBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
+            btn = ultBtn;
+          }
+        }
+        console.log(`🖱️ [DefaultSignup] Clicking CTA: "${await btn.innerText().catch(() => 'Continue')}"...`);
+        await clickAndWaitForNav(page, btn, 'DefaultSignup Continue');
         await page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => { });
         continue;
       }

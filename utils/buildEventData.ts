@@ -114,6 +114,9 @@ export function buildEventData(
   const base: Record<string, any> = {
     PPV_NAME:      merged.PPV_NAME,
     PPV_FULL_NAME: merged.PPV_FULL_NAME || merged.PPV_NAME,
+    PPV_DISPLAY_NAME: merged.PPV_DISPLAY_NAME || merged.PPV_NAME,
+    SPORT:         merged.SPORT,
+    PPV_TYPE:      merged.PPV_TYPE,
     SECONDARY_PPV: merged.SECONDARY_PPV,
     ...merged.global,
     ...regional,

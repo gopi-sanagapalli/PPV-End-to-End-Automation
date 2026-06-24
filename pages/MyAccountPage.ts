@@ -953,4 +953,50 @@ export class MyAccountPage {
     // Standard           → no modal → direct navigation
     await this.handleSubscribeToBuyModal();
   }
+
+  // ─────────────────────────────
+  // CLICK SUBSCRIPTION STATUS CTA
+  // For freemium/frozen users default signup flow
+  // ─────────────────────────────
+  async clickSubscriptionStatusCTA(userStateKey: string): Promise<void> {
+    console.log(`🖱️ Clicking subscription status CTA for state: ${userStateKey}`);
+
+    // Step 1: Dismiss consent
+    await this.dismissConsentIfPresent();
+
+    // Step 2: Locate the appropriate CTA button
+    let ctaBtn: Locator;
+    if (userStateKey === 'frozen') {
+      ctaBtn = this.page.locator('button:has-text("Resubscribe")').first();
+    } else if (userStateKey === 'freemium') {
+      ctaBtn = this.page.locator('button:has-text("Upgrade now")').first();
+    } else {
+      // Fallback/generic
+      ctaBtn = this.page.locator('button:has-text("Upgrade now"), button:has-text("Resubscribe")').first();
+    }
+
+    await ctaBtn.scrollIntoViewIfNeeded();
+    await this.page.waitForTimeout(200);
+
+    // Step 3: Dismiss consent again if needed
+    await this.dismissConsentIfPresent();
+    await this.page.waitForTimeout(150);
+
+    // Step 4: Validate interactable
+    const box = await ctaBtn.boundingBox();
+    if (!box || box.width === 0 || box.height === 0) {
+      throw new Error(`❌ Subscription status CTA not interactable for user state: ${userStateKey}`);
+    }
+
+    const cx = Math.round(box.x + box.width / 2);
+    const cy = Math.round(box.y + box.height / 2);
+    console.log(`🖱️ Click Subscription Status CTA at x=${cx} y=${cy}`);
+
+    // Step 5: Mouse click
+    await this.page.mouse.move(cx, cy);
+    await this.page.waitForTimeout(100);
+    await this.page.mouse.click(cx, cy);
+
+    console.log(`✅ Clicked subscription status CTA successfully`);
+  }
 }
