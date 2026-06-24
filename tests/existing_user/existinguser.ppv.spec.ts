@@ -426,7 +426,10 @@ for (const stateKey of userStatesToRun) {
     return 'unknown';
   };
 
-  const isMyAccount = SOURCE === 'my-account' || SOURCE === 'myaccount';
+  const isMyAccount =
+    SOURCE === 'my-account' ||
+    SOURCE === 'myaccount' ||
+    SOURCE === 'myaccount-subscription-status';
   let reachedEndPage = false;
 
   try {
@@ -1452,10 +1455,15 @@ for (const stateKey of userStatesToRun) {
       }
 
       // ══════════════════════════════════════════════════════════════
-      // STEP 6 — CLICK BUY NOW
+      // STEP 6 — CLICK BUY NOW / SUBSCRIPTION STATUS CTA
       // ══════════════════════════════════════════════════════════════
-      console.log(`\n💳 Clicking Buy Now for: ${eventData.PPV_NAME}`);
-      await myAccountPage.clickBuyNow(eventData.PPV_NAME);
+      if (SOURCE === 'myaccount-subscription-status') {
+        console.log(`\n💳 Clicking Subscription Status CTA for default signup`);
+        await myAccountPage.clickSubscriptionStatusCTA(userStateKey);
+      } else {
+        console.log(`\n💳 Clicking Buy Now for: ${eventData.PPV_NAME}`);
+        await myAccountPage.clickBuyNow(eventData.PPV_NAME);
+      }
 
       await page.waitForLoadState('domcontentloaded').catch(() => { });
       // Wait for the URL and page text to stabilize (handles client-side routing/redirects)
