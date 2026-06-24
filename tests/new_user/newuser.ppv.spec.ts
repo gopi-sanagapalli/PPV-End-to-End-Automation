@@ -665,18 +665,6 @@ async function runFlow(
                            stdBody.toLowerCase().includes('continue without pay-per-view') ||
                            stdBody.toLowerCase().includes('continue without a pay-per-view');
       if (!hasPPVOption) {
-        // For the DAZN entitlement-tile journey, reaching TierPlans is the
-        // verified end state. PPV availability is configuration-dependent.
-        if (source === 'home-page-dazntile') {
-          console.log(
-            `ℹ️ [${source}] PPV is not enabled in default sign-up. ` +
-            `Tile → Subscribe → TierPlans journey completed.\nURL: ${stdUrl}`
-          );
-
-          await context.close().catch(() => {});
-          return { results, reachedEndPage: true };
-        }
-
         throw new Error(
           `❌ [${source}] Landed on plan/signup page but no PPV option found ` +
           `("subscribe without a pay-per-view" or "continue without pay-per-view" absent). No PPV exists for this event.\n` +
