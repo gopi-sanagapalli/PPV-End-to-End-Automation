@@ -189,7 +189,9 @@ async function runFlow(
   const regionUpper = region.toUpperCase();
   // Create fresh context — viewport null to match --start-maximized
   const context = await browser.newContext({
-    viewport: null,
+    viewport: process.env.CI === 'true'
+      ? { width: 1920, height: 1080 }
+      : null,
     colorScheme: 'dark',
     reducedMotion: 'no-preference',
     timezoneId: 'Asia/Kolkata',
@@ -1281,6 +1283,8 @@ async function runFlow(
 
           const standalonePPVPage = new StandalonePPVPage(page);
 
+          await standalonePPVPage.waitUntilPPVPageReady();
+
           if (!ppvValidated) {
             try {
               const ppvData = getStandalonePPVPageData();
@@ -1855,7 +1859,6 @@ for (const planKey of plansToRun) {
         videoPath,
         userType: 'new-user',
       });
-      if (folderPath) console.log(`\n📂 Report folder: ${folderPath}`);
 
       // Playwright manages the browser lifecycle. Closing the browser manually is not recommended.
 

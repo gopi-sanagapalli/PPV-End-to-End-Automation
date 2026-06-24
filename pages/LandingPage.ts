@@ -354,21 +354,35 @@ export class LandingPage extends BasePage {
     // ─────────────────────────────────────────────────────────────────────────
     // PHASE 1: Scroll to heading and locate the rail wrapper
     // ─────────────────────────────────────────────────────────────────────────
-    console.log(`📜 [Tile] Scrolling down to find "${headingLabel}" section...`);
-    await this.page.evaluate(() => {
-      window.scrollTo({ top: 1200, behavior: 'instant' });
-    }).catch(() => { });
-    await this.page.waitForTimeout(800);
+    console.log(`📜 [Tile] Locating "${headingLabel}" section...`);
 
-    const railHeadingLocator = this.page.locator('h1, h2, h3, h4, [class*="heading" i]').filter({ hasText: headingPattern });
+    const railHeadingLocator = this.page
+      .locator('h1, h2, h3, h4, [class*="heading" i]')
+      .filter({ hasText: headingPattern });
+
     let railHeadingCount = 0;
-    for (let attempt = 0; attempt < 4; attempt++) {
+
+    for (let attempt = 0; attempt < 5; attempt++) {
       railHeadingCount = await railHeadingLocator.count().catch(() => 0);
-      if (railHeadingCount > 0) break;
+
+      if (railHeadingCount > 0) {
+        break;
+      }
+
       await this.page.evaluate(() => {
-        window.scrollTo({ top: 2500 + Math.random() * 500, behavior: 'instant' });
-      }).catch(() => { });
-      await this.page.waitForTimeout(600);
+        const viewportHeight = window.innerHeight || 800;
+        const nextScrollTop = Math.min(
+          document.documentElement.scrollHeight - viewportHeight,
+          window.scrollY + viewportHeight * 0.85
+        );
+
+        window.scrollTo({
+          top: Math.max(0, Math.round(nextScrollTop)),
+          behavior: 'instant',
+        });
+      }).catch(() => {});
+
+      await this.page.waitForTimeout(500);
     }
 
     try {
@@ -382,8 +396,35 @@ export class LandingPage extends BasePage {
       throw new Error(`❌ [Tile] "${headingLabel}" rail heading count is 0 in DOM for event: "${ppvName}"`);
     }
     const railHeading = railHeadingLocator.first();
-    await railHeading.scrollIntoViewIfNeeded().catch(() => { });
-    console.log(`✅ [Tile] "${headingLabel}" heading found`);
+
+    await railHeading.evaluate((heading: HTMLElement) => {
+      const headerOffset = 24;
+      const absoluteTop = heading.getBoundingClientRect().top + window.scrollY;
+
+      window.scrollTo({
+        top: Math.max(0, Math.round(absoluteTop - headerOffset)),
+        behavior: 'instant',
+      });
+    }).catch(() => {});
+
+    await this.page.waitForTimeout(300);
+
+    const railPosition = await railHeading.evaluate((heading: HTMLElement) => {
+      const rect = heading.getBoundingClientRect();
+
+      return {
+        top: Math.round(rect.top),
+        bottom: Math.round(rect.bottom),
+        viewportHeight: window.innerHeight,
+      };
+    }).catch(() => null);
+
+    console.log(
+      `✅ [Tile] "${headingLabel}" heading top-aligned` +
+      (railPosition
+        ? ` (top=${railPosition.top}, bottom=${railPosition.bottom}, viewport=${railPosition.viewportHeight})`
+        : '')
+    );
 
     // ─────────────────────────────────────────────────────────────────────────
     // PHASE 2: Get the rail wrapper container and swiper next button

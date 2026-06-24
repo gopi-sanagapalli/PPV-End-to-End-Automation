@@ -1,3 +1,8 @@
+export function getNow(): Date {
+  // Use the runtime machine/device timezone.
+  return new Date();
+}
+
 export function getNowIST(): Date {
   // Returns current time expressed as a Date object in IST (UTC+5:30)
   // Works correctly on any server timezone including UTC CI environments
