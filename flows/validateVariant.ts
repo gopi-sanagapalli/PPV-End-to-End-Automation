@@ -195,6 +195,75 @@ export const validateVariant = async (
     console.log('⚠️ Timeout waiting for body text rendering in validateVariant');
   }
 
+  // ── Banner flow: re-freeze carousel and re-navigate to PPV slide before snapshot ──
+  const isBannerFlow = normalizedFlow.includes('banner');
+  if (isBannerFlow) {
+    console.log('🔒 [Banner] Re-freezing carousel before snapshot...');
+    // Re-inject CSS freeze and stop autoplay
+    await page.evaluate(() => {
+      try {
+        // CSS freeze
+        const styleId = '__ppv_freeze_carousel__';
+        if (!document.getElementById(styleId)) {
+          const style = document.createElement('style');
+          style.id = styleId;
+          style.textContent = `.swiper-wrapper { transition-duration: 0ms !important; }`;
+          document.head.appendChild(style);
+        }
+
+        // Stop all swipers
+        const stopSwiper = (swiper: any) => {
+          if (!swiper) return;
+          try { swiper.autoplay?.stop(); } catch {}
+          try {
+            swiper.params.autoplay = false;
+            swiper.params.loop = false;
+          } catch {}
+          try {
+            if (swiper.autoplay?.running) swiper.autoplay.stop();
+          } catch {}
+        };
+
+        document.querySelectorAll('.swiper, [class*="swiper"], .swiper-container').forEach((el: any) => {
+          if (el.swiper) stopSwiper(el.swiper);
+        });
+        if ((window as any).swiper) stopSwiper((window as any).swiper);
+        document.querySelectorAll('*').forEach((el: any) => {
+          if (el.swiper && typeof el.swiper === 'object' && el.swiper.autoplay) stopSwiper(el.swiper);
+        });
+      } catch {}
+    }).catch(() => {});
+
+    // Re-navigate to saved PPV slide index if available
+    const savedSlideIndex = (eventData as any)._ppvBannerSlideIndex;
+    if (savedSlideIndex !== undefined && savedSlideIndex !== null) {
+      const slideIdx = parseInt(String(savedSlideIndex), 10);
+      if (!isNaN(slideIdx)) {
+        console.log(`🔄 [Banner] Re-navigating to PPV slide index: ${slideIdx}`);
+        await page.evaluate((index: number) => {
+          try {
+            const swiperEls = document.querySelectorAll('.swiper, [class*="swiper"], .swiper-container');
+            swiperEls.forEach((el: any) => {
+              if (el.swiper) {
+                el.swiper.autoplay?.stop();
+                if (el.swiper.params.loop && typeof el.swiper.slideToLoop === 'function') {
+                  el.swiper.slideToLoop(index, 0);
+                } else {
+                  el.swiper.slideTo(index, 0);
+                }
+              }
+            });
+          } catch {}
+        }, slideIdx).catch(() => {});
+        await page.waitForTimeout(300);
+      }
+    }
+
+    // Scroll back to top to ensure banner is visible (not scrolled past)
+    await page.evaluate(() => window.scrollTo(0, 0)).catch(() => {});
+    await page.waitForTimeout(200);
+  }
+
   // ── Pre-fetch DOM snapshot ONCE ───────────────────────────────
   const snapshot = await getPageSnapshot(page);
   console.log(`📸 ${pageName} snapshot: ${snapshot.length} nodes`);
