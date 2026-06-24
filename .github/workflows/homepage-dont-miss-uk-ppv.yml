@@ -77,7 +77,9 @@ jobs:
           npm -v
 
       - name: Install dependencies
-        run: npm ci
+        run: |
+          rm -rf node_modules
+          npm ci
 
       - name: Verify Playwright
         run: npx playwright --version

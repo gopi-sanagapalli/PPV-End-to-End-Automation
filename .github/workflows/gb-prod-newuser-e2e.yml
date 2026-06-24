@@ -111,11 +111,10 @@ jobs:
           node -v
           npm -v
 
-      - name: Install dependencies if needed
+      - name: Install dependencies
         run: |
-          if [ ! -d node_modules ]; then
-            npm ci
-          fi
+          rm -rf node_modules
+          npm ci
 
       - name: Verify Playwright
         run: npx playwright --version

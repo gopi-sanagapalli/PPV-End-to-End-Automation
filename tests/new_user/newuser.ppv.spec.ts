@@ -362,10 +362,10 @@ async function runFlow(
       // Start RailsInterceptor before navigation for home-biggest-fights
       // to capture entitlement IDs from the Rails API for tile matching
       let railsInterceptor: RailsInterceptor | undefined;
-      if (source === 'home-biggest-fights') {
+      if (source === 'home-biggest-fights' || source === 'home-page-dazntile') {
         railsInterceptor = new RailsInterceptor(page);
         await railsInterceptor.startIntercepting();
-        console.log('🔌 [RailsInterceptor] Started for home-biggest-fights tile matching');
+        console.log(`🔌 [RailsInterceptor] Started for ${source} tile matching`);
       }
 
       await landing.navigate(baseUrl, source, eventData);
@@ -401,17 +401,46 @@ async function runFlow(
         }
       }
 
-      // ── Step 2: Find PPV container ──────────
-      const container = await landing.findPPVContainer(eventData, source);
+      // ── Step 2: Resolve the configured source ──────────
+      let container: any;
 
-      // Stop intercepting after findPPVContainer completes
-      if (eventData._railsInterceptor) {
-        await (eventData._railsInterceptor as RailsInterceptor).stopIntercepting();
-        delete eventData._railsInterceptor;
-      }
+      if (source === 'home-page-dazntile') {
+        // This source is not a PPV-container flow. HomePage finds and clicks
+        // the DAZN tile from the captured rails response by entitlement.
+        await landing.findPPVContainer(eventData, source);
 
-      if (!container) {
-        throw new Error(`❌ PPV container not found via ${source}`);
+        if (eventData._railsInterceptor) {
+          await (eventData._railsInterceptor as RailsInterceptor).stopIntercepting();
+          delete eventData._railsInterceptor;
+        }
+
+        console.log('✅ [DAZN Tile] Entitlement tile clicked; waiting for subscription modal');
+
+        const subscribeCta = page
+          .getByRole('button', { name: /^subscribe$/i })
+          .filter({ visible: true })
+          .first();
+
+        if (!await subscribeCta.isVisible({ timeout: 10_000 }).catch(() => false)) {
+          throw new Error(
+            'DAZN entitlement tile opened no visible subscription modal with a Subscribe CTA'
+          );
+        }
+
+        await subscribeCta.click({ force: true });
+        console.log('✅ [DAZN Tile] Subscription modal Subscribe CTA clicked');
+      } else {
+        container = await landing.findPPVContainer(eventData, source);
+
+        // Stop intercepting after findPPVContainer completes
+        if (eventData._railsInterceptor) {
+          await (eventData._railsInterceptor as RailsInterceptor).stopIntercepting();
+          delete eventData._railsInterceptor;
+        }
+
+        if (!container) {
+          throw new Error(`❌ PPV container not found via ${source}`);
+        }
       }
 
       if (validateLanding) {
@@ -489,7 +518,16 @@ async function runFlow(
         }
       }
 
-      await landing.clickBuyNow(container, source);
+      // home-page-dazntile clicks the entitlement tile inside
+      // findPPVContainer(), so it has no PPV container for the generic
+      // Buy Now handler.
+      if (source !== 'home-page-dazntile') {
+        await landing.clickBuyNow(container, source);
+      } else {
+        console.log(
+          'ℹ️ [DAZN Tile] Generic PPV Buy Now click skipped; entitlement tile was already clicked'
+        );
+      }
     }
 
     // Handle generic popup validations and click-through
@@ -623,12 +661,27 @@ async function runFlow(
       }
 
       // defaultSignup=true means the plan page should contain a PPV option ("subscribe without a pay-per-view").
-      // If it's absent, no PPV exists for this event — fail the test.
       const hasPPVOption = stdBody.toLowerCase().includes('subscribe without a pay-per-view') ||
                            stdBody.toLowerCase().includes('continue without pay-per-view') ||
                            stdBody.toLowerCase().includes('continue without a pay-per-view');
       if (!hasPPVOption) {
-        throw new Error(`❌ [${source}] Landed on plan/signup page but no PPV option found ("subscribe without a pay-per-view" or "continue without pay-per-view" absent). No PPV exists for this event.\nURL: ${stdUrl}`);
+        // For the DAZN entitlement-tile journey, reaching TierPlans is the
+        // verified end state. PPV availability is configuration-dependent.
+        if (source === 'home-page-dazntile') {
+          console.log(
+            `ℹ️ [${source}] PPV is not enabled in default sign-up. ` +
+            `Tile → Subscribe → TierPlans journey completed.\nURL: ${stdUrl}`
+          );
+
+          await context.close().catch(() => {});
+          return { results, reachedEndPage: true };
+        }
+
+        throw new Error(
+          `❌ [${source}] Landed on plan/signup page but no PPV option found ` +
+          `("subscribe without a pay-per-view" or "continue without pay-per-view" absent). No PPV exists for this event.\n` +
+          `URL: ${stdUrl}`
+        );
       }
 
       console.log(`✅ [${source}] Successfully redirected to plan selection page with PPV option.`);

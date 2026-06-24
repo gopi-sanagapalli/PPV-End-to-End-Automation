@@ -404,6 +404,49 @@ export class HomePage extends LandingPage {
       return comingUpTile;
     }
 
+    if (src === 'home-page-dazntile') {
+      const railsInterceptor: RailsInterceptor | undefined =
+        (eventData as any)._railsInterceptor;
+
+      if (!railsInterceptor) {
+        throw new Error(
+          'home-page-dazntile requires RailsInterceptor to be started before home-page navigation'
+        );
+      }
+
+      // Allow the home rails response to finish after navigation.
+      await this.page.waitForTimeout(1500);
+
+      const matches = railsInterceptor.findTilesByEntitlement([
+        'base_dazn_content',
+      ]);
+
+      if (matches.length === 0) {
+        railsInterceptor.printRailsSummary();
+        throw new Error(
+          'No DAZN tile found with entitlement base_dazn_content'
+        );
+      }
+
+      // Do not assume API response order equals homepage render order.
+      // Scan the rendered homepage from top to bottom and click the first
+      // visible tile whose Rails payload has the required entitlement.
+      const clicked = await railsInterceptor.clickFirstVisibleEntitlementTile(matches);
+
+      if (!clicked) {
+        throw new Error(
+          'No rendered DAZN tile with entitlement base_dazn_content was found/clickable'
+        );
+      }
+
+      console.log(
+        `🎯 [HomePage] Clicked first rendered DAZN entitlement tile "${clicked.tileTitle}" ` +
+        `from rail "${clicked.railTitle}"`
+      );
+
+      return;
+    }
+
     if (src === 'home-page-dont-miss') {
       console.log('🔍 [HomePage Tile] Flow: Tile + Modal popup flow');
 
