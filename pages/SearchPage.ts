@@ -1,5 +1,6 @@
 import { Page, Locator, expect } from '@playwright/test';
 import { BasePage } from './BasePage';
+import { dismissMarketingPopup } from '../utils/helpers';
 
 export class SearchPage extends BasePage {
   constructor(page: Page) {
@@ -245,6 +246,7 @@ export class SearchPage extends BasePage {
 
       // ── Step 2: Type [dev_mode_on] and press Enter ────────────
       console.log('⌨️  Entering "[dev_mode_on]" in search...');
+
       const searchInput = this.page.locator(
         'input[type="search"], ' +
         'input[placeholder*="search" i], ' +
@@ -253,7 +255,18 @@ export class SearchPage extends BasePage {
         '[data-testid*="search" i] input'
       ).first();
       await searchInput.waitFor({ state: 'visible', timeout: 30000 });
-      await searchInput.click();
+
+      // Dismiss any marketing/promotion popup that is already visible
+      await dismissMarketingPopup(this.page).catch(() => {});
+
+      try {
+        await searchInput.click({ timeout: 5000 });
+      } catch (clickError) {
+        console.log('⚠️ Search input click was intercepted or failed. Attempting to dismiss popup and retry...');
+        await dismissMarketingPopup(this.page, 4000).catch(() => {});
+        await searchInput.click({ timeout: 10000 });
+      }
+
       await searchInput.fill('[dev_mode_on]');
       await this.page.keyboard.press('Enter');
       console.log('✅ Text entered and Enter pressed');

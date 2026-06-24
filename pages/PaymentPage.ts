@@ -374,16 +374,24 @@ export class PaymentPage extends BasePage {
     const banner = this.page.locator(bannerSelectors.join(', ')).first();
     const bannerVisible = await banner.isVisible({ timeout: 3000 }).catch(() => false);
 
+    const currentSource = (eventData.SOURCE || eventData.source || '').trim().toLowerCase();
+    const isBoxingSubscription =
+      currentSource === 'boxing-ultimate-subscription' ||
+      currentSource === 'boxing-standard-subscription' ||
+      currentSource === 'boxing-join-the-club';
+    const expectedPresence = isBoxingSubscription ? 'No' : 'Yes';
+
     // Validate 1: Banner presence (if not already validated in standard loop)
     const isBannerPresentAlreadyValidated = results.some(r => r.page === 'Payment' && r.field === 'Ultimate Upsell Banner Present');
     if (!isBannerPresentAlreadyValidated) {
-      const presenceStatus = bannerVisible ? 'PASS' : 'FAIL';
-      console.log(`  ${presenceStatus === 'PASS' ? '✅' : '❌'} [Ultimate Upsell Banner Present] expected="Yes" actual="${bannerVisible ? 'Yes' : 'No'}"`);
+      const actualPresence = bannerVisible ? 'Yes' : 'No';
+      const presenceStatus = actualPresence === expectedPresence ? 'PASS' : 'FAIL';
+      console.log(`  ${presenceStatus === 'PASS' ? '✅' : '❌'} [Ultimate Upsell Banner Present] expected="${expectedPresence}" actual="${actualPresence}"`);
       results.push({
         page: 'Payment',
         field: 'Ultimate Upsell Banner Present',
-        expected: 'Yes',
-        actual: bannerVisible ? 'Yes' : 'No',
+        expected: expectedPresence,
+        actual: actualPresence,
         status: presenceStatus,
       });
     }
@@ -850,14 +858,14 @@ export class PaymentPage extends BasePage {
     // ── PPV Name ───────────────────────────────────────────────
     if (fieldLower === 'ppv name' || fieldLower === 'ppv event name' || fieldLower === 'event name') {
       const source = (eventData.SOURCE || eventData.source || '').toLowerCase();
-      if (
-        source === 'boxing-ultimate' ||
-        source === 'boxing-bundle-ultimate' ||
-        source === 'boxing-banner-ultimate' ||
+      const isDefaultSignup =
+        process.env.DEFAULT_SIGNUP === 'true' ||
+        source === 'home-page-get-started' ||
+        source === 'home-page-dazntile' ||
         source === 'boxing-ultimate-subscription' ||
         source === 'boxing-standard-subscription' ||
-        source === 'boxing-join-the-club'
-      ) return 'N/A';
+        source === 'boxing-join-the-club';
+      if (isDefaultSignup) return 'N/A';
 
       const ppvName = eventData.PPV_NAME || '';
       const regex = new RegExp(ppvName.split(/\s+/).join('.*'), 'i');
@@ -915,14 +923,14 @@ export class PaymentPage extends BasePage {
     // ── PPV Price ──────────────────────────────────────────────
     if (fieldLower === 'ppv price') {
       const source = (eventData.SOURCE || eventData.source || '').toLowerCase();
-      if (
-        source === 'boxing-ultimate' ||
-        source === 'boxing-bundle-ultimate' ||
-        source === 'boxing-banner-ultimate' ||
+      const isDefaultSignup =
+        process.env.DEFAULT_SIGNUP === 'true' ||
+        source === 'home-page-get-started' ||
+        source === 'home-page-dazntile' ||
         source === 'boxing-ultimate-subscription' ||
         source === 'boxing-standard-subscription' ||
-        source === 'boxing-join-the-club'
-      ) return 'N/A';
+        source === 'boxing-join-the-club';
+      if (isDefaultSignup) return 'N/A';
 
       const ppvName = eventData.PPV_NAME || '';
       let ppvIndex = -1;

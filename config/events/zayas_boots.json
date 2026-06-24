@@ -1,7 +1,7 @@
 {
   "eventKey": "zayas_boots",
   "PPV_NAME": "Zayas vs. Boots",
-  "PPV_DISPLAY_NAME": "Zayas vs. Boots",
+  "PPV_DISPLAY_NAME": "PPV: Zayas vs. Boots",
   "SPORT": "Boxing",
   "PPV_TYPE": "normal",
   "global": {
@@ -11,26 +11,27 @@
     "PPV_LOCATION": "Barclays Center, Brooklyn",
     "PPV_DATE": "Sat 27th Jun at 16:30",
     "PPV_TIME": "16:30",
-    "PPV_CARD_TITLE": "Zayas vs. Boots",
+    "PPV_CARD_TITLE": "PPV: Zayas vs. Boots",
     "PPV_CARD_DESCRIPTION": "Just the fight - plus 7 days of DAZN Standard, free.",
-    "BOXING_BANNER_SUBTITLE": "Main Event • 27 Jun • 16:30"
+    "BOXING_BANNER_SUBTITLE": "Main Event • 27 Jun • 16:30",
+    "BANNER_DESCRIPTION": "The future of boxing collides in Brooklyn: the youngest unified champion at 154 takes on the IBF welterweight king"
   },
   "regions": {
     "GB": {
       "LANDING_PAGE_PPV_DATE": "27 June",
       "PPV_PRICE": "£24.99",
       "TODAY_YOU_PAY_PRICE": "£24.99",
-      "UPSELL_PRICE_LENGTH": "/month",
+      "UPSELL_PRICE_LENGTH": "/month for 12 months",
       "PPV1_UPSELL_TILE_DATE": "",
       "offers": []
     },
     "US": {
       "LANDING_PAGE_PPV_DATE": "27 June",
-      "PPV_PRICE": "$59.99",
-      "TODAY_YOU_PAY_PRICE": "$59.99",
+      "PPV_PRICE": "$74.99",
+      "TODAY_YOU_PAY_PRICE": "$74.99",
       "UPSELL_PRICE": "",
       "UPSELL_CROSSED_PRICE": "",
-      "UPSELL_PRICE_LENGTH": "/month",
+      "UPSELL_PRICE_LENGTH": "/month for 12 months",
       "PPV1_UPSELL_TILE_DATE": "",
       "offers": []
     },
@@ -40,7 +41,7 @@
       "TODAY_YOU_PAY_PRICE": "$49.99",
       "UPSELL_PRICE": "$39.99",
       "UPSELL_CROSSED_PRICE": "N/A",
-      "UPSELL_PRICE_LENGTH": "/month",
+      "UPSELL_PRICE_LENGTH": "/month for 12 months",
       "PPV1_UPSELL_TILE_DATE": "",
       "offers": []
     },
@@ -50,7 +51,7 @@
       "TODAY_YOU_PAY_PRICE": "AED 72.99",
       "UPSELL_PRICE": "AED 72.99",
       "UPSELL_CROSSED_PRICE": "N/A",
-      "UPSELL_PRICE_LENGTH": "/month",
+      "UPSELL_PRICE_LENGTH": "/month for 12 months",
       "PPV1_UPSELL_TILE_DATE": "",
       "offers": []
     }
