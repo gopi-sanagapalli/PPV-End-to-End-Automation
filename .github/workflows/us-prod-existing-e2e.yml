@@ -91,6 +91,49 @@ jobs:
           - user_state: frozen
             plan: ultimate_upfront
 
+          # Special sources — explicit valid combinations only
+          # home-page-subscribe: Freemium only, all four plans
+          - source: home-page-subscribe
+            user_state: freemium
+            plan: standard_monthly
+          - source: home-page-subscribe
+            user_state: freemium
+            plan: standard_apm
+          - source: home-page-subscribe
+            user_state: freemium
+            plan: ultimate_apm
+          - source: home-page-subscribe
+            user_state: freemium
+            plan: ultimate_upfront
+
+          # myaccount-subscription-status: Freemium, all four plans
+          - source: myaccount-subscription-status
+            user_state: freemium
+            plan: standard_monthly
+          - source: myaccount-subscription-status
+            user_state: freemium
+            plan: standard_apm
+          - source: myaccount-subscription-status
+            user_state: freemium
+            plan: ultimate_apm
+          - source: myaccount-subscription-status
+            user_state: freemium
+            plan: ultimate_upfront
+
+          # myaccount-subscription-status: Frozen, all four plans
+          - source: myaccount-subscription-status
+            user_state: frozen
+            plan: standard_monthly
+          - source: myaccount-subscription-status
+            user_state: frozen
+            plan: standard_apm
+          - source: myaccount-subscription-status
+            user_state: frozen
+            plan: ultimate_apm
+          - source: myaccount-subscription-status
+            user_state: frozen
+            plan: ultimate_upfront
+
           # Active Standard — five valid PPV / Ultimate upgrade routes
           - user_state: active_standard_monthly
             plan: standard_monthly

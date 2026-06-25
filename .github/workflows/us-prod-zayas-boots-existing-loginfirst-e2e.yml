@@ -71,6 +71,14 @@ jobs:
           - myaccount
 
         include:
+          # landing-page-dont-miss-live-switch: standard plans only
+          - source: landing-page-dont-miss-live-switch
+            plan: standard_monthly
+            switch: 'true'
+          - source: landing-page-dont-miss-live-switch
+            plan: standard_apm
+            switch: 'true'
+
           # Freemium — all four plans
           - user_state: freemium
             plan: standard_monthly
@@ -130,7 +138,7 @@ jobs:
       PURCHASE_PATH: ${{ matrix.purchase_path || 'default' }}
       PPV_CONFIG: ${{ inputs.PPV_CONFIG }}
       PAYMENT_METHOD: ${{ inputs.PAYMENT_METHOD }}
-      SWITCH: ${{ inputs.SWITCH }}
+      SWITCH: ${{ matrix.switch || inputs.SWITCH }}
 
     steps:
       - name: Checkout repository

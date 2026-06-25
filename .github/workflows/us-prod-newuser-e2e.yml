@@ -71,6 +71,14 @@ jobs:
           - standard_apm
           - ultimate_apm
           - ultimate_upfront
+        include:
+          # landing-page-dont-miss-live-switch: standard plans only
+          - source: landing-page-dont-miss-live-switch
+            plan: standard_monthly
+            switch: 'true'
+          - source: landing-page-dont-miss-live-switch
+            plan: standard_apm
+            switch: 'true'
         exclude:
           - source: boxing-banner-ultimate
             plan: standard_monthly
@@ -94,7 +102,7 @@ jobs:
       PLAN: ${{ matrix.plan }}
       PPV_CONFIG: ${{ inputs.PPV_CONFIG }}
       PAYMENT_METHOD: ${{ inputs.PAYMENT_METHOD }}
-      SWITCH: ${{ inputs.SWITCH }}
+      SWITCH: ${{ matrix.switch || inputs.SWITCH }}
 
     steps:
       - name: Checkout repository
