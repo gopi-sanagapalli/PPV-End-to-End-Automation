@@ -1,5 +1,7 @@
 import { defineConfig } from '@playwright/test';
 
+const isHeadless = process.env.HEADLESS === 'true';
+
 export default defineConfig({
   testDir: './tests',
   timeout: 300_000,
@@ -8,14 +10,20 @@ export default defineConfig({
   outputDir: 'test-results',
 
   use: {
-    headless: process.env.HEADLESS === 'true',
-    viewport: null,
+    headless: isHeadless,
+
+    // Keep CI/headless on the same desktop layout as local headed Chrome.
+    viewport: { width: 1920, height: 1080 },
+    deviceScaleFactor: 1,
+    isMobile: false,
+    hasTouch: false,
+
     timezoneId: 'Asia/Kolkata',
     locale: 'en-IN',
 
     launchOptions: {
       args: [
-        '--start-maximized',
+        '--window-size=1920,1080',
         '--disable-infobars',
         '--no-sandbox',
         '--disable-dev-shm-usage',
@@ -43,23 +51,6 @@ export default defineConfig({
       name: 'chromium',
       use: {
         channel: 'chrome',
-        headless: process.env.HEADLESS === 'true',
-        viewport: null,
-        timezoneId: 'Asia/Kolkata',
-        locale: 'en-IN',
-
-        launchOptions: {
-          args: [
-            '--start-maximized',
-            '--disable-infobars',
-            '--no-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-blink-features=AutomationControlled',
-            '--password-store=basic',
-            '--use-mock-keychain',
-            '--disable-popup-blocking',
-          ],
-        },
       },
     },
   ],
