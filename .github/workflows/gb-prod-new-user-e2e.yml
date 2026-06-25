@@ -1,4 +1,4 @@
-name: "AE PROD — New User — Sign Up During Flow"
+name: "GB PROD — New User"
 
 on:
   workflow_dispatch:
@@ -96,7 +96,7 @@ jobs:
     env:
       CI: 'true'
       HEADLESS: 'true'
-      DAZN_REGION: AE
+      DAZN_REGION: GB
       DAZN_ENV: prod
       SOURCE: ${{ matrix.source }}
       PLAN: ${{ matrix.plan }}

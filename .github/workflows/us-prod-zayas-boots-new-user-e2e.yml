@@ -1,4 +1,4 @@
-name: "GB PROD — New User — Sign Up During Flow"
+name: "US PROD — Zayas vs Boots — New User"
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
       PPV_CONFIG:
         description: 'PPV config filename/key'
         required: true
-        default: 'aj_joshua_prenga.json'
+        default: 'zayas_boots.json'
 
       PAYMENT_METHOD:
         description: 'Payment method'
@@ -42,7 +42,7 @@ jobs:
 
     strategy:
       fail-fast: false
-      max-parallel: 4
+      max-parallel: 8
       matrix:
         source:
           - home-page-get-started
@@ -96,7 +96,7 @@ jobs:
     env:
       CI: 'true'
       HEADLESS: 'true'
-      DAZN_REGION: GB
+      DAZN_REGION: US
       DAZN_ENV: prod
       SOURCE: ${{ matrix.source }}
       PLAN: ${{ matrix.plan }}
@@ -129,6 +129,7 @@ jobs:
 
       - name: Run PROD PPV Flow
         run: npx playwright test tests/new_user/newuser.ppv.spec.ts --project=chromium
+
 
       - name: Archive reports on runner disk
         if: always()
