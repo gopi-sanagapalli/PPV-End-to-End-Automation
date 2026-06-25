@@ -72,6 +72,30 @@ export function resolveExpected(
   let raw = rule.Expected ?? rule.Value;
 
   const currentSource = (eventData.SOURCE || eventData.source || '').trim().toLowerCase();
+
+  // The PPV detail page renders its own date/time format.
+  // Keep this separate from landing banners, welcome tiles, and plan cards.
+  if (field === 'ppv date and time text') {
+    const ppvPageDateTime = eventData.PPV_PAGE_DATE_TIME;
+    if (ppvPageDateTime) {
+      return String(ppvPageDateTime);
+    }
+  }
+
+  // home-page-dazntile opens the first eligible DAZN entitlement tile.
+  // That tile is not guaranteed to be the configured PPV event, so
+  // PPV-specific event-date assertions are not valid for this source.
+  if (
+    currentSource === 'home-page-dazntile' &&
+    (
+      field === 'ppv date and time text' ||
+      field === 'ppv date' ||
+      field === 'ppv time' ||
+      field === 'banner - event date'
+    )
+  ) {
+    return 'N/A';
+  }
   
   // Check if a PPV event is active. If a PPV event is active, the boxing subscription-only sources
   // will render the PPV-bundled offers on the live site, so they should be validated using the PPV rules.
