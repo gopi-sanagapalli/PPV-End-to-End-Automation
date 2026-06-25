@@ -81,6 +81,49 @@ async function captureFailShot(page: Page, field: string): Promise<string | unde
   }
 }
 
+
+async function waitForPostPlanTransition(page: Page): Promise<void> {
+  console.log(`⏳ Waiting for post-plan transition. Current URL: ${page.url()}`);
+
+  const nextState = await Promise.race([
+    page.locator(
+      'input[type="email"], input[name*="email" i], input[autocomplete="email"]'
+    ).first().waitFor({ state: 'visible', timeout: 30_000 })
+      .then(() => 'email'),
+
+    page.locator(
+      'input[name*="first" i], input[autocomplete="given-name"], input[name*="password" i]'
+    ).first().waitFor({ state: 'visible', timeout: 30_000 })
+      .then(() => 'personal-details'),
+
+    page.locator(
+      'text=/payment method|credit.*debit card|card details|secure payment|today you pay/i'
+    ).first().waitFor({ state: 'visible', timeout: 30_000 })
+      .then(() => 'payment-ui'),
+
+    page.waitForURL(
+      url => /paymentdetails|payment|checkout/i.test(url.toString()),
+      { timeout: 30_000 }
+    ).then(() => 'payment-url'),
+  ]).catch(() => null);
+
+  if (!nextState) {
+    const body = await page.locator('body').innerText().catch(() => '');
+    await page.screenshot({
+      path: `test-results/post-plan-transition-failed-${Date.now()}.png`,
+      fullPage: true,
+    }).catch(() => {});
+
+    throw new Error(
+      `❌ Plan CTA did not transition within 30 seconds.\n` +
+      `URL: ${page.url()}\n` +
+      `Page text: ${body.slice(0, 3000)}`
+    );
+  }
+
+  console.log(`✅ Post-plan transition detected: ${nextState} | URL: ${page.url()}`);
+}
+
 async function runFlow(
   browser: any,
   json: any,
@@ -94,6 +137,13 @@ async function runFlow(
     throw new Error(`❌ SOURCE "${SOURCE}" requires an Ultimate plan (e.g., PLAN=ultimate_apm).`);
   }
   const results: any[] = [];
+
+  // One identity for the entire journey.
+  // Never regenerate this inside the page-state loop.
+  const user = createTestUser();
+  console.log(
+    `👤 Signup identity | pid=${process.pid} | plan=${ratePlan} | email=${user.email}`
+  );
 
   // Configure Excel path based on event type (standalone, upsell, or normal PPV)
   configureExcelPathForEvent(json.eventKey || '');
@@ -187,11 +237,13 @@ async function runFlow(
   const pagesConfig = json.pages;
 
   const regionUpper = region.toUpperCase();
-  // Create fresh context — viewport null to match --start-maximized
+  // Create a deterministic desktop context in both local and CI runs.
+  // Do not use viewport: null: headless Chrome can render responsive/mobile UI.
   const context = await browser.newContext({
-    viewport: process.env.CI === 'true'
-      ? { width: 1920, height: 1080 }
-      : null,
+    viewport: { width: 1920, height: 1080 },
+    deviceScaleFactor: 1,
+    isMobile: false,
+    hasTouch: false,
     colorScheme: 'dark',
     reducedMotion: 'no-preference',
     locale: 'en-IN',
@@ -1175,6 +1227,17 @@ async function runFlow(
       }
 
       if (pageType === 'email') {
+        console.log(
+          `📧 Signup state | plan=${ratePlan} | email=${user.email} | url=${page.url()}`
+        );
+
+        if (page.url().includes('userExists=true')) {
+          throw new Error(
+            `❌ DAZN rejected generated signup identity as an existing user. ` +
+            `plan=${ratePlan} | email=${user.email} | url=${page.url()}`
+          );
+        }
+
         console.log('✅ Reached email/personal-details page');
         emailProcessedCount++;
 
@@ -1229,7 +1292,6 @@ async function runFlow(
         }
 
         const signup = new SignupPage(page);
-        const user = createTestUser();
 
         // Check if email input is visible first (might land/be stuck directly on personal details)
         // Skip finding/entering email if we are explicitly on the personal details page to avoid resetting/looping the flow.
@@ -1745,6 +1807,7 @@ async function runFlow(
           ).first();
           await planBtn.waitFor({ state: 'visible', timeout: 5000 }).catch(() => { });
           await clickAndWaitForNav(page, planBtn, 'Ultimate Plan Continue');
+          await waitForPostPlanTransition(page);
         } else {
           if (ratePlan === 'annual pay monthly') {
             const annualCard = page.locator(
@@ -1802,6 +1865,7 @@ async function runFlow(
             });
 
             await clickAndWaitForNav(page, planBtn, 'Standard Annual Plan Continue');
+            await waitForPostPlanTransition(page);
           } else {
             const trialRadio = page.locator('input[type="radio"]').first();
             if (await trialRadio.isVisible({ timeout: 1500 }).catch(() => false)) {
@@ -1818,6 +1882,7 @@ async function runFlow(
             ).first();
             await planBtn.waitFor({ state: 'visible', timeout: 5000 }).catch(() => { });
             await clickAndWaitForNav(page, planBtn, 'Standard Plan Continue');
+            await waitForPostPlanTransition(page);
           }
         }
 
@@ -1837,18 +1902,49 @@ async function runFlow(
     }
 
     if (!reachedEndPage) {
-      // Final check — maybe the page navigated to payment during the break
+      console.log('\n🔎 END PAGE DIAGNOSTICS');
+      console.log('URL:', page.url());
+      console.log('TITLE:', await page.title().catch(() => 'N/A'));
+      console.log('Email input:', await page.locator('input[type="email"]').count());
+      console.log('Password input:', await page.locator('input[type="password"]').count());
+      console.log(
+        'Card / payment iframe:',
+        await page.locator(
+          'input[name*="card"], input[autocomplete="cc-number"], iframe'
+        ).count()
+      );
+      console.log(
+        'Body preview:',
+        (await page.locator('body').innerText().catch(() => 'N/A'))
+          .replace(/\s+/g, ' ')
+          .slice(0, 1200)
+      );
+
+      await page.screenshot({
+        path: `test-results/end-page-debug-${Date.now()}.png`,
+        fullPage: true,
+      }).catch(() => {});
+
+      // Final check — the payment route can vary by experiment/layout.
       const finalUrl = page.url();
-      if (finalUrl.includes('paymentDetails') || finalUrl.includes('payment')) {
-        console.log('💳 Payment page detected after loop exit');
+      const payment = new PaymentPage(page);
+      const isPaymentUrl =
+        finalUrl.toLowerCase().includes('paymentdetails') ||
+        finalUrl.toLowerCase().includes('payment') ||
+        finalUrl.toLowerCase().includes('checkout');
+      const isPaymentUi = await payment.isPaymentPage();
+
+      if (isPaymentUrl || isPaymentUi) {
+        console.log(
+          `💳 Payment page detected after loop exit | urlMatch=${isPaymentUrl} | uiMatch=${isPaymentUi}`
+        );
         reachedEndPage = true;
 
-        const payment = new PaymentPage(page);
-        if (await payment.isPaymentPage()) {
-          const planKey = flowConfig.source.startsWith('boxing-bundle') ? `${ratePlan} bundle` : ratePlan;
-          const paymentData = getPaymentDataByTierAndPlan(tier, planKey);
-          await payment.validate(paymentData, results, eventData, 'newuser');
-        }
+        const planKey = flowConfig.source.startsWith('boxing-bundle')
+          ? `${ratePlan} bundle`
+          : ratePlan;
+        const paymentData = getPaymentDataByTierAndPlan(tier, planKey);
+        await payment.validate(paymentData, results, eventData, 'newuser');
       } else {
         console.log(`⚠️  Flow "${name}" did not reach expected end page`);
       }
@@ -1999,7 +2095,10 @@ for (const planKey of plansToRun) {
           .filter(r => r.status === 'FAIL')
           .map(r => `  - [${r.page}] ${r.field}: expected "${r.expected}", actual "${r.actual}"`)
           .join('\n');
-        console.warn(`⚠️  Validation failures (not failing test):\n${failMsgs}`);
+
+        throw new Error(
+          `❌ Flow "${flowConfig.name}" completed navigation but had ${failed} validation failure(s):\n${failMsgs}`
+        );
       }
     } catch (error) {
       console.error('❌ Test error:', error);
