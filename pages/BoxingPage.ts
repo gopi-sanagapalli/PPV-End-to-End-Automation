@@ -382,6 +382,10 @@ export class BoxingPage extends LandingPage {
         'a:has-text("Join the club")',
         'button:has-text("Join Club")',
         'a:has-text("Join Club")',
+        '[role="button"]:has-text("Ultimate")',
+        '[class*="button" i]:has-text("Ultimate")',
+        'div:has-text("Continue with DAZN Ultimate")',
+        'span:has-text("Continue with DAZN Ultimate")',
       ];
       let found = false;
       for (const sel of ultimateSubSelectors) {
@@ -423,6 +427,10 @@ export class BoxingPage extends LandingPage {
         'a:has-text("Continue with DAZN Standard")',
         'button:has-text("Sign up")',
         'a:has-text("Sign up")',
+        '[role="button"]:has-text("Standard")',
+        '[class*="button" i]:has-text("Standard")',
+        'div:has-text("Continue with DAZN Standard")',
+        'span:has-text("Continue with DAZN Standard")',
       ];
       let foundStd = false;
       for (const sel of standardSubSelectors) {

@@ -616,9 +616,9 @@ async function runFlow(
     }
 
     // ── STRICT VALIDATION FOR BOXING-STANDARD-SUBSCRIPTION / HOME-PAGE-GET-STARTED / HOME-PAGE-DAZNTILE REDIRECT ──
-    if (source === 'boxing-standard-subscription' || source === 'home-page-get-started' || source === 'home-page-dazntile') {
+    if (source === 'boxing-standard-subscription' || source === 'home-page-get-started' || source === 'home-page-dazntile' || source === 'home-page-subscribe') {
       console.log(`\n🔍 Validating ${source} redirect...`);
-      
+
       // Step 1: Wait for URL to update to one of the target pages
       await page.waitForFunction(() => {
         const href = window.location.href.toLowerCase();
@@ -660,29 +660,18 @@ async function runFlow(
         throw new Error(`❌ [${source}] Expected to land on PlanDetails, TierPlans, or signup (Standard), but landed on: ${stdUrl}`);
       }
 
-      // defaultSignup=true means the plan/signup page must contain a PPV option.
-      const hasPPVOption =
-        stdBody.toLowerCase().includes('subscribe without a pay-per-view') ||
+      // defaultSignup=true means the plan page should contain a PPV option ("subscribe without a pay-per-view").
+      const hasPPVOption = stdBody.toLowerCase().includes('subscribe without a pay-per-view') ||
         stdBody.toLowerCase().includes('continue without pay-per-view') ||
         stdBody.toLowerCase().includes('continue without a pay-per-view');
-
       if (!hasPPVOption) {
         if (source === 'home-page-dazntile') {
           throw new Error(
             `❌ [${source}] PPV is not configured in default sign-up after ` +
             `DAZN entitlement tile → Subscribe.\n` +
-            `URL: ${stdUrl}`
+            `Expected a PPV option such as "Subscribe without a pay-per-view".`
           );
         }
-
-        if (source === 'home-page-get-started') {
-          throw new Error(
-            `❌ [${source}] PPV is not configured in default sign-up after ` +
-            `Home Page Get Started → default sign-up.\n` +
-            `URL: ${stdUrl}`
-          );
-        }
-
         throw new Error(
           `❌ [${source}] Landed on plan/signup page but no PPV option found ` +
           `("subscribe without a pay-per-view" or "continue without pay-per-view" absent). No PPV exists for this event.\n` +
@@ -748,42 +737,19 @@ async function runFlow(
       console.log(`\nstep ${step + 1} → pageType: ${pageType} | planClicks: ${planClickCount} | url: ${page.url()}`);
 
       // ── Default Signup validation check: Fail if no PPV ──
-      // Source-specific redirect validation above owns this check for
-      // home-page-dazntile and home-page-get-started, avoiding duplicate
-      // or less-specific failures later in the flow.
+      // Skip this check for boxing subscription sources — they intentionally bypass the PPV page
+      // and go directly to plans. DEFAULT_SIGNUP=true is still set for them (they are sub-only flows)
+      // but the "no PPV" check only applies to home-page / landing-page default signup sources.
       const isBoxingSubscriptionSource =
         SOURCE === 'boxing-ultimate-subscription' ||
         SOURCE === 'boxing-standard-subscription' ||
         SOURCE === 'boxing-join-the-club';
-
-      const isAlreadyValidatedDefaultSignupSource =
-        SOURCE === 'home-page-dazntile' ||
-        SOURCE === 'home-page-get-started';
-
-      if (
-        process.env.DEFAULT_SIGNUP === 'true' &&
-        !ppvValidated &&
-        !isBoxingSubscriptionSource &&
-        !isAlreadyValidatedDefaultSignupSource
-      ) {
+      if (process.env.DEFAULT_SIGNUP === 'true' && !ppvValidated && !isBoxingSubscriptionSource) {
         const url = page.url().toLowerCase();
-
-        if (
-          url.includes('page=tierplans') ||
-          url.includes('page=plandetails') ||
-          pageType === 'plan' ||
-          pageType === 'email'
-        ) {
-          const bodyText = await page
-            .locator('body')
-            .innerText({ timeout: 2000 })
-            .then((text: string) => text.toLowerCase())
-            .catch(() => '');
-
+        if (url.includes('page=tierplans') || url.includes('page=plandetails') || pageType === 'plan' || pageType === 'email') {
+          const bodyText = await page.locator('body').innerText({ timeout: 2000 }).then((t: string) => t.toLowerCase()).catch(() => '');
           if (!bodyText.includes('subscribe without a pay-per-view')) {
-            throw new Error(
-              '❌ [DefaultSignup] No PPV exists in default signup — redirected directly to plans page'
-            );
+            throw new Error('❌ [DefaultSignup] No PPV exists in default signup — redirected directly to plans page');
           }
         }
       }

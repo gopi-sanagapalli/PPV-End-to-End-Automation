@@ -9,6 +9,11 @@
     "endPage": "payment",
     "defaultSignup": true
   },
+  "home-page-subscribe": {
+    "source": "home-page-subscribe",
+    "endPage": "payment",
+    "defaultSignup": true
+  },
   "landing-page-banner": {
     "source": "landing-page-banner",
     "endPage": "payment"
@@ -81,7 +86,8 @@
   },
   "boxing-banner-ultimate": {
     "source": "boxing-banner-ultimate",
-    "endPage": "payment"
+    "endPage": "payment",
+    "defaultSignup": true
   },
   "boxing-ultimate-subscription": {
     "source": "boxing-ultimate-subscription",
