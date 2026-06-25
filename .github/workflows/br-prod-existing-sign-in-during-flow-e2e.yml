@@ -116,14 +116,10 @@ jobs:
             plan: standard_apm
             purchase_path: ultimate_apm
 
-          # Active Ultimate — all four plans
-          - user_state: active_ultimate
-            plan: standard_monthly
-          - user_state: active_ultimate
-            plan: standard_apm
-          - user_state: active_ultimate
+          # Active Ultimate — entitlement validation
+          - user_state: active_ultimate_apm
             plan: ultimate_apm
-          - user_state: active_ultimate
+          - user_state: active_ultimate_upfront
             plan: ultimate_upfront
 
     env:

@@ -75,15 +75,8 @@ jobs:
           - source: landing-page-dont-miss-live-switch
             plan: standard_monthly
             switch: 'true'
-          - source: landing-page-dont-miss-live-switch
-            plan: standard_apm
-            switch: 'true'
-
-          # Freemium — all four plans
           - user_state: freemium
             plan: standard_monthly
-          - user_state: freemium
-            plan: standard_apm
           - user_state: freemium
             plan: ultimate_apm
           - user_state: freemium
@@ -92,8 +85,6 @@ jobs:
           # Frozen — all four plans
           - user_state: frozen
             plan: standard_monthly
-          - user_state: frozen
-            plan: standard_apm
           - user_state: frozen
             plan: ultimate_apm
           - user_state: frozen
@@ -109,21 +100,9 @@ jobs:
           - user_state: active_standard_monthly
             plan: standard_monthly
             purchase_path: ultimate_upfront
-          - user_state: active_standard_apm
-            plan: standard_apm
-            purchase_path: ppv_only
-          - user_state: active_standard_apm
-            plan: standard_apm
-            purchase_path: ultimate_apm
-
-          # Active Ultimate — all four plans
-          - user_state: active_ultimate
-            plan: standard_monthly
-          - user_state: active_ultimate
-            plan: standard_apm
-          - user_state: active_ultimate
+          - user_state: active_ultimate_apm
             plan: ultimate_apm
-          - user_state: active_ultimate
+          - user_state: active_ultimate_upfront
             plan: ultimate_upfront
 
     env:

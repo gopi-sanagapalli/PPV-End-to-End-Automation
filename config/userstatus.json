@@ -107,31 +107,85 @@
       }
     }
   },
-  "active_standard": {
+  "active_standard_monthly": {
     "SUBSCRIPTION_STATUS": "Manage subscription",
     "PPV_STATUS": "Buy now",
     "regions": {
       "GB": {
         "environments": {
           "stag": {
-            "USER_EMAIL": "stagukdazn@yopmail.com",
-            "USER_PASSWORD": "Dazn@123"
+            "USER_EMAIL": "TODO_ADD_GB_STANDARD_MONTHLY_ACCOUNT",
+            "USER_PASSWORD": "TODO_ADD_PASSWORD"
           },
           "prod": {
-            "USER_EMAIL": "garcia@t.dazn.com",
-            "USER_PASSWORD": "Dazn@1"
+            "USER_EMAIL": "TODO_ADD_GB_STANDARD_MONTHLY_ACCOUNT",
+            "USER_PASSWORD": "TODO_ADD_PASSWORD"
           }
         }
       },
       "US": {
         "environments": {
           "stag": {
-            "USER_EMAIL": "us_ppvb1@t.com",
-            "USER_PASSWORD": "Test1!"
+            "USER_EMAIL": "TODO_ADD_US_STANDARD_MONTHLY_ACCOUNT",
+            "USER_PASSWORD": "TODO_ADD_PASSWORD"
           },
           "prod": {
-            "USER_EMAIL": "us_ppvb1@t.com",
-            "USER_PASSWORD": "Test1!"
+            "USER_EMAIL": "capeuat+pusa7@gmail.com",
+            "USER_PASSWORD": "12345t"
+          }
+        }
+      },
+      "AU": {
+        "environments": {
+          "stag": {
+            "USER_EMAIL": "TODO_ADD_AU_STANDARD_MONTHLY_ACCOUNT",
+            "USER_PASSWORD": "TODO_ADD_PASSWORD"
+          },
+          "prod": {
+            "USER_EMAIL": "TODO_ADD_AU_STANDARD_MONTHLY_ACCOUNT",
+            "USER_PASSWORD": "TODO_ADD_PASSWORD"
+          }
+        }
+      },
+      "IN": {
+        "environments": {
+          "stag": {
+            "USER_EMAIL": "TODO_ADD_IN_STANDARD_MONTHLY_ACCOUNT",
+            "USER_PASSWORD": "TODO_ADD_PASSWORD"
+          },
+          "prod": {
+            "USER_EMAIL": "TODO_ADD_IN_STANDARD_MONTHLY_ACCOUNT",
+            "USER_PASSWORD": "TODO_ADD_PASSWORD"
+          }
+        }
+      }
+    }
+  },
+  "active_standard_apm": {
+    "SUBSCRIPTION_STATUS": "Manage subscription",
+    "PPV_STATUS": "Buy now",
+    "regions": {
+      "GB": {
+        "environments": {
+          "stag": {
+            "USER_EMAIL": "TODO_ADD_GB_STANDARD_APM_ACCOUNT",
+            "USER_PASSWORD": "TODO_ADD_PASSWORD"
+          },
+          "prod": {
+            "USER_EMAIL": "TODO_ADD_GB_STANDARD_APM_ACCOUNT",
+            "USER_PASSWORD": "TODO_ADD_PASSWORD"
+          }
+        }
+      },
+      "US": {
+        "environments": {
+          "stag": {
+            "USER_EMAIL": "TODO_ADD_US_STANDARD_APM_ACCOUNT",
+            "USER_PASSWORD": "TODO_ADD_PASSWORD"
+          },
+          "prod": {
+            "USER_EMAIL": "tarunusprod3@t.dazn.com",
+            "USER_PASSWORD": "Test@123"
           }
         }
       },
@@ -161,7 +215,7 @@
       }
     }
   },
-  "active_ultimate": {
+  "active_ultimate_apm": {
     "SUBSCRIPTION_STATUS": "Manage subscription",
     "PPV_STATUS": "Purchased",
     "regions": {
@@ -177,44 +231,14 @@
           }
         }
       },
-      "AU": {
-        "environments": {
-          "stag": {
-            "USER_EMAIL": "au_standard_apm@t.com",
-            "USER_PASSWORD": "Test1!"
-          },
-          "prod": {
-            "USER_EMAIL": "auen888@yopmail.com",
-            "USER_PASSWORD": "Dazn@1"
-          }
-        }
-      }
-    }
-  },
-  "active_standard_monthly": {
-    "SUBSCRIPTION_STATUS": "Manage subscription",
-    "PPV_STATUS": "Buy now",
-    "regions": {
-      "GB": {
-        "environments": {
-          "stag": {
-            "USER_EMAIL": "TODO_ADD_ACCOUNT",
-            "USER_PASSWORD": "TODO_ADD_PASSWORD"
-          },
-          "prod": {
-            "USER_EMAIL": "TODO_ADD_ACCOUNT",
-            "USER_PASSWORD": "TODO_ADD_PASSWORD"
-          }
-        }
-      },
       "US": {
         "environments": {
           "stag": {
-            "USER_EMAIL": "TODO_ADD_ACCOUNT",
+            "USER_EMAIL": "TODO_ADD_US_ULTIMATE_APM_ACCOUNT",
             "USER_PASSWORD": "TODO_ADD_PASSWORD"
           },
           "prod": {
-            "USER_EMAIL": "TODO_ADD_ACCOUNT",
+            "USER_EMAIL": "TODO_ADD_US_ULTIMATE_APM_ACCOUNT",
             "USER_PASSWORD": "TODO_ADD_PASSWORD"
           }
         }
@@ -222,107 +246,11 @@
       "AU": {
         "environments": {
           "stag": {
-            "USER_EMAIL": "TODO_ADD_ACCOUNT",
+            "USER_EMAIL": "TODO_ADD_AU_ULTIMATE_APM_ACCOUNT",
             "USER_PASSWORD": "TODO_ADD_PASSWORD"
           },
           "prod": {
-            "USER_EMAIL": "TODO_ADD_ACCOUNT",
-            "USER_PASSWORD": "TODO_ADD_PASSWORD"
-          }
-        }
-      },
-      "IN": {
-        "environments": {
-          "stag": {
-            "USER_EMAIL": "TODO_ADD_ACCOUNT",
-            "USER_PASSWORD": "TODO_ADD_PASSWORD"
-          },
-          "prod": {
-            "USER_EMAIL": "TODO_ADD_ACCOUNT",
-            "USER_PASSWORD": "TODO_ADD_PASSWORD"
-          }
-        }
-      }
-    }
-  },
-  "active_standard_apm": {
-    "SUBSCRIPTION_STATUS": "Manage subscription",
-    "PPV_STATUS": "Buy now",
-    "regions": {
-      "GB": {
-        "environments": {
-          "stag": {
-            "USER_EMAIL": "TODO_ADD_ACCOUNT",
-            "USER_PASSWORD": "TODO_ADD_PASSWORD"
-          },
-          "prod": {
-            "USER_EMAIL": "TODO_ADD_ACCOUNT",
-            "USER_PASSWORD": "TODO_ADD_PASSWORD"
-          }
-        }
-      },
-      "US": {
-        "environments": {
-          "stag": {
-            "USER_EMAIL": "TODO_ADD_ACCOUNT",
-            "USER_PASSWORD": "TODO_ADD_PASSWORD"
-          },
-          "prod": {
-            "USER_EMAIL": "TODO_ADD_ACCOUNT",
-            "USER_PASSWORD": "TODO_ADD_PASSWORD"
-          }
-        }
-      },
-      "AU": {
-        "environments": {
-          "stag": {
-            "USER_EMAIL": "TODO_ADD_ACCOUNT",
-            "USER_PASSWORD": "TODO_ADD_PASSWORD"
-          },
-          "prod": {
-            "USER_EMAIL": "TODO_ADD_ACCOUNT",
-            "USER_PASSWORD": "TODO_ADD_PASSWORD"
-          }
-        }
-      },
-      "IN": {
-        "environments": {
-          "stag": {
-            "USER_EMAIL": "TODO_ADD_ACCOUNT",
-            "USER_PASSWORD": "TODO_ADD_PASSWORD"
-          },
-          "prod": {
-            "USER_EMAIL": "TODO_ADD_ACCOUNT",
-            "USER_PASSWORD": "TODO_ADD_PASSWORD"
-          }
-        }
-      }
-    }
-  },
-  "active_ultimate_apm": {
-    "SUBSCRIPTION_STATUS": "Manage subscription",
-    "PPV_STATUS": "Purchased",
-    "regions": {
-      "GB": {
-        "environments": {
-          "stag": {
-            "USER_EMAIL": "TODO_ADD_ACCOUNT",
-            "USER_PASSWORD": "TODO_ADD_PASSWORD"
-          },
-          "prod": {
-            "USER_EMAIL": "TODO_ADD_ACCOUNT",
-            "USER_PASSWORD": "TODO_ADD_PASSWORD"
-          }
-        }
-      },
-      "AU": {
-        "environments": {
-          "stag": {
-            "USER_EMAIL": "TODO_ADD_ACCOUNT",
-            "USER_PASSWORD": "TODO_ADD_PASSWORD"
-          },
-          "prod": {
-            "USER_EMAIL": "TODO_ADD_ACCOUNT",
+            "USER_EMAIL": "TODO_ADD_AU_ULTIMATE_APM_ACCOUNT",
             "USER_PASSWORD": "TODO_ADD_PASSWORD"
           }
         }
@@ -336,11 +264,23 @@
       "GB": {
         "environments": {
           "stag": {
-            "USER_EMAIL": "TODO_ADD_ACCOUNT",
+            "USER_EMAIL": "TODO_ADD_GB_ULTIMATE_UPFRONT_ACCOUNT",
             "USER_PASSWORD": "TODO_ADD_PASSWORD"
           },
           "prod": {
-            "USER_EMAIL": "TODO_ADD_ACCOUNT",
+            "USER_EMAIL": "TODO_ADD_GB_ULTIMATE_UPFRONT_ACCOUNT",
+            "USER_PASSWORD": "TODO_ADD_PASSWORD"
+          }
+        }
+      },
+      "US": {
+        "environments": {
+          "stag": {
+            "USER_EMAIL": "TODO_ADD_US_ULTIMATE_UPFRONT_ACCOUNT",
+            "USER_PASSWORD": "TODO_ADD_PASSWORD"
+          },
+          "prod": {
+            "USER_EMAIL": "TODO_ADD_US_ULTIMATE_UPFRONT_ACCOUNT",
             "USER_PASSWORD": "TODO_ADD_PASSWORD"
           }
         }
@@ -348,11 +288,11 @@
       "AU": {
         "environments": {
           "stag": {
-            "USER_EMAIL": "TODO_ADD_ACCOUNT",
+            "USER_EMAIL": "TODO_ADD_AU_ULTIMATE_UPFRONT_ACCOUNT",
             "USER_PASSWORD": "TODO_ADD_PASSWORD"
           },
           "prod": {
-            "USER_EMAIL": "TODO_ADD_ACCOUNT",
+            "USER_EMAIL": "TODO_ADD_AU_ULTIMATE_UPFRONT_ACCOUNT",
             "USER_PASSWORD": "TODO_ADD_PASSWORD"
           }
         }

@@ -45,52 +45,55 @@ jobs:
       max-parallel: 4
       matrix:
         source:
-          - home-page-get-started
-          - landing-page-banner
-          - landing-page-dont-miss-live
+          - boxing-banner-ultimate
+          - boxing-join-the-club
           - boxing-page-banner
           - boxing-page-bundle
-          - boxing-upcoming-fights
-          - home-page-dazntile
           - boxing-standard-subscription
-          - boxing-banner-ultimate
+          - boxing-upcoming-fights
           - boxing-ultimate-subscription
-          - boxing-join-the-club
+          - home-biggest-fights
           - home-boxing-banner
           - home-boxing-tile
           - home-boxing-upcoming
-          - search
-          - schedule
           - home-kickboxing-tile
           - home-page-banner
+          - home-page-dazntile
           - home-page-dont-miss
-          - home-biggest-fights
+          - home-page-get-started
+          - landing-page-banner
+          - landing-page-dont-miss-live
+          - schedule
+          - search
 
         plan:
           - standard_monthly
           - standard_apm
           - ultimate_apm
           - ultimate_upfront
+
         include:
-          # landing-page-dont-miss-live-switch: standard plans only
+          # Switch route: explicit standard-plan jobs only
           - source: landing-page-dont-miss-live-switch
             plan: standard_monthly
             switch: 'true'
           - source: landing-page-dont-miss-live-switch
             plan: standard_apm
             switch: 'true'
+
         exclude:
+          # Ultimate-only boxing sources
           - source: boxing-banner-ultimate
             plan: standard_monthly
           - source: boxing-banner-ultimate
             plan: standard_apm
-          - source: boxing-ultimate-subscription
+          - source: boxing-join-the-club
             plan: standard_monthly
-          - source: boxing-ultimate-subscription
+          - source: boxing-join-the-club
             plan: standard_apm
-          - source: boxing-join-the-club
+          - source: boxing-ultimate-subscription
             plan: standard_monthly
-          - source: boxing-join-the-club
+          - source: boxing-ultimate-subscription
             plan: standard_apm
 
     env:
@@ -102,7 +105,7 @@ jobs:
       PLAN: ${{ matrix.plan }}
       PPV_CONFIG: ${{ inputs.PPV_CONFIG }}
       PAYMENT_METHOD: ${{ inputs.PAYMENT_METHOD }}
-      SWITCH: ${{ matrix.switch || inputs.SWITCH }}
+      SWITCH: ${{ matrix.switch || 'false' }}
 
     steps:
       - name: Checkout repository

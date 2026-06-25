@@ -109,22 +109,62 @@ for (const stateKey of userStatesToRun) {
   eventData.FLEX_FUTURE_DATE_SHORT = `${fDay} ${fMonth} ${fYear}`;
 
   const tier = (json.TIER || 'freemium').toLowerCase();
-  if ((SOURCE === 'boxing-banner-ultimate' || SOURCE === 'boxing-ultimate-subscription' || SOURCE === 'boxing-join-the-club') && tier !== 'ultimate') {
+  const requestedPlan = (process.env.PLAN || '').trim().toLowerCase();
+  const isActiveStandardUser = userStateKey.startsWith('active_standard');
+  const isUltimateUpgrade =
+    isActiveStandardUser &&
+    requestedPlan.startsWith('ultimate_');
+
+  if (
+    (SOURCE === 'boxing-banner-ultimate' ||
+      SOURCE === 'boxing-ultimate-subscription' ||
+      SOURCE === 'boxing-join-the-club') &&
+    tier !== 'ultimate' &&
+    !isUltimateUpgrade
+  ) {
     throw new Error(`❌ SOURCE "${SOURCE}" requires an Ultimate plan (e.g., PLAN=ultimate_apm).`);
   }
+
   const isUSorGB = REGION === 'GB' || REGION === 'US';
-  // Dev mode: bypass phone number on ultimate flows in GB/US.
-  // Enabled on all environments (including prod) when tier is ultimate.
-  // Can also be forced via DEV_MODE_ON=on env variable for prod verification.
+  // Dev mode can be forced via DEV_MODE_ON=on for prod verification.
   const devModeForced = (process.env.DEV_MODE_ON || '').toLowerCase() === 'on';
-  const devModeEnabled = devModeForced || (tier === 'ultimate' && isUSorGB) || (SOURCE === 'landing-page-dont-miss-live-switch');
-  const ratePlan = (process.env.RATE_PLAN || json.RATE_PLAN || 'monthly').toLowerCase();
+  let ratePlan = (process.env.RATE_PLAN || json.RATE_PLAN || 'monthly').toLowerCase();
   const userEmail = eventData.USER_EMAIL || json.USER_EMAIL || '';
   const userPassword = eventData.USER_PASSWORD || json.USER_PASSWORD || '';
+  // Active Standard routing:
+  // PLAN unset -> PPV-only; ultimate_apm/upfront -> Ultimate upgrade.
   let purchaseOption = (json.PURCHASE_OPTION || 'ppv').toLowerCase();
-  if (tier === 'ultimate') {
+
+  if (isActiveStandardUser) {
+    purchaseOption = requestedPlan.startsWith('ultimate_') ? 'ultimate' : 'ppv';
+
+    if (requestedPlan === 'ultimate_apm') {
+      ratePlan = 'annual pay monthly';
+    } else if (requestedPlan === 'ultimate_upfront') {
+      ratePlan = 'annual pay upfront';
+    }
+  } else if (tier === 'ultimate') {
     purchaseOption = 'ultimate';
   }
+
+  // The PPV config tier describes the source offer. Active Standard users can
+  // deliberately enter an Ultimate upgrade journey via PLAN, so expectations
+  // must follow the journey actually selected.
+  const effectiveTier =
+    isUltimateUpgrade || tier === 'ultimate'
+      ? 'ultimate'
+      : 'standard';
+
+  // Bypass phone number for every effective Ultimate journey in GB/US,
+  // including Active Standard → Ultimate upgrades.
+  const devModeEnabled =
+    devModeForced ||
+    (effectiveTier === 'ultimate' && isUSorGB) ||
+    (SOURCE === 'landing-page-dont-miss-live-switch');
+
+  console.log(`🎯 Requested PLAN : ${requestedPlan || '(none -> PPV only)'}`);
+  console.log(`🛒 Purchase route : ${purchaseOption}`);
+  console.log(`🏷️ Effective tier : ${effectiveTier}`);
   const baseUrl = eventData.BASE_URL;
   const variantConfig = json.variants;
   const pagesConfig = json.pages;
@@ -136,7 +176,7 @@ for (const stateKey of userStatesToRun) {
   const isNoOffer = offerType === 'no_offer' || offerType === 'none';
   const activeOfferPresent = eventData.ACTIVE_OFFER_PRESENT === 'true';
 
-  if (tier === 'ultimate') {
+  if (effectiveTier === 'ultimate') {
     eventData.PLAN_CTA_BUTTON = eventData.PLAN_CTA_BUTTON_ULTIMATE || 'Continue with DAZN Ultimate';
     eventData.DAZN_TIER = 'DAZN Ultimate';
   } else {
@@ -169,7 +209,7 @@ for (const stateKey of userStatesToRun) {
       // No 1-month-free offer (7_day_trial or no_offer) — no free text
       eventData.PAYMENT_FREE_TEXT = 'N/A';
     }
-    if (tier === 'ultimate') {
+    if (effectiveTier === 'ultimate') {
       eventData.CANCELLATION_TEXT = ratePlan === 'annual pay monthly'
         ? (eventData.CANCELLATION_TEXT_ULTIMATE_APM || '')
         : (eventData.CANCELLATION_TEXT_ULTIMATE_APU || '');
