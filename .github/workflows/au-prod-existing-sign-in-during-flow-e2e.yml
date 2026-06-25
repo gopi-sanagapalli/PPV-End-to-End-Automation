@@ -1,4 +1,4 @@
-name: Existing User E2E - Already Signed In - AU - PROD
+name: "AU PROD — Existing User — Sign In During Flow"
 
 on:
   workflow_dispatch:

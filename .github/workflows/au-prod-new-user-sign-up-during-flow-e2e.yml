@@ -1,4 +1,4 @@
-name: New User E2E - AU - PROD
+name: "AU PROD — New User — Sign Up During Flow"
 
 on:
   workflow_dispatch:

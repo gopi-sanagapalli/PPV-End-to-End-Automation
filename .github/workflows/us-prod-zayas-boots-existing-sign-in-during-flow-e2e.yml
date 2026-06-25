@@ -1,4 +1,4 @@
-name: "US PROD — Zayas vs Boots — Existing User Login First"
+name: "US PROD — Zayas vs Boots — Existing User — Sign In During Flow"
 
 on:
   workflow_dispatch:
