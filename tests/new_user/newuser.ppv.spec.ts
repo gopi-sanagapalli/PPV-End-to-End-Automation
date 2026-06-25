@@ -194,7 +194,6 @@ async function runFlow(
       : null,
     colorScheme: 'dark',
     reducedMotion: 'no-preference',
-    timezoneId: 'Asia/Kolkata',
     locale: 'en-IN',
     permissions: ['clipboard-read', 'clipboard-write', 'geolocation'],
     recordVideo: {

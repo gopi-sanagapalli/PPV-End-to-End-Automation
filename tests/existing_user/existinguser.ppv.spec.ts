@@ -221,7 +221,6 @@ for (const stateKey of userStatesToRun) {
     viewport: null,
     colorScheme: 'dark',
     reducedMotion: 'no-preference',
-    timezoneId: 'Asia/Kolkata',
     locale: 'en-IN',
     ...(recordVideo ? { recordVideo } : {}),
   });
