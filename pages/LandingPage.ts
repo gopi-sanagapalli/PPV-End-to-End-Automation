@@ -302,16 +302,9 @@ export class LandingPage extends BasePage {
       await carousel.hover().catch(() => {});
       await this.page.waitForTimeout(200);
 
-      // Check visibility at carousel level, fallback to page level if needed
-      let nextBtnVisible = await nextBtn.isVisible({ timeout: 1000 }).catch(() => false);
-      if (!nextBtnVisible) {
-        const pageNextBtn = this.page.locator(nextBtnSelectors).first();
-        if (await pageNextBtn.isVisible({ timeout: 500 }).catch(() => false)) {
-          console.log('ℹ️  [Banner] Next button found at page-level instead of carousel-level');
-          nextBtn = pageNextBtn;
-          nextBtnVisible = true;
-        }
-      }
+      // Check if next button exists in carousel DOM
+      const nextBtnExists = await nextBtn.count().catch(() => 0) > 0;
+      let nextBtnVisible = nextBtnExists || await nextBtn.isVisible({ timeout: 1000 }).catch(() => false);
 
       if (nextBtnVisible) {
         const prevText = currentText;
@@ -327,7 +320,7 @@ export class LandingPage extends BasePage {
         await this.page.waitForTimeout(500);
         await stopAllAutoSlide();
       } else {
-        console.log('⚠️  [Banner] Next button not visible — cannot navigate further');
+        console.log('⚠️  [Banner] Next button not found in carousel DOM — cannot navigate further');
         break;
       }
     }

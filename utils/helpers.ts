@@ -273,7 +273,7 @@ export async function getPageSnapshot(page: Page): Promise<DOMNode[]> {
           '[class*="hero-banner"]',
         ].join(', '));
         if (!isHero) return false;
-        return slide.closest('.swiper-slide-active, [class*="swiper-slide-active"]') === null;
+        return slide.closest('.swiper-slide-active, .swiper-slide-duplicate-active, [class*="swiper-slide-active"], [class*="swiper-slide-duplicate-active"]') === null;
       };
 
       // OPTIMIZED: avoid getComputedStyle — use offsetWidth/Height + inline style checks

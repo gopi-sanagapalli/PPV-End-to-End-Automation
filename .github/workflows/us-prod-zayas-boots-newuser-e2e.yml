@@ -6,7 +6,7 @@ on:
       PPV_CONFIG:
         description: 'PPV config filename/key'
         required: true
-        default: 'zayas_boots_upsell.json'
+        default: 'zayas_boots.json'
 
       PAYMENT_METHOD:
         description: 'Payment method'

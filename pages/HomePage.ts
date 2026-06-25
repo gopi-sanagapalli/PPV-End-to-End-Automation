@@ -755,7 +755,34 @@ export class HomePage extends LandingPage {
       return getStartedBtn;
     }
 
-    console.warn(`⚠️ Unknown source "${source || 'unknown'}" for HomePage. Valid sources: home-page-banner, home-page-dont-miss, home-page-get-started, home-biggest-fights.`);
+    // For home-page-subscribe: locate the "Subscribe" CTA in the header nav (freemium logged-in users)
+    if (src === 'home-page-subscribe') {
+      console.log('🔍 [HomePage] Finding "Subscribe" CTA in header nav...');
+
+      const subscribeBtn = this.page.locator([
+        'header a:has-text("Subscribe")',
+        'header button:has-text("Subscribe")',
+        '[class*="header-nav"] a:has-text("Subscribe")',
+        '[class*="header-nav"] button:has-text("Subscribe")',
+        'a[class*="upgrade-btn"]:has-text("Subscribe")',
+        'a[class*="upgrade_btn"]:has-text("Subscribe")',
+        '[class*="header" i] a:has-text("Subscribe")',
+        '[class*="header" i] button:has-text("Subscribe")',
+      ].join(', ')).first();
+
+      const found = await subscribeBtn.waitFor({ state: 'visible', timeout: 10000 })
+        .then(() => true)
+        .catch(() => false);
+
+      if (!found) {
+        throw new Error('❌ [HomePage] "Subscribe" CTA not found in header nav. Ensure user is logged in as freemium.');
+      }
+
+      console.log('✅ [HomePage] "Subscribe" CTA found in header nav');
+      return subscribeBtn;
+    }
+
+    console.warn(`⚠️ Unknown source "${source || 'unknown'}" for HomePage. Valid sources: home-page-banner, home-page-dont-miss, home-page-get-started, home-page-subscribe, home-biggest-fights.`);
     return null;
   }
 
@@ -833,6 +860,17 @@ export class HomePage extends LandingPage {
       await container.scrollIntoViewIfNeeded().catch(() => { });
       await container.click({ force: true, timeout: 10000 });
       console.log('✅ [HomePage] Clicked "Get Started" CTA');
+      return;
+    }
+
+    if (src === 'home-page-subscribe') {
+      console.log('🖱️ [HomePage] Clicking "Subscribe" CTA...');
+      if (!container) {
+        throw new Error('❌ [HomePage] Subscribe container is null');
+      }
+      await container.scrollIntoViewIfNeeded().catch(() => { });
+      await container.click({ force: true, timeout: 10000 });
+      console.log('✅ [HomePage] Clicked "Subscribe" CTA');
       return;
     }
 

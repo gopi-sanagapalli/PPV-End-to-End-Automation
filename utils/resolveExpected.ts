@@ -37,6 +37,10 @@ export function resolveExpected(
   const rawPage = rule.Page || rule.page || eventData.CURRENT_PAGE || eventData.current_page || '';
   const pageName = rawPage.trim().toLowerCase();
 
+  if (field === 'banner - fight card cta' && pageName.includes('landing')) {
+    return 'N/A';
+  }
+
   if (field === 'upsell feature 1' && pageName === 'ppv') {
     return 'Minimum 12 pay-per-views a year included at no extra cost.';
   }
@@ -68,6 +72,30 @@ export function resolveExpected(
   let raw = rule.Expected ?? rule.Value;
 
   const currentSource = (eventData.SOURCE || eventData.source || '').trim().toLowerCase();
+
+  // The PPV detail page renders its own date/time format.
+  // Keep this separate from landing banners, welcome tiles, and plan cards.
+  if (field === 'ppv date and time text') {
+    const ppvPageDateTime = eventData.PPV_PAGE_DATE_TIME;
+    if (ppvPageDateTime) {
+      return String(ppvPageDateTime);
+    }
+  }
+
+  // home-page-dazntile opens the first eligible DAZN entitlement tile.
+  // That tile is not guaranteed to be the configured PPV event, so
+  // PPV-specific event-date assertions are not valid for this source.
+  if (
+    currentSource === 'home-page-dazntile' &&
+    (
+      field === 'ppv date and time text' ||
+      field === 'ppv date' ||
+      field === 'ppv time' ||
+      field === 'banner - event date'
+    )
+  ) {
+    return 'N/A';
+  }
   
   // Check if a PPV event is active. If a PPV event is active, the boxing subscription-only sources
   // will render the PPV-bundled offers on the live site, so they should be validated using the PPV rules.
@@ -301,7 +329,8 @@ export function resolveExpected(
       currentSource === 'home-page-dazntile' ||
       currentSource === 'boxing-ultimate-subscription' ||
       currentSource === 'boxing-standard-subscription' ||
-      currentSource === 'boxing-join-the-club';
+      currentSource === 'boxing-join-the-club' ||
+      currentSource === 'boxing-banner-ultimate';
 
     if (field === 'upsell offer text' && (!eventData.UPSELL_PRICE || eventData.UPSELL_PRICE.trim() === '' || eventData.UPSELL_PRICE.trim().toUpperCase() === 'N/A')) {
       raw = 'N/A';

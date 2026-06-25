@@ -7,10 +7,6 @@ import selectors from '../config/selectors.json';
  * for any sport landing page (Boxing, Kickboxing, Misfits Boxing, etc.).
  */
 export class BoxingHomePage extends HomePage {
-  private _fighter1 = '';
-  private _fighter2 = '';
-  private _bannerBuyNowHref = '';
-  private _buyNowCoords: { x: number; y: number } | null = null;
 
   constructor(page: Page) {
     super(page);
@@ -234,7 +230,7 @@ export class BoxingHomePage extends HomePage {
     if (!source) {
       console.warn("⚠️ Warning: No source specified. Falling back to default (banner -> tile) search strategy.");
       try {
-        const bannerResult = await this.findPPVBannerSlide(eventData);
+        const bannerResult = await this.findPPVInBanner(eventData);
         if (bannerResult) return bannerResult;
       } catch (e) {
         console.warn(`⚠️ Error in banner fallback search: ${(e as Error).message}`);
@@ -484,7 +480,7 @@ export class BoxingHomePage extends HomePage {
 
     if (src.includes('banner')) {
       try {
-        return await this.findPPVBannerSlide(eventData);
+        return await this.findPPVInBanner(eventData);
       } catch (e) {
         console.log(`⚠️ Error finding PPV banner slide: ${(e as Error).message}`);
         return null;
@@ -770,7 +766,7 @@ export class BoxingHomePage extends HomePage {
     const src = (source || '').toLowerCase();
 
     if (src.includes('banner')) {
-      await this.clickPPVBannerBuyNow();
+      await super.clickBuyNow(container, source);
       return;
     }
 
@@ -893,212 +889,7 @@ export class BoxingHomePage extends HomePage {
       await this.page.waitForLoadState('domcontentloaded').catch(() => { });
       await this.page.waitForTimeout(2000);
       const newUrl = this.page.url();
-      console.log(`✅ [Home Sport Tile] Navigated to: ${newUrl}`);
       return;
     }
-  }
-
-  // ─────────────────────────────
-  // FIND PPV IN BANNER — used by home-sport-banner source
-  // ─────────────────────────────
-  private async extractBannerCTAInfo(slide: any): Promise<void> {
-    try {
-      const buyNowBtn = slide.locator(
-        'a:has-text("Buy now"), button:has-text("Buy now"), a:has-text("Buy Now"), button:has-text("Buy Now")'
-      ).first();
-
-      await buyNowBtn.waitFor({ state: 'visible', timeout: 5000 }).catch(() => { });
-
-      const box = await buyNowBtn.boundingBox().catch(() => null);
-      if (box && box.width > 0 && box.height > 0) {
-        this._buyNowCoords = {
-          x: box.x + box.width / 2,
-          y: box.y + box.height / 2
-        };
-        console.log(`📎 [BoxingHomePage] Extracted Buy Now coords: x=${this._buyNowCoords.x}, y=${this._buyNowCoords.y}`);
-      } else {
-        console.log('⚠️ [BoxingHomePage] Extracted Buy Now coords has zero/null bounding box');
-      }
-
-      const href = await buyNowBtn.getAttribute('href').catch(() => '');
-      if (href) {
-        this._bannerBuyNowHref = href;
-        console.log(`📎 [BoxingHomePage] Extracted Buy Now href: ${href}`);
-      }
-    } catch (e: any) {
-      console.log(`⚠️ [BoxingHomePage] Failed to extract CTA info: ${e.message}`);
-    }
-  }
-
-  private async findPPVBannerSlide(eventData: Record<string, string>): Promise<any> {
-    const ppvName = eventData.PPV_NAME || '';
-    console.log(`🔍 [Home Sport Banner] Finding PPV: ${ppvName}`);
-
-    const regex = new RegExp(ppvName.split(/\s+/).join('.*'), 'i');
-
-    const vsMatch = ppvName.match(/(\w+)\s+vs\.?\s+(\w+)/i);
-    const fighter1 = vsMatch ? vsMatch[1].toLowerCase() : '';
-    const fighter2 = vsMatch ? vsMatch[2].toLowerCase() : '';
-    this._fighter1 = fighter1;
-    this._fighter2 = fighter2;
-
-    const nameParts = ppvName.split(/[:\-–]/).map(p => p.trim()).filter(p => p.length > 3);
-    const cleanStr = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
-    const partsWordLists = nameParts.map(part => cleanStr(part).split(/\s+/).filter(Boolean)).filter(list => list.length > 0);
-
-    const matchesBanner = (text: string): boolean => {
-      if (!text) return false;
-      if (regex.test(text)) return true;
-      const ct = cleanStr(text);
-      if (partsWordLists.some(words => words.every(w => ct.includes(w)))) return true;
-      if (fighter1 && fighter2 && ct.includes(fighter1) && ct.includes(fighter2)) return true;
-      return false;
-    };
-
-    await this.stopCarouselAutoSlide();
-
-    const activeSlide = this.page.locator(selectors.banner.activeSlide).first();
-    if (await activeSlide.isVisible({ timeout: 2000 }).catch(() => false)) {
-      const activeText = (await activeSlide.textContent().catch(() => ''))?.trim() || '';
-      if (activeText && matchesBanner(activeText) && activeText.toLowerCase().includes('buy now')) {
-        console.log(`✅ [Home Sport Banner] PPV slide is already the active/first slide`);
-        await this.stopCarouselAutoSlide();
-        await this.extractBannerCTAInfo(activeSlide);
-        return activeSlide;
-      }
-    }
-
-    const swiperEl = this.page.locator('.swiper:not([class*="rail" i]):not([class*="tiles" i])').first();
-    if (!await swiperEl.isVisible({ timeout: 5000 }).catch(() => false)) {
-      console.log('⚠️ [Home Sport Banner] Hero swiper not visible');
-    }
-
-    const allSlides = swiperEl.locator('.swiper-slide');
-    const count = await allSlides.count().catch(() => 0);
-    console.log(`🔍 [Home Sport Banner] Found ${count} slides in the hero swiper`);
-
-    for (let i = 0; i < count; i++) {
-      const slide = allSlides.nth(i);
-      if (!await slide.isVisible().catch(() => false)) continue;
-
-      const isDuplicate = await slide.evaluate((el) => el.classList.contains('swiper-slide-duplicate')).catch(() => false);
-      if (isDuplicate) continue;
-
-      const text = (await slide.textContent().catch(() => ''))?.trim() || '';
-      if (text && matchesBanner(text) && text.toLowerCase().includes('buy now')) {
-        console.log(`✅ [Home Sport Banner] Found matching PPV slide in DOM (index ${i}) with "Buy now" CTA: "${text.substring(0, 100).replace(/\n/g, ' ')}"`);
-
-        console.log(`🎯 [Home Sport Banner] Sliding directly to PPV slide index ${i}`);
-        await this.page.evaluate((idx) => {
-          const swiperEl = document.querySelector('.swiper') as any;
-          if (swiperEl?.swiper) {
-            swiperEl.swiper.autoplay?.stop();
-            swiperEl.swiper.params.autoplay = false;
-            swiperEl.swiper.params.loop = false;
-            swiperEl.swiper.slideTo(idx, 0);
-          }
-        }, i).catch(() => { });
-
-        await this.page.waitForTimeout(300);
-        await this.stopCarouselAutoSlide();
-        await this.extractBannerCTAInfo(slide);
-        return slide;
-      }
-    }
-
-    if (await activeSlide.isVisible({ timeout: 2000 }).catch(() => false)) {
-      const activeText = (await activeSlide.textContent().catch(() => ''))?.trim() || '';
-      if (activeText && matchesBanner(activeText)) {
-        console.log(`✅ [Home Sport Banner] PPV slide matched active slide (fallback)`);
-        await this.stopCarouselAutoSlide();
-        await this.extractBannerCTAInfo(activeSlide);
-        return activeSlide;
-      }
-    }
-
-    throw new Error(
-      `❌ CRITICAL: PPV "${ppvName}" slide with "Buy now" CTA not found in hero banner carousel.`
-    );
-  }
-
-  private async clickPPVBannerBuyNow(): Promise<void> {
-    console.log('🎯 [BoxingHomePage] Clicking Buy Now from active banner');
-
-    if (this._buyNowCoords) {
-      console.log(`🎯 [BoxingHomePage] Clicking pre-captured coordinates: x=${this._buyNowCoords.x}, y=${this._buyNowCoords.y}`);
-      await this.page.mouse.click(this._buyNowCoords.x, this._buyNowCoords.y);
-      console.log(`✅ [BoxingHomePage] Mouse click dispatched at coordinates`);
-
-      const beforeUrl = this.page.url();
-      await this.page.waitForURL(
-        (url: URL) => url.toString() !== beforeUrl,
-        { timeout: 15000 }
-      ).catch(() => {
-        console.log('⚠️ [BoxingHomePage] No URL change detected after coordinate click');
-      });
-      await this.page.waitForLoadState('domcontentloaded').catch(() => { });
-      console.log(`✅ [BoxingHomePage] Current URL after click: ${this.page.url()}`);
-      return;
-    }
-
-    if (this._bannerBuyNowHref) {
-      console.log(`🎯 [BoxingHomePage] Navigating directly to: ${this._bannerBuyNowHref}`);
-      let targetUrl = this._bannerBuyNowHref;
-      if (targetUrl.startsWith('/')) {
-        const currentUrl = this.page.url();
-        const baseMatch = currentUrl.match(/(https:\/\/[a-z0-9.-]*dazn\.com)/i);
-        targetUrl = (baseMatch?.[1] || 'https://www.dazn.com') + targetUrl;
-      }
-      await this.page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-      await this.page.waitForLoadState('domcontentloaded').catch(() => { });
-      console.log(`✅ [BoxingHomePage] Navigated to: ${this.page.url()}`);
-      return;
-    }
-
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      await this.stopCarouselAutoSlide();
-
-      const activeSlide = this.page.locator('.swiper-slide-active:not(.swiper-slide-duplicate)').first();
-
-      const buyNowBtn = activeSlide.locator(
-        'a:has-text("Buy now"), button:has-text("Buy now"), a:has-text("Buy Now"), button:has-text("Buy Now")'
-      ).first();
-
-      if (await buyNowBtn.isVisible().catch(() => false)) {
-        console.log(`Buy Now found (attempt ${attempt})`);
-
-        try {
-          await buyNowBtn.click({ force: true, timeout: 5000 });
-          await this.page.waitForLoadState('domcontentloaded').catch(() => { });
-          console.log(`✅ Navigated to: ${this.page.url()}`);
-          return;
-        } catch (err: any) {
-          console.log(`⚠️ standard click failed: ${err.message}. Trying page.evaluate JS click...`);
-          const clicked = await this.page.evaluate(() => {
-            const els = document.querySelectorAll('.swiper-slide-active:not(.swiper-slide-duplicate) a, .swiper-slide-active:not(.swiper-slide-duplicate) button');
-            for (const el of els) {
-              const text = (el.textContent || '').toLowerCase().trim();
-              if (text.includes('buy now')) {
-                (el as HTMLElement).click();
-                return true;
-              }
-            }
-            return false;
-          }).catch(() => false);
-
-          if (clicked) {
-            console.log(`✅ JS click executed`);
-            await this.page.waitForLoadState('domcontentloaded').catch(() => { });
-            console.log(`✅ Navigated to: ${this.page.url()}`);
-            return;
-          }
-        }
-      }
-
-      console.log(`⚠️ Retry ${attempt} – Buy Now not visible`);
-      await this.page.waitForTimeout(300);
-    }
-
-    throw new Error('❌ Buy Now CTA not clickable in active banner');
   }
 }
