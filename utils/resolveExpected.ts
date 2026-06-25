@@ -37,6 +37,10 @@ export function resolveExpected(
   const rawPage = rule.Page || rule.page || eventData.CURRENT_PAGE || eventData.current_page || '';
   const pageName = rawPage.trim().toLowerCase();
 
+  if (field === 'banner - fight card cta' && pageName.includes('landing')) {
+    return 'N/A';
+  }
+
   if (field === 'upsell feature 1' && pageName === 'ppv') {
     return 'Minimum 12 pay-per-views a year included at no extra cost.';
   }
@@ -301,7 +305,8 @@ export function resolveExpected(
       currentSource === 'home-page-dazntile' ||
       currentSource === 'boxing-ultimate-subscription' ||
       currentSource === 'boxing-standard-subscription' ||
-      currentSource === 'boxing-join-the-club';
+      currentSource === 'boxing-join-the-club' ||
+      currentSource === 'boxing-banner-ultimate';
 
     if (field === 'upsell offer text' && (!eventData.UPSELL_PRICE || eventData.UPSELL_PRICE.trim() === '' || eventData.UPSELL_PRICE.trim().toUpperCase() === 'N/A')) {
       raw = 'N/A';

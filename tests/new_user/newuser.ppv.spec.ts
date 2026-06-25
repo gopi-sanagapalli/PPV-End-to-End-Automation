@@ -616,9 +616,9 @@ async function runFlow(
     }
 
     // ── STRICT VALIDATION FOR BOXING-STANDARD-SUBSCRIPTION / HOME-PAGE-GET-STARTED / HOME-PAGE-DAZNTILE REDIRECT ──
-    if (source === 'boxing-standard-subscription' || source === 'home-page-get-started' || source === 'home-page-dazntile') {
+    if (source === 'boxing-standard-subscription' || source === 'home-page-get-started' || source === 'home-page-dazntile' || source === 'home-page-subscribe') {
       console.log(`\n🔍 Validating ${source} redirect...`);
-      
+
       // Step 1: Wait for URL to update to one of the target pages
       await page.waitForFunction(() => {
         const href = window.location.href.toLowerCase();
@@ -662,8 +662,8 @@ async function runFlow(
 
       // defaultSignup=true means the plan page should contain a PPV option ("subscribe without a pay-per-view").
       const hasPPVOption = stdBody.toLowerCase().includes('subscribe without a pay-per-view') ||
-                           stdBody.toLowerCase().includes('continue without pay-per-view') ||
-                           stdBody.toLowerCase().includes('continue without a pay-per-view');
+        stdBody.toLowerCase().includes('continue without pay-per-view') ||
+        stdBody.toLowerCase().includes('continue without a pay-per-view');
       if (!hasPPVOption) {
         throw new Error(
           `❌ [${source}] Landed on plan/signup page but no PPV option found ` +

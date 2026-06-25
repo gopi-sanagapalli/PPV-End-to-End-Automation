@@ -743,6 +743,68 @@ export async function getActualValue(
           return true;
         }
 
+        // Strategy 4: UTC local timezone conversion check
+        const utcStr = eventData?.PPV_UTC_DATE;
+        if (utcStr) {
+          try {
+            const dateObj = new Date(utcStr);
+            if (!isNaN(dateObj.getTime())) {
+              const weekdays = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+              const tz = 'Asia/Kolkata';
+
+              // Format date components in the browser's timezone (Asia/Kolkata)
+              const localWeekday = dateObj.toLocaleString('en-US', { timeZone: tz, weekday: 'long' }).toLowerCase();
+              const localDayIdx = weekdays.indexOf(localWeekday);
+              const allowedDayIdxs = [
+                localDayIdx,
+                (localDayIdx + 1) % 7,
+                (localDayIdx + 6) % 7
+              ];
+              const allowedWeekdays = allowedDayIdxs.map(idx => weekdays[idx]);
+              const allowedAbbrs = allowedWeekdays.map(w => w.substring(0, 3));
+
+              const months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+              const localMonthStr = dateObj.toLocaleString('en-US', { timeZone: tz, month: 'short' }).toLowerCase();
+              const localMonthIdx = months.indexOf(localMonthStr);
+              const allowedMonthIdxs = [
+                localMonthIdx,
+                (localMonthIdx + 1) % 12,
+                (localMonthIdx + 11) % 12
+              ];
+              const allowedMonths = allowedMonthIdxs.map(idx => months[idx]);
+
+              const localDay = parseInt(dateObj.toLocaleString('en-US', { timeZone: tz, day: 'numeric' }), 10);
+              // Allow +/- 1 day numbers
+              const allowedDays = [
+                String(localDay),
+                String(localDay + 1),
+                String(localDay - 1)
+              ];
+
+              const hasLocalDayOfWeek = allowedWeekdays.some(w => textLower.includes(w)) || allowedAbbrs.some(abbr => textLower.includes(abbr));
+              const hasLocalMonth = allowedMonths.some(m => textLower.includes(m));
+              const hasLocalDay = allowedDays.some(d => {
+                const rx = new RegExp(`\\b${d}\\b`);
+                return rx.test(textLower);
+              });
+
+              console.log(`[DateDebug] textLower="${textLower}" hasLocalDayOfWeek=${hasLocalDayOfWeek} allowedWeekdays=${allowedWeekdays} allowedAbbrs=${allowedAbbrs}`);
+
+              // If it includes the local weekday and some time or "at", OR both local month and day
+              if (hasLocalDayOfWeek && (textLower.includes('at') || /\b\d{1,2}:\d{2}\b/.test(textLower) || textLower.includes('am') || textLower.includes('pm'))) {
+                console.log(`[DateDebug] Matched on weekday/time pattern for "${textLower}"!`);
+                return true;
+              }
+              if (hasLocalMonth && hasLocalDay) {
+                console.log(`[DateDebug] Matched on month/day pattern for "${textLower}"!`);
+                return true;
+              }
+            }
+          } catch (err) {
+            console.error('[DateDebug] Exception caught inside Strategy 4:', err);
+          }
+        }
+
         return false;
       };
 

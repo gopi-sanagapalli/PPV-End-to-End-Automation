@@ -1161,31 +1161,78 @@ export class PaymentPage extends BasePage {
     // ── Cancellation Text ──────────────────────────────────────
     if (fieldLower === 'cancellation text' || fieldLower === 'cancel text') {
       // STEP 1: Check if a "...More" expand link is present — click it to reveal full text
-      const moreSelectors = [
-        'button:has-text("More")',
-        'a:has-text("More")',
-        'span[role="button"]:has-text("More")',
-        '[class*="more" i]:has-text("More")',
-        'button:has-text("... More")',
-        'span:has-text("... More")',
+      // Scope the search to the purchase summary / order summary container to avoid
+      // matching unrelated "more" text elsewhere on the page (e.g. "Explore more" nav)
+      const summaryContainerSelectors = [
+        '[class*="purchaseSummary" i]',
+        '[class*="purchase-summary" i]',
+        '[class*="orderSummary" i]',
+        '[class*="order-summary" i]',
+        '[class*="summary" i]:has(h2:has-text("Purchase summary"))',
+        '[class*="summary" i]:has(h3:has-text("Purchase summary"))',
+        '[data-test-id*="summary" i]',
+        '[aria-label*="summary" i]',
       ];
-      const moreLink = this.page.locator(moreSelectors.join(', ')).first();
-      const moreVisible = await moreLink.isVisible({ timeout: 2000 }).catch(() => false);
+      let summaryContainer = this.page.locator(summaryContainerSelectors.join(', ')).first();
+      const hasContainer = await summaryContainer.count().catch(() => 0) > 0;
+      if (!hasContainer) {
+        // Fallback: use the section that contains "Purchase summary" or "DAZN" heading text
+        summaryContainer = this.page.locator('section, div').filter({ hasText: /Purchase summary|DAZN Standard|DAZN Ultimate/i }).last();
+      }
+
+      // Search for "... More" or "More" link inside the container, then fallback to page-wide
+      let moreLink = summaryContainer.getByText('... More', { exact: true }).first();
+      let moreVisible = await moreLink.isVisible({ timeout: 1500 }).catch(() => false);
+
+      if (!moreVisible) {
+        moreLink = summaryContainer.getByText('More', { exact: true }).first();
+        moreVisible = await moreLink.isVisible({ timeout: 1000 }).catch(() => false);
+      }
+
+      if (!moreVisible) {
+        // Broader search within container using locator selectors
+        const containerMoreSelectors = [
+          'button:has-text("more")',
+          'a:has-text("more")',
+          'span[role="button"]:has-text("more")',
+          'span:has-text("... more")',
+          'span:has-text("…more")',
+          'span:has-text("… More")',
+        ];
+        moreLink = summaryContainer.locator(containerMoreSelectors.join(', ')).first();
+        moreVisible = await moreLink.isVisible({ timeout: 1000 }).catch(() => false);
+      }
+
+      if (!moreVisible) {
+        // Final fallback: page-wide search scoped to small text near cancellation/legal area
+        const pageWideMoreSelectors = [
+          'span:has-text("... More")',
+          'span:has-text("…More")',
+          'span:has-text("… More")',
+          'button:has-text("... More")',
+          'a:has-text("... more")',
+        ];
+        moreLink = this.page.locator(pageWideMoreSelectors.join(', ')).first();
+        moreVisible = await moreLink.isVisible({ timeout: 1000 }).catch(() => false);
+      }
 
       if (moreVisible) {
-        console.log('🔽 [Cancellation Text] "...More" link found — clicking to expand full text...');
+        console.log('🔽 [Cancellation Text] "...more" link found — clicking to expand full text...');
         try {
           await moreLink.scrollIntoViewIfNeeded().catch(() => {});
           await moreLink.click({ force: true });
-          // Wait for "Less" to appear (confirms expansion) or "More" to disappear
+          // Wait for "Less" to appear (confirms expansion)
           await this.page.waitForFunction(() => {
-            const body = document.body.innerText;
-            return body.includes('Less') || !body.includes('... More');
+            const summaryEl = document.querySelector('[class*="summary" i], [class*="Summary" i]') as HTMLElement | null;
+            const text = (summaryEl || document.body).innerText.toLowerCase();
+            return text.includes('less');
           }, { timeout: 3000 }).catch(() => {});
           console.log('✅ [Cancellation Text] Full text expanded');
         } catch (e: any) {
           console.log(`⚠️ [Cancellation Text] Could not click "More" link: ${e.message}`);
         }
+      } else {
+        console.log('ℹ️ [Cancellation Text] No "...more" link found — text may already be fully visible');
       }
 
       // STEP 2: Re-read body text AFTER expansion

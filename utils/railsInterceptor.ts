@@ -197,122 +197,158 @@ export class RailsInterceptor {
   async clickFirstVisibleEntitlementTile(
     matches: RailTileMatch[]
   ): Promise<RailTileMatch | undefined> {
-    const normalise = (value: string) =>
-      value.replace(/\s+/g, ' ').trim().toLowerCase();
+    if (matches.length === 0) return undefined;
+
+    const byTitle = new Map<string, RailTileMatch[]>();
+    for (const match of matches) {
+      const key = match.tileTitle.trim().toLowerCase();
+      byTitle.set(key, [...(byTitle.get(key) || []), match]);
+    }
+
+    type Candidate = {
+      match: RailTileMatch;
+      top: number;
+      left: number;
+    };
+
+    const discovered = new Map<string, Candidate>();
+    const maxSteps = 14;
+    const stepPx = Math.max(
+      650,
+      await this.page.evaluate(() => Math.floor(window.innerHeight * 0.85))
+    );
 
     console.log(
-      `🔎 [RailsInterceptor] Finding first entitled tile in visual DOM order among ${matches.length} API matches`
+      `🔎 [RailsInterceptor] Discovering first visual entitlement tile from ` +
+      `${matches.length} Rails candidates`
     );
 
-    await this.page.evaluate(() =>
-      window.scrollTo({ top: 0, behavior: 'instant' })
-    );
-    await this.page.waitForTimeout(700);
+    for (let step = 0; step < maxSteps; step++) {
+      const scrollY = await this.page.evaluate(() => window.scrollY);
 
-    for (let step = 0; step < 18; step++) {
-      const visibleCandidates: Array<{
-        match: RailTileMatch;
-        target: any;
-        top: number;
-        left: number;
-      }> = [];
+      for (const [normalizedTitle, titleMatches] of byTitle) {
+        const title = this.page.getByText(titleMatches[0].tileTitle, {
+          exact: true,
+        }).first();
 
-      for (const match of matches) {
-        const titleText = match.tileTitle?.trim();
+        if (!await title.isVisible().catch(() => false)) continue;
 
-        if (!titleText) continue;
-
-        const title = this.page.getByText(titleText, { exact: true }).first();
-
-        if (!await title.isVisible().catch(() => false)) {
-          continue;
-        }
-
-        const clickable = title.locator(
-          'xpath=ancestor-or-self::a | ancestor-or-self::button | ancestor-or-self::*[@role="link"] | ancestor-or-self::*[@role="button"]'
+        const target = title.locator(
+          'xpath=ancestor-or-self::a | ancestor-or-self::button | ' +
+          'ancestor-or-self::*[@role="link"] | ancestor-or-self::*[@role="button"]'
         ).first();
 
-        const target = (await clickable.count()) > 0 ? clickable : title;
-        const box = await target.boundingBox().catch(() => null);
+        const clickable = (await target.count()) > 0 ? target : title;
+        const box = await clickable.boundingBox().catch(() => null);
+        if (!box) continue;
 
-        if (!box || box.width <= 0 || box.height <= 0) {
-          continue;
-        }
+        const match = titleMatches[0];
+        const key = `${match.railIndex}:${match.tileIndex}:${normalizedTitle}`;
 
-        // Only consider cards actually inside the current viewport.
-        if (box.y + box.height < 0 || box.y > await this.page.evaluate(() => window.innerHeight)) {
-          continue;
-        }
-
-        visibleCandidates.push({
+        discovered.set(key, {
           match,
-          target,
-          top: box.y,
+          top: box.y + scrollY,
           left: box.x,
         });
       }
 
-      if (visibleCandidates.length > 0) {
-        // Homepage visual order: top-to-bottom rails, then left-to-right tiles.
-        visibleCandidates.sort(
-          (a, b) =>
-            Math.abs(a.top - b.top) > 25
-              ? a.top - b.top
-              : a.left - b.left
-        );
+      const ordered = [...discovered.values()].sort(
+        (a, b) => a.top - b.top || a.left - b.left
+      );
 
-        const first = visibleCandidates[0];
+      const first = ordered[0];
+      const viewportBottom = scrollY + await this.page.evaluate(() => window.innerHeight);
 
+      // We have moved beyond the earliest discovered candidate. Rails above it
+      // have had a chance to lazy-render, so its position is now stable enough
+      // to select without scanning the whole page.
+      if (first && viewportBottom >= first.top + stepPx) {
         console.log(
-          '🎯 [RailsInterceptor] Visible entitled candidates in DOM order:\n' +
-          visibleCandidates
-            .map((candidate, index) =>
-              `  ${index + 1}. "${candidate.match.tileTitle}" ` +
-              `rail="${candidate.match.railTitle}" top=${Math.round(candidate.top)} left=${Math.round(candidate.left)}`
-            )
-            .join('\n')
+          `🎯 [RailsInterceptor] Selected earliest discovered entitlement tile ` +
+          `"${first.match.tileTitle}" from rail "${first.match.railTitle}" ` +
+          `(top=${Math.round(first.top)}, left=${Math.round(first.left)})`
         );
 
-        await first.target.scrollIntoViewIfNeeded();
+        const title = this.page.getByText(first.match.tileTitle, {
+          exact: true,
+        }).first();
+
+        const target = title.locator(
+          'xpath=ancestor-or-self::a | ancestor-or-self::button | ' +
+          'ancestor-or-self::*[@role="link"] | ancestor-or-self::*[@role="button"]'
+        ).first();
+
+        const clickable = (await target.count()) > 0 ? target : title;
+
+        await clickable.scrollIntoViewIfNeeded().catch(() => {});
         await this.page.waitForTimeout(250);
 
-        console.log(
-          `🎯 [RailsInterceptor] Clicking first visually ordered entitled tile "${first.match.tileTitle}" ` +
-          `from rail "${first.match.railTitle}"`
-        );
-
-        await first.target.click({ force: true, timeout: 8_000 });
-
-        console.log(
-          `✅ [RailsInterceptor] Clicked first visually ordered entitled tile "${first.match.tileTitle}"`
-        );
-
-        return first.match;
+        if (await clickable.isVisible().catch(() => false)) {
+          await clickable.click({ force: true, timeout: 8_000 });
+          console.log(
+            `✅ [RailsInterceptor] Clicked entitled tile "${first.match.tileTitle}"`
+          );
+          return first.match;
+        }
       }
 
-      const moved = await this.page.evaluate(() => {
-        const before = window.scrollY;
-        window.scrollBy({
-          top: Math.max(window.innerHeight * 0.8, 650),
-          behavior: 'instant',
-        });
-        return window.scrollY > before;
-      });
+      const atBottom = await this.page.evaluate(
+        () => window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 4
+      );
 
-      if (!moved) break;
+      if (atBottom) break;
 
-      await this.page.waitForTimeout(500);
+      console.log(
+        `🔎 [RailsInterceptor] Discovery step ${step + 1}/${maxSteps}; ` +
+        `pageY=${Math.round(scrollY)}; candidates=${discovered.size}`
+      );
+
+      await this.page.evaluate((distance) => {
+        window.scrollBy({ top: distance, behavior: 'instant' });
+      }, stepPx);
+
+      await this.page.waitForTimeout(700);
     }
 
-    await this.page.evaluate(() =>
-      window.scrollTo({ top: 0, behavior: 'instant' })
+    const ordered = [...discovered.values()].sort(
+      (a, b) => a.top - b.top || a.left - b.left
     );
+
+    const first = ordered[0];
+    if (!first) {
+      console.log(
+        '⚠️ [RailsInterceptor] No Rails-entitled tile rendered during discovery scan'
+      );
+      return undefined;
+    }
+
+    const title = this.page.getByText(first.match.tileTitle, {
+      exact: true,
+    }).first();
+
+    const target = title.locator(
+      'xpath=ancestor-or-self::a | ancestor-or-self::button | ' +
+      'ancestor-or-self::*[@role="link"] | ancestor-or-self::*[@role="button"]'
+    ).first();
+
+    const clickable = (await target.count()) > 0 ? target : title;
+
+    await clickable.scrollIntoViewIfNeeded().catch(() => {});
+    await this.page.waitForTimeout(250);
+
+    if (!await clickable.isVisible().catch(() => false)) {
+      return undefined;
+    }
 
     console.log(
-      '⚠️ [RailsInterceptor] No rendered DAZN entitlement tile was found in visual DOM order'
+      `🎯 [RailsInterceptor] Clicking earliest discovered entitlement tile ` +
+      `"${first.match.tileTitle}" from rail "${first.match.railTitle}"`
     );
 
-    return undefined;
+    await clickable.click({ force: true, timeout: 8_000 });
+    console.log(`✅ [RailsInterceptor] Clicked entitled tile "${first.match.tileTitle}"`);
+
+    return first.match;
   }
 
   /**
