@@ -376,3 +376,17 @@ export const getUpsellPaymentData = () => {
     return [];
   }
 };
+
+// =========================
+// PAYWALL DATA
+// =========================
+export const getPaywallData = () => {
+  try {
+    const data = readSheet('Paywall');
+    console.log(`📊 Paywall rows: ${data.length}`);
+    return data;
+  } catch {
+    console.log('ℹ️ No Paywall sheet found');
+    return [];
+  }
+};

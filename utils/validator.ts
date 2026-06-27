@@ -81,6 +81,7 @@ if (status === 'FAIL' && /name|title|header/i.test(field)) {
 
 function normalizeText(value: string): string {
   return value
+    .replace(/[•·]/g, ' ')
     .replace(/[\u200B-\u200D\uFEFF]/g, '')
     .replace(/\s+/g, ' ')
     .replace(/[\u200E\u200F]/g, '')

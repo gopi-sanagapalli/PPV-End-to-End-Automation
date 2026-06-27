@@ -1,9 +1,10 @@
-import { resolveExpected }          from '../utils/resolveExpected';
-import { getActualValue }           from '../utils/getActualValue';
-import { compare }                  from '../utils/compare';
+import { resolveExpected } from '../utils/resolveExpected';
+import { getActualValue } from '../utils/getActualValue';
+import { compare } from '../utils/compare';
 import { getPageSnapshot, DOMNode, stabilisePage } from '../utils/helpers';
-import { captureFailures }          from '../utils/failureCapture';
-import selectors                    from '../config/selectors.json';
+
+import { captureFailures } from '../utils/failureCapture';
+import selectors from '../config/selectors.json';
 
 async function getVisibleTextList(locator: any): Promise<string[]> {
   try {
@@ -33,13 +34,14 @@ async function getVisibleTextList(locator: any): Promise<string[]> {
 }
 
 export const validateVariant = async (
-  page:      any,
-  variant:   string,
-  data:      any[],
-  results:   any[],
+  page: any,
+  variant: string,
+  data: any[],
+  results: any[],
   eventData: Record<string, string>,
-  pageName:  string = 'PPV',
-  flow?:     string   // ← new optional param: 'myaccount' | 'landing' | undefined
+  pageName: string = 'PPV',
+  flow?: string,   // ← new optional param: 'myaccount' | 'landing' | undefined
+  scopedLocator?: any
 ) => {
   console.log(`🔍 validateVariant entry: pageName = "${pageName}", variant = "${variant}", hasEventData = ${!!eventData}, typeof eventData = ${typeof eventData}, keys = ${eventData ? Object.keys(eventData).join(', ') : 'none'}`);
   if (!eventData) throw new Error('❌ eventData is missing');
@@ -49,23 +51,23 @@ export const validateVariant = async (
   eventData['CURRENT_PAGE'] = pageName;
 
   const normalizedVariant = variant.trim().toLowerCase();
-  const normalizedFlow    = (flow || '').trim().toLowerCase();
+  const normalizedFlow = (flow || '').trim().toLowerCase();
 
   // ── Read tier & ratePlan from eventData ───────────────────────
-  const tier     = (eventData.TIER      || 'standard').toLowerCase();
+  const tier = (eventData.TIER || 'standard').toLowerCase();
   const ratePlan = (eventData.RATE_PLAN || 'monthly').toLowerCase();
 
   const rules = data.filter(r => {
-    const rv = (r.Variant  || '').trim().toLowerCase();
-    const rt = (r.Tier     || '').trim().toLowerCase();
-    const rf = (r.Flow     || '').trim().toLowerCase(); // ← new Flow column
+    const rv = (r.Variant || '').trim().toLowerCase();
+    const rt = (r.Tier || '').trim().toLowerCase();
+    const rf = (r.Flow || '').trim().toLowerCase(); // ← new Flow column
 
     // ── Flow filtering ────────────────────────────────────────────
     // If row has a Flow restriction:
     //   - Only include if current flow matches
     //   - If no flow provided to validateVariant → exclude flow-restricted rows
     if (rf) {
-      if (!normalizedFlow)          return false; // no flow context → skip restricted rows
+      if (!normalizedFlow) return false; // no flow context → skip restricted rows
       // Exact flow match required. Flow='landing' rows only match flow='landing'
       // or tile-based landing flows (dont-miss) that don't have their own dedicated rows.
       // Banner flow has its own rows (Flow='landing-page-banner'), so exclude generic 'landing' rows.
@@ -116,9 +118,9 @@ export const validateVariant = async (
       await page.evaluate(async () => {
         await new Promise<void>(resolve => {
           let scrolled = 0;
-          const step   = 300;
-          const delay  = 50;
-          const timer  = setInterval(() => {
+          const step = 300;
+          const delay = 50;
+          const timer = setInterval(() => {
             window.scrollBy(0, step);
             scrolled += step;
             if (scrolled >= document.body.scrollHeight) {
@@ -127,7 +129,7 @@ export const validateVariant = async (
             }
           }, delay);
         });
-      }).catch(() => {});
+      }).catch(() => { });
 
       // Wait for lazy content to render between passes
       await page.waitForTimeout(300);
@@ -135,18 +137,20 @@ export const validateVariant = async (
 
     // Restore original scroll position instead of scrolling back to top (0, 0)
     // to prevent unwanted jumping/scrolling effects when clicking Buy Now.
-    await page.evaluate((y: number) => window.scrollTo(0, y), originalScrollY).catch(() => {});
+    await page.evaluate((y: number) => window.scrollTo(0, y), originalScrollY).catch(() => { });
     await page.waitForTimeout(500);
   }
 
   // ── Wait for page content if on plan/upgrade/PPV pages ──────
   const snapUrl = page.url();
   const snapUrlLower = snapUrl.toLowerCase();
-  if (snapUrlLower.includes('plandetails') || pageName.toLowerCase().includes('ppv')) {
-    // Wait for page to load — look for radio buttons or continue button
-    await page.waitForSelector('input[type="radio"], button:has-text("Continue"), [data-test-id*="radio" i]', 
-      { state: 'visible', timeout: 5000 }
-    ).catch(() => {});
+  if (snapUrlLower.includes('plandetails') || snapUrlLower.includes('signup') ||
+    snapUrlLower.includes('addon/purchase') || snapUrlLower.includes('tierplans') ||
+    pageName.toLowerCase().includes('ppv') || pageName.toLowerCase().includes('default signup')) {
+    // Wait for page to load — look for radio buttons, continue button, or h1 heading
+    await page.waitForSelector('input[type="radio"], button:has-text("Continue"), [data-test-id*="radio" i], h1',
+      { state: 'visible', timeout: 10000 }
+    ).catch(() => { });
 
     // FIX: If upgrade tier flow — wait for h1 to update from stale value
     // h1 may still show "Choose how to buy" from previous page
@@ -171,18 +175,23 @@ export const validateVariant = async (
     // Wait for confirm button
     await page.waitForSelector('button:has-text("Confirm")',
       { state: 'visible', timeout: 3000 }
-    ).catch(() => {});
+    ).catch(() => { });
   }
 
-
-  // Wait for loading and stabilize page
-  try {
-    await page.waitForLoadState('domcontentloaded', { timeout: 8000 });
-    await page.waitForLoadState('load', { timeout: 8000 });
-  } catch (e) {
-    console.log('⚠️ Timeout waiting for load states in validateVariant');
-  }
+  // Lightweight page readiness — page-specific waits already done above
+  await page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => { });
   await stabilisePage(page);
+
+  // Wait for SPA hydration — ensure template placeholders like {price} are resolved
+  try {
+    await page.waitForFunction(() => {
+      const body = document.body?.innerText || '';
+      return !(/\{[a-zA-Z_]+\}/.test(body));
+    }, { timeout: 10000 });
+    console.log('✅ SPA hydration complete — no template placeholders detected');
+  } catch {
+    console.log('⚠️ Template placeholders may still be present — proceeding');
+  }
 
   // Wait for dynamic text content to be populated (minimum length for SPA rendering)
   try {
@@ -215,14 +224,14 @@ export const validateVariant = async (
         // Stop all swipers
         const stopSwiper = (swiper: any) => {
           if (!swiper) return;
-          try { swiper.autoplay?.stop(); } catch {}
+          try { swiper.autoplay?.stop(); } catch { }
           try {
             swiper.params.autoplay = false;
             swiper.params.loop = false;
-          } catch {}
+          } catch { }
           try {
             if (swiper.autoplay?.running) swiper.autoplay.stop();
-          } catch {}
+          } catch { }
         };
 
         document.querySelectorAll('.swiper, [class*="swiper"], .swiper-container').forEach((el: any) => {
@@ -232,8 +241,8 @@ export const validateVariant = async (
         document.querySelectorAll('*').forEach((el: any) => {
           if (el.swiper && typeof el.swiper === 'object' && el.swiper.autoplay) stopSwiper(el.swiper);
         });
-      } catch {}
-    }).catch(() => {});
+      } catch { }
+    }).catch(() => { });
 
     // Re-navigate to saved PPV slide index if available
     const savedSlideIndex = (eventData as any)._ppvBannerSlideIndex;
@@ -290,8 +299,8 @@ export const validateVariant = async (
             document.querySelectorAll('.swiper, [class*="swiper"], .swiper-container').forEach((el: any) => {
               if (el.swiper) stopSwiper(el.swiper);
             });
-          } catch {}
-        }).catch(() => {});
+          } catch { }
+        }).catch(() => { });
 
         // Helper to match PPV name
         const cleanStr = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -309,7 +318,7 @@ export const validateVariant = async (
           const activeSlide = carousel.locator(activeSlideSelector).locator(':visible').first();
           const activeText = await activeSlide.textContent().catch(() => '') || '';
           const currentIdx = await activeSlide.getAttribute('data-swiper-slide-index').catch(() => null);
-          
+
           if (currentIdx === String(slideIdx) || (ppvName && matchesPPVName(activeText, ppvName))) {
             console.log(`✅ [Banner] Re-navigated to active slide: "${activeText.substring(0, 50)}..." (index: ${currentIdx})`);
             break;
@@ -317,7 +326,7 @@ export const validateVariant = async (
 
           if (await nextBtn.count().catch(() => 0) > 0) {
             console.log(`  [Banner] Re-navigating: slide is index ${currentIdx}, expected: ${slideIdx} — clicking next`);
-            await nextBtn.click({ force: true }).catch(() => {});
+            await nextBtn.click({ force: true }).catch(() => { });
             await page.waitForTimeout(500);
           } else {
             console.log('⚠️ [Banner] Next button not found during re-navigation');
@@ -329,18 +338,20 @@ export const validateVariant = async (
     }
 
     // Scroll back to top to ensure banner is visible (not scrolled past)
-    await page.evaluate(() => window.scrollTo(0, 0)).catch(() => {});
+    await page.evaluate(() => window.scrollTo(0, 0)).catch(() => { });
     await page.waitForTimeout(200);
   }
 
   // ── Pre-fetch DOM snapshot ONCE ───────────────────────────────
-  const snapshot = await getPageSnapshot(page);
-  console.log(`📸 ${pageName} snapshot: ${snapshot.length} nodes`);
+  const pageSnapshot = await getPageSnapshot(page);
+  const scopedSnapshot = scopedLocator ? await getPageSnapshot(scopedLocator) : undefined;
+  const snapshot = pageSnapshot; // For backward compatibility with any other direct refs
+  console.log(`📸 ${pageName} page snapshot: ${pageSnapshot.length} nodes${scopedSnapshot ? `, scoped snapshot: ${scopedSnapshot.length} nodes` : ''}`);
 
   // ── DEBUG — log all snapshot texts ───────────────────────────
   if (pageName === 'Schedule' || pageName === 'Home of Boxing' || pageName === 'PPV' || pageName === 'DAZN Plan' || pageName === 'Upgrade Confirmation' || pageName === 'Payment' || pageName === 'Bundle PPV' || pageName === 'Boxing' || pageName === 'Landing') {
     console.log(`\n📋 Snapshot contents for ${pageName}:`);
-    snapshot.forEach((n, i) => {
+    pageSnapshot.forEach((n, i) => {
       console.log(
         `  [${i}] ${n.tag.padEnd(6)} | ` +
         `children:${n.childCount} | ` +
@@ -395,7 +406,10 @@ export const validateVariant = async (
 
     let actual: string;
     try {
-      actual = await getActualValue(page, field, variant, eventData, snapshot);
+      const fieldLower = field.toLowerCase();
+      const variantLower = (variant || '').toLowerCase().trim();
+      const currentSnapshot = (variantLower === 'search' || variantLower === 'paywall') ? scopedSnapshot : (scopedSnapshot || pageSnapshot);
+      actual = await getActualValue(page, field, variant, eventData, currentSnapshot);
     } catch (err: any) {
       actual = 'N/A';
       console.warn(`  ⚠️ getActualValue threw for [${field}]: ${err?.message?.substring(0, 80) || 'unknown'}`);
@@ -407,7 +421,8 @@ export const validateVariant = async (
     const isPresenceCheck = expectedNorm === 'YES' || expectedNorm === 'NO' || expectedNorm === 'VISIBLE' || expectedNorm === 'NOT VISIBLE' || expectedNorm === 'PRESENT' || expectedNorm === 'NOT FOUND';
     const isExpectedNA = expectedNorm === 'N/A' || expectedNorm === '';
 
-    if (actual === 'N/A' && !isExpectedNA && !isPresenceCheck) {
+    const variantLower = (variant || '').toLowerCase().trim();
+    if (actual === 'N/A' && !isExpectedNA && !isPresenceCheck && variantLower !== 'search' && variantLower !== 'paywall') {
       try {
         const fieldLower = field.toLowerCase();
         const isPopupField = fieldLower.startsWith('popup');
@@ -559,7 +574,7 @@ export const validateVariant = async (
     }
 
     results.push({
-      page:     pageName,
+      page: pageName,
       variant,
       tier,
       ratePlan,
@@ -571,5 +586,5 @@ export const validateVariant = async (
   }
 
   // ── Capture red-boxed screenshots for any failed fields ──────────
-  await captureFailures(page, results, pageName);
+  await captureFailures(page, results, pageName, scopedLocator);
 };

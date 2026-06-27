@@ -1,4 +1,5 @@
-import { Page, BrowserContext } from '@playwright/test';
+import { Page, BrowserContext, Locator } from '@playwright/test';
+
 
 // ─────────────────────────────────────────────────────────────────
 // SLEEP
@@ -148,7 +149,7 @@ export async function dismissMarketingPopup(page: Page, timeout: number = 0): Pr
     ].join(', ');
 
     const popup = page.locator(dismissSelectors).first();
-    
+
     let isVisible = false;
     if (timeout > 0) {
       isVisible = await popup.waitFor({ state: 'visible', timeout })
@@ -170,12 +171,89 @@ export async function dismissMarketingPopup(page: Page, timeout: number = 0): Pr
 }
 
 // ─────────────────────────────────────────────────────────────────
-// WAIT FOR SPA READY
+// WAIT FOR SPA READY / PAGE READY — generic stabilization helper
 // ─────────────────────────────────────────────────────────────────
-export async function waitForSPAReady(page: Page): Promise<void> {
-  if (page.isClosed()) return;
-  await page.waitForLoadState('domcontentloaded').catch(() => { });
+export interface PageReadyOptions {
+  timeout?: number;
+  waitForNetwork?: boolean;
+  waitForImages?: boolean;
+  waitForLazyContent?: boolean;
 }
+
+export async function waitForPageReady(
+  page: Page,
+  options: PageReadyOptions = {}
+): Promise<void> {
+  if (page.isClosed()) return;
+
+  const timeout = options.timeout ?? 10000;
+  const start = Date.now();
+
+  // Check if a modal/popup/dialog/paywall is open — skip generic wait if so
+  const isModalOpen = await page.locator([
+    '[role="dialog"]',
+    '[aria-modal="true"]',
+    '[class*="modal" i]',
+    '[class*="popup" i]',
+    '[class*="dialog" i]',
+    '[class*="paywall" i]'
+  ].join(', ')).first().isVisible().catch(() => false);
+
+  if (isModalOpen) {
+    console.log('[Page Ready] Modal/Paywall is open — skipping page-level stabilization.');
+    return;
+  }
+
+  // 1. Wait for DomContentLoaded
+  await page.waitForLoadState('domcontentloaded', { timeout: Math.min(5000, timeout) }).catch(() => { });
+
+  // 2. Wait for initial content to attach (prevents premature returns on blank pages)
+  await page.locator([
+    'article',
+    '[class*="rail" i]',
+    '.swiper-slide',
+    '[class*="tile" i]',
+    '[class*="skeleton" i]',
+    '[class*="loading" i]',
+    '[class*="spinner" i]',
+    'h1, h2, h3, h4',
+    'input',
+    'button'
+  ].join(', ')).first().waitFor({
+    state: 'attached',
+    timeout: Math.min(3000, Math.max(0, timeout - (Date.now() - start)))
+  }).catch(() => { });
+
+  // 3. Network idle — only when explicitly requested (opt-in)
+  if (options.waitForNetwork === true) {
+    await page.waitForLoadState('networkidle', {
+      timeout: Math.min(10000, Math.max(0, timeout - (Date.now() - start)))
+    }).catch(() => { });
+  }
+
+  // 4. Wait for visible spinner/skeleton to disappear (if present)
+  const spinnerSelector = [
+    '[class*="spinner" i]',
+    '[class*="loading-indicator" i]',
+    '[class*="skeleton" i]',
+  ].join(', ');
+  const spinner = page.locator(spinnerSelector).first();
+  if (await spinner.isVisible().catch(() => false)) {
+    await spinner.waitFor({
+      state: 'hidden',
+      timeout: Math.min(5000, Math.max(0, timeout - (Date.now() - start)))
+    }).catch(() => { });
+  }
+
+  const elapsed = Date.now() - start;
+  const pageName = page.url().split('/').pop()?.split('?')[0] || 'unknown';
+  console.log(`[Page Ready] Page: ${pageName}  Strategy: generic  Elapsed: ${elapsed}ms`);
+}
+
+export async function waitForSPAReady(page: Page): Promise<void> {
+  await waitForPageReady(page);
+}
+
 
 // ─────────────────────────────────────────────────────────────────
 // TRIGGER LAZY LOAD — only called explicitly after selectSport()
@@ -235,15 +313,20 @@ export interface DOMNode {
   ariaChecked?: string;
   id?: string;
   hasCheckedSvg?: boolean;
+  ariaLabel?: string;
+  dataTestId?: string;
+  hasCrossSvg?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────
 // GET PAGE SNAPSHOT — bulk DOM read in one JS call
 // ─────────────────────────────────────────────────────────────────
-export async function getPageSnapshot(page: Page): Promise<DOMNode[]> {
-  if (page.isClosed()) return [];
+export async function getPageSnapshot(pageOrLocator: Page | Locator): Promise<DOMNode[]> {
+  const isLocator = 'evaluate' in pageOrLocator && !('goto' in pageOrLocator);
+  const contextPage = isLocator ? (pageOrLocator as any).page() : (pageOrLocator as any);
+  if (contextPage.isClosed()) return [];
   try {
-    return await page.evaluate((): any[] => {
+    const evaluateFn = (rootEl?: any): any[] => {
       const clean = (s: string) =>
         s.replace(/\u200B/g, '').replace(/\s+/g, ' ').trim();
 
@@ -253,13 +336,27 @@ export async function getPageSnapshot(page: Page): Promise<DOMNode[]> {
         '[class*="modal" i]',
         '[class*="overlay" i]',
         '[class*="popup" i]',
+        '[class*="dialog" i]',
+        '.Modal',
       ];
 
-      const isInModal = (el: Element): boolean =>
-        modalSelectors.some(sel => {
+      const isInModal = (el: Element): boolean => {
+        if (rootEl) {
+          const isRootModal = modalSelectors.some(sel => {
+            try {
+              return (typeof rootEl.matches === 'function' && rootEl.matches(sel)) ||
+                (typeof rootEl.closest === 'function' && rootEl.closest(sel) !== null);
+            } catch (e) {
+              return false;
+            }
+          });
+          if (isRootModal) return true;
+        }
+        return modalSelectors.some(sel => {
           const closest = el.closest(sel);
           return closest !== null && closest.tagName !== 'BODY' && closest.tagName !== 'HTML';
         });
+      };
 
       const isInInactiveSlide = (el: Element): boolean => {
         const slide = el.closest('.swiper-slide, [class*="swiper-slide"]');
@@ -276,31 +373,24 @@ export async function getPageSnapshot(page: Page): Promise<DOMNode[]> {
         return slide.closest('.swiper-slide-active, .swiper-slide-duplicate-active, [class*="swiper-slide-active"], [class*="swiper-slide-duplicate-active"]') === null;
       };
 
-      // OPTIMIZED: avoid getComputedStyle — use offsetWidth/Height + inline style checks
-      // getComputedStyle forces a full style recalculation per element and blocks the thread
       const isRendered = (el: HTMLElement): boolean => {
         if (el.offsetWidth === 0 && el.offsetHeight === 0) return false;
         const style = el.style;
         if (style.display === 'none') return false;
         if (style.visibility === 'hidden') return false;
         if (style.opacity === '0') return false;
-        // Check for hidden attribute
         if (el.hidden) return false;
         if (isInInactiveSlide(el)) return false;
         return true;
       };
 
-      // OPTIMIZED: avoid getComputedStyle — use only DOM-based checks, except for price elements
       const isStrikethrough = (el: HTMLElement): boolean => {
         if (el.closest('del, s') !== null) return true;
         if (el.closest('[style*="line-through"]') !== null) return true;
         if (el.closest('[class*="strike" i], [class*="line-through" i], [class*="crossed" i], [class*="original" i]') !== null) return true;
 
-        // Target specifically text elements that look like prices or contain numbers
         const txt = el.textContent || '';
         if (txt.includes('£') || txt.includes('$') || txt.includes('€') || txt.includes('₹') || /\d/.test(txt)) {
-          // Walk up parent elements — text-decoration is NOT inherited via CSS,
-          // so the line-through may be on a parent element (e.g. parent div with the class)
           let current: HTMLElement | null = el;
           for (let depth = 0; depth < 8 && current; depth++) {
             try {
@@ -347,24 +437,51 @@ export async function getPageSnapshot(page: Page): Promise<DOMNode[]> {
       const results: any[] = [];
       const seen = new Set<string>();
       let totalProcessed = 0;
-      const MAX_ELEMENTS = 5000; // Performance budget: stop after processing this many elements
+      const MAX_ELEMENTS = 5000;
+
+      const root = (rootEl || document) as Document | HTMLElement;
 
       for (const tag of tags) {
-        const els = document.querySelectorAll<HTMLElement>(tag);
+        const els = Array.from(root.querySelectorAll<HTMLElement>(tag));
+        if (rootEl && typeof rootEl.matches === 'function' && rootEl.matches(tag)) {
+          els.unshift(rootEl);
+        }
+
         for (const el of els) {
           totalProcessed++;
           if (totalProcessed > MAX_ELEMENTS) break;
           if (!isRendered(el)) continue;
           const text = isStrikethrough(el) ? clean(el.textContent || '') : clean(getNonStrikeText(el));
-          const isInteractive = ['button', 'a', 'img', 'input'].includes(tag);
+          let isInteractive = ['button', 'a', 'img', 'input'].includes(tag);
+          if (!isInteractive) {
+            const role = el.getAttribute('role');
+            const ariaLabel = el.getAttribute('aria-label') || '';
+            const dataTestId = el.getAttribute('data-testid') || el.getAttribute('data-test-id') || '';
+            const classes = typeof (el as any).className === 'string' ? (el as any).className : ((el as any).className && typeof (el as any).className.baseVal === 'string' ? (el as any).className.baseVal : '');
+            const id = el.id || '';
+            
+            const isCloseIndicator = 
+              role === 'button' ||
+              ariaLabel.toLowerCase().includes('close') ||
+              dataTestId.toLowerCase().includes('close') ||
+              dataTestId.toLowerCase().includes('cross') ||
+              classes.toLowerCase().includes('close') ||
+              id.toLowerCase().includes('close') ||
+              el.querySelector('svg[data-test-id*="cross" i], svg[data-testid*="cross" i], svg[class*="cross" i], [class*="cross" i]') !== null;
+              
+            if (isCloseIndicator) {
+              isInteractive = true;
+            }
+          }
           if (!isInteractive && (!text || text.length < 2 || text.length > 500)) continue;
-          const key = text ? `${tag}:${text}` : `${tag}:${el.className || ''}:${results.length}`;
+          const classStr = (typeof (el as any).className === 'string' ? (el as any).className : ((el as any).className && typeof (el as any).className.baseVal === 'string' ? (el as any).className.baseVal : '')) || '';
+          const key = text ? `${tag}:${text}` : `${tag}:${classStr}:${results.length}`;
           if (seen.has(key)) continue;
           seen.add(key);
           results.push({
             tag,
             text,
-            classes: el.className || '',
+            classes: classStr,
             childCount: el.children.length,
             isInModal: isInModal(el),
             isStrike: isStrikethrough(el),
@@ -376,13 +493,22 @@ export async function getPageSnapshot(page: Page): Promise<DOMNode[]> {
             ariaChecked: el.getAttribute('aria-checked') || undefined,
             id: el.id || undefined,
             hasCheckedSvg: el.querySelector('svg[class*="checked" i], [class*="checkmark" i]') !== null,
+            ariaLabel: el.getAttribute('aria-label') || undefined,
+            dataTestId: el.getAttribute('data-testid') || undefined,
+            hasCrossSvg: el.querySelector('svg[data-test-id*="cross" i], svg[data-testid*="cross" i], svg[class*="cross" i], [class*="cross" i]') !== null,
           });
           if (results.length >= 2000) break;
         }
         if (results.length >= 2000 || totalProcessed > MAX_ELEMENTS) break;
       }
       return results;
-    });
+    };
+
+    if (isLocator) {
+      return await (pageOrLocator as Locator).evaluate(evaluateFn);
+    } else {
+      return await (pageOrLocator as Page).evaluate(evaluateFn);
+    }
   } catch {
     return [];
   }

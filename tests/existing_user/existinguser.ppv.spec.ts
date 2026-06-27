@@ -33,6 +33,7 @@ import {
   getUpsellFirstSuccessData,
   getUpsellSecondSuccessData,
   getUpsellPaymentData,
+  getPaywallData,
 } from '../../utils/excelReader';
 import { detectVariant } from '../../flows/detectVariant';
 import { validateVariant } from '../../flows/validateVariant';
@@ -51,9 +52,10 @@ import {
   loadEventConfig,
   safeScrollToElement,
   clickAndWaitForNav,
-  handlePopupModal,
+  handlePaywall,
   assertCountryMatch,
 } from '../../utils/testHelpers';
+import { handleNoPpvClick } from '../../utils/flowHelpers';
 
 const REGION = process.env.DAZN_REGION || 'GB';
 const EVENT_CONFIG = process.env.PPV_CONFIG || 'aj_joshua_prenga.json';
@@ -82,6 +84,7 @@ for (const stateKey of userStatesToRun) {
     test.setTimeout(300_000);
     process.env.USER_STATE = stateKey;
     let defaultSignupPPVValidated = false;
+    let noPpvClick = false;
 
     const json = loadEventConfig(EVENT_CONFIG);
     const PPV_TYPE = (process.env.PPV_TYPE || json.PPV_TYPE || 'normal').toLowerCase();
@@ -91,10 +94,17 @@ for (const stateKey of userStatesToRun) {
     eventData.SOURCE = SOURCE;
 
     const sourcesPath = path.resolve(process.cwd(), 'config/surfacingpoint.json');
+    let resolvedSource = SOURCE;
     if (fs.existsSync(sourcesPath)) {
       const sources = JSON.parse(fs.readFileSync(sourcesPath, 'utf-8'));
       if (sources[SOURCE]?.defaultSignup) {
         process.env.DEFAULT_SIGNUP = 'true';
+      }
+      if (sources[SOURCE]?.noPpvClick) {
+        noPpvClick = true;
+      }
+      if (sources[SOURCE]?.source) {
+        resolvedSource = sources[SOURCE].source;
       }
     }
 
@@ -246,22 +256,52 @@ for (const stateKey of userStatesToRun) {
       const urlLower = url.toLowerCase();
 
       if (urlLower.includes('paymentdetails')) return 'payment';
+
+      // High-priority check for Subscribe Without PPV redirect (must be before any PPV checks)
+      if (urlLower.includes('page=tierplans') && urlLower.includes('noppv=true')) {
+        const hasRadio = (await p.locator('input[type="radio"], [role="radio"]').count().catch(() => 0)) > 0;
+        const hasPlanCards = (await p.locator('[class*="plancard" i], [class*="tier" i], [class*="offer" i], [data-test-id*="tier" i]').count().catch(() => 0)) > 0;
+        const bodyText = await p.locator('body')
+          .innerText({ timeout: 3000 })
+          .then((t: string) => t.toLowerCase())
+          .catch(() => '');
+        const hasPlanText = bodyText.includes('choose your plan') ||
+          bodyText.includes('choose a plan') ||
+          bodyText.includes('choose the right plan') ||
+          bodyText.includes("choose a plan that's right") ||
+          bodyText.includes('select how to pay');
+        if (hasRadio || hasPlanCards || hasPlanText) {
+          console.log('[detectPageType] Subscribe Without PPV destination verified via URL and DOM (exposes Plan UI).');
+          console.log('Returning page type: plan.');
+          return 'plan';
+        }
+      }
+
       if (urlLower.includes('phonenumbercollection')) return 'phone';
       // Upgrade confirmation page — must be checked BEFORE the /signup email fallback
       if (urlLower.includes('upgradeplan')) return 'confirmation';
       if (urlLower.includes('upgradetier') && !urlLower.includes('isupgradetierflow')) return 'confirmation';
 
-      // Default signup page with plan details/tier plans (e.g. from My Account Upgrade/Resubscribe CTA)
-      if (process.env.DEFAULT_SIGNUP === 'true' && !defaultSignupPPVValidated && urlLower.includes('/signup') && (urlLower.includes('plandetails') || urlLower.includes('tierplans')) && !urlLower.includes('upselltierskipped')) {
+      // upsellTierSelected=true: Ultimate tier already chosen, page shows APM/Upfront plan radios
+      if (urlLower.includes('/signup') && urlLower.includes('plandetails') && urlLower.includes('upselltierselected')) {
+        return 'plan';
+      }
+
+      // Default signup / PPV page with plan details/tier plans (e.g. from My Account Upgrade/Resubscribe CTA)
+      if (urlLower.includes('/signup') && (urlLower.includes('plandetails') || urlLower.includes('tierplans')) && !urlLower.includes('upselltierskipped')) {
         const bodyText = await p.locator('body')
           .innerText({ timeout: 3000 })
           .then((t: string) => t.toLowerCase())
           .catch(() => '');
-        if (bodyText.includes('pay-per-view') || bodyText.includes('choose how to buy') ||
+        if (urlLower.includes('contextualppvid') ||
+          bodyText.includes('pay-per-view') || bodyText.includes('choose how to buy') ||
           bodyText.includes('subscribe without a pay-per-view') ||
           bodyText.includes('continue without pay-per-view') ||
           bodyText.includes('continue without a pay-per-view')) {
-          return 'default-signup';
+          if (process.env.DEFAULT_SIGNUP === 'true' && !defaultSignupPPVValidated) {
+            return 'default-signup';
+          }
+          return 'ppv';
         }
       }
 
@@ -441,7 +481,7 @@ for (const stateKey of userStatesToRun) {
       return 'unknown';
     };
 
-    const isMyAccount = SOURCE === 'my-account' || SOURCE === 'myaccount' || SOURCE === 'myaccount-subscription-status';
+    const isMyAccount = SOURCE === 'my-account' || SOURCE === 'myaccount' || SOURCE === 'myaccount-subscription-status' || resolvedSource === 'myaccount-subscription-status';
     let reachedEndPage = false;
 
     try {
@@ -547,7 +587,7 @@ for (const stateKey of userStatesToRun) {
           });
 
           await gloryPage.clickGloryCollision9();
-          await gloryPage.clickBuyNowInModal();
+          await handlePaywall(page, results, eventData, SOURCE, true);
         } else if (isSchedule) {
           const schedule = new SchedulePage(page);
           await schedule.navigate(baseUrl);
@@ -596,7 +636,14 @@ for (const stateKey of userStatesToRun) {
               console.warn(`⚠️  Schedule page validation error: ${err.message}`);
             }
 
-            await schedule.clickBuyNow();
+            // Paywall-first pattern (same as Search):
+            // handlePaywall validates paywall + clicks Buy Now inside modal.
+            // If no paywall is detected, fall back to clickBuyNow().
+            const paywallHandled = await handlePaywall(page, results, eventData, SOURCE, true);
+            if (!paywallHandled) {
+              console.warn('⚠️ Paywall not detected by handlePaywall. Falling back to schedule.clickBuyNow().');
+              await schedule.clickBuyNow();
+            }
           }
         } else if (isSearch) {
           const searchPage = new SearchPage(page);
@@ -609,45 +656,30 @@ for (const stateKey of userStatesToRun) {
             await searchPage.enableDevMode();
           }
 
-          let searchQuery = eventData.PPV_NAME;
-          if (eventData.PPV_NAME && eventData.PPV_NAME.includes(':')) {
-            searchQuery = eventData.PPV_NAME.split(':').pop()?.trim() || eventData.PPV_NAME;
-          }
+          // Search page contains only page-level validations
+          const searchData = readSheet('Search page');
 
-          let searchSuccess = false;
-          try {
-            await searchPage.searchForEvent(searchQuery);
-            await searchPage.clickPPVTile(eventData.PPV_NAME);
-            searchSuccess = true;
-          } catch (err: any) {
-            console.log(`⚠️ Search for "${searchQuery}" failed: ${err.message}. Trying fallback search...`);
-          }
-
-          if (!searchSuccess) {
-            if (eventData.PPV_PROMOTER && eventData.PPV_PROMOTER !== 'N/A') {
-              console.log(`🔄 Searching with promoter fallback: "${eventData.PPV_PROMOTER}"`);
-              await searchPage.searchForEvent(eventData.PPV_PROMOTER);
-              await searchPage.clickPPVTile(eventData.PPV_NAME);
-              searchSuccess = true;
-            } else {
-              throw new Error(`❌ PPV event "${eventData.PPV_NAME}" not found via search`);
+          await searchPage.searchAndOpenBestPpvTile({
+            ppvName: eventData.PPV_NAME,
+            promoter: eventData.PPV_PROMOTER,
+            onTileSelected: async (tileLocator) => {
+              console.log('\n📋 Validating Search page (scoping to selected tile)...');
+              try {
+                await validateVariant(
+                  page, 'search', searchData, results, eventData, 'Search', undefined, tileLocator
+                );
+              } catch (err: any) {
+                console.warn(`⚠️  Search page validation error: ${err.message}`);
+              }
             }
+          });
+
+          // Check and validate paywall now that it is open, and click Buy Now inside it
+          const paywallHandled = await handlePaywall(page, results, eventData, SOURCE, true);
+          if (!paywallHandled) {
+            console.warn('⚠️ Paywall not handled by handlePaywall. Falling back to searchPage.clickBuyNow().');
+            await searchPage.clickBuyNow();
           }
-
-          console.log('\n📋 Validating Search page...');
-          try {
-            const searchData = readSheet('Search page');
-            await validateVariant(
-              page, 'search', searchData, results, eventData, 'Search'
-            );
-          } catch (err: any) {
-            console.warn(`⚠️  Search page validation error: ${err.message}`);
-          }
-
-          // Check and validate popup modal if visible BEFORE clicking Buy Now
-          await handlePopupModal(page, results, eventData, SOURCE, false);
-
-          await searchPage.clickBuyNow();
         } else {
           const isHomePageSource = SOURCE.startsWith('home-page-') || SOURCE === 'home-biggest-fights';
           const isHomeSport = (SOURCE.startsWith('home-') && !isHomePageSource) || SOURCE === 'home-kickboxing-tile';
@@ -762,18 +794,13 @@ for (const stateKey of userStatesToRun) {
 
           if (isBoxingSubscriptionSource) {
             console.log(`ℹ️ [${SOURCE}] Subscription source — skipping boxing banner/landing validation.`);
-          } else if (SOURCE === 'home-biggest-fights') {
-            // Skip pre-clickBuyNow validation for home-biggest-fights — the popup
-            // only appears AFTER clicking the Coming Up tile (inside clickBuyNow).
-            // handlePopupModal will handle validation + Buy Now click.
-            console.log('ℹ️ [home-biggest-fights] Popup validation deferred to handlePopupModal (after tile click)');
           } else {
             console.log(`\n📋 Validating ${pageName} page...`);
             try {
               const isStandalone = eventData.PPV_TYPE === 'standalone';
               const onOnboarding = page.url().includes('signup') || page.url().includes('PlanDetails') || page.url().includes('payment') || page.url().includes('checkout');
               if ((sheetName === 'Home of Boxing' || sheetName === 'Home page') && (isStandalone || onOnboarding)) {
-                console.log('ℹ️ Standalone flow or direct navigation — skipping popup modal validations');
+                console.log('ℹ️ Standalone flow or direct navigation — skipping paywall validations');
               } else {
                 const landingData = sheetName === 'Home page'
                   ? getHomePageData(flowParam)
@@ -787,15 +814,35 @@ for (const stateKey of userStatesToRun) {
             }
           }
 
-          await landing.clickBuyNow(container, SOURCE);
+          // ── Paywall-first pattern for paywall-enabled sources ──
+          // handlePaywall validates + clicks Buy Now inside the modal.
+          // If no paywall is detected, fall back to clickBuyNow().
+          const paywallSources = [
+            'home-boxing-tile',
+            'home-kickboxing-tile',
+            'home-page-dont-miss',
+            'home-biggest-fights',
+          ];
+          const isPaywallSource = paywallSources.includes(SOURCE.toLowerCase());
+
+          if (isPaywallSource) {
+            const paywallHandled = await handlePaywall(page, results, eventData, SOURCE, true);
+            if (!paywallHandled) {
+              console.warn(`⚠️ Paywall not detected by handlePaywall for ${SOURCE}. Falling back to clickBuyNow().`);
+              await landing.clickBuyNow(container, SOURCE);
+            }
+          } else {
+            await landing.clickBuyNow(container, SOURCE);
+          }
         }
 
-        // Handle generic popup validations and click-through
-        // For home-biggest-fights: clickBuyNow only clicks the tile, handlePopupModal validates + clicks Buy Now
-        // For dont-miss/tile sources: avoid double-clicking modal
-        const clickPopup = SOURCE === 'home-biggest-fights' || (!SOURCE.includes('dont-miss') && !SOURCE.includes('tile'));
-        if (SOURCE.toLowerCase() !== 'glory') {
-          await handlePopupModal(page, results, eventData, SOURCE, clickPopup);
+        // For search/schedule/glory: handlePaywall is already called in their
+        // source-specific blocks above. Only call again if it hasn't been
+        // handled yet (alreadyValidated guard inside handlePaywall prevents duplicates).
+        const deferredPaywallSources = ['search', 'schedule', 'glory'];
+        if (deferredPaywallSources.includes(SOURCE.toLowerCase())) {
+          // These sources already call handlePaywall in their blocks above.
+          // The duplicate guard inside handlePaywall (alreadyValidated) prevents double-validation.
         }
 
         await page.waitForLoadState('domcontentloaded').catch(() => { });
@@ -1498,7 +1545,7 @@ for (const stateKey of userStatesToRun) {
         // ══════════════════════════════════════════════════════════════
         // STEP 6 — CLICK BUY NOW / SUBSCRIPTION STATUS CTA
         // ══════════════════════════════════════════════════════════════
-        if (SOURCE === 'myaccount-subscription-status') {
+        if (SOURCE === 'myaccount-subscription-status' || resolvedSource === 'myaccount-subscription-status') {
           console.log(`\n💳 Clicking Subscription Status CTA for default signup`);
           await myAccountPage.clickSubscriptionStatusCTA(userStateKey);
         } else {
@@ -1796,7 +1843,7 @@ for (const stateKey of userStatesToRun) {
             SOURCE === 'boxing-page-bundle' ||
             SOURCE === 'boxing-upcoming-fights' ||
             SOURCE === 'boxing-join-the-club';
-          if (process.env.DEFAULT_SIGNUP === 'true' && !ppvValidated && !isBoxingSubSource) {
+          if (process.env.DEFAULT_SIGNUP === 'true' && !ppvValidated && !isBoxingSubSource && !noPpvClick) {
             const url = page.url().toLowerCase();
             if (url.includes('page=tierplans') || url.includes('page=plandetails') || pageType === 'plan' || pageType === 'email' || pageType === 'default-signup') {
               const bodyText = await page.locator('body').innerText({ timeout: 2000 }).then((t: string) => t.toLowerCase()).catch(() => '');
@@ -2452,6 +2499,12 @@ for (const stateKey of userStatesToRun) {
             }
             console.log(`✅ [DefaultSignup] Verified PPV on page matches: "${ppvName}"`);
 
+            // Click opt-out if noPpvClick is configured in surfacing point
+            if (noPpvClick) {
+              const clicked = await handleNoPpvClick(page, { ...eventData, noPpvClick, source: resolvedSource, SOURCE }, SOURCE);
+              if (clicked) continue;
+            }
+
             // Select Ultimate card first if tier is ultimate
             if (tier === 'ultimate') {
               console.log('💎 [DefaultSignup] Selecting DAZN Ultimate card...');
@@ -2615,6 +2668,64 @@ for (const stateKey of userStatesToRun) {
               ppvValidated = true;
             }
 
+            // Click opt-out if noPpvClick is configured in surfacing point
+            if (noPpvClick) {
+              const clicked = await handleNoPpvClick(page, { ...eventData, noPpvClick, source: resolvedSource, SOURCE }, SOURCE);
+              if (clicked) continue;
+            }
+
+            // --- FAST PATH FOR DEV MODE FLOWS ---
+            if (devModeEnabled) {
+              console.log('⚡ Dev mode fast-path: clicking PPV page CTA immediately...');
+
+              // Select Ultimate card first if tier is ultimate
+              if (tier === 'ultimate') {
+                console.log('💎 Dev mode: selecting Ultimate card before CTA...');
+                const ultimateSelectors = [
+                  'div:has-text("The Ultimate Fan Package") >> text=DAZN Ultimate',
+                  '[class*="upsell" i]:has-text("Ultimate")',
+                  '[class*="ultimate" i]:has-text("Ultimate")',
+                  'div:has-text("DAZN Ultimate"):has-text("/month")',
+                  'label:has-text("DAZN Ultimate")'
+                ];
+                for (const sel of ultimateSelectors) {
+                  const el = page.locator(sel).first();
+                  if (await el.isVisible({ timeout: 500 }).catch(() => false)) {
+                    await el.click({ force: true }).catch(() => { });
+                    console.log(`✅ Dev mode: selected Ultimate card via: ${sel}`);
+                    break;
+                  }
+                }
+              }
+
+              const buttonSelectors = [
+                'button:has-text("Continue with DAZN Ultimate")',
+                'button:has-text("Continue with pay-per-view")',
+                'button:has-text("Continue")',
+                'button[type="submit"]'
+              ];
+
+              let ctaClicked = false;
+              for (const sel of buttonSelectors) {
+                const btn = page.locator(sel).first();
+                if (await btn.isVisible({ timeout: 100 }).catch(() => false)) {
+                  await clickAndWaitForNav(page, btn, `PPV Continue (DevMode CTA: ${sel})`);
+                  ctaClicked = true;
+                  break;
+                }
+              }
+
+              if (!ctaClicked) {
+                const submitBtn = page.locator('button[type="submit"], button:has-text("Continue")').first();
+                await submitBtn.waitFor({ state: 'visible', timeout: 3000 }).catch(() => { });
+                await clickAndWaitForNav(page, submitBtn, 'PPV Continue (DevMode Fallback)');
+              }
+
+              await setupPage(page, 500);
+              continue;
+            }
+            // ------------------------------------
+
             if (purchaseOption === 'ultimate') {
               const ultimateCard = page.locator(
                 '[class*="upsell" i], ' +
@@ -2674,6 +2785,12 @@ for (const stateKey of userStatesToRun) {
             console.log(`👉 DAZN Plan page`);
             stuckCount = 0;
 
+            if (SOURCE === 'subscribe-without-pay-per-view') {
+              console.log('✅ Reached end of Subscribe Without PPV flow (landed on Plan page)');
+              reachedEndPage = true;
+              break;
+            }
+
             if (!planValidated) {
               try {
                 await page.waitForSelector(
@@ -2714,28 +2831,75 @@ for (const stateKey of userStatesToRun) {
             }
 
             if (ratePlan === 'annual pay upfront') {
+              // ── Diagnostic: trace plan-selection pipeline ──
+              console.log('\n🔍 [Plan Selection Trace] ─────────────────────────────');
+              console.log(`   ENV PLAN          : ${process.env.PLAN}`);
+              console.log(`   json.RATE_PLAN    : ${json?.RATE_PLAN || '(not set)'}`);
+              console.log(`   Resolved ratePlan : ${ratePlan}`);
+              console.log(`   Tier              : ${tier}`);
+
+              // Enumerate all radios and their labels
+              const allRadios = page.locator('input[type="radio"]');
+              const radioCount = await allRadios.count().catch(() => 0);
+              console.log(`   Total radios found: ${radioCount}`);
+              for (let ri = 0; ri < radioCount; ri++) {
+                const radio = allRadios.nth(ri);
+                const checked = await radio.isChecked().catch(() => false);
+                const labelText = await radio.evaluate((el: any) => {
+                  const label = el.closest('label') || el.parentElement?.closest('label');
+                  return label ? label.innerText.replace(/\s+/g, ' ').trim().slice(0, 120) : '(no label)';
+                }).catch(() => '(eval failed)');
+                console.log(`   Radio[${ri}]: checked=${checked} | label="${labelText}"`);
+              }
+
               const upfrontCard = page.locator(
                 'label:has-text("Annual - Pay Upfront"), ' +
                 'label:has-text("Annual - pay upfront"), ' +
                 'label:has-text("Pay Upfront")'
               ).first();
 
-              if (await upfrontCard.isVisible({ timeout: 3000 }).catch(() => false)) {
+              const upfrontCardVisible = await upfrontCard.isVisible({ timeout: 3000 }).catch(() => false);
+              console.log(`   Upfront label locator visible: ${upfrontCardVisible}`);
+
+              if (upfrontCardVisible) {
+                const cardText = await upfrontCard.textContent().catch(() => '') || '';
+                console.log(`   Upfront label text: "${cardText.replace(/\s+/g, ' ').trim().slice(0, 120)}"`);
                 await safeScrollToElement(page, upfrontCard);
                 await upfrontCard.click({ force: true }).catch(() => { });
-                console.log('✅ Clicked Annual Pay Upfront card');
+                console.log('   ✅ Clicked: Upfront label card');
               } else {
                 // Upfront is typically the last radio
                 const radios = page.locator('input[type="radio"]');
                 const count = await radios.count().catch(() => 0);
+                console.log(`   Upfront label NOT visible. Falling back to last radio (index ${count - 1})`);
                 const upfrontRadio = radios.nth(count > 0 ? count - 1 : 0);
                 if (await upfrontRadio.isVisible({ timeout: 1500 }).catch(() => false)) {
+                  const fallbackLabel = await upfrontRadio.evaluate((el: any) => {
+                    const label = el.closest('label') || el.parentElement?.closest('label');
+                    return label ? label.innerText.replace(/\s+/g, ' ').trim().slice(0, 120) : '(no label)';
+                  }).catch(() => '(eval failed)');
+                  console.log(`   Fallback radio label: "${fallbackLabel}"`);
                   await safeScrollToElement(page, upfrontRadio);
                   await upfrontRadio.click({ force: true }).catch(() => { });
-                  console.log('✅ Selected Upfront radio (last)');
+                  console.log('   ✅ Clicked: Fallback radio (last)');
+                } else {
+                  console.error('   ❌ Fallback radio NOT visible either');
                 }
               }
               await page.waitForTimeout(500);
+
+              // ── Post-click: log state of all radios ──
+              console.log('   Post-click radio state:');
+              for (let ri = 0; ri < radioCount; ri++) {
+                const radio = allRadios.nth(ri);
+                const checked = await radio.isChecked().catch(() => false);
+                const labelText = await radio.evaluate((el: any) => {
+                  const label = el.closest('label') || el.parentElement?.closest('label');
+                  return label ? label.innerText.replace(/\s+/g, ' ').trim().slice(0, 80) : '(no label)';
+                }).catch(() => '(eval failed)');
+                console.log(`   Radio[${ri}]: checked=${checked} | label="${labelText}"`);
+              }
+              console.log('─────────────────────────────────────────────────────');
 
               // ── Post-selection: Validate upfront is selected ──
               console.log('\n📋 Validating post-upfront-selection...');

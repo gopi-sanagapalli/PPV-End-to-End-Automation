@@ -72,7 +72,8 @@ async function findTarget(page: any, candidates: string[]): Promise<any | null> 
 export async function captureFailures(
   page: any,
   results: any[],
-  pageName: string
+  pageName: string,
+  scopedLocator?: any
 ): Promise<void> {
   if (!page || page.isClosed()) return;
 
@@ -93,7 +94,7 @@ export async function captureFailures(
 
     let handle: any = null;
     try {
-      const target = await findTarget(page, matchCandidates(r));
+      const target = await findTarget(scopedLocator || page, matchCandidates(r));
 
       if (target) {
         console.log(`🎯 [Fail Shot] Highlight target found for field "${field}": "${(await target.textContent().catch(() => '')).trim().substring(0, 50)}"`);
@@ -116,14 +117,28 @@ export async function captureFailures(
         }
       }
 
-      // Remove any overflow:hidden that causes dark/clipped screenshots
-      await page.evaluate(() => {
-        document.documentElement.style.overflow = '';
-        document.body.style.overflow = '';
-      }).catch(() => { });
-      await page.waitForTimeout(100);
-      // Viewport screenshot (element is centered & boxed when found)
-      await page.screenshot({ path: file, fullPage: false }).catch(() => { });
+      let taken = false;
+      if ((pageName === 'Search' || pageName === 'Paywall') && scopedLocator) {
+        try {
+          await scopedLocator.scrollIntoViewIfNeeded({ timeout: 2000 }).catch(() => { });
+          await scopedLocator.waitFor({ state: 'visible', timeout: 2000 }).catch(() => { });
+          await scopedLocator.screenshot({ path: file });
+          taken = true;
+          console.log(`📸 [Fail Shot] Scoped screenshot taken for ${pageName} · ${field} → ${file}`);
+        } catch (e: any) {
+          console.warn(`⚠️ [Fail Shot] Scoped locator screenshot failed: ${e.message}. Falling back to viewport screenshot.`);
+        }
+      }
+      if (!taken) {
+        // Remove any overflow:hidden that causes dark/clipped screenshots
+        await page.evaluate(() => {
+          document.documentElement.style.overflow = '';
+          document.body.style.overflow = '';
+        }).catch(() => { });
+        await page.waitForTimeout(100);
+        // Viewport screenshot (element is centered & boxed when found)
+        await page.screenshot({ path: file, fullPage: false }).catch(() => { });
+      }
       if (fs.existsSync(file)) {
         r.screenshot = file;
         console.log(`📸 [Fail Shot] ${pageName} · ${field} → ${file}`);

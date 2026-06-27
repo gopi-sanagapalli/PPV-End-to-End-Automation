@@ -62,6 +62,7 @@ function pageIcon(page: string): string {
   const p = page.toLowerCase();
   if (p.includes('schedule')) return '📅';
   if (p.includes('landing')) return '🏠';
+  if (p.includes('paywall')) return '🔒';
   if (p.includes('ppv')) return '🥊';
   if (p.includes('plan')) return '📋';
   if (p.includes('payment')) return '💳';

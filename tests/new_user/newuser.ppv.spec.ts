@@ -30,11 +30,12 @@ import {
   getUpsellFirstSuccessData,
   getUpsellSecondSuccessData,
   getUpsellPaymentData,
+  getPaywallData,
 } from '../../utils/excelReader';
 import { detectVariant } from '../../flows/detectVariant';
 import { validateVariant } from '../../flows/validateVariant';
 import { buildEventData } from '../../utils/buildEventData';
-import { detectPageType } from '../../utils/flowHelpers';
+import { detectPageType, handleNoPpvClick } from '../../utils/flowHelpers';
 import { displayResultsTable } from '../../utils/resultsDisplay';
 import { writeResults } from '../../utils/excelWriter';
 import { generateReports } from '../../utils/reportGenerator';
@@ -50,7 +51,7 @@ import {
   loadEventConfig,
   safeScrollToElement,
   clickAndWaitForNav,
-  handlePopupModal,
+  handlePaywall,
   assertCountryMatch,
 } from '../../utils/testHelpers';
 
@@ -88,7 +89,7 @@ async function runFlow(
   region: string,
   validateLanding: boolean
 ): Promise<{ results: any[]; reachedEndPage: boolean; skipped?: boolean }> {
-  const { name, source, tier, ratePlan: rawRatePlan, enableDevMode: devModeEnabled } = flowConfig;
+  const { name, source, tier, ratePlan: rawRatePlan, enableDevMode: devModeEnabled, noPpvClick } = flowConfig;
   const ratePlan = (rawRatePlan || '').replace(/-/g, ' ').toLowerCase();
   if ((SOURCE === 'boxing-banner-ultimate' || SOURCE === 'boxing-ultimate-subscription' || SOURCE === 'boxing-join-the-club') && tier !== 'ultimate') {
     throw new Error(`❌ SOURCE "${SOURCE}" requires an Ultimate plan (e.g., PLAN=ultimate_apm).`);
@@ -258,6 +259,11 @@ async function runFlow(
       await gloryPage.navigate();
       await setupPage(page, 8000);
       assertCountryMatch(page, region);
+      if (devModeEnabled) {
+        console.log('\n🎭 Dev mode flow detected — enabling dev mode on glory page...');
+        const searchPage = new SearchPage(page);
+        await searchPage.enableDevMode();
+      }
 
       console.log('\n📋 Validating Glory page...');
       const isValid = await gloryPage.validateGloryPage();
@@ -270,12 +276,17 @@ async function runFlow(
       });
 
       await gloryPage.clickGloryCollision9();
-      await gloryPage.clickBuyNowInModal();
+      await handlePaywall(page, results, eventData, source, true);
     } else if (isSchedule) {
       const schedule = new SchedulePage(page);
       await schedule.navigate(baseUrl);
       await setupPage(page, 8000);
       assertCountryMatch(page, region);
+      if (devModeEnabled) {
+        console.log('\n🎭 Dev mode flow detected — enabling dev mode on schedule page...');
+        const searchPage = new SearchPage(page);
+        await searchPage.enableDevMode();
+      }
 
       const sport = json.SPORT || 'Boxing';
       let scheduleEventClicked = false;
@@ -306,50 +317,47 @@ async function runFlow(
           console.warn(`⚠️  Schedule page validation error: ${err.message}`);
         }
 
-        await schedule.clickBuyNow();
+        // Paywall-first pattern (same as Search):
+        // handlePaywall validates paywall + clicks Buy Now inside modal.
+        // If no paywall is detected, fall back to clickBuyNow().
+        const paywallHandled = await handlePaywall(page, results, eventData, source, true);
+        if (!paywallHandled) {
+          console.warn('⚠️ Paywall not detected by handlePaywall. Falling back to schedule.clickBuyNow().');
+          await schedule.clickBuyNow();
+        }
       }
     } else if (isSearch) {
       const searchPage = new SearchPage(page);
       await searchPage.navigate(baseUrl);
       await setupPage(page, 8000);
       assertCountryMatch(page, region);
-      let searchQuery = eventData.PPV_NAME;
-      if (eventData.PPV_NAME && eventData.PPV_NAME.includes(':')) {
-        searchQuery = eventData.PPV_NAME.split(':').pop()?.trim() || eventData.PPV_NAME;
+      if (devModeEnabled) {
+        console.log('\n🎭 Dev mode flow detected — enabling dev mode on search page...');
+        await searchPage.enableDevMode();
       }
 
-      let searchSuccess = false;
-      try {
-        await searchPage.searchForEvent(searchQuery);
-        await searchPage.clickPPVTile(eventData.PPV_NAME);
-        searchSuccess = true;
-      } catch (err: any) {
-        console.log(`⚠️ Search for "${searchQuery}" failed: ${err.message}. Trying fallback search...`);
-      }
+      // Search page contains only page-level validations
+      const searchData = readSheet('Search page');
 
-      if (!searchSuccess) {
-        if (eventData.PPV_PROMOTER && eventData.PPV_PROMOTER !== 'N/A') {
-          console.log(`🔄 Searching with promoter fallback: "${eventData.PPV_PROMOTER}"`);
-          await searchPage.searchForEvent(eventData.PPV_PROMOTER);
-          await searchPage.clickPPVTile(eventData.PPV_NAME);
-          searchSuccess = true;
-        } else {
-          throw new Error(`❌ PPV event "${eventData.PPV_NAME}" not found via search`);
+      await searchPage.searchAndOpenBestPpvTile({
+        ppvName: eventData.PPV_NAME,
+        promoter: eventData.PPV_PROMOTER,
+        onTileSelected: async (tileLocator) => {
+          console.log('\n📋 Validating Search page (scoping to selected tile)...');
+          try {
+            await validateVariant(page, 'search', searchData, results, eventData, 'Search', undefined, tileLocator);
+          } catch (err: any) {
+            console.warn(`⚠️  Search page validation error: ${err.message}`);
+          }
         }
+      });
+
+      // Check and validate paywall now that it is open, and click Buy Now inside it
+      const paywallHandled = await handlePaywall(page, results, eventData, source, true);
+      if (!paywallHandled) {
+        console.warn('⚠️ Paywall not handled by handlePaywall. Falling back to searchPage.clickBuyNow().');
+        await searchPage.clickBuyNow();
       }
-
-      console.log('\n📋 Validating Search page...');
-      try {
-        const searchData = readSheet('Search page');
-        await validateVariant(page, 'search', searchData, results, eventData, 'Search');
-      } catch (err: any) {
-        console.warn(`⚠️  Search page validation error: ${err.message}`);
-      }
-
-      // Check and validate popup modal if visible BEFORE clicking Buy Now
-      await handlePopupModal(page, results, eventData, source, false);
-
-      await searchPage.clickBuyNow();
     } else {
       const landing = isHomePageSource
         ? new HomePage(page)
@@ -486,13 +494,13 @@ async function runFlow(
         }
       }
 
-      // Home of Sport & Home Page: validate banner/popup content before clicking Buy Now
-      // NOTE: Skip for home-biggest-fights — the popup only appears AFTER clicking the
-      // Coming Up tile (which happens inside clickBuyNow). handlePopupModal handles it.
-      if ((isHomeSport || isHomePageSource) && source !== 'home-biggest-fights') {
+      // Home of Sport & Home Page: validate banner/paywall content before clicking Buy Now
+      // NOTE: Skip for home-biggest-fights — the paywall only appears AFTER clicking the
+      // Coming Up tile (which happens inside clickBuyNow). handlePaywall handles it.
+      if (isHomeSport || isHomePageSource) {
         const onOnboarding = page.url().includes('signup') || page.url().includes('PlanDetails') || page.url().includes('payment');
         if (onOnboarding) {
-          console.log('ℹ️ Already on onboarding page — skipping popup modal validations');
+          console.log('ℹ️ Already on onboarding page — skipping paywall validations');
         } else {
           console.log('\n📋 Validating Entry page using Excel sheet...');
           try {
@@ -521,19 +529,37 @@ async function runFlow(
       // home-page-dazntile clicks the entitlement tile inside
       // findPPVContainer(), so it has no PPV container for the generic
       // Buy Now handler.
-      if (source !== 'home-page-dazntile') {
-        await landing.clickBuyNow(container, source);
-      } else {
+      if (source === 'home-page-dazntile') {
         console.log(
           'ℹ️ [DAZN Tile] Generic PPV Buy Now click skipped; entitlement tile was already clicked'
         );
+      } else {
+        // ── Paywall-first pattern for paywall-enabled sources ──
+        // handlePaywall validates + clicks Buy Now inside the modal.
+        // If no paywall is detected, fall back to clickBuyNow().
+        const paywallSources = [
+          'home-boxing-tile',
+          'home-kickboxing-tile',
+          'home-page-dont-miss',
+          'home-biggest-fights',
+        ];
+        const isPaywallSource = paywallSources.includes(source.toLowerCase());
+
+        if (isPaywallSource) {
+          const paywallHandled = await handlePaywall(page, results, eventData, source, true);
+          if (!paywallHandled) {
+            console.warn(`⚠️ Paywall not detected by handlePaywall for ${source}. Falling back to clickBuyNow().`);
+            await landing.clickBuyNow(container, source);
+          }
+        } else {
+          await landing.clickBuyNow(container, source);
+        }
       }
     }
 
-    // Handle generic popup validations and click-through
-    if ((!isHomeSport || source === 'home-page-dont-miss') && source !== 'glory') {
-      await handlePopupModal(page, results, eventData, source, true);
-    }
+    // For search/schedule/glory: handlePaywall is already called in their
+    // source-specific blocks above. The duplicate guard inside handlePaywall
+    // (alreadyValidated) prevents double-validation.
 
     await page.waitForURL(
       (url: URL) =>
@@ -734,10 +760,10 @@ async function runFlow(
       // and go directly to plans. DEFAULT_SIGNUP=true is still set for them (they are sub-only flows)
       // but the "no PPV" check only applies to home-page / landing-page default signup sources.
       const isBoxingSubscriptionSource =
-        SOURCE === 'boxing-ultimate-subscription' ||
-        SOURCE === 'boxing-standard-subscription' ||
-        SOURCE === 'boxing-join-the-club';
-      if (process.env.DEFAULT_SIGNUP === 'true' && !ppvValidated && !isBoxingSubscriptionSource) {
+        source === 'boxing-ultimate-subscription' ||
+        source === 'boxing-standard-subscription' ||
+        source === 'boxing-join-the-club';
+      if (process.env.DEFAULT_SIGNUP === 'true' && !ppvValidated && !isBoxingSubscriptionSource && !noPpvClick) {
         const url = page.url().toLowerCase();
         if (url.includes('page=tierplans') || url.includes('page=plandetails') || pageType === 'plan' || pageType === 'email') {
           const bodyText = await page.locator('body').innerText({ timeout: 2000 }).then((t: string) => t.toLowerCase()).catch(() => '');
@@ -1409,6 +1435,12 @@ async function runFlow(
         }
         console.log(`✅ [DefaultSignup] Verified PPV on page matches: "${ppvName}"`);
 
+        // Click opt-out if noPpvClick is configured in surfacing point
+        if (noPpvClick) {
+          const clicked = await handleNoPpvClick(page, { ...eventData, noPpvClick, source, SOURCE }, SOURCE);
+          if (clicked) continue;
+        }
+
         // Select Ultimate card first if tier is ultimate
         if (tier === 'ultimate') {
           console.log('💎 [DefaultSignup] Selecting DAZN Ultimate card...');
@@ -1483,6 +1515,12 @@ async function runFlow(
             console.warn('⚠️  PPV validation error:', e.message);
           }
           ppvValidated = true;
+        }
+
+        // Click opt-out if noPpvClick is configured in surfacing point
+        if (noPpvClick) {
+          const clicked = await handleNoPpvClick(page, { ...eventData, noPpvClick, source, SOURCE }, SOURCE);
+          if (clicked) continue;
         }
 
         // --- FAST PATH FOR DEV MODE FLOWS ---
@@ -1606,6 +1644,12 @@ async function runFlow(
         console.log(`👉 DAZN Plan page - Tier: ${tier}, Rate Plan: ${ratePlan}`);
         stuckCount = 0;
         planClickCount++;
+
+        if (SOURCE === 'subscribe-without-pay-per-view') {
+          console.log('✅ Reached end of Subscribe Without PPV flow (landed on Plan page)');
+          reachedEndPage = true;
+          break;
+        }
 
         // Handle TierPlans selection first if on TierPlans page
         if (page.url().includes('page=TierPlans')) {
@@ -1907,16 +1951,18 @@ for (const planKey of plansToRun) {
         ? 'Flex Monthly'
         : ((planData.RATE_PLAN || '').toLowerCase().includes('upfront') ? 'APU' : 'APM');
       const tierName = planTier.charAt(0).toUpperCase() + planTier.slice(1);
+      const activeSource = process.env.START_SOURCE || srcConfig.source || SOURCE;
       const srcLabel = SOURCE.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
       const flowConfig = {
         name: `${srcLabel} → ${tierName} → ${planName}`,
-        source: srcConfig.source || SOURCE,
+        source: activeSource,
         tier: planTier,
         ratePlan: (planData.RATE_PLAN || 'monthly').toLowerCase(),
         endPage: endPage,
         enableDevMode: devMode,
-        planKey: planKey
+        planKey: planKey,
+        noPpvClick: !!srcConfig.noPpvClick
       };
 
       console.log(`\n╔═══════════════════════════════════════════════════════╗`);

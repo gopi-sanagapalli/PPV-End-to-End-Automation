@@ -124,10 +124,7 @@ export class GloryPage extends BasePage {
     };
 
     const isTileInView = async (): Promise<any> => {
-      const tileCandidates = railWrapper.locator(
-        'a[class*="tile__link" i], a[class*="tile" i], ' +
-        'div[class*="tile" i], div[class*="card" i], a, button'
-      );
+      const tileCandidates = railWrapper.locator('.swiper-slide, [class*="tile" i], [class*="card" i], article, li, a, button');
       const count = await tileCandidates.count().catch(() => 0);
 
       let bestTile: any = null;

@@ -119,30 +119,44 @@ export async function logVideoPath(page: any): Promise<void> {
 }
 
 import { validateVariant } from '../flows/validateVariant';
-import { getHomeOfBoxingData, getHomePageData } from './excelReader';
+import { getHomeOfBoxingData, getHomePageData, getPaywallData } from './excelReader';
 
 // ─────────────────────────────────────────────────────────────────
-// HANDLE POPUP MODAL (VALIDATION & OPTIONAL CLICK THROUGH)
+// HANDLE PAYWALL (VALIDATION & OPTIONAL CLICK THROUGH)
 // ─────────────────────────────────────────────────────────────────
-export async function handlePopupModal(
+export async function handlePaywall(
   page: any,
   results: any[],
   eventData: any,
   source: string,
-  clickBuyNow: boolean
+  clickBuyNow: boolean,
+  paywallRules?: any[]
 ): Promise<boolean> {
   const src = (source || '').toLowerCase();
+  const entryUrl = page.url();
 
-  // 1. Skip check for landing-page-dont-miss flows since they are cards, not tiles (no popup modal displayed)
+  // ── Debug header ──
+  console.log('\n══════════════════════════════════════════════════════');
+  console.log('  🔒 PAYWALL CHECK');
+  console.log('══════════════════════════════════════════════════════');
+  console.log(`  Source:              ${source}`);
+  console.log(`  Current URL:         ${entryUrl}`);
+  console.log(`  clickBuyNow:         ${clickBuyNow}`);
+  console.log(`  paywallRules passed: ${paywallRules ? paywallRules.length : 'none'}`);
+  console.log('──────────────────────────────────────────────────────');
+
+  // 1. Skip check for landing-page-dont-miss flows since they are cards, not tiles (no paywall displayed)
   if (src.includes('dont-miss') && !src.includes('home-') && !src.includes('sport')) {
-    console.log('ℹ️ [Popup Check] Skipping popup check for standard landing-page-dont-miss (direct card flow)');
+    console.log('ℹ️ [Paywall Check] Skipping paywall check for standard landing-page-dont-miss (direct card flow)');
+    console.log('══════════════════════════════════════════════════════\n');
     return false;
   }
 
   // 2. Skip validation if already validated to avoid duplicate errors
-  const alreadyValidated = results.some(r => r.page === 'Popup Modal' || r.page === 'Home Page' || r.page === 'Home of Boxing');
+  const alreadyValidated = results.some(r => r.page === 'Paywall');
   if (alreadyValidated && !clickBuyNow) {
-    console.log('ℹ️ [Popup Check] Popup modal/Home of Boxing already validated. Skipping.');
+    console.log('ℹ️ [Paywall Check] Paywall already validated. Skipping.');
+    console.log('══════════════════════════════════════════════════════\n');
     return true;
   }
 
@@ -154,24 +168,31 @@ export async function handlePopupModal(
     currentUrl.includes('payment') ||
     currentUrl.includes('checkout')
   ) {
-    console.log('ℹ️ [Popup Check] Already navigated to onboarding/checkout pages. No popup check needed.');
+    console.log('⚠️ [Paywall Check] EARLY RETURN — page already on onboarding/checkout.');
+    console.log(`  URL: ${currentUrl}`);
+    console.log('  This means Buy Now was clicked BEFORE handlePaywall() was called.');
+    console.log('══════════════════════════════════════════════════════\n');
     return false;
   }
 
-  console.log(`🔍 [Popup Check] Checking if a popup modal is visible (clickBuyNow=${clickBuyNow})...`);
+  console.log(`🔍 [Paywall Check] Checking if a paywall is visible (clickBuyNow=${clickBuyNow})...`);
 
   const modalSelectors = [
     '[role="dialog"]',
     '[aria-modal="true"]',
-    '[class*="modal" i]',
-    '[class*="popup" i]',
-    '[class*="Dialog" i]',
-    '.Modal',
+    '[class*="modal-content" i]',
+    '[class*="modal-card" i]',
+    '[class*="modal-body" i]',
+    '[class*="dialog-box" i]',
+    '[class*="modal" i]:not(body):not(html):not([class*="open"]):not([class*="active"]):not([class*="wrapper"]):not([class*="backdrop"]):not([class*="overlay"]):not([class*="mask"]):not([class*="container"]):not([class*="layout"])',
+    '[class*="popup" i]:not(body):not(html):not([class*="open"]):not([class*="active"]):not([class*="wrapper"]):not([class*="backdrop"]):not([class*="overlay"]):not([class*="mask"]):not([class*="container"]):not([class*="layout"])',
+    '[class*="Dialog" i]:not(body):not(html)',
+    '.Modal:not(body):not(html)',
   ];
 
   let foundModal: any = null;
 
-  // Wait up to 2.5s for a modal with a CTA to appear (replaces polling loop)
+  // Wait up to 2.5s for a modal with a CTA to appear
   const ctaSelector = [
     'button:has-text("Buy now")', 'a:has-text("Buy now")', 'button:has-text("Buy Now")',
     'button:has-text("Subscribe")', 'a:has-text("Subscribe")', 'button:has-text("Continue")', 'a:has-text("Continue")',
@@ -201,58 +222,85 @@ export async function handlePopupModal(
       intermediateUrl.includes('payment') ||
       intermediateUrl.includes('checkout')
     ) {
-      console.log('ℹ️ [Popup Check] Background navigation detected. Aborting popup check.');
+      console.log('⚠️ [Paywall Check] Background navigation detected during modal wait.');
+      console.log(`  URL now: ${intermediateUrl}`);
+      console.log('══════════════════════════════════════════════════════\n');
       return false;
     }
   }
 
+  if (!foundModal) {
+    console.log('⚠️ [Paywall Check] Paywall modal NOT found after checking all selectors.');
+    console.log(`  URL now: ${page.url()}`);
+  }
+
   if (foundModal) {
-    console.log('✅ [Popup Check] Popup modal detected!');
+    console.log('📢 [handlePaywall] paywall locator found');
+    console.log('📢 [handlePaywall] paywall visible');
+    console.log('✅ [Paywall Check] Paywall detected!');
 
     if (!alreadyValidated) {
-      // Load popup validation rules using getHomePageData or getHomeOfBoxingData
-      let popupRules: any[] = [];
-      try {
-        if (src === 'home-page-dont-miss' || src === 'home-biggest-fights') {
-          popupRules = getHomePageData(src);
-        } else {
-          popupRules = getHomeOfBoxingData('home-boxing-tile');
+      // Load paywall validation rules (use provided paywallRules or read from sheet)
+      let rules = paywallRules;
+      if (!rules || rules.length === 0) {
+        try {
+          rules = getPaywallData();
+        } catch (err: any) {
+          console.warn(`⚠️ [Paywall Check] Could not load getPaywallData: ${err.message}`);
         }
-      } catch (err: any) {
-        console.warn(`⚠️ [Popup Check] Could not load sheet data: ${err.message}`);
       }
 
-      if (popupRules.length > 0) {
-        // Run validations
+      console.log(`📢 [handlePaywall] paywallRules length: ${rules ? rules.length : 0}`);
+
+      if (rules && rules.length > 0) {
+        // Run validations against scoped paywall snapshot
         try {
-          const isHomeField = src === 'home-page-dont-miss' || src === 'home-biggest-fights';
-          const pageName = isHomeField ? 'Home Page' : 'Popup Modal';
-          const ruleFlow = isHomeField ? src : 'home-boxing-tile';
-          const pageType = isHomeField ? 'home-page' : 'home-boxing';
-          await validateVariant(page, pageType, popupRules, results, eventData, pageName, ruleFlow);
-          console.log('✅ [Popup Check] Popup modal validations completed successfully.');
+          console.log('📢 [handlePaywall] validateVariant called');
+          await validateVariant(page, 'paywall', rules, results, eventData, 'Paywall', undefined, foundModal);
+          console.log(`📢 [handlePaywall] number of validations executed: ${rules.length}`);
+          console.log('✅ [Paywall Check] Paywall validations completed successfully.');
         } catch (err: any) {
-          console.warn(`⚠️ [Popup Check] Popup modal validation error/warning: ${err.message}`);
+          console.warn(`⚠️ [Paywall Check] Paywall validation error/warning: ${err.message}`);
         }
       } else {
-        console.warn('⚠️ [Popup Check] No popup rules available in sheet. Skipping validations.');
+        console.warn('⚠️ [Paywall Check] No paywall rules available. Skipping validations.');
       }
     }
 
     if (clickBuyNow) {
-      // Click "Buy now" inside the modal popup to proceed
-      console.log('💳 [Popup Check] Clicking "Buy now" / CTA inside modal popup...');
-      const dialog = foundModal.locator('[role="dialog"], [aria-modal="true"], [class*="modal" i]').first();
-      let buyNowBtn = dialog.locator(ctaSelector).first();
+      // Click "Buy now" / CTA inside the paywall container
+      console.log('💳 [Paywall Check] Clicking "Buy now" / CTA inside paywall...');
+      
+      // Look for interactive elements with the text pattern first
+      let buyNowBtn = foundModal.locator('a, button, [role="button"]')
+        .filter({ hasText: /buy now|subscribe|continue|sign up|start watching|get started/i })
+        .first();
 
-      let visible = await buyNowBtn.isVisible({ timeout: 2000 }).catch(() => false);
+      let visible = await buyNowBtn.isVisible({ timeout: 1500 }).catch(() => false);
       if (!visible) {
-        buyNowBtn = foundModal.locator(ctaSelector).first();
+        // Fallback: search for any element containing the text
+        buyNowBtn = foundModal.locator('*')
+          .filter({ hasText: /buy now|subscribe|continue|sign up|start watching|get started/i })
+          .first();
       }
 
-      await buyNowBtn.click({ force: true }).catch((e: any) => {
-        console.error(`❌ [Popup Check] Failed to click Buy Now button in modal: ${e.message}`);
-      });
+      console.log('📌 [Paywall Check] Resolved CTA locator inside paywall. Attempting click...');
+      
+      try {
+        await buyNowBtn.click({ force: true, timeout: 5000 });
+        console.log('✅ [Paywall Check] Successfully clicked CTA button via Playwright click');
+      } catch (clickErr: any) {
+        console.warn(`⚠️ [Paywall Check] Playwright click failed: ${clickErr.message}. Trying JS click...`);
+        const handle = await buyNowBtn.elementHandle().catch(() => null);
+        if (handle) {
+          await page.evaluate((el: any) => el.click(), handle).catch((evalErr: any) => {
+            console.error(`❌ [Paywall Check] JS click failed: ${evalErr.message}`);
+          });
+          console.log('✅ [Paywall Check] Successfully clicked CTA button via JS click');
+        } else {
+          console.error('❌ [Paywall Check] Could not get elementHandle for CTA button to execute JS click');
+        }
+      }
 
       // Wait for the navigation to kick in
       await page.waitForURL(
@@ -263,13 +311,17 @@ export async function handlePopupModal(
           url.toString().includes('checkout'),
         { timeout: 10000 }
       ).catch(() => {
-        console.log(`⚠️ [Popup Check] Timeout waiting for onboarding pages. Current URL: ${page.url()}`);
+        console.log(`⚠️ [Paywall Check] Timeout waiting for onboarding pages. Current URL: ${page.url()}`);
       });
     }
 
+    console.log('  Paywall handled:     ✅ YES');
+    console.log(`  Navigation URL:      ${page.url()}`);
+    console.log('══════════════════════════════════════════════════════\n');
     return true;
   } else {
-    console.log('ℹ️ [Popup Check] No popup modal detected.');
+    console.log('  Paywall handled:     ❌ NO');
+    console.log('══════════════════════════════════════════════════════\n');
     return false;
   }
 }

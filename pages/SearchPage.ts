@@ -1,6 +1,6 @@
 import { Page, Locator, expect } from '@playwright/test';
 import { BasePage } from './BasePage';
-import { dismissMarketingPopup } from '../utils/helpers';
+import { dismissMarketingPopup, handleCookies } from '../utils/helpers';
 
 export class SearchPage extends BasePage {
   constructor(page: Page) {
@@ -12,10 +12,8 @@ export class SearchPage extends BasePage {
     const url = `${baseUrl}/search`;
     console.log(`🔍 Navigating to: ${url}`);
     await this.page.goto(url);
-    await this.page.waitForLoadState('domcontentloaded');
+    await this.waitForPageReady();
     await this.waitForConsentAndDismiss();
-    await this.page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => { });
-
     console.log('✅ Search page loaded');
   }
 
@@ -36,6 +34,7 @@ export class SearchPage extends BasePage {
     await searchInput.click();
     await searchInput.fill(eventName);
     await searchInput.press('Enter');
+    await this.page.waitForTimeout(1000);
 
     // Wait for results to load — wait for spinner to disappear
     await this.page.waitForFunction(() => {
@@ -53,29 +52,23 @@ export class SearchPage extends BasePage {
       { timeout: 15000 }
     ).catch(() => console.log('⚠️  Results may not have loaded fully'));
 
-    await this.page.waitForTimeout(1000);
+    await this.page.waitForTimeout(2000);
     console.log(`✅ Search completed for: ${eventName}`);
   }
 
-  // ── FIND AND CLICK PPV TILE ───────────────────────────────────
-  async clickPPVTile(eventName: string): Promise<void> {
-    console.log(`🎯 Looking for PPV tile: ${eventName}`);
+  // ── SCORE EVENT TILES ─────────────────────────────────────────
+  async findAndScoreTiles(ppvName: string, promoter?: string): Promise<{ tile: Locator; score: number; text: string }[]> {
+    // Split query by removing dots first to avoid word boundary issues
+    const baseQuery = ppvName.includes(':') ? (ppvName.split(':').pop()?.trim() || ppvName) : ppvName;
+    const cleanName = baseQuery.replace(/\./g, '');
+    const separatorRegex = /\b(?:vs|v|and)\b|[-]/i;
+    const fighters = cleanName.split(separatorRegex).map(p => {
+      const words = p.trim().split(/\s+/).filter(w => w.length > 1);
+      return words[words.length - 1] || '';
+    }).filter(Boolean);
 
-    let matchPattern = eventName;
-    if (eventName.includes(':')) {
-      matchPattern = eventName.split(':').pop()?.trim() || eventName;
-    }
+    console.log(`🔍 Extracted fighters for scoring: ${JSON.stringify(fighters)}`);
 
-    const regexesToTry = [new RegExp(matchPattern.replace(/\s+/g, '.*'), 'i')];
-    const isStaging = (process.env.DAZN_ENV || 'prod').toLowerCase() === 'stag';
-    if (isStaging) {
-      const firstWord = matchPattern.split(/\s+/)[0]?.trim();
-      if (firstWord && firstWord.length > 2 && firstWord.toLowerCase() !== 'the') {
-        regexesToTry.push(new RegExp(firstWord, 'i'));
-      }
-    }
-
-    // Try multiple selectors for search result tiles
     const selectors = [
       'article',
       '[class*="EventTile" i]',
@@ -88,94 +81,378 @@ export class SearchPage extends BasePage {
       'li',
     ];
 
-    for (const regex of regexesToTry) {
-      console.log(`🔍 Trying regex pattern: ${regex}`);
-      for (const selector of selectors) {
-        const tiles = this.page.locator(selector).filter({ hasText: regex });
-        const count = await tiles.count().catch(() => 0);
+    const scoredTiles: { tile: Locator; score: number; text: string }[] = [];
+    const seenTexts = new Set<string>();
 
-        if (count > 0) {
-          console.log(`🔍 Found ${count} tiles with selector: ${selector} for regex ${regex}`);
+    for (const selector of selectors) {
+      const tilesLocator = this.page.locator(selector);
+      const count = await tilesLocator.count().catch(() => 0);
+      if (count === 0) continue;
 
-          for (let i = 0; i < count; i++) {
-            const tile = tiles.nth(i);
-            const text = await tile.textContent().catch(() => '');
-            if (!text || text.length > 800) continue;
+      for (let i = 0; i < count; i++) {
+        const tile = tilesLocator.nth(i);
+        let text = await tile.textContent().catch(() => '');
+        if (!text || text.length > 800) continue;
 
-            // Exclude ancillary content like press conferences, weigh-ins, etc.
-            const textLower = text.toLowerCase();
-            const isAncillary = [
-              'press conference',
-              'weigh-in',
-              'workout',
-              'replay',
-              'highlights',
-              'preview',
-              'promo',
-              'interview',
-              'behind the scenes',
-              'episode',
-              'documentary',
-              'face off',
-              'kickboxing'
-            ].some(term => textLower.includes(term));
-            if (isAncillary) continue;
+        // Deduplicate before scoring to avoid double logging
+        const cleanText = text.trim().replace(/\s+/g, ' ');
+        if (seenTexts.has(cleanText)) {
+          continue;
+        }
+        seenTexts.add(cleanText);
 
-            // Extra safety check: if the main title/heading has a colon or press/weigh terms, skip it
-            const heading = await tile.locator('h1, h2, h3, h4, h5, [class*="title" i], [class*="heading" i]').first().textContent().catch(() => '');
-            if (heading) {
-              const headingLower = heading.toLowerCase();
-              if (headingLower.includes(':') || headingLower.includes('press') || headingLower.includes('weigh')) {
-                // Keep it if it is a test event, e.g. "Glory 108: Petch v Miguel Trindade (TEST)"
-                if (!headingLower.includes('(test)')) {
-                  continue;
-                }
-              }
-            }
+        let textLower = text.toLowerCase();
 
-            console.log(`  Tile ${i}: "${text.substring(0, 80).trim()}"`);
+        // 3. Contains first fighter surname: +30
+        const firstFighterMatched = !!(fighters[0] && textLower.includes(fighters[0].toLowerCase()));
 
-            // Check for date badge (PPV tile indicator)
-            const hasDate = await tile.locator('[class*="badge" i], [class*="date" i], time').isVisible({ timeout: 500 }).catch(() => false);
-            const hasLock = await tile.locator('[class*="lock" i], [class*="ppv" i]').isVisible({ timeout: 500 }).catch(() => false);
-            const hasMay = text.includes('MAY') || text.includes('May') || text.includes('9 MAY') || text.includes('20:30') || text.toLowerCase().includes('test');
+        // 4. Contains second fighter surname: +30
+        const secondFighterMatched = !!(fighters[1] && textLower.includes(fighters[1].toLowerCase()));
 
-            if (hasDate || hasLock || hasMay) {
-              console.log(`✅ PPV tile found: "${text.substring(0, 80).trim()}"`);
+        // 2. Has "vs" or "v.": +40
+        const hasVs = /\b(?:vs|v)\b/i.test(textLower.replace(/\./g, ''));
 
-              const scrollY = await this.page.evaluate(() => window.scrollY);
-              await tile.scrollIntoViewIfNeeded().catch(() => { });
-              await this.page.waitForTimeout(300);
+        // 1. Lock detection
+        let hasLock = false;
+        let lockPaths: string[] = [];
 
-              const box = await tile.boundingBox();
-              if (!box) continue;
+        // 1a. Try stable application-specific attributes (data-testid, aria-label, class-names) first
+        const stableLockSelector = '[data-testid*="lock" i], [data-testid*="ppv" i], [aria-label*="lock" i], [aria-label*="ppv" i], [class*="lock" i], [class*="premium" i], [class*="ppv" i]';
+        let hasStableLock = await tile.locator(stableLockSelector).first().isVisible({ timeout: 100 }).catch(() => false);
 
-              await this.page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+        if (!hasStableLock && firstFighterMatched && secondFighterMatched && hasVs) {
+          console.log(`⏳ Detected strong text match for PPV tile but lock icon not visible yet. Waiting up to 5s for lock icon...`);
+          await tile.locator(stableLockSelector).first().waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
+          hasStableLock = await tile.locator(stableLockSelector).first().isVisible({ timeout: 100 }).catch(() => false);
+          
+          const newText = await tile.textContent().catch(() => '');
+          if (newText) {
+            text = newText;
+            textLower = text.toLowerCase();
+          }
+        }
 
-              const buyNowButton = this.page.locator(
-                'a:has-text("Buy now"), button:has-text("Buy now"), ' +
-                'a:has-text("Buy Now"), button:has-text("Buy Now"), ' +
-                'a:has-text("Continue"), button:has-text("Continue")'
-              ).first();
+        if (hasStableLock) {
+          hasLock = true;
+        } else {
+          // 1b. Fallback to SVG path matching
+          lockPaths = await tile.evaluate((el) => {
+            const svgs = el.querySelectorAll('svg');
+            return Array.from(svgs).map(svg => svg.querySelector('path')?.getAttribute('d') || '');
+          }).catch(() => [] as string[]);
 
-              await expect(buyNowButton).toBeVisible({ timeout: 15000 });
-
-              await this.page.evaluate((y) => {
-                window.scrollTo(0, y);
-                document.body.style.overflow = 'hidden';
-                document.documentElement.style.overflow = 'hidden';
-              }, scrollY);
-
-              console.log('🔒 Background scroll locked');
-              console.log('✅ PPV popup opened & Buy button located');
-              return;
+          for (const d of lockPaths) {
+            if (d.startsWith('M12 2C8.68629') || d.includes('12 2C8.68629')) {
+              hasLock = true;
+              break;
             }
           }
+        }
+
+        let score = 0;
+        if (hasLock) {
+          score += 100;
+        }
+
+        if (hasVs) {
+          score += 40;
+        }
+
+        if (firstFighterMatched) {
+          score += 30;
+        }
+
+        if (secondFighterMatched) {
+          score += 30;
+        }
+
+        // 5. Contains promoter: +10
+        const promoterMatched = !!(promoter && promoter !== 'N/A' && textLower.includes(promoter.toLowerCase()));
+        if (promoterMatched) {
+          score += 10;
+        }
+
+        // 6. Excluded keywords: -200 each
+        const excludedRegexes = [
+          /\bweigh(?:-|\b)/i,
+          /\bprelim/i,
+          /\bespanol/i,
+          /\bspanish/i,
+          /\breplay/i,
+          /\bhighlight/i,
+          /\binterview/i,
+          /\bworkout/i,
+          /\bpress\b/i,
+          /\bconference\b/i,
+          /\bbehind the scenes/i,
+          /\bepisode\b/i,
+          /\bdocumentary\b/i,
+          /\bpromo\b/i,
+          /\bpreview\b/i
+        ];
+
+        let matchedExcludedKeyword = 'none';
+        for (const regex of excludedRegexes) {
+          const match = textLower.match(regex);
+          if (match) {
+            score -= 200;
+            matchedExcludedKeyword = match[0];
+          }
+        }
+
+        // Decision logic
+        let decision = 'ACCEPT';
+        let rejectionReason = 'none';
+
+        if (!hasLock) {
+          decision = 'REJECT';
+          rejectionReason = 'no lock icon';
+        } else if (fighters.length > 0 && !firstFighterMatched && !secondFighterMatched) {
+          decision = 'REJECT';
+          rejectionReason = 'no fighter surname matched';
+        } else if (score < 130) {
+          decision = 'REJECT';
+          rejectionReason = `score (${score}) below threshold (130)`;
+        }
+
+        console.log(`\nCandidate:\nTitle: "${cleanText.substring(0, 120)}..."\nLock: ${hasLock}\nVS: ${hasVs}\nFirst fighter matched: ${firstFighterMatched}\nSecond fighter matched: ${secondFighterMatched}\nPromoter matched: ${promoterMatched}\nExcluded keyword: ${matchedExcludedKeyword}\nFinal score: ${score}\nDecision: ${decision}${rejectionReason !== 'none' ? `\nRejection reason: ${rejectionReason}` : ''}`);
+
+        if (lockPaths.length > 0) {
+          console.log(`  DEBUG paths: ${JSON.stringify(lockPaths.map(p => p.substring(0, 40)))}`);
+        }
+
+        // Only add to candidates list if accepted
+        if (decision === 'ACCEPT') {
+          scoredTiles.push({ tile, score, text });
         }
       }
     }
 
-    // Debug — dump what's on the page
+    // Sort by score descending
+    scoredTiles.sort((a, b) => b.score - a.score);
+    return scoredTiles;
+  }
+
+  // ── REVERT SEARCH STATE ────────────────────────────────────────
+  async revertSearchState(searchUrl: string): Promise<void> {
+    console.log('🔄 Reverting search state...');
+    // Try pressing Escape to close any popups
+    await this.page.keyboard.press('Escape').catch(() => {});
+    await this.page.waitForTimeout(500);
+
+    // Check if we are still on search page. If not, go back
+    if (!this.page.url().includes('/search')) {
+      console.log(`🧭 Not on search page anymore (current: ${this.page.url()}). Going back...`);
+      await this.page.goBack().catch(() => {});
+      await this.page.waitForLoadState('domcontentloaded').catch(() => {});
+    }
+    
+    // If still not on search page, force navigate to searchUrl
+    if (!this.page.url().includes('/search')) {
+      console.log(`🧭 Force navigating back to search: ${searchUrl}`);
+      await this.page.goto(searchUrl);
+      await this.page.waitForLoadState('domcontentloaded').catch(() => {});
+    }
+  }
+
+  // ── FIND AND CLICK PPV TILE (LEGACY/COMPATIBILITY) ────────────
+  async clickPPVTile(eventName: string): Promise<void> {
+    console.log(`🎯 Looking for PPV tile using scoring method: ${eventName}`);
+    const scoredTiles = await this.findAndScoreTiles(eventName);
+    if (scoredTiles.length === 0) {
+      throw new Error(`❌ No event tiles found on the page for: ${eventName}`);
+    }
+
+    const uniqueTiles: typeof scoredTiles = [];
+    const seenTexts = new Set<string>();
+    for (const item of scoredTiles) {
+      const cleanText = item.text.trim().replace(/\s+/g, ' ');
+      if (!seenTexts.has(cleanText)) {
+        seenTexts.add(cleanText);
+        uniqueTiles.push(item);
+      }
+    }
+
+    const bestCandidate = uniqueTiles[0];
+    if (bestCandidate && bestCandidate.score >= 130) {
+      console.log(`✅ Best PPV tile found (Score: ${bestCandidate.score}): "${bestCandidate.text.trim().replace(/\s+/g, ' ').substring(0, 100)}..."`);
+      const tile = bestCandidate.tile;
+      
+      const scrollY = await this.page.evaluate(() => window.scrollY);
+      await tile.scrollIntoViewIfNeeded().catch(() => { });
+      await this.page.waitForTimeout(300);
+
+      const box = await tile.boundingBox();
+      if (!box) {
+        throw new Error(`❌ Selected PPV tile bounding box is null.`);
+      }
+
+      await this.page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+
+      const buyNowButton = this.page.locator(
+        'a:has-text("Buy now"), button:has-text("Buy now"), ' +
+        'a:has-text("Buy Now"), button:has-text("Buy Now"), ' +
+        'a:has-text("Continue"), button:has-text("Continue")'
+      ).first();
+
+      await expect(buyNowButton).toBeVisible({ timeout: 15000 });
+
+      await this.page.evaluate((y) => {
+        window.scrollTo(0, y);
+        document.body.style.overflow = 'hidden';
+        document.documentElement.style.overflow = 'hidden';
+      }, scrollY);
+
+      console.log('🔒 Background scroll locked');
+      console.log('✅ PPV popup opened & Buy button located');
+      return;
+    }
+
+    throw new Error(`❌ PPV tile not found or score below threshold for: ${eventName}`);
+  }
+
+  // ── SEARCH AND OPEN BEST PPV TILE (RECOMMENDED) ───────────────
+  async searchAndOpenBestPpvTile(
+    options: {
+      ppvName: string;
+      promoter?: string;
+      onTileSelected?: (tileLocator: Locator) => Promise<void>;
+    } | string,
+    legacyPromoter?: string
+  ): Promise<void> {
+    let ppvName: string;
+    let promoter: string | undefined;
+    let onTileSelected: ((tileLocator: Locator) => Promise<void>) | undefined;
+
+    if (typeof options === 'object') {
+      ppvName = options.ppvName;
+      promoter = options.promoter;
+      onTileSelected = options.onTileSelected;
+    } else {
+      ppvName = options;
+      promoter = legacyPromoter;
+    }
+
+    console.log(`🎯 Starting searchAndOpenBestPpvTile for PPV: "${ppvName}" (Promoter: "${promoter}")`);
+
+    // 1. Generate search queries
+    const baseQuery = ppvName.includes(':') ? (ppvName.split(':').pop()?.trim() || ppvName) : ppvName;
+    const queries: string[] = [baseQuery];
+
+    // Add query + " upcoming"
+    queries.push(`${baseQuery} upcoming`);
+
+    // Add promoter if available
+    if (promoter && promoter !== 'N/A') {
+      queries.push(promoter);
+    }
+
+    // Extract fighter surnames and add them as individual fallbacks
+    const separatorRegex = /\b(?:vs\.?|v\.?|and)\b|[-]/i;
+    const fighters = baseQuery.split(separatorRegex).map(p => {
+      const words = p.trim().split(/\s+/).filter(w => w.length > 1);
+      return words[words.length - 1] || '';
+    }).filter(Boolean);
+
+    for (const fighter of fighters) {
+      if (fighter && !queries.includes(fighter)) {
+        queries.push(fighter);
+      }
+    }
+
+    console.log(`📋 Generated search query fallbacks in order: ${JSON.stringify(queries)}`);
+
+    const searchUrl = this.page.url().split('/search')[0] + '/search';
+
+    // 2. Try each query
+    for (const query of queries) {
+      try {
+        await this.searchForEvent(query);
+
+        // Score the tiles on the page
+        const scoredTiles = await this.findAndScoreTiles(ppvName, promoter);
+        if (scoredTiles.length === 0) {
+          console.log(`⚠️ No event tiles found on the page for query: "${query}"`);
+          continue;
+        }
+
+        // Deduplicate tiles by text content
+        const uniqueTiles: typeof scoredTiles = [];
+        const seenTexts = new Set<string>();
+        for (const item of scoredTiles) {
+          const cleanText = item.text.trim().replace(/\s+/g, ' ');
+          if (!seenTexts.has(cleanText)) {
+            seenTexts.add(cleanText);
+            uniqueTiles.push(item);
+          }
+        }
+
+        // Print top 3 candidates for debugging
+        console.log(`📊 Top search result candidates for query "${query}":`);
+        uniqueTiles.slice(0, 3).forEach((item, index) => {
+          console.log(`  [Candidate ${index + 1}] Score: ${item.score} | Text: "${item.text.trim().replace(/\s+/g, ' ').substring(0, 100)}..."`);
+        });
+
+        const bestCandidate = uniqueTiles[0];
+        if (bestCandidate && bestCandidate.score >= 130) {
+          console.log(`✅ Best PPV tile selected (Score: ${bestCandidate.score}): "${bestCandidate.text.trim().replace(/\s+/g, ' ').substring(0, 100)}..."`);
+          
+          const tile = bestCandidate.tile;
+
+          // Run tile validation callback before clicking
+          if (onTileSelected) {
+            try {
+              await onTileSelected(tile);
+            } catch (err: any) {
+              console.error(`❌ Error running onTileSelected validation: ${err.message}`);
+            }
+          }
+
+          // Ensure tile is scrolled back into view and get fresh coordinates (since onTileSelected may have scrolled the page)
+          await tile.scrollIntoViewIfNeeded().catch(() => { });
+          await this.page.waitForTimeout(300);
+          const scrollY = await this.page.evaluate(() => window.scrollY);
+
+          const box = await tile.boundingBox();
+          if (!box) {
+            console.log('⚠️ Selected tile bounding box is null, trying next query/candidate...');
+            continue;
+          }
+
+          await this.page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+
+          const buyNowButton = this.page.locator(
+            'a:has-text("Buy now"), button:has-text("Buy now"), ' +
+            'a:has-text("Buy Now"), button:has-text("Buy Now"), ' +
+            'a:has-text("Continue"), button:has-text("Continue")'
+          ).first();
+
+          try {
+            await expect(buyNowButton).toBeVisible({ timeout: 10000 });
+
+            await this.page.evaluate((y) => {
+              window.scrollTo(0, y);
+              document.body.style.overflow = 'hidden';
+              document.documentElement.style.overflow = 'hidden';
+            }, scrollY);
+
+            console.log('🔒 Background scroll locked');
+            console.log('✅ PPV popup opened & Buy button located');
+            return; // Success!
+          } catch (err: any) {
+            console.log(`⚠️ Expected PPV popup did not open on clicking tile: ${err.message}`);
+            await this.revertSearchState(searchUrl);
+            // Loop continues to next query fallback
+          }
+        } else {
+          console.log(`⚠️ Best candidate score (${bestCandidate ? bestCandidate.score : 'N/A'}) is below threshold 130. Trying next query fallback...`);
+        }
+      } catch (err: any) {
+        console.log(`⚠️ Error searching or clicking tile with query "${query}": ${err.message}. Trying next query fallback...`);
+      }
+    }
+
+    // If we get here, all search queries failed to find a valid PPV tile
     const allText = await this.page.evaluate(() => {
       return Array.from(document.querySelectorAll('article, li, [class*="result" i]'))
         .map(el => (el as HTMLElement).innerText?.substring(0, 100))
@@ -183,9 +460,9 @@ export class SearchPage extends BasePage {
         .slice(0, 10)
         .join('\n');
     }).catch(() => 'N/A');
-    console.log('📋 Page content sample:\n', allText);
+    console.log('📋 Page content sample on failure:\n', allText);
 
-    throw new Error(`❌ PPV tile not found for: ${eventName}`);
+    throw new Error(`❌ PPV event "${ppvName}" not found or failed to match/click any event tile.`);
   }
 
   // ── CLICK BUY NOW ─────────────────────────────────────────────
@@ -247,6 +524,9 @@ export class SearchPage extends BasePage {
       // ── Step 2: Type [dev_mode_on] and press Enter ────────────
       console.log('⌨️  Entering "[dev_mode_on]" in search...');
 
+      // Dismiss cookie banner that re-appears after page navigation
+      await handleCookies(this.page, 3000).catch(() => {});
+
       const searchInput = this.page.locator(
         'input[type="search"], ' +
         'input[placeholder*="search" i], ' +
@@ -262,7 +542,8 @@ export class SearchPage extends BasePage {
       try {
         await searchInput.click({ timeout: 5000 });
       } catch (clickError) {
-        console.log('⚠️ Search input click was intercepted or failed. Attempting to dismiss popup and retry...');
+        console.log('⚠️ Search input click was intercepted or failed. Dismissing overlays and retrying...');
+        await handleCookies(this.page, 3000).catch(() => {});
         await dismissMarketingPopup(this.page, 4000).catch(() => {});
         await searchInput.click({ timeout: 10000 });
       }

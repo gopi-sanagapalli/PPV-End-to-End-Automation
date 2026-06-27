@@ -1,5 +1,5 @@
 import { Page } from '@playwright/test';
-import { handleCookies, stabilisePage } from '../utils/helpers';
+import { handleCookies, stabilisePage, waitForPageReady } from '../utils/helpers';
 
 /**
  * BasePage — shared page object methods
@@ -74,6 +74,13 @@ export class BasePage {
   async waitForConsentAndDismiss(timeout = 15000): Promise<void> {
     await handleCookies(this.page, timeout);
     await stabilisePage(this.page);
+  }
+
+  /**
+   * Wait for the page to reach a fully loaded and stable ready state.
+   */
+  async waitForPageReady(options?: any): Promise<void> {
+    await waitForPageReady(this.page, options);
   }
 
   /**

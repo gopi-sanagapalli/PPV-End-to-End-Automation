@@ -317,6 +317,7 @@ export class BoxingPage extends LandingPage {
 
   override async findPPVContainer(eventData: Record<string, string>, source?: string): Promise<any> {
     const src = (source || '').toLowerCase();
+
     if (src.startsWith('boxing-bundle') || src.startsWith('boxing-page-bundle')) {
       return this.findBundleSection();
     }

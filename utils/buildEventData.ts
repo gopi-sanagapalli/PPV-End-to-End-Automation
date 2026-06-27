@@ -439,6 +439,11 @@ const isActiveUltimate = [
   }
   if (merged.FLOW_FROM_POPUP !== undefined) {
     base.FLOW_FROM_POPUP = String(merged.FLOW_FROM_POPUP);
+    base.FLOW_FROM_PAYWALL = String(merged.FLOW_FROM_POPUP);
+  }
+  if (merged.FLOW_FROM_PAYWALL !== undefined) {
+    base.FLOW_FROM_PAYWALL = String(merged.FLOW_FROM_PAYWALL);
+    base.FLOW_FROM_POPUP = String(merged.FLOW_FROM_PAYWALL);
   }
 
   const planPage = regional.pages?.plan ?? merged.pages?.plan ?? {};

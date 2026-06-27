@@ -1015,6 +1015,20 @@ export class PaymentPage extends BasePage {
       return lower.includes('today you pay') ? 'Today you pay' : 'N/A';
     }
 
+    // ── Excluding Tax Text ──────────────────────────────────────
+    if (fieldLower === 'excluding tax text' || fieldLower === 'excluding tax') {
+      const live = await this.page.locator('[data-testid*="excluding-tax" i], [id*="excluding-tax" i], span:has-text("(excluding tax)"), span:has-text("excluding tax")').first().innerText().catch(() => '');
+      if (live.trim()) return live.trim();
+
+      for (const line of lines) {
+        if (line.toLowerCase().includes('excluding tax')) {
+          return line;
+        }
+      }
+      return 'N/A';
+    }
+
+
     // ── Today You Pay Price ────────────────────────────────────
     if (fieldLower === 'today you pay price' || fieldLower === 'today price') {
       const livePrice = await this.page.evaluate(() => {

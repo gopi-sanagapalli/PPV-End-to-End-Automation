@@ -26,7 +26,6 @@ const boxingLandingData = [
   { Field: 'Boxing Banner Present', Expected: 'Yes', Flow: 'boxing' },
   { Field: 'Event Name', Expected: '{{PPV_NAME}}', Flow: 'boxing' },
   { Field: 'Event Subtitle', Expected: '{{BOXING_BANNER_SUBTITLE}}', Flow: 'boxing' },
-  { Field: 'Saturday Badge', Expected: 'SATURDAY', Flow: 'boxing' },
   { Field: 'Or Separator', Expected: 'or', Flow: 'boxing' },
   { Field: 'Buy Fight CTA', Expected: 'Buy this fight for {{PPV_PRICE}}', Flow: 'boxing' },
   { Field: 'Get Included CTA', Expected: 'Get included in DAZN Ultimate', Flow: 'boxing' },
@@ -252,6 +251,8 @@ const paymentData = [
   { Tier: 'Common', 'Rate Plan': 'All', Field: 'Signed In As Text', Expected: 'Signed in as {{FIRST_NAME}} {{LAST_NAME}}', Flow: 'returning' },
   { Tier: 'Common', 'Rate Plan': 'All', Field: 'Log Out Present', Expected: 'Yes', Flow: 'returning' },
   { Tier: 'Common', 'Rate Plan': 'All', Field: 'Redeem Promo Code CTA', Expected: 'Yes', Flow: '' },
+  { Tier: 'Common', 'Rate Plan': 'All', Field: 'Excluding Tax Text', Expected: 'N/A', Flow: '' },
+
 
   // ── Standard + Monthly ───────────────────────────────────
   { Tier: 'Standard', 'Rate Plan': 'Monthly', Field: 'Page Title', Expected: '{{PAYMENT_PAGE_TITLE}}', Flow: 'newuser' },
@@ -372,14 +373,6 @@ const scheduleData = [
   { Field: 'PPV Time on Tile', Expected: '{{PPV_TIME}}' },
   { Field: 'Lock Icon Present', Expected: 'Yes' },
   { Field: 'PPV Promoter on Tile', Expected: '{{PPV_PROMOTER}}' },
-  { Field: 'Popup Image Present', Expected: 'Yes' },
-  { Field: 'Popup Date', Expected: '{{PPV_DATE}}' },
-  { Field: 'Popup PPV Name', Expected: '{{PPV_NAME}}' },
-  { Field: 'Popup Promoter', Expected: '{{PPV_PROMOTER}}' },
-  { Field: 'Popup Description', Expected: 'Catch the biggest moment of the year. Select a DAZN plan to pair with your pay-per-view.' },
-  { Field: 'Popup Buy Now CTA Present', Expected: 'Yes' },
-  { Field: 'Popup Buy Now CTA Text', Expected: 'Buy now' },
-  { Field: 'Popup Close Button', Expected: 'Yes' },
 ];
 
 // ═══════════════════════════════════════════════════════════
@@ -496,7 +489,6 @@ const otpData = [
   { Field: 'Resend Code Link', Expected: 'Yes' }
 ];
 
-// ═══════════════════════════════════════════════════════════
 // SHEET 12: Home of Boxing
 // ═══════════════════════════════════════════════════════════
 const homeOfBoxingData = [
@@ -506,13 +498,24 @@ const homeOfBoxingData = [
   { Flow: 'home-boxing-banner', Field: 'Banner - Event Description', Expected: '{{BANNER_DESCRIPTION}}' },
   { Flow: 'home-boxing-banner', Field: 'Banner - Buy Now CTA', Expected: 'Visible' },
   { Flow: 'home-boxing-banner', Field: 'Banner - Fight Card CTA', Expected: 'Visible' },
-  { Flow: 'home-boxing-tile', Field: 'Best of Boxing Section', Expected: 'Present' },
-  { Flow: 'home-boxing-tile', Field: 'Popup - Event Title', Expected: '{{PPV_NAME}}' },
-  { Flow: 'home-boxing-tile', Field: 'Popup - Event Date', Expected: '{{PPV_DATE}}' },
-  { Flow: 'home-boxing-tile', Field: 'Popup - Promoter', Expected: '{{PPV_PROMOTER}}' },
-  { Flow: 'home-boxing-tile', Field: 'Popup - Buy Now CTA', Expected: 'Visible' },
-  { Flow: 'home-boxing-tile', Field: 'Popup - Event Description', Expected: 'Catch the biggest moment of the year. Select a DAZN plan to pair with your pay-per-view.' },
-  { Flow: 'home-boxing-tile', Field: 'Popup - Close Button', Expected: 'Visible' },
+
+  // home-boxing-tile
+  { Flow: 'home-boxing-tile', Field: 'Home of Boxing Section Present', Expected: 'Present' },
+  { Flow: 'home-boxing-tile', Field: 'Selected Boxing Tile', Expected: 'Yes' },
+  { Flow: 'home-boxing-tile', Field: 'Event Title', Expected: '{{PPV_NAME}}' },
+  { Flow: 'home-boxing-tile', Field: 'Event Date', Expected: '{{PPV_DATE}}' },
+  { Flow: 'home-boxing-tile', Field: 'Promoter', Expected: '{{PPV_PROMOTER}}' },
+  { Flow: 'home-boxing-tile', Field: 'PPV Badge', Expected: 'Yes' },
+  { Flow: 'home-boxing-tile', Field: 'Lock Icon', Expected: 'Yes' },
+
+  // home-kickboxing-tile
+  { Flow: 'home-kickboxing-tile', Field: 'Home of Boxing Section Present', Expected: 'Present' },
+  { Flow: 'home-kickboxing-tile', Field: 'Selected Boxing Tile', Expected: 'Yes' },
+  { Flow: 'home-kickboxing-tile', Field: 'Event Title', Expected: '{{PPV_NAME}}' },
+  { Flow: 'home-kickboxing-tile', Field: 'Event Date', Expected: '{{PPV_DATE}}' },
+  { Flow: 'home-kickboxing-tile', Field: 'Promoter', Expected: '{{PPV_PROMOTER}}' },
+  { Flow: 'home-kickboxing-tile', Field: 'PPV Badge', Expected: 'Yes' },
+  { Flow: 'home-kickboxing-tile', Field: 'Lock Icon', Expected: 'Yes' },
 ];
 
 // ═══════════════════════════════════════════════════════════
@@ -524,20 +527,26 @@ const homePageData = [
   { Flow: 'home-page-banner', Field: 'Banner - Event Description', Expected: '{{BANNER_DESCRIPTION}}' },
   { Flow: 'home-page-banner', Field: 'Banner - Buy Now CTA', Expected: 'Visible' },
   { Flow: 'home-page-banner', Field: 'Banner - Fight Card CTA', Expected: 'Visible' },
-  { Flow: 'home-page-dont-miss', Field: 'Popup - Event Title', Expected: '{{PPV_NAME}}' },
-  { Flow: 'home-page-dont-miss', Field: 'Popup - Event Date', Expected: '{{PPV_DATE}}' },
-  { Flow: 'home-page-dont-miss', Field: 'Popup - Promoter', Expected: '{{PPV_PROMOTER}}' },
-  { Flow: 'home-page-dont-miss', Field: 'Popup - Buy Now CTA', Expected: 'Visible' },
-  { Flow: 'home-page-dont-miss', Field: 'Popup - Event Description', Expected: 'Catch the biggest moment of the year. Select a DAZN plan to pair with your pay-per-view.' },
-  { Flow: 'home-page-dont-miss', Field: 'Popup - Close Button', Expected: 'Visible' },
-  // ── Home Page Biggest Fights validations ───────────────────
-  { Flow: 'home-biggest-fights', Field: 'Biggest Fights Section', Expected: 'The Biggest Fights|Saturday Fight Night|Fight Night|Upcoming Big Fights|Big Fights' },
-  { Flow: 'home-biggest-fights', Field: 'Popup - Event Title', Expected: '{{PPV_NAME}}' },
-  { Flow: 'home-biggest-fights', Field: 'Popup - Event Date', Expected: '{{PPV_DATE}}' },
-  { Flow: 'home-biggest-fights', Field: 'Popup - Promoter', Expected: '{{PPV_PROMOTER}}' },
-  { Flow: 'home-biggest-fights', Field: 'Popup - Buy Now CTA', Expected: 'Visible' },
-  { Flow: 'home-biggest-fights', Field: 'Popup - Event Description', Expected: 'Catch the biggest moment of the year. Select a DAZN plan to pair with your pay-per-view.' },
-  { Flow: 'home-biggest-fights', Field: 'Popup - Close Button', Expected: 'Visible' },
+
+  // home-page-dont-miss
+  { Flow: 'home-page-dont-miss', Field: 'Don\'t Miss Section Present', Expected: 'Present' },
+  { Flow: 'home-page-dont-miss', Field: 'Don\'t Miss Tile Present', Expected: 'Yes' },
+  { Flow: 'home-page-dont-miss', Field: 'Don\'t Miss Event Title', Expected: '{{PPV_NAME}}' },
+  { Flow: 'home-page-dont-miss', Field: 'Don\'t Miss Event Date', Expected: '{{PPV_DATE}}' },
+  { Flow: 'home-page-dont-miss', Field: 'Don\'t Miss Promoter', Expected: '{{PPV_PROMOTER}}' },
+  { Flow: 'home-page-dont-miss', Field: 'PPV Badge Present', Expected: 'Yes' },
+  { Flow: 'home-page-dont-miss', Field: 'Locked Badge Present', Expected: 'Yes' },
+  { Flow: 'home-page-dont-miss', Field: 'Reminder Icon Present', Expected: 'Yes' },
+
+  // home-biggest-fights
+  { Flow: 'home-biggest-fights', Field: 'Biggest Fights Section Present', Expected: 'Present' },
+  { Flow: 'home-biggest-fights', Field: 'Biggest Fights Tile Present', Expected: 'Yes' },
+  { Flow: 'home-biggest-fights', Field: 'Event Title', Expected: '{{PPV_NAME}}' },
+  { Flow: 'home-biggest-fights', Field: 'Event Date', Expected: '{{PPV_DATE}}' },
+  { Flow: 'home-biggest-fights', Field: 'Promoter', Expected: '{{PPV_PROMOTER}}' },
+  { Flow: 'home-biggest-fights', Field: 'PPV Badge', Expected: 'Yes' },
+  { Flow: 'home-biggest-fights', Field: 'Lock Icon', Expected: 'Yes' },
+  { Flow: 'home-biggest-fights', Field: 'Reminder Icon', Expected: 'Yes' },
 ];
 
 // ═══════════════════════════════════════════════════════════
@@ -623,7 +632,18 @@ const searchPageData = [
   { Field: 'PPV Tile Present', Expected: 'Yes' },
   { Field: 'PPV Name', Expected: '{{PPV_NAME}}' },
   { Field: 'PPV Date', Expected: '{{PPV_DATE}}' },
-  { Field: 'Buy Now Button', Expected: 'Yes' },
+];
+
+// ═══════════════════════════════════════════════════════════
+// SHEET 19: Paywall
+// ═══════════════════════════════════════════════════════════
+const paywallData = [
+  { Field: 'Paywall - Event Title', Expected: '{{PPV_NAME}}' },
+  { Field: 'Paywall - Event Date', Expected: '{{PPV_DATE}}' },
+  { Field: 'Paywall - Promoter', Expected: '{{PPV_PROMOTER}}' },
+  { Field: 'Paywall - Buy Now CTA', Expected: 'Visible' },
+  { Field: 'Paywall - Event Description', Expected: 'Catch the biggest moment of the year. Select a DAZN plan to pair with your pay-per-view.' },
+  { Field: 'Paywall - Close Button', Expected: 'Visible' },
 ];
 
 // ═══════════════════════════════════════════════════════════
@@ -659,6 +679,7 @@ addSheet('Upsell First Success page', upsellFirstSuccessData);
 addSheet('Upsell Second Success page', upsellSecondSuccessData);
 addSheet('Upsell Payment page', upsellPaymentData);
 addSheet('Search page', searchPageData);
+addSheet('Paywall', paywallData);
 
 const outputDir = path.dirname(outputPath);
 if (!fs.existsSync(outputDir)) {

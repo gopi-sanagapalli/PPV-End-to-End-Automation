@@ -2,6 +2,7 @@ import { Page, Locator, expect } from '@playwright/test';
 import { handleCookies, dismissMarketingPopup } from '../utils/helpers';
 
 
+
 export class SchedulePage {
   constructor(private page: Page) { }
 
@@ -55,14 +56,12 @@ export class SchedulePage {
     await this.page.goto(url);
     await expect(this.page).toHaveURL(/schedule/);
     await this.page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => { });
-    // Wait for networkidle so OneTrust's async cookie script has time to load
     await this.page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => { });
+
     // Use longer timeout to wait for cookie banner to appear and dismiss it
     await handleCookies(this.page, 8000);
-    await this.page.waitForSelector('body', { timeout: 15000 });
 
     console.log('✅ Schedule page loaded');
-    await this.page.waitForTimeout(1000); // Wait a brief moment for any popup to animate in
     await this.dismissSchedulePopups();
   }
 
@@ -71,7 +70,6 @@ export class SchedulePage {
       throw new Error('❌ selectSport() called with undefined — check config has SPORT field');
     }
     console.log(`🥊 Selecting ${sport}...`);
-    await handleCookies(this.page);
 
     const filterContainer = this.page.locator('#schedule-filter-container');
     const isFilterContainerVisible = await filterContainer.waitFor({ state: 'visible', timeout: 2000 })
@@ -127,7 +125,6 @@ export class SchedulePage {
   // ── FIND EVENT ────────────────────────────────────────────────
   async findEvent(eventName: string): Promise<Locator> {
     console.log(`🔍 Searching for event: ${eventName}`);
-    await handleCookies(this.page);
 
     const regex = new RegExp(
       eventName.replace(/[:\-–]/g, '').replace(/\s+/g, '.*'),

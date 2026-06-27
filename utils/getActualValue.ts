@@ -183,7 +183,331 @@ export async function getActualValue(
   const T = 0;
 
   // ── Snapshot helpers ─────────────────────────────────────────
+  // ── Snapshot helpers ─────────────────────────────────────────
   const snap = snapshot || [];
+
+  // ── Scoped Search & Paywall Extraction Block ──────────────────
+  const fieldLower = field.toLowerCase().trim();
+  const variantLower = (_variant || '').toLowerCase().trim();
+  
+  if (variantLower === 'search' || variantLower === 'paywall' || fieldLower.startsWith('paywall -') || fieldLower.startsWith('popup -') || fieldLower.startsWith('popup date') || fieldLower.startsWith('popup ppv name') || fieldLower.startsWith('popup promoter') || fieldLower.startsWith('popup description') || fieldLower.startsWith('popup buy now cta') || fieldLower.startsWith('popup close button')) {
+    
+    // Safety check: ensure snapshot is present and not empty
+    if (!snapshot || snapshot.length === 0) {
+      console.warn(`⚠️ [Scoped Error] Scoped snapshot is empty for field "${field}" under variant "${_variant}". Failing immediately.`);
+      return 'N/A';
+    }
+
+    if (variantLower === 'search' || fieldLower === 'ppv name' || fieldLower === 'ppv date' || fieldLower === 'ppv tile present') {
+      // ── Search validation extraction ──
+      
+      // 1. PPV Name
+      const expectedTitle = eventData?.PPV_NAME || '';
+      const vsMatch = expectedTitle.match(/(\w+)\s+vs\.?\s+(\w+)/i);
+      const fighter1 = vsMatch ? vsMatch[1].toLowerCase() : '';
+      const fighter2 = vsMatch ? vsMatch[2].toLowerCase() : '';
+      const titleParts = expectedTitle.split(/[:\-–]/).map(p => p.trim().toLowerCase()).filter(p => p.length > 2);
+
+      const isTitleMatch = (text: string): boolean => {
+        const textLower = text.toLowerCase();
+        if (fighter1 && fighter2) {
+          return textLower.includes(fighter1) && textLower.includes(fighter2);
+        }
+        if (titleParts.length > 0) {
+          return titleParts.every(part => {
+            const words = part.split(/\s+/).filter(w => w.length > 2);
+            return words.every(w => textLower.includes(w));
+          });
+        }
+        return false;
+      };
+
+      let extractedTitle = 'N/A';
+      const matchNode = snap.find((n: any) => isTitleMatch(n.text) && n.text.length < 150);
+      if (matchNode) {
+        extractedTitle = matchNode.text.trim();
+      } else {
+        const vsNode = snap.find((n: any) => (n.text.toLowerCase().includes('vs') || n.text.toLowerCase().includes(' v ')) && n.text.length < 100);
+        if (vsNode) {
+          extractedTitle = vsNode.text.trim();
+        } else {
+          const sorted = [...snap].filter((n: any) => n.text.length > 3 && n.text.length < 150 && !/\d{1,2}:\d{2}/.test(n.text))
+                                  .sort((a: any, b: any) => b.text.length - a.text.length);
+          if (sorted.length > 0) {
+            extractedTitle = sorted[0].text.trim();
+          }
+        }
+      }
+
+      // 2. PPV Date
+      let extractedDate = 'N/A';
+      const dateNode = snap.find((n: any) => 
+        (n.text.toLowerCase().includes('today') ||
+         n.text.toLowerCase().includes('tomorrow') ||
+         /\b(mon|tue|wed|thu|fri|sat|sun|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i.test(n.text) ||
+         /\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/i.test(n.text) ||
+         /\d{1,2}:\d{2}/.test(n.text)) &&
+        n.text.length < 50
+      );
+      if (dateNode) {
+        extractedDate = dateNode.text.trim();
+      }
+
+      const valToReturn = (() => {
+        if (fieldLower === 'ppv tile present') {
+          return snap.length > 0 ? 'Yes' : 'No';
+        }
+        if (fieldLower === 'ppv name') {
+          return extractedTitle;
+        }
+        if (fieldLower === 'ppv date') {
+          return extractedDate;
+        }
+        return 'N/A';
+      })();
+
+      console.log(`Variant: ${_variant}`);
+      console.log(`Field: ${field}`);
+      console.log(`Snapshot Elements: ${snap.length}`);
+      console.log(`Extraction Source: Scoped Snapshot`);
+      console.log(`Extracted Value: ${valToReturn}`);
+
+      return valToReturn === 'Not found' ? 'N/A' : valToReturn;
+    } else {
+      // ── Paywall validation extraction ──
+      
+      // 1. Title
+      const expectedTitle = eventData?.PPV_NAME || '';
+      const vsMatch = expectedTitle.match(/(\w+)\s+vs\.?\s+(\w+)/i);
+      const fighter1 = vsMatch ? vsMatch[1].toLowerCase() : '';
+      const fighter2 = vsMatch ? vsMatch[2].toLowerCase() : '';
+      const titleParts = expectedTitle.split(/[:\-–]/).map(p => p.trim().toLowerCase()).filter(p => p.length > 2);
+
+      const isPaywallTitleMatch = (text: string): boolean => {
+        const textLower = text.toLowerCase();
+        if (fighter1 && fighter2) {
+          return textLower.includes(fighter1) && textLower.includes(fighter2);
+        }
+        if (titleParts.length > 0) {
+          return titleParts.every(part => {
+            const words = part.split(/\s+/).filter(w => w.length > 2);
+            return words.every(w => textLower.includes(w));
+          });
+        }
+        const firstWord = expectedTitle.toLowerCase().split(' ')[0];
+        return textLower.includes(firstWord);
+      };
+
+      let extractedPaywallTitle = 'N/A';
+      let titleNode = snap.find((n: any) => isPaywallTitleMatch(n.text) && n.text.length < 200);
+      if (!titleNode) {
+        titleNode = snap.find((n: any) => 
+          (n.text.toLowerCase().includes('vs') || n.text.toLowerCase().includes(' v ')) && 
+          n.text.length < 100 &&
+          (n.childCount === 0 || ['h1', 'h2', 'h3', 'h4', 'strong', 'b'].includes(n.tag))
+        );
+      }
+      if (titleNode) {
+        extractedPaywallTitle = titleNode.text.trim();
+      }
+
+      // 2. Promoter
+      const expectedPromoter = eventData?.PPV_PROMOTER || '';
+      const maxLen = Math.max(expectedPromoter.length * 2, 40);
+      const promoterWords = expectedPromoter.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+      const promoterMatch = (text: string, loose = false): boolean => {
+        const t = text.toLowerCase();
+        return promoterWords.length > 0 && promoterWords.every(w => t.includes(w)) && text.length < (loose ? 60 : maxLen) && !t.includes('vs');
+      };
+      
+      let extractedPaywallPromoter = 'N/A';
+      let promoterNode = snap.find((n: any) => n.childCount <= 1 && promoterMatch(n.text));
+      if (!promoterNode) promoterNode = snap.find((n: any) => promoterMatch(n.text));
+      if (promoterNode) {
+        extractedPaywallPromoter = promoterNode.text.trim();
+      }
+
+      // 3. Date
+      const expectedDate = `${eventData?.PPV_DATE || ''}|${eventData?.LANDING_PAGE_PPV_DATE || ''}`;
+      const checkOption = (option: string, text: string): boolean => {
+        const optionLower = option.toLowerCase();
+        const textLower = text.toLowerCase();
+        const normOption = optionLower.replace(/\b0(\d:\d{2})\b/g, '$1');
+        const normText = textLower.replace(/\b0(\d:\d{2})\b/g, '$1');
+
+        const months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec', 'june', 'july'];
+        const matchedMonth = months.find(m => normOption.includes(m));
+
+        let day = '';
+        if (matchedMonth) {
+          const dateWords = normOption.replace(/:/g, ' ').split(/\s+/);
+          const dayMatch = dateWords.find(w => /^\d{1,2}(st|nd|rd|th)?$/.test(w));
+          if (dayMatch) {
+            day = dayMatch.replace(/[a-z]/g, '');
+          }
+        }
+
+        if (matchedMonth && day) {
+          return normText.includes(matchedMonth) && normText.includes(day);
+        }
+
+        const weekdays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+        const matchedWeekday = weekdays.find(w => normOption.includes(w));
+
+        const timeMatch = normOption.match(/\b\d{1,2}:\d{2}\b/);
+        const time = timeMatch ? timeMatch[0] : '';
+
+        if (matchedWeekday) {
+          const hasTime = time ? (normText.includes(time) || normText.includes(time.replace(':', '')) || (time === '22:30' && (normText.includes('10:30') && normText.includes('pm')))) : true;
+          const weekdayAbbr = matchedWeekday.substring(0, 3);
+          const hasWeekday = normText.includes(matchedWeekday) || normText.includes(weekdayAbbr);
+
+          if (hasWeekday && hasTime) {
+            return true;
+          }
+        }
+
+        const relativeLabels = ['this evening', 'tonight', 'today', 'tomorrow'];
+        const matchedRelative = relativeLabels.find(r => normText.includes(r));
+        if (matchedRelative) {
+          const hasTime = time ? (normText.includes(time) || normText.includes(time.replace(':', ''))) : true;
+          if (hasTime) {
+            return true;
+          }
+        }
+
+        if (normOption.length > 5 && normText.includes(normOption)) {
+          return true;
+        }
+
+        return false;
+      };
+
+      const isDateMatch = (text: string): boolean => {
+        const options = expectedDate.split('|').map(o => o.trim());
+        return options.some(opt => checkOption(opt, text));
+      };
+
+      let extractedPaywallDate = 'N/A';
+      const dateNode = snap.find((n: any) => isDateMatch(n.text));
+      if (dateNode) {
+        extractedPaywallDate = dateNode.text.trim();
+      }
+
+      // 4. Description
+      const isPriceText = (t: string): boolean => {
+        const clean = t.replace(/\s+/g, '').toLowerCase();
+        return clean.includes('$') || clean.includes('£') || clean.includes('€') || clean.includes('aed') || clean.includes('price');
+      };
+      const isRelativeDateText = (t: string): boolean => {
+        const clean = t.toLowerCase();
+        return clean.includes('today') || clean.includes('tomorrow') || clean.includes('tonight') ||
+          /\b(mon|tue|wed|thu|fri|sat|sun|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i.test(clean) ||
+          /\d{1,2}:\d{2}/.test(clean);
+      };
+
+      let extractedPaywallDesc = 'N/A';
+      const descNode = snap.find((n: any) => 
+        (n.tag === 'p' || n.tag === 'span' || n.tag === 'div') &&
+        n.text.length > 25 &&
+        n.text.length < 300 &&
+        n.childCount <= 2 &&
+        !n.text.toLowerCase().includes('buy now') &&
+        !n.text.toLowerCase().includes('close') &&
+        !isRelativeDateText(n.text) &&
+        !isPriceText(n.text)
+      );
+      if (descNode) {
+        extractedPaywallDesc = descNode.text.trim();
+      }
+
+      // 5. CTA
+      const ctaExists = snap.some((n: any) => (n.tag === 'button' || n.tag === 'a') && n.text.toLowerCase().includes('buy now'));
+      const extractedPaywallCta = ctaExists ? 'Visible' : 'N/A';
+
+      // 6. Close Button
+      let closeExists = snap.some((n: any) => 
+        (n.tag === 'button' || n.tag === 'div' || n.tag === 'span' || n.tag === 'a') && (
+          n.classes.toLowerCase().includes('close') ||
+          n.classes.toLowerCase().includes('dismiss') ||
+          n.classes.toLowerCase().includes('modal-close') ||
+          n.classes.toLowerCase().includes('closebutton') ||
+          n.text === 'X' ||
+          n.text === 'x' ||
+          n.text.toLowerCase().includes('close') ||
+          n.hasCrossSvg ||
+          (n.ariaLabel && n.ariaLabel.toLowerCase().includes('close')) ||
+          (n.dataTestId && n.dataTestId.toLowerCase().includes('close')) ||
+          (n.id && n.id.toLowerCase().includes('close'))
+        )
+      );
+
+      if (!closeExists && page && typeof page.locator === 'function') {
+        const closeBtnLocator = page.locator([
+          'button[aria-label*="close" i]',
+          'button[class*="close" i]',
+          '[data-testid*="close" i]',
+          'button:has-text("X")',
+          'button:has-text("x")',
+          '[class*="CloseButton" i]',
+          '[class*="modal-close" i]',
+          '[data-test-id="CROSS"]',
+          '[data-testid="CROSS"]',
+          'button svg[data-test-id*="cross" i]',
+          'button svg[data-testid*="cross" i]',
+          '[class*="close" i]'
+        ].join(', '));
+        const count = await closeBtnLocator.count().catch(() => 0);
+        for (let i = 0; i < count; i++) {
+          if (await closeBtnLocator.nth(i).isVisible().catch(() => false)) {
+            closeExists = true;
+            break;
+          }
+        }
+      }
+      const extractedPaywallClose = closeExists ? 'Visible' : 'N/A';
+
+      const valToReturn = (() => {
+        const fNorm = fieldLower.replace(/^(paywall|popup)\s*-\s*/, '').replace(/^(popup|paywall)\s+/, '');
+        if (fNorm === 'event title' || fNorm === 'ppv name') {
+          return extractedPaywallTitle;
+        }
+        if (fNorm === 'promoter') {
+          return extractedPaywallPromoter;
+        }
+        if (fNorm === 'event date' || fNorm === 'date') {
+          return extractedPaywallDate;
+        }
+        if (fNorm === 'event description' || fNorm === 'description') {
+          return extractedPaywallDesc;
+        }
+        if (fNorm === 'buy now cta' || fNorm === 'buy now cta present' || fNorm === 'buy now cta text') {
+          if (fieldLower.includes('present')) {
+            return ctaExists ? 'Yes' : 'No';
+          }
+          if (fieldLower.includes('text')) {
+            return ctaExists ? 'Buy now' : 'N/A';
+          }
+          return extractedPaywallCta;
+        }
+        if (fNorm === 'close button') {
+          if (fieldLower.includes('close button') && !fieldLower.includes('paywall -')) {
+            return closeExists ? 'Yes' : 'No';
+          }
+          return extractedPaywallClose;
+        }
+        return 'N/A';
+      })();
+
+      console.log(`Variant: ${_variant}`);
+      console.log(`Field: ${field}`);
+      console.log(`Snapshot Elements: ${snap.length}`);
+      console.log(`Extraction Source: Scoped Snapshot`);
+      console.log(`Extracted Value: ${valToReturn}`);
+
+      return valToReturn === 'Not found' || valToReturn === 'Not visible' ? 'N/A' : valToReturn;
+    }
+  }
 
   const snapFind = (
     predicate: (n: DOMNode) => boolean,
@@ -699,6 +1023,133 @@ export async function getActualValue(
       const text = snapFind(n => n.text.toLowerCase().includes('best of boxing') || n.text.toLowerCase().includes('upcoming fights') || n.text.toLowerCase().includes('boxing'));
       return text !== 'N/A' ? 'Present' : 'Not found';
     }
+
+    // ── REBUILT PAGE-SPECIFIC HOME / BOXING VALIDATIONS ──
+    case "don't miss section present": {
+      const hasHeading = await page.locator('h1, h2, h3, h4, [class*="heading" i]')
+        .filter({ hasText: /don'?t\s*miss|live\s*&\s*upcoming|upcoming/i })
+        .first()
+        .isVisible({ timeout: 2000 })
+        .catch(() => false);
+      return hasHeading ? 'Present' : 'N/A';
+    }
+
+    case 'biggest fights section present': {
+      const hasHeading = await page.locator('h1, h2, h3, h4, [class*="heading" i]')
+        .filter({ hasText: /biggest\s*fights|saturday\s*fight\s*night|fight\s*night/i })
+        .first()
+        .isVisible({ timeout: 2000 })
+        .catch(() => false);
+      return hasHeading ? 'Present' : 'N/A';
+    }
+
+    case 'home of boxing section present': {
+      const hasHeading = await page.locator('h1, h2, h3, h4, [class*="heading" i]')
+        .filter({ hasText: /best\s*of\s*boxing|upcoming\s*fights|boxing/i })
+        .first()
+        .isVisible({ timeout: 2000 })
+        .catch(() => false);
+      return hasHeading ? 'Present' : 'N/A';
+    }
+
+    case "don't miss tile present":
+    case 'biggest fights tile present':
+    case 'selected boxing tile': {
+      const container = await getScopedLandingPPVContainer(page, eventData);
+      if (container) {
+        const visible = await container.isVisible({ timeout: 2000 }).catch(() => false);
+        return visible ? 'Yes' : 'No';
+      }
+      return 'No';
+    }
+
+    case "don't miss event title":
+    case 'biggest fights event title':
+    case 'event title': {
+      const container = await getScopedLandingPPVContainer(page, eventData);
+      if (container) {
+        const elements = container.locator('h1, h2, h3, h4, span, p, [class*="title" i], [class*="name" i]').first();
+        const text = await elements.innerText({ timeout: 2000 }).catch(() => '');
+        if (text.trim()) return text.trim();
+        const containerText = await container.innerText({ timeout: 2000 }).catch(() => '');
+        return containerText.trim() || 'N/A';
+      }
+      return 'N/A';
+    }
+
+    case "don't miss event date":
+    case 'biggest fights event date':
+    case 'event date': {
+      const container = await getScopedLandingPPVContainer(page, eventData);
+      if (container) {
+        const elements = container.locator('span, p, time, div');
+        const count = await elements.count().catch(() => 0);
+        for (let i = 0; i < count; i++) {
+          const el = elements.nth(i);
+          const t = await el.innerText().catch(() => '');
+          if (isDateText(t)) return t.trim();
+        }
+        const containerText = await container.innerText().catch(() => '');
+        const dateWords = (eventData?.LANDING_PAGE_PPV_DATE || '').split(' ');
+        if (dateWords.length > 0 && dateWords.every(w => containerText.includes(w))) {
+          return eventData?.LANDING_PAGE_PPV_DATE || 'N/A';
+        }
+      }
+      return 'N/A';
+    }
+
+    case "don't miss promoter":
+    case 'biggest fights promoter':
+    case 'promoter': {
+      const container = await getScopedLandingPPVContainer(page, eventData);
+      if (container) {
+        const expectedPromoter = eventData?.PPV_PROMOTER || '';
+        const promoterWords = expectedPromoter.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+        const elements = container.locator('span, p, div');
+        const count = await elements.count().catch(() => 0);
+        for (let i = 0; i < count; i++) {
+          const el = elements.nth(i);
+          const t = await el.innerText().catch(() => '');
+          const tLower = t.toLowerCase();
+          if (promoterWords.length > 0 && promoterWords.every(w => tLower.includes(w)) && t.length < 80) {
+            return t.trim();
+          }
+        }
+      }
+      return 'N/A';
+    }
+
+    case 'ppv badge present':
+    case 'ppv badge': {
+      const container = await getScopedLandingPPVContainer(page, eventData);
+      if (container) {
+        const hasBadge = await container.locator('text=PPV, [class*="badge" i]:has-text("PPV"), [class*="PPV" i]').first().isVisible({ timeout: 2000 }).catch(() => false);
+        return hasBadge ? 'Yes' : 'No';
+      }
+      return 'No';
+    }
+
+    case 'locked badge present':
+    case 'lock icon':
+    case 'lock icon present': {
+      const container = await getScopedLandingPPVContainer(page, eventData);
+      if (container) {
+        const hasLock = await container.locator('[class*="lock" i], [class*="premium" i], svg[class*="lock" i], [aria-label*="lock" i]').first().isVisible({ timeout: 2000 }).catch(() => false);
+        return hasLock ? 'Yes' : 'No';
+      }
+      const globalLock = await page.locator('[class*="lock" i], [class*="premium" i], svg[class*="lock" i]').first().isVisible({ timeout: 1000 }).catch(() => false);
+      return globalLock ? 'Yes' : 'No';
+    }
+
+    case 'reminder icon present':
+    case 'reminder icon': {
+      const container = await getScopedLandingPPVContainer(page, eventData);
+      if (container) {
+        const hasReminder = await container.locator('[class*="bell" i], [class*="reminder" i], svg[class*="bell" i], [aria-label*="reminder" i]').first().isVisible({ timeout: 2000 }).catch(() => false);
+        return hasReminder ? 'Yes' : 'No';
+      }
+      return 'No';
+    }
     case 'banner - event title': {
       const expectedTitle = eventData?.PPV_NAME || '';
       const nameParts = expectedTitle.split(/[:\-–]/).map(p => p.trim()).filter(p => p.length > 3);
@@ -838,7 +1289,7 @@ export async function getActualValue(
       const found = snapExists(n => (n.tag === 'button' || n.tag === 'a') && n.text.toLowerCase().includes('fight card'));
       return found === 'Yes' ? 'Visible' : 'Not visible';
     }
-    case 'popup - event title': {
+    case 'paywall - event title': {
       const expectedTitle = eventData?.PPV_NAME || '';
       const vsMatch = expectedTitle.match(/(\w+)\s+vs\.?\s+(\w+)/i);
       const fighter1 = vsMatch ? vsMatch[1].toLowerCase() : '';
@@ -865,27 +1316,34 @@ export async function getActualValue(
 
       let found = snapFind(n => n.isInModal && isMatch(n.text) && n.text.length < 200, true);
       if (found === 'N/A') {
-        found = snapFind(n => {
-          const inHeader = n.classes.toLowerCase().includes('header') || n.classes.toLowerCase().includes('nav') || n.classes.toLowerCase().includes('menu');
-          return !inHeader && isMatch(n.text) && n.text.length < 200;
-        });
+        found = snapFind(n => 
+          n.isInModal && 
+          (n.text.toLowerCase().includes('vs') || n.text.toLowerCase().includes(' v ')) && 
+          n.text.length < 100 &&
+          (n.childCount === 0 || ['h1', 'h2', 'h3', 'h4', 'strong', 'b'].includes(n.tag)), 
+          true
+        );
       }
       // Return actual DOM text, not expected — so the report shows the real title
       return found !== 'N/A' ? found : 'Not found';
     }
-    case 'popup - event date': {
-      const expectedDate = eventData?.LANDING_PAGE_PPV_DATE || eventData?.PPV_DATE || '';
+    case 'paywall - event date': {
+      const expectedDate = `${eventData?.PPV_DATE || ''}|${eventData?.LANDING_PAGE_PPV_DATE || ''}`;
 
       const checkOption = (option: string, text: string): boolean => {
         const optionLower = option.toLowerCase();
         const textLower = text.toLowerCase();
 
+        // Normalize leading zeros in times (e.g. "03:45" vs "3:45")
+        const normOption = optionLower.replace(/\b0(\d:\d{2})\b/g, '$1');
+        const normText = textLower.replace(/\b0(\d:\d{2})\b/g, '$1');
+
         const months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec', 'june', 'july'];
-        const matchedMonth = months.find(m => optionLower.includes(m));
+        const matchedMonth = months.find(m => normOption.includes(m));
 
         let day = '';
         if (matchedMonth) {
-          const dateWords = optionLower.replace(/:/g, ' ').split(/\s+/);
+          const dateWords = normOption.replace(/:/g, ' ').split(/\s+/);
           const dayMatch = dateWords.find(w => /^\d{1,2}(st|nd|rd|th)?$/.test(w));
           if (dayMatch) {
             day = dayMatch.replace(/[a-z]/g, '');
@@ -893,19 +1351,19 @@ export async function getActualValue(
         }
 
         if (matchedMonth && day) {
-          return textLower.includes(matchedMonth) && textLower.includes(day);
+          return normText.includes(matchedMonth) && normText.includes(day);
         }
 
         const weekdays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
-        const matchedWeekday = weekdays.find(w => optionLower.includes(w));
+        const matchedWeekday = weekdays.find(w => normOption.includes(w));
 
-        const timeMatch = optionLower.match(/\b\d{1,2}:\d{2}\b/);
+        const timeMatch = normOption.match(/\b\d{1,2}:\d{2}\b/);
         const time = timeMatch ? timeMatch[0] : '';
 
         if (matchedWeekday) {
-          const hasTime = time ? (textLower.includes(time) || textLower.includes(time.replace(':', '')) || (time === '22:30' && (textLower.includes('10:30') && textLower.includes('pm')))) : true;
+          const hasTime = time ? (normText.includes(time) || normText.includes(time.replace(':', '')) || (time === '22:30' && (normText.includes('10:30') && normText.includes('pm')))) : true;
           const weekdayAbbr = matchedWeekday.substring(0, 3);
-          const hasWeekday = textLower.includes(matchedWeekday) || textLower.includes(weekdayAbbr);
+          const hasWeekday = normText.includes(matchedWeekday) || normText.includes(weekdayAbbr);
 
           if (hasWeekday && hasTime) {
             return true;
@@ -914,15 +1372,15 @@ export async function getActualValue(
 
         // Handle DAZN relative-time labels: "This evening", "Tonight", "Today", "Tomorrow"
         const relativeLabels = ['this evening', 'tonight', 'today', 'tomorrow'];
-        const matchedRelative = relativeLabels.find(r => textLower.includes(r));
+        const matchedRelative = relativeLabels.find(r => normText.includes(r));
         if (matchedRelative) {
-          const hasTime = time ? (textLower.includes(time) || textLower.includes(time.replace(':', ''))) : true;
+          const hasTime = time ? (normText.includes(time) || normText.includes(time.replace(':', ''))) : true;
           if (hasTime) {
             return true;
           }
         }
 
-        if (optionLower.length > 5 && textLower.includes(optionLower)) {
+        if (normOption.length > 5 && normText.includes(normOption)) {
           return true;
         }
 
@@ -934,95 +1392,32 @@ export async function getActualValue(
         return options.some(opt => checkOption(opt, text));
       };
 
-      let found = snapFind(n => n.isInModal && isMatch(n.text), true);
-
-      if (found === 'N/A') {
-        found = snapFind(n => {
-          if (n.isInModal) return false;
-          const inHeader = n.classes.toLowerCase().includes('header') || n.classes.toLowerCase().includes('nav') || n.classes.toLowerCase().includes('menu');
-          if (inHeader) return false;
-          return isMatch(n.text);
-        });
-      }
-
-      // Third pass: search ALL nodes regardless of isInModal
-      // (home page popups may not be detected as modals by the DOM snapshot)
-      if (found === 'N/A') {
-        for (const n of snap) {
-          const inHeader = n.classes.toLowerCase().includes('header') || n.classes.toLowerCase().includes('nav') || n.classes.toLowerCase().includes('menu');
-          if (inHeader) continue;
-          if (isMatch(n.text)) { found = n.text; break; }
-        }
-      }
+      const found = snapFind(n => n.isInModal && isMatch(n.text), true);
       // Return actual DOM text for popup event date
       return found !== 'N/A' ? found : 'Not found';
     }
-    case 'popup - promoter': {
+    case 'paywall - promoter': {
       const expectedPromoter = eventData?.PPV_PROMOTER || '';
       const maxLen = Math.max(expectedPromoter.length * 2, 40);
       // Use multiple words for matching to avoid false positives (e.g. "All" matching "All sports")
       const promoterWords = expectedPromoter.toLowerCase().split(/\s+/).filter(w => w.length > 2);
       const promoterMatch = (text: string, loose = false): boolean => {
         const t = text.toLowerCase();
-        return promoterWords.length > 0 && promoterWords.every(w => t.includes(w)) && text.length < (loose ? 150 : maxLen) && !t.includes('vs');
+        return promoterWords.length > 0 && promoterWords.every(w => t.includes(w)) && text.length < (loose ? 60 : maxLen) && !t.includes('vs');
       };
       // Pass 1: leaf nodes in modal (best match — no extra text)
       let found = snapFind(n => n.isInModal && n.childCount <= 1 && promoterMatch(n.text), true);
       // Pass 2: any modal node with tighter length
       if (found === 'N/A') found = snapFind(n => n.isInModal && promoterMatch(n.text), true);
-      // Pass 3: outside modal, leaf nodes
-      if (found === 'N/A') {
-        found = snapFind(n => {
-          const inHeader = n.classes.toLowerCase().includes('header') || n.classes.toLowerCase().includes('nav') || n.classes.toLowerCase().includes('menu');
-          return !inHeader && n.childCount <= 1 && promoterMatch(n.text);
-        });
-      }
-      // Pass 4: outside modal, looser length
-      if (found === 'N/A') {
-        found = snapFind(n => {
-          const inHeader = n.classes.toLowerCase().includes('header') || n.classes.toLowerCase().includes('nav') || n.classes.toLowerCase().includes('menu');
-          return !inHeader && promoterMatch(n.text, true);
-        });
-      }
-      // Live DOM fallback: extract promoter text from modal
-      if (found === 'N/A') {
-        const modalSels = ['[role="dialog"]', '[aria-modal="true"]', '[class*="modal" i]', '[class*="popup" i]'];
-        for (const sel of modalSels) {
-          const modal = page.locator(sel).first();
-          if (!await modal.isVisible({ timeout: 1000 }).catch(() => false)) continue;
-          const els = modal.locator('span, p, div, h3, h4, h5, label');
-          const count = await els.count().catch(() => 0);
-          for (let i = 0; i < count; i++) {
-            const el = els.nth(i);
-            if (!await el.isVisible().catch(() => false)) continue;
-            const kids = await el.locator('> *').count().catch(() => 0);
-            if (kids > 1) continue;
-            const t = clean(await el.textContent().catch(() => '') || '');
-            if (t && promoterMatch(t)) return t;
-          }
-          break; // found visible modal, stop searching
-        }
-      }
       return found !== 'N/A' ? found : 'Not found';
     }
-    case 'popup - buy now cta': {
-      let found = snapExists(n => n.isInModal && (n.tag === 'button' || n.tag === 'a') && n.text.toLowerCase().includes('buy now'));
-      if (found === 'No') {
-        // Fallback: search outside modal
-        found = snapExists(n => {
-          if (n.isInModal) return false;
-          const tag = n.tag.toLowerCase();
-          const text = n.text.toLowerCase();
-          const cls = n.classes.toLowerCase();
-          const inHeader = cls.includes('header') || cls.includes('nav') || cls.includes('menu');
-          return !inHeader && (tag === 'button' || tag === 'a') && text.includes('buy now');
-        });
-      }
+    case 'paywall - buy now cta': {
+      const found = snapExists(n => n.isInModal && (n.tag === 'button' || n.tag === 'a') && n.text.toLowerCase().includes('buy now'));
       return found === 'Yes' ? 'Visible' : 'Not visible';
     }
-    case 'popup - event description': {
+    case 'paywall - event description': {
       // Find the descriptive paragraph in the popup — could be event-specific or generic
-      let found = snapFind(n => n.isInModal && (
+      const found = snapFind(n => n.isInModal && (
         (n.tag === 'p' || n.tag === 'span' || n.tag === 'div') &&
         n.text.length > 20 &&
         n.text.length < 300 &&
@@ -1032,38 +1427,48 @@ export async function getActualValue(
         !isDateText(n.text) &&
         !isPriceText(n.text)
       ), true);
-
-      if (found === 'N/A') {
-        found = snapFind(n => {
-          if (n.isInModal) return false;
-          const text = n.text.toLowerCase();
-          const inHeader = n.classes.toLowerCase().includes('header') || n.classes.toLowerCase().includes('nav') || n.classes.toLowerCase().includes('menu');
-          return !inHeader && (
-            text.includes('select a dazn plan') ||
-            text.includes('pair with your pay-per-view') ||
-            text.includes('biggest moment of the year')
-          );
-        });
-      }
       // Return actual DOM text, not hardcoded expected
       return found !== 'N/A' ? found : 'Not found';
     }
-    case 'popup - close button': {
-      let found = snapExists(n => n.isInModal && (
-        n.tag === 'button' && (
+    case 'paywall - close button': {
+      let found = snapExists(n => !!(n.isInModal && (
+        (n.tag === 'button' || n.tag === 'div' || n.tag === 'span' || n.tag === 'a') && (
           n.classes.toLowerCase().includes('close') ||
+          n.classes.toLowerCase().includes('dismiss') ||
+          n.classes.toLowerCase().includes('modal-close') ||
+          n.classes.toLowerCase().includes('closebutton') ||
           n.text === 'X' ||
-          n.text.toLowerCase().includes('close')
+          n.text === 'x' ||
+          n.text.toLowerCase().includes('close') ||
+          n.hasCrossSvg ||
+          (n.ariaLabel && n.ariaLabel.toLowerCase().includes('close')) ||
+          (n.dataTestId && n.dataTestId.toLowerCase().includes('close')) ||
+          (n.id && n.id.toLowerCase().includes('close'))
         )
-      ));
-      if (found === 'No') {
-        // Fallback: search outside modal
-        found = snapExists(n => {
-          if (n.isInModal) return false;
-          const tag = n.tag.toLowerCase();
-          const cls = n.classes.toLowerCase();
-          return tag === 'button' && (cls.includes('close') || n.text === 'X' || n.text.toLowerCase().includes('close'));
-        });
+      )));
+
+      if (found !== 'Yes' && page && typeof page.locator === 'function') {
+        const closeBtnLocator = page.locator([
+          'button[aria-label*="close" i]',
+          'button[class*="close" i]',
+          '[data-testid*="close" i]',
+          'button:has-text("X")',
+          'button:has-text("x")',
+          '[class*="CloseButton" i]',
+          '[class*="modal-close" i]',
+          '[data-test-id="CROSS"]',
+          '[data-testid="CROSS"]',
+          'button svg[data-test-id*="cross" i]',
+          'button svg[data-testid*="cross" i]',
+          '[class*="close" i]'
+        ].join(', '));
+        const count = await closeBtnLocator.count().catch(() => 0);
+        for (let i = 0; i < count; i++) {
+          if (await closeBtnLocator.nth(i).isVisible().catch(() => false)) {
+            found = 'Yes';
+            break;
+          }
+        }
       }
       return found === 'Yes' ? 'Visible' : 'Not visible';
     }
@@ -1462,25 +1867,8 @@ export async function getActualValue(
     }
 
     case 'popup close button': {
-      const fromSnap = snapFind(n =>
-        n.isInModal &&
-        n.tag === 'button' &&
-        (n.classes.toLowerCase().includes('close') ||
-          n.classes.toLowerCase().includes('dismiss') ||
-          n.text === '×' || n.text === '✕' ||
-          n.text === 'Close' || n.text === '')
-        , true);
-      if (fromSnap !== 'N/A') return 'Yes';
-
-      return firstExists(
-        '[role="dialog"] button[aria-label*="close" i]',
-        '[role="dialog"] button[class*="close" i]',
-        '[role="dialog"] [class*="dismiss" i]',
-        '[role="dialog"] button[class*="icon" i]',
-        '[role="dialog"] button:has(svg)',
-        '[aria-modal="true"] button:has(svg)',
-        '[class*="modal" i] button:has(svg)'
-      );
+      const actual = await getActualValue(page, 'paywall - close button', _variant, eventData, snap);
+      return actual === 'Visible' ? 'Yes' : 'No';
     }
 
     // ════════════════════════════════════════════════════════════
@@ -1735,222 +2123,35 @@ export async function getActualValue(
     // POPUP FIELDS
     // ════════════════════════════════════════════════════════════
     case 'popup image present': {
-      return firstExists(
-        '[role="dialog"] img',
-        '[aria-modal="true"] img',
-        '[class*="modal" i] img'
-      );
+      const found = snapExists(n => n.isInModal && n.tag === 'img');
+      return found;
     }
 
     case 'popup date': {
-      // Find date text inside the modal popup
-      const popupDateResult = snapFind(n => {
-        if (!n.isInModal) return false;
-        const t = n.text;
-        const tl = t.toLowerCase();
-
-        if (tl.includes('vs')) return false;
-        if (isPriceText(t)) return false;
-        if (tl.includes('buy')) return false;
-        if (tl.includes('catch')) return false;
-        if (tl.includes('select')) return false;
-
-        if (
-          /^\d{1,2}\s+(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\s+\d{1,2}:\d{2}$/i.test(t)
-        ) return true;
-        if (
-          /\b(MON|TUE|WED|THU|FRI|SAT|SUN)\b/i.test(t) &&
-          /\d{1,2}/.test(t) &&
-          /\b(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\b/i.test(t) &&
-          t.length < 30
-        ) return true;
-        if (isDateText(t) && t.length < 60) return true;
-        return false;
-      }, true);
-      if (popupDateResult !== 'N/A') return popupDateResult;
-
-      // Fallback: live DOM search inside modal/dialog for date text
-      const modalSelectors = [
-        '[role="dialog"]', '[aria-modal="true"]', '[class*="modal" i]', '[class*="popup" i]', '[class*="overlay" i]'
-      ];
-      for (const sel of modalSelectors) {
-        const modal = page.locator(sel).first();
-        if (!await modal.isVisible({ timeout: 1000 }).catch(() => false)) continue;
-        const dateEls = modal.locator('span, p, time, div');
-        const dateElCount = await dateEls.count().catch(() => 0);
-        for (let di = 0; di < dateElCount; di++) {
-          const el = dateEls.nth(di);
-          if (!await el.isVisible().catch(() => false)) continue;
-          const kids = await el.locator('> *').count().catch(() => 0);
-          if (kids > 2) continue;
-          const t = clean(await el.textContent().catch(() => '') || '');
-          if (!t || t.length > 60 || t.length < 3) continue;
-          const tl = t.toLowerCase();
-          if (tl.includes('vs') || tl.includes('buy') || tl.includes('catch')) continue;
-          if (isPriceText(t)) continue;
-          if (isDateText(t)) return t;
-          if (/\b(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\b/i.test(t) && /\d{1,2}/.test(t) && t.length < 40) return t;
-        }
-      }
-      return 'N/A';
+      return getActualValue(page, 'paywall - event date', _variant, eventData, snap);
     }
 
     case 'popup ppv name': {
-      const ppvName = eventData?.PPV_NAME || '';
-      // Build keyword list from PPV name parts (split on : - –)
-      const ppvNameParts = ppvName.split(/[:\-–]/).map(p => p.trim().toLowerCase()).filter(p => p.length > 2);
-      const ppvNameWords = ppvNameParts.flatMap(p => p.split(/\s+/).filter(w => w.length > 2));
-
-      const ppvNameMatch = (text: string): boolean => {
-        const t = text.toLowerCase();
-        // For boxing: check 'vs' pattern
-        if (t.includes('vs')) {
-          const firstWord = ppvName.toLowerCase().split(' ')[0];
-          return t.includes(firstWord) && text.length < 80;
-        }
-        // For non-boxing (wrestling, etc): match all significant keywords
-        return ppvNameWords.length > 0 && ppvNameWords.every(w => t.includes(w)) && text.length < 80;
-      };
-
-      // Pass 1: leaf nodes in modal (best — exact text, no concatenation)
-      let found = snapFind(n => n.isInModal && n.childCount <= 1 && ppvNameMatch(n.text), true);
-      // Pass 2: any modal node
-      if (found === 'N/A') found = snapFind(n => n.isInModal && ppvNameMatch(n.text), true);
-      // Pass 3: outside modal, leaf nodes
-      if (found === 'N/A') {
-        found = snapFind(n => {
-          const inHeader = n.classes.toLowerCase().includes('header') || n.classes.toLowerCase().includes('nav') || n.classes.toLowerCase().includes('menu');
-          return !inHeader && n.childCount <= 1 && ppvNameMatch(n.text);
-        });
-      }
-      // Pass 4: outside modal, any node
-      if (found === 'N/A') {
-        found = snapFind(n => {
-          const inHeader = n.classes.toLowerCase().includes('header') || n.classes.toLowerCase().includes('nav') || n.classes.toLowerCase().includes('menu');
-          return !inHeader && ppvNameMatch(n.text);
-        });
-      }
-      // Live DOM fallback: extract PPV name text from modal
-      if (found === 'N/A') {
-        const modalSels = ['[role="dialog"]', '[aria-modal="true"]', '[class*="modal" i]', '[class*="popup" i]'];
-        for (const sel of modalSels) {
-          const modal = page.locator(sel).first();
-          if (!await modal.isVisible({ timeout: 1000 }).catch(() => false)) continue;
-          const els = modal.locator('h1, h2, h3, h4, h5, span, p, strong, b');
-          const count = await els.count().catch(() => 0);
-          for (let i = 0; i < count; i++) {
-            const el = els.nth(i);
-            if (!await el.isVisible().catch(() => false)) continue;
-            const t = clean(await el.textContent().catch(() => '') || '');
-            if (t && ppvNameMatch(t)) return t;
-          }
-          break;
-        }
-      }
-      return found !== 'N/A' ? found : 'Not found';
+      return getActualValue(page, 'paywall - event title', _variant, eventData, snap);
     }
 
     case 'popup promoter': {
-      const promoter = (eventData?.PPV_PROMOTER || '').toLowerCase();
-      const promoterExpectedLen = (eventData?.PPV_PROMOTER || '').length;
-      const promoterMaxLen = Math.max(promoterExpectedLen * 2, 40);
-      // Use multiple words to avoid false positives (e.g. "All" matching "All sports")
-      const promoterWords = promoter.split(/\s+/).filter(w => w.length > 2);
-      const promoterMatchFn = (text: string, loose = false): boolean => {
-        const t = text.toLowerCase();
-        return (
-          promoterWords.length > 0 &&
-          promoterWords.every(w => t.includes(w)) &&
-          text.length > 5 &&
-          text.length < (loose ? 80 : promoterMaxLen) &&
-          !t.includes('vs')
-        );
-      };
-      // Pass 1: leaf nodes in modal (best — no extra text)
-      let found = snapFind(n => n.isInModal && n.childCount <= 1 && promoterMatchFn(n.text), true);
-      // Pass 2: any modal node with tight length
-      if (found === 'N/A') found = snapFind(n => n.isInModal && promoterMatchFn(n.text), true);
-      // Pass 3: outside modal, leaf nodes
-      if (found === 'N/A') {
-        found = snapFind(n => {
-          const inHeader = n.classes.toLowerCase().includes('header') || n.classes.toLowerCase().includes('nav') || n.classes.toLowerCase().includes('menu');
-          return !inHeader && n.childCount <= 1 && promoterMatchFn(n.text);
-        });
-      }
-      // Pass 4: outside modal, looser length
-      if (found === 'N/A') {
-        found = snapFind(n => {
-          const inHeader = n.classes.toLowerCase().includes('header') || n.classes.toLowerCase().includes('nav') || n.classes.toLowerCase().includes('menu');
-          return !inHeader && promoterMatchFn(n.text, true);
-        });
-      }
-      // Live DOM fallback: extract promoter text from modal
-      if (found === 'N/A') {
-        const modalSels = ['[role="dialog"]', '[aria-modal="true"]', '[class*="modal" i]', '[class*="popup" i]'];
-        for (const sel of modalSels) {
-          const modal = page.locator(sel).first();
-          if (!await modal.isVisible({ timeout: 1000 }).catch(() => false)) continue;
-          const els = modal.locator('span, p, div, h3, h4, h5, label');
-          const count = await els.count().catch(() => 0);
-          for (let i = 0; i < count; i++) {
-            const el = els.nth(i);
-            if (!await el.isVisible().catch(() => false)) continue;
-            const kids = await el.locator('> *').count().catch(() => 0);
-            if (kids > 1) continue;
-            const t = clean(await el.textContent().catch(() => '') || '');
-            if (t && promoterMatchFn(t, true)) return t;
-          }
-          break;
-        }
-      }
-      return found !== 'N/A' ? found : 'Not found';
+      return getActualValue(page, 'paywall - promoter', _variant, eventData, snap);
     }
 
     case 'popup description': {
-      // Find descriptive text in popup (could be event-specific or generic DAZN text)
-      let found = snapFind(n => {
-        if (!n.isInModal) return false;
-        const t = n.text.toLowerCase();
-        return (
-          (n.tag === 'p' || n.tag === 'span' || n.tag === 'div') &&
-          n.text.length > 20 &&
-          n.text.length < 300 &&
-          n.childCount <= 2 &&
-          !t.includes('buy now') &&
-          !t.includes('close') &&
-          !isDateText(n.text) &&
-          !isPriceText(n.text)
-        );
-      }, true);
-      return found !== 'N/A' ? found : 'Not found';
+      return getActualValue(page, 'paywall - event description', _variant, eventData, snap);
     }
 
     case 'popup buy now cta present':
     case 'popup buy now cta': {
-      const found = snapFind(n =>
-        n.isInModal &&
-        (n.tag === 'button' || n.tag === 'a') &&
-        n.text.toLowerCase().includes('buy')
-        , true);
-      return found !== 'N/A' ? 'Yes' : 'No';
+      const actual = await getActualValue(page, 'paywall - buy now cta', _variant, eventData, snap);
+      return actual === 'Visible' ? 'Yes' : 'No';
     }
 
     case 'popup buy now cta text': {
-      const found = snapFind(n =>
-        n.isInModal &&
-        (n.tag === 'button' || n.tag === 'a') &&
-        n.text.toLowerCase().includes('buy')
-        , true);
-      if (found !== 'N/A') return found;
-
-      // Fallback: live DOM
-      const btn = page.locator('[role="dialog"] button, [role="dialog"] a, [class*="modal"] button, [class*="modal"] a')
-        .filter({ hasText: /buy/i }).first();
-      if (await btn.isVisible({ timeout: 2000 }).catch(() => false)) {
-        const text = await btn.textContent().catch(() => '');
-        return text ? text.trim() : 'N/A';
-      }
-      return 'N/A';
+      const actual = await getActualValue(page, 'paywall - buy now cta', _variant, eventData, snap);
+      return actual === 'Visible' ? 'Buy now' : 'N/A';
     }
 
     // ════════════════════════════════════════════════════════════
@@ -3293,65 +3494,6 @@ export async function getActualValue(
       return live ? 'Yes' : 'No';
     }
 
-    case 'saturday badge': {
-      const eventDate = eventData?.PPV_DATE || '';
-      let targetDay = 'SATURDAY';
-      const dayNames = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-      let firstMatchedDay = '';
-      for (const day of dayNames) {
-        if (eventDate.toLowerCase().includes(day)) {
-          const uday = day.toUpperCase();
-          if (!firstMatchedDay) firstMatchedDay = uday;
-          const found = snapFind(n => n.text.trim().toUpperCase() === uday);
-          if (found !== 'N/A') {
-            targetDay = uday;
-            break;
-          }
-        }
-      }
-      if (targetDay === 'SATURDAY' && firstMatchedDay && firstMatchedDay !== 'SATURDAY') {
-        targetDay = firstMatchedDay;
-      }
-
-      // 1. Look for exact match (e.g. "SATURDAY")
-      let found = snapFind(n => n.text.trim().toUpperCase() === targetDay);
-      if (found !== 'N/A') return found;
-
-      // 2. Look for abbreviated date badge (e.g. "SAT 13TH JUN" when targetDay is "SATURDAY")
-      const shortDay = targetDay.substring(0, 3);
-      const badgeRegex = new RegExp(`^${shortDay}\\b`, 'i');
-      found = snapFind(n => badgeRegex.test(n.text.trim()));
-      if (found !== 'N/A') return targetDay;
-
-      // 3. Try parsing fully if match succeeds
-      const match = eventDate.match(/^([A-Za-z]+)\s+(\d+)(?:st|nd|rd|th)?\s+([A-Za-z]+)/i);
-      if (match) {
-        const shortDayMatch = match[1].substring(0, 3).toUpperCase();
-        const dateNum = match[2];
-        const shortMonth = match[3].substring(0, 3).toUpperCase();
-        const badgeRegexFull = new RegExp(`^${shortDayMatch}\\s+${dateNum}(?:st|nd|rd|th)?\\s+${shortMonth}$`, 'i');
-        const foundFull = snapFind(n => badgeRegexFull.test(n.text.trim()));
-        if (foundFull !== 'N/A') return foundFull;
-
-        // Try live DOM search for full format
-        const liveText = await page.locator(`span:has-text("${shortDayMatch}"), p:has-text("${shortDayMatch}")`)
-          .filter({ hasText: new RegExp(dateNum) })
-          .first()
-          .innerText({ timeout: 1000 })
-          .catch(() => '');
-        if (liveText.trim()) return liveText.trim();
-      }
-
-      // 4. Fallbacks
-      const liveText = await page.locator(`text=${targetDay}`).first().innerText({ timeout: 1000 }).catch(() => '');
-      if (liveText.trim()) return liveText.trim();
-
-      const liveBadge = await page.locator('span, p, div').filter({ hasText: badgeRegex }).first().innerText({ timeout: 1000 }).catch(() => '');
-      if (liveBadge.trim()) return targetDay;
-
-      return 'N/A';
-    }
-
     case 'or separator': {
       const found = snapFind(n => n.text.trim() === 'or');
       if (found !== 'N/A') return found;
@@ -3390,15 +3532,19 @@ export async function getActualValue(
     }
 
     case 'event subtitle': {
+      // Prioritize live innerText to capture CSS pseudo-elements (like bullet points)
+      const liveText = await page.locator('[class*="BoxedHeroBanners-module__description"], p[class*="description" i]:has-text("Main Event")').first().innerText().catch(() => '');
+      if (liveText.trim()) return liveText.trim();
+
       const found = snapFind(n =>
         n.tag === 'p' &&
         n.classes.toLowerCase().includes('description') &&
         n.text.toLowerCase().includes('main event')
       );
       if (found !== 'N/A') return found;
-      const liveText = await page.locator('[class*="BoxedHeroBanners-module__description"]').first().innerText().catch(() => '');
-      return liveText.trim() || 'N/A';
+      return 'N/A';
     }
+
 
     case 'buy fight cta': {
       const found = snapFind(n =>
@@ -5698,6 +5844,21 @@ export async function getActualValue(
         'a:has-text("Pay now")',
         'a:has-text("Pay Now")'
       );
+    }
+
+    case 'excluding tax':
+    case 'excluding tax text': {
+      // Look for the specific element using data-testid, id or text content
+      const live = await page.locator('[data-testid*="excluding-tax" i], [id*="excluding-tax" i], span:has-text("(excluding tax)"), span:has-text("excluding tax")').first().innerText().catch(() => '');
+      if (live.trim()) return live.trim();
+
+      const found = snap.find(n =>
+        (n.id && n.id.toLowerCase().includes('excluding-tax')) ||
+        n.text.toLowerCase().includes('excluding tax')
+      );
+      if (found) return found.text.trim();
+
+      return 'N/A';
     }
 
     case 'payment method heading': {

@@ -101,8 +101,13 @@
   },
   "boxing-join-the-club": {
     "source": "boxing-join-the-club",
-    "endPage": "payment",
-    "defaultSignup": true
+    "endPage": "payment"
+  },
+  "subscribe-without-pay-per-view": {
+    "source": "home-page-get-started",
+    "endPage": "plan",
+    "defaultSignup": true,
+    "noPpvClick": true
   },
   "glory": {
     "source": "glory",
