@@ -450,22 +450,40 @@ export class HomePage extends LandingPage {
     if (src === 'home-page-dont-miss') {
       console.log('🔍 [HomePage Tile] Flow: Tile + Modal popup flow');
 
-      // 1. Scroll to section heading
+      // Wait for home rails to fully render before searching for heading
+      console.log('⏳ Waiting for Home rails to render...');
+      await this.page.waitForFunction(() => {
+        const rails = document.querySelectorAll('[class*="rail__rail-wrapper"], [class*="railWrapper"]');
+        const visible = Array.from(rails).filter(el => {
+          const r = (el as HTMLElement).getBoundingClientRect();
+          return r.width > 0 && r.height > 0;
+        });
+        return visible.length >= 3;
+      }, { timeout: 20000 }).catch(() => {
+        console.log('⚠️ [HomePage Tile] Rail wait timed out — proceeding anyway');
+      });
+      await this.page.waitForTimeout(500);
+
+      // 1. Scroll to section heading — scope to heading tags only to avoid banner match
       const sectionPattern = /don.t miss/i;
-      const railHeader = this.page.getByText(sectionPattern).first();
+      // Use heading elements + rail-heading class elements only, NOT arbitrary text
+      const railHeader = this.page.locator(
+        'h1, h2, h3, h4, h5, [class*="heading" i], [class*="rail-title" i], [class*="sectionTitle" i], [class*="railTitle" i]'
+      ).filter({ hasText: sectionPattern }).first();
 
       let foundHeading = false;
-      for (let i = 0; i < 8; i++) {
+      for (let i = 0; i < 15; i++) {
         if (await railHeader.isVisible().catch(() => false)) {
           foundHeading = true;
           break;
         }
-        const scrollPos = (i + 1) * 800;
+        const scrollPos = (i + 1) * 600;
         await this.page.evaluate((pos) => {
           window.scrollTo({ top: pos, behavior: 'instant' });
         }, scrollPos).catch(() => { });
+        await this.page.waitForTimeout(300);
 
-        foundHeading = await railHeader.waitFor({ state: 'attached', timeout: 200 }).then(() => true).catch(() => false);
+        foundHeading = await railHeader.waitFor({ state: 'attached', timeout: 500 }).then(() => true).catch(() => false);
         if (foundHeading) break;
       }
 
@@ -476,10 +494,20 @@ export class HomePage extends LandingPage {
       await railHeader.scrollIntoViewIfNeeded().catch(() => { });
       console.log(`✅ [HomePage Tile] Section heading is visible`);
 
-      // 2. Locate rail wrapper
-      const railWrapper = railHeader.locator('xpath=ancestor::*[contains(@class,"rail__rail-wrapper")][1] | ancestor::section[contains(@class,"rail")][1] | ancestor::div[contains(@class,"rail")][1] | ancestor::*[contains(@class,"railWrapper")][1]');
-      await railWrapper.waitFor({ state: 'visible', timeout: 10000 }).catch(() => { });
-      console.log('✅ [HomePage Tile] Found rail wrapper');
+      // 2. Locate rail wrapper — strictly use rail__rail-wrapper (confirmed from DOM inspection)
+      // No fallbacks that might resolve to the wrong section
+      let railWrapper = railHeader.locator('xpath=ancestor::*[contains(@class,"rail__rail-wrapper")][1]');
+      let hasWrapper = await railWrapper.isVisible({ timeout: 3000 }).catch(() => false);
+      if (!hasWrapper) {
+        railWrapper = railHeader.locator('xpath=ancestor::*[contains(@class,"railWrapper")][1]');
+        hasWrapper = await railWrapper.isVisible({ timeout: 2000 }).catch(() => false);
+      }
+      if (!hasWrapper) {
+        // Last resort: one level up from railHeader only
+        railWrapper = railHeader.locator('xpath=..');
+      }
+      const wrapperCls = await railWrapper.evaluate(el => (el.className || '').substring(0, 80)).catch(() => 'N/A');
+      console.log(`✅ [HomePage Tile] Found rail wrapper: class="${wrapperCls}"`);
 
       // 3. Build search parameters for tile (same as LandingPage.ts)
       const ppvName = eventData.PPV_NAME || '';
@@ -574,19 +602,37 @@ export class HomePage extends LandingPage {
         return null;
       };
 
-      const nextBtn = railWrapper.locator([
-        'button[aria-label="Next slide"]',
-        'button[class*="swiper-button-next"]',
-        '.custom-swiper-button-next',
-        '[class*="next" i]',
-      ].join(', ')).first();
+      // The chevron buttons live OUTSIDE railWrapper — they are following-siblings of
+      // railWrapper's parent (rail___SMX1u) within the rail-container.
+      // DOM: rail-container > rail___SMX1u (contains railWrapper) + BUTTON.custom-swiper-button-next
+      const innerSection = railWrapper.locator('xpath=..');
 
-      await nextBtn.waitFor({ state: 'attached', timeout: 5000 }).catch(() => {
-        console.log('⚠️ [HomePage Tile] Swiper next button not attached after 5s');
-      });
+      // Primary: following-sibling button with aria-label="Next slide"
+      let nextBtn = innerSection.locator('xpath=following-sibling::button[@aria-label="Next slide"][1]');
+      let nextFound = await nextBtn.count().catch(() => 0) > 0;
 
-      await railWrapper.hover({ force: true }).catch(() => { });
-      await this.page.waitForTimeout(100);
+      if (!nextFound) {
+        nextBtn = innerSection.locator('xpath=following-sibling::button[contains(@class,"swiper-button-next")][1]');
+        nextFound = await nextBtn.count().catch(() => 0) > 0;
+      }
+
+      if (!nextFound) {
+        // Fallback: search the parent container (rail-container) but only "Next slide" buttons
+        nextBtn = innerSection.locator('xpath=..').locator('button[aria-label="Next slide"]').first();
+        nextFound = await nextBtn.count().catch(() => 0) > 0;
+        if (nextFound) console.log('⚠️ [HomePage Tile] Chevron via parent container fallback');
+      }
+
+      if (nextFound) {
+        const btnCls = await nextBtn.evaluate(el => (el.className || '').substring(0, 80)).catch(() => '');
+        console.log(`✅ [HomePage Tile] Chevron found: class="${btnCls}"`);
+      } else {
+        console.log('⚠️ [HomePage Tile] Chevron not found — carousel navigation will be skipped');
+      }
+
+      // Hover the inner section's parent to reveal arrows
+      await innerSection.locator('xpath=..').hover({ force: true }).catch(() => { });
+      await this.page.waitForTimeout(200);
 
       let clicks = 0;
       const maxClicks = 30;
