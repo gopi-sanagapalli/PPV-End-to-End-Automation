@@ -269,6 +269,34 @@ export class LandingPage extends BasePage {
       // Read current active slide
       const currentText = await getActiveSlideText();
 
+      // Scan every swiper slide before navigating.
+      const allSlides = this.bannerSlides(carousel);
+      const slideCount = await allSlides.count().catch(() => 0);
+
+      for (let i = 0; i < slideCount; i++) {
+        const slide = allSlides.nth(i);
+        const txt = ((await slide.textContent().catch(() => '')) || '').trim();
+
+        if (txt && this.matchesPPVName(txt, ppvName)) {
+          console.log(`✅ [Banner] PPV found in slide ${i}`);
+
+          await slide.evaluate((el:any)=>{
+            const swiper = el.closest('.swiper')?.swiper || el.closest('[class*=swiper]')?.swiper;
+            if (!swiper) return;
+
+            const idx = el.getAttribute('data-swiper-slide-index');
+            if (idx !== null) {
+              swiper.slideToLoop(Number(idx),0,false);
+            }
+          }).catch(()=>{});
+
+          await this.page.waitForTimeout(500);
+          await stopAllAutoSlide();
+
+          return carousel.locator(selectors.banner.activeSlide).first();
+        }
+      }
+
       // Check if this is our PPV
       if (currentText && this.matchesPPVName(currentText, ppvName)) {
         console.log(`✅ [Banner] PPV found after ${attempt} clicks`);
@@ -804,6 +832,7 @@ export class LandingPage extends BasePage {
           console.log('⚠️ [WelcomeRail] Next button disabled — end of rail');
           break;
         }
+
         await nextBtn.click({ force: true }).catch(() => { });
         await this.page.waitForTimeout(800);
       } else {

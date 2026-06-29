@@ -368,7 +368,7 @@ export async function getActualValue(
     (/\b(Tonight|Today|This evening|Tomorrow)\b/i.test(t) &&
       /\d{1,2}:\d{2}/.test(t));
 
-  const key = field.toLowerCase()
+  let key = field.toLowerCase()
     .replace(/[’‘]/g, "'")
     .replace(/&apos;/g, "'")
     .replace(/&#39;/g, "'")
@@ -376,6 +376,15 @@ export async function getActualValue(
     .replace(/&amp;/g, '&')
     .replace(/\s+/g, ' ')
     .trim();
+
+  // Legacy landing banner fields → use new scoped implementation
+  if (key === 'banner - event date') {
+    key = 'banner date badge';
+  }
+
+  if (key === 'banner - event description') {
+    key = 'banner description';
+  }
 
   // ── PHONE NUMBER / OTP PAGE SPECIAL VALS ────────────────────
   if (_variant === 'phone') {
@@ -6697,6 +6706,16 @@ export async function getActualValue(
       // Extract only the date badge text from the scoped event banner.
       const dateRegex =
         /\b(?:today|tomorrow|yesterday)\b(?:\s+at\s+\d{1,2}:\d{2}(?:\s*[AP]M)?)?|\b(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*\b(?:\s+at\s+\d{1,2}:\d{2}(?:\s*[AP]M)?)?|\b\d{1,2}(?:st|nd|rd|th)?\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/i;
+
+      if (isLandingOrHome) {
+        // Prefer full landing banner date + time (e.g. "Sat 25th Jul at 21:30")
+        const fullDateTime = text.match(/\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\b\s+\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)(?:\s+at\s+\d{1,2}:\d{2})?/i);
+        if (fullDateTime) return fullDateTime[0].trim();
+      }
+
+      // Then date only
+      const dateOnly = text.match(/\b\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b/i);
+      if (dateOnly) return dateOnly[0].trim();
 
       const dateMatch = text.match(dateRegex);
       if (dateMatch) return dateMatch[0].trim();
