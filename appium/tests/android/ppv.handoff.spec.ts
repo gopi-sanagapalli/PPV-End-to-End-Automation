@@ -144,6 +144,7 @@ async function dismissStartupDialogs(driver: WdBrowser): Promise<void> {
 
   for (const yPos of exploreYPositions) {
     for (const x of xPositions) {
+<<<<<<< HEAD
       console.log(`  Clicking Explore button coordinate (${x}, ${yPos})...`);
       adbTap(x, yPos);
       await driver.pause(2000);
@@ -166,6 +167,29 @@ async function dismissStartupDialogs(driver: WdBrowser): Promise<void> {
   console.log('  Screenshot saved: after_dismiss.png');
 
   await driver.pause(1000);
+=======
+      for (let clickAttempt = 0; clickAttempt < 3; clickAttempt++) {
+        console.log(`  Clicking (${x}, ${yPos}) attempt ${clickAttempt + 1}...`);
+        adbTap(x, yPos);
+        await driver.pause(2500);
+        
+        if (await isVisible(driver, 'Home', 1500) || await isVisible(driver, 'Schedule', 1500) || 
+            await isVisible(driver, 'Sports', 1500) || await isVisible(driver, 'Boxing', 1500)) {
+          console.log(`  ✅ "Explore" button clicked at (${x}, ${yPos}) - now on home screen`);
+          exploreClicked = true;
+          break;
+        }
+      }
+      if (exploreClicked) break;
+    }
+    if (exploreClicked) break;
+  }
+  
+  // Don't wait for specific screens - just continue after a delay
+  console.log('  Continuing without waiting for specific screen...');
+  await driver.pause(2000);
+  
+>>>>>>> upstream/hari-main-run-test
   console.log('✅ App loaded\n');
 }
 
@@ -184,14 +208,34 @@ async function findPPVBanner(driver: WdBrowser): Promise<boolean> {
 async function navigateToSchedule(driver: WdBrowser): Promise<void> {
   console.log('📅 Navigating to Schedule tab...');
   await driver.saveScreenshot('./test-results/before_schedule_click.png');
-
-  // Tap the 4th position in the bottom navigation menu (Schedule tab)
+  
+  // Method 1: Find Schedule by text label (most reliable)
+  console.log('  Looking for Schedule button by text...');
+  try {
+    const scheduleText = await driver.$(`android=new UiSelector().text("Schedule")`);
+    if (await scheduleText.isDisplayed()) {
+      console.log('  Found Schedule button by text, clicking...');
+      await scheduleText.click();
+      await driver.pause(3000);
+      console.log('✅ Schedule tab clicked (by text)');
+      await driver.saveScreenshot('./test-results/after_schedule_click.png');
+      return;
+    }
+  } catch (e) {
+    console.log('  Schedule text not found as button');
+  }
+  
+  // Take screenshot to see what's on the home page
+  console.log('  Taking screenshot to see home page layout...');
+  await driver.saveScreenshot('./test-results/home_page_before_schedule.png');
+  
+  // Method 2: Tap Schedule icon by coordinates (bottom nav)
   const screenSize = getScreenSize();
   const bottomNavY = Math.round(screenSize.height * 0.92);  // Bottom nav area
-
-  // Bottom nav has 5 items; 4th item is at ~70% from left
+  
+  // Schedule tab is at 4th position (around 70% from left) on Pixel 7
   const scheduleX = Math.round(screenSize.width * 0.70);
-  console.log(`  Tapping Schedule tab at 4th position: (${scheduleX}, ${bottomNavY})`);
+  console.log(`  Tapping Schedule at coordinates (${scheduleX}, ${bottomNavY})`);
   adbTap(scheduleX, bottomNavY);
   await driver.pause(3000);
   await driver.saveScreenshot('./test-results/after_schedule_click.png');
@@ -199,28 +243,20 @@ async function navigateToSchedule(driver: WdBrowser): Promise<void> {
   // Verify we navigated to Schedule page
   try {
     const scheduleHeader = await driver.$(`android=new UiSelector().text("SCHEDULE")`);
-    if (await scheduleHeader.isDisplayed()) {
+    const isSchedule = await scheduleHeader.isDisplayed();
+    
+    // Check if we're still on Home page
+    const homeTab = await driver.$(`android=new UiSelector().text("Home")`);
+    const stillOnHome = await homeTab.isDisplayed();
+    
+    if (isSchedule && !stillOnHome) {
       console.log('✅ Schedule tab clicked successfully');
       return;
+    } else if (stillOnHome) {
+      console.log('  ⚠️ Still on Home page - tap did not navigate to Schedule');
     }
   } catch (e) {}
-
-  // Fallback: try by text label
-  console.log('  Schedule header not found, trying text selector fallback...');
-  try {
-    const scheduleText = await driver.$(`android=new UiSelector().text("Schedule")`);
-    if (await scheduleText.isDisplayed()) {
-      console.log('  Found Schedule button by text, clicking...');
-      await scheduleText.click();
-      await driver.pause(3000);
-      console.log('✅ Schedule tab clicked (by text fallback)');
-      await driver.saveScreenshot('./test-results/after_schedule_fallback.png');
-      return;
-    }
-  } catch (e) {
-    console.log('  Schedule text fallback also not found');
-  }
-
+  
   console.log('⚠️  Could not navigate to Schedule tab');
 }
 
@@ -2328,7 +2364,7 @@ describe('DAZN Android PPV → Web Handoff', () => {
                 let clicked = false;
                 for (let i = 0; i < count; i++) {
                   const r = radios.nth(i);
-                  const parentText = await r.evaluate((el: any) => el.closest('label')?.innerText || el.closest('div')?.innerText || '').catch(() => '');
+                  const parentText = await r.evaluate((el: HTMLElement) => el.closest('label')?.innerText || el.closest('div')?.innerText || '').catch(() => '');
                   if (parentText.toLowerCase().includes('upfront') || parentText.toLowerCase().includes('save')) {
                     await safeScrollToElement(page, r);
                     await r.click({ force: true }).catch(() => { });
@@ -2357,7 +2393,7 @@ describe('DAZN Android PPV → Web Handoff', () => {
                 let clicked = false;
                 for (let i = 0; i < count; i++) {
                   const r = radios.nth(i);
-                  const parentText = await r.evaluate((el: any) => el.closest('label')?.innerText || el.closest('div')?.innerText || '').catch(() => '');
+                  const parentText = await r.evaluate((el: HTMLElement) => el.closest('label')?.innerText || el.closest('div')?.innerText || '').catch(() => '');
                   if (parentText.toLowerCase().includes('monthly') || parentText.toLowerCase().includes('saver') || parentText.toLowerCase().includes('over time')) {
                     await safeScrollToElement(page, r);
                     await r.click({ force: true }).catch(() => { });
@@ -2383,7 +2419,7 @@ describe('DAZN Android PPV → Web Handoff', () => {
               let upfrontSelected = false;
               for (let i = 0; i < count; i++) {
                 const r = radios.nth(i);
-                const parentText = await r.evaluate((el: any) => el.closest('label')?.innerText || el.closest('div')?.innerText || '').catch(() => '');
+                const parentText = await r.evaluate((el: HTMLElement) => el.closest('label')?.innerText || el.closest('div')?.innerText || '').catch(() => '');
                 if (parentText.toLowerCase().includes('upfront')) {
                   upfrontSelected = await r.isChecked().catch(() => false);
                   break;

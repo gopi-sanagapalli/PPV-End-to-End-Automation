@@ -75,7 +75,7 @@ export class BoxingPage extends LandingPage {
     }
 
     console.log('✅ [Upcoming Big Fights] Section heading found');
-    await sectionHeading.scrollIntoViewIfNeeded().catch(() => {});
+    await sectionHeading.scrollIntoViewIfNeeded().catch(() => { });
     await this.page.waitForTimeout(500);
 
     // ── STEP 2: Find the section wrapper / rail container ─────────────
@@ -199,7 +199,7 @@ export class BoxingPage extends LandingPage {
     ].join(', ')).first();
 
     // Hover to reveal navigation arrows (same pattern as SportsLandingPage)
-    await sectionWrapper.hover({ force: true }).catch(() => {});
+    await sectionWrapper.hover({ force: true }).catch(() => { });
     await this.page.waitForTimeout(300);
 
     let found = await isTileInView();
@@ -216,7 +216,7 @@ export class BoxingPage extends LandingPage {
       if (this.page.isClosed()) throw new Error('Page closed during carousel navigation');
 
       // Hover to keep arrows visible
-      await sectionWrapper.hover({ force: true }).catch(() => {});
+      await sectionWrapper.hover({ force: true }).catch(() => { });
       await this.page.waitForTimeout(200);
 
       // Check if next button is disabled (end of carousel)
@@ -382,6 +382,10 @@ export class BoxingPage extends LandingPage {
         'a:has-text("Join the club")',
         'button:has-text("Join Club")',
         'a:has-text("Join Club")',
+        '[role="button"]:has-text("Ultimate")',
+        '[class*="button" i]:has-text("Ultimate")',
+        'div:has-text("Continue with DAZN Ultimate")',
+        'span:has-text("Continue with DAZN Ultimate")',
       ];
       let found = false;
       for (const sel of ultimateSubSelectors) {
@@ -421,6 +425,12 @@ export class BoxingPage extends LandingPage {
         'a:has-text("Continue with Standard")',
         'button:has-text("Continue with DAZN Standard")',
         'a:has-text("Continue with DAZN Standard")',
+        'button:has-text("Sign up")',
+        'a:has-text("Sign up")',
+        '[role="button"]:has-text("Standard")',
+        '[class*="button" i]:has-text("Standard")',
+        'div:has-text("Continue with DAZN Standard")',
+        'span:has-text("Continue with DAZN Standard")',
       ];
       let foundStd = false;
       for (const sel of standardSubSelectors) {

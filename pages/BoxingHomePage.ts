@@ -7,10 +7,6 @@ import selectors from '../config/selectors.json';
  * for any sport landing page (Boxing, Kickboxing, Misfits Boxing, etc.).
  */
 export class BoxingHomePage extends HomePage {
-  private _fighter1 = '';
-  private _fighter2 = '';
-  private _bannerBuyNowHref = '';
-  private _buyNowCoords: { x: number; y: number } | null = null;
 
   constructor(page: Page) {
     super(page);
@@ -41,16 +37,21 @@ export class BoxingHomePage extends HomePage {
     console.log(`✅ Welcome page loaded: ${this.page.url()}`);
     await this.clickExplore();
 
+    // Dismiss cookie banner if it reappeared after Welcome → Home transition
+    console.log('🍪 Waiting for cookie banner on Home page...');
+    await this.dismissConsentIfPresent();
+
     console.log(`✅ Home page loaded: ${this.page.url()}`);
 
-    let targetSport = (eventData?.SPORT || 'Boxing').trim();
-    if (source) {
+    let targetSport = (eventData?.SPORT || '').trim();
+    if (!targetSport && source) {
       if (source.toLowerCase().includes('kickboxing')) {
         targetSport = 'Kickboxing';
       } else if (source.toLowerCase().includes('boxing')) {
         targetSport = 'Boxing';
       }
     }
+    if (!targetSport) targetSport = 'Boxing';
     console.log(`🏅 Target sport resolved for navigation: "${targetSport}" (from source: "${source || ''}")`);
 
     console.log(`🧭 Navigating to "${targetSport}" landing page via All Sports dropdown...`);
@@ -139,6 +140,8 @@ export class BoxingHomePage extends HomePage {
     let sportId = 'Sport:2x2oqzx60orpoeugkd754ga17'; // default Boxing
     if (sportName.toLowerCase() === 'kickboxing') {
       sportId = 'Sport:5rocwbb1fbfub9yh4yrff8khj';
+    } else if (sportName.toLowerCase() === 'wrestling') {
+      sportId = 'Sport:50dsk39gxuwwbkss8k2e24mca';
     } else if (sportName.toLowerCase().includes('misfits')) {
       sportId = 'Sport:2x2oqzx60orpoeugkd754ga17';
     }
@@ -227,7 +230,7 @@ export class BoxingHomePage extends HomePage {
     if (!source) {
       console.warn("⚠️ Warning: No source specified. Falling back to default (banner -> tile) search strategy.");
       try {
-        const bannerResult = await this.findPPVBannerSlide(eventData);
+        const bannerResult = await this.findPPVInBanner(eventData);
         if (bannerResult) return bannerResult;
       } catch (e) {
         console.warn(`⚠️ Error in banner fallback search: ${(e as Error).message}`);
@@ -269,13 +272,47 @@ export class BoxingHomePage extends HomePage {
       console.log('🔍 [Home Sport Tile] Flow: Tile + Modal popup flow');
 
       try {
-        // Step 1: Scroll to "Don't Miss" section
-        await this.scrollToDontMissSection();
+        // Determine section pattern based on sport — Boxing has "Don't miss",
+        // Kickboxing/Wrestling/other sports have "Coming up"
+        const sportName = (eventData?.SPORT || '').toLowerCase();
+        const isBoxingSport = sportName === 'boxing' || sportName === '' || sportName.includes('misfits');
+        let sectionPattern: RegExp = isBoxingSport ? /don't\s*miss/i : /coming\s*up/i;
+        if (src.includes('biggest-fights') || src === 'home-biggest-fights') {
+          sectionPattern = /biggest\s*fights/i;
+        } else if (src.includes('upcoming')) {
+          sectionPattern = /upcoming/i;
+        }
+
+        // Step 1: Scroll to expected section — try fallback patterns if primary not found
+        const fallbackPatterns = isBoxingSport
+          ? [/coming\s*up/i, /upcoming/i, /events/i]
+          : [/don't\s*miss/i, /upcoming/i, /events/i];
+        let sectionFound = false;
+        try {
+          await this.scrollToDontMissSection(sectionPattern);
+          sectionFound = true;
+        } catch {
+          console.log(`⚠️ [Home Sport Tile] Section "${sectionPattern}" not found, trying fallback patterns...`);
+          for (const fallback of fallbackPatterns) {
+            try {
+              await this.scrollToDontMissSection(fallback);
+              sectionPattern = fallback;
+              sectionFound = true;
+              console.log(`✅ [Home Sport Tile] Found section via fallback pattern: ${fallback}`);
+              break;
+            } catch {
+              continue;
+            }
+          }
+          if (!sectionFound) {
+            throw new Error(`❌ [Home Sport Tile] No matching section found (tried: ${sectionPattern}, ${fallbackPatterns.join(', ')})`);
+          }
+        }
 
         // Step 2: Find the PPV tile by navigating the swiper carousel
-        const tile = await this.findPPVTileInDontMissRail(eventData);
+        const tile = await this.findPPVTileInDontMissRail(eventData, sectionPattern);
         if (!tile) {
-          console.log('⚠️ [Home Sport Tile] PPV tile not found in "Don\'t Miss" rail');
+          console.log(`⚠️ [Home Sport Tile] PPV tile not found in section matching pattern: ${sectionPattern}`);
           return null;
         }
 
@@ -443,7 +480,7 @@ export class BoxingHomePage extends HomePage {
 
     if (src.includes('banner')) {
       try {
-        return await this.findPPVBannerSlide(eventData);
+        return await this.findPPVInBanner(eventData);
       } catch (e) {
         console.log(`⚠️ Error finding PPV banner slide: ${(e as Error).message}`);
         return null;
@@ -456,12 +493,11 @@ export class BoxingHomePage extends HomePage {
   // ─────────────────────────────
   // SCROLL TO "DON'T MISS" SECTION
   // ─────────────────────────────
-  private async scrollToDontMissSection(): Promise<void> {
+  private async scrollToDontMissSection(sectionPattern: RegExp = /don't\s*miss/i): Promise<void> {
     const env = this.detectEnvironment();
-    const sectionPattern = /don't miss|coming up|upcoming/i;
-    console.log(`📍 [Home Sport Tile] Scrolling to section matching pattern (env: ${env})...`);
+    console.log(`📍 [Home Sport Tile] Scrolling to section matching pattern ${sectionPattern} (env: ${env})...`);
 
-    const railHeader = this.page.locator('section:not([class*="hero" i]):not([class*="banner" i]):not([class*="carousel" i]) h2, section:not([class*="hero" i]):not([class*="banner" i]):not([class*="carousel" i]) h3, [class*="rail" i] h1, [class*="rail" i] h2, [class*="rail" i] h3, [class*="rail" i] h4, [class*="rail" i] [class*="heading" i], [class*="rail" i] [class*="title" i]')
+    const railHeader = this.page.locator('h1, h2, h3, h4, h5, h6, [class*="heading" i], [class*="title" i]')
       .filter({ hasText: sectionPattern })
       .first();
 
@@ -486,21 +522,21 @@ export class BoxingHomePage extends HomePage {
 
     if (!found) {
       throw new Error(
-        `❌ CRITICAL: Section heading matching pattern not found on ${env} environment. ` +
+        `❌ CRITICAL: Section heading matching pattern ${sectionPattern} not found on ${env} environment. ` +
         `The home-sport-tile flow cannot proceed without this section.`
       );
     }
 
     await railHeader.scrollIntoViewIfNeeded().catch(() => { });
-    console.log(`✅ [Home Sport Tile] Section heading is visible`);
+    console.log(`✅ [Home Sport Tile] Section heading matching pattern ${sectionPattern} is visible`);
   }
 
   // ─────────────────────────────
   // FIND PPV TILE IN "DON'T MISS" or "COMING UP" RAIL
   // ─────────────────────────────
-  private async findPPVTileInDontMissRail(eventData: Record<string, string>): Promise<any> {
+  private async findPPVTileInDontMissRail(eventData: Record<string, string>, sectionPattern: RegExp = /don't\s*miss/i): Promise<any> {
     const ppvName = eventData.PPV_NAME || '';
-    console.log(`🔍 [Home Sport Tile] Navigating rail to find: "${ppvName}"`);
+    console.log(`🔍 [Home Sport Tile] Navigating rail matching pattern ${sectionPattern} to find: "${ppvName}"`);
 
     const vsMatch = ppvName.match(/(\w+)\s+vs\.?\s+(\w+)/i);
     const fighter1 = vsMatch ? vsMatch[1] : '';
@@ -508,8 +544,7 @@ export class BoxingHomePage extends HomePage {
     console.log(`🔍 [Home Sport Tile] Searching for image with alt containing: "${fighter1}" and "${fighter2}"`);
 
     const env = this.detectEnvironment();
-    const sectionPattern = /don'?t miss|coming up|upcoming/i;
-    const railHeader = this.page.locator('section:not([class*="hero" i]):not([class*="banner" i]):not([class*="carousel" i]) h2, section:not([class*="hero" i]):not([class*="banner" i]):not([class*="carousel" i]) h3, [class*="rail" i] h1, [class*="rail" i] h2, [class*="rail" i] h3, [class*="rail" i] h4, [class*="rail" i] [class*="heading" i], [class*="rail" i] [class*="title" i]')
+    const railHeader = this.page.locator('h1, h2, h3, h4, h5, h6, [class*="heading" i], [class*="title" i]')
       .filter({ hasText: sectionPattern })
       .first();
     await railHeader.waitFor({ state: 'attached', timeout: 15000 });
@@ -546,10 +581,9 @@ export class BoxingHomePage extends HomePage {
     }
 
     const ppvImg = railWrapper.locator(imgSelector).first();
-    const ppvTile = ppvImg.locator('xpath=ancestor::a[contains(@class,"tile__link") or contains(@class,"tile")][1]');
+    const ppvTile = ppvImg.locator('xpath=ancestor::a[1]');
 
     const isTileInView = async (): Promise<any> => {
-      // 1. Try to find by text content match — score all candidates and pick best
       const tileCandidates = railWrapper.locator('a[class*="tile__link" i], a[class*="tile" i], div[class*="tile" i], div[class*="card" i], a, button');
       const candidateCount = await tileCandidates.count().catch(() => 0);
 
@@ -732,7 +766,7 @@ export class BoxingHomePage extends HomePage {
     const src = (source || '').toLowerCase();
 
     if (src.includes('banner')) {
-      await this.clickPPVBannerBuyNow();
+      await super.clickBuyNow(container, source);
       return;
     }
 
@@ -786,11 +820,20 @@ export class BoxingHomePage extends HomePage {
         throw new Error('❌ [Home Sport Tile] Modal container is null');
       }
 
-      const buyNowBtn = container
-        .locator('button:has-text("Buy now"), a:has-text("Buy now"), button:has-text("Buy Now")')
-        .first();
+      const ctaSelector = 'button:has-text("Buy now"), a:has-text("Buy now"), button:has-text("Buy Now"), ' +
+        'button:has-text("Subscribe"), a:has-text("Subscribe"), ' +
+        'button:has-text("Continue"), a:has-text("Continue")';
 
-      let visible = await buyNowBtn.isVisible({ timeout: 3000 }).catch(() => false);
+      const dialog = container.locator('[role="dialog"], [aria-modal="true"], [class*="modal" i]').first();
+      let buyNowBtn = dialog.locator(ctaSelector).first();
+
+      let visible = await buyNowBtn.isVisible({ timeout: 2000 }).catch(() => false);
+      if (!visible) {
+        console.log('⏳ [Home Sport Tile] Dialog selector not active. Trying generic container check...');
+        buyNowBtn = container.locator(ctaSelector).first();
+        visible = await buyNowBtn.isVisible({ timeout: 2000 }).catch(() => false);
+      }
+
       if (!visible) {
         console.log('⏳ [Home Sport Tile] Waiting for Buy now button in modal...');
         await this.page.waitForTimeout(1000);
@@ -798,64 +841,30 @@ export class BoxingHomePage extends HomePage {
       }
 
       if (!visible) {
-        throw new Error('❌ [Home Sport Tile] "Buy now" button not found inside modal popup. Will NOT search page-wide to avoid clicking wrong PPV.');
+        throw new Error('❌ [Home Sport Tile] Buy now button not found inside modal popup. Will NOT search page-wide to avoid clicking wrong PPV.');
       }
 
       const beforeUrl = this.page.url();
-      const buyNowByRole = container.getByRole('button', { name: 'Buy now' }).first();
 
-      const buyNowVisible = await buyNowByRole.waitFor({ state: 'visible', timeout: 8000 })
-        .then(() => true)
-        .catch(() => false);
-
-      if (!buyNowVisible) {
-        console.log('⚠️ [Home Sport Tile] Buy now not found via getByRole — falling back to element click');
+      try {
+        console.log('🖱️ [Home Sport Tile] Trying standard click on Buy now button...');
+        await buyNowBtn.click({ timeout: 5000 });
+        console.log('✅ [Home Sport Tile] Clicked Buy now via standard click');
+      } catch (clickErr: any) {
+        console.log(`⚠️ [Home Sport Tile] Standard click failed: ${clickErr.message} — trying JS click`);
         const handle = await buyNowBtn.elementHandle().catch(() => null);
         if (handle) {
           await this.page.evaluate((el: any) => {
-            el.scrollIntoView({ behavior: 'instant', block: 'center' });
             el.click();
           }, handle);
-          console.log(`✅ [Home Sport Tile] JS element.click on "Buy now"`);
+          console.log('✅ [Home Sport Tile] JS click on Buy now executed');
         } else {
-          throw new Error('❌ "Buy now" button not found in popup');
-        }
-      } else {
-        try {
-          console.log('🖱️ Trying standard click on "Buy now" button...');
-          await buyNowByRole.click({ timeout: 10000 });
-          console.log(`✅ [Home Sport Tile] Clicked Buy now via getByRole`);
-        } catch (clickErr: any) {
-          console.log(`⚠️ Standard click failed: ${clickErr.message} — trying mouse hover and click`);
+          console.log('⚠️ [Home Sport Tile] JS click not possible — trying force click');
           try {
-            const box = await buyNowByRole.boundingBox().catch(() => null);
-            if (box && box.width > 0 && box.height > 0) {
-              console.log(`🖱️ Clicking Buy now via page mouse at (${box.x + box.width / 2}, ${box.y + box.height / 2})`);
-              await this.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-              await this.page.mouse.down();
-              await this.page.mouse.up();
-              console.log(`✅ [Home Sport Tile] Clicked Buy now via page mouse`);
-            } else {
-              throw new Error('No valid bounding box for mouse click');
-            }
-          } catch (mouseErr: any) {
-            console.log(`⚠️ Mouse click failed: ${mouseErr.message} — trying force click`);
-            try {
-              await buyNowByRole.click({ force: true, timeout: 8000 });
-              console.log(`✅ [Home Sport Tile] Force-clicked Buy now via getByRole`);
-            } catch (forceErr: any) {
-              console.log(`⚠️ Force click failed — trying JS click`);
-              const handle = await buyNowByRole.elementHandle().catch(() => null);
-              if (handle) {
-                await this.page.evaluate((el: any) => {
-                  el.scrollIntoView({ behavior: 'instant', block: 'center' });
-                  el.click();
-                }, handle);
-                console.log(`✅ [Home Sport Tile] JS click on Buy now executed`);
-              } else {
-                throw new Error('❌ "Buy now" button not found: ' + forceErr.message);
-              }
-            }
+            await buyNowBtn.click({ force: true, timeout: 5000 });
+            console.log('✅ [Home Sport Tile] Clicked Buy now via force click');
+          } catch (forceErr: any) {
+            throw new Error('❌ [Home Sport Tile] Buy now button click failed: ' + forceErr.message);
           }
         }
       }
@@ -880,212 +889,7 @@ export class BoxingHomePage extends HomePage {
       await this.page.waitForLoadState('domcontentloaded').catch(() => { });
       await this.page.waitForTimeout(2000);
       const newUrl = this.page.url();
-      console.log(`✅ [Home Sport Tile] Navigated to: ${newUrl}`);
       return;
     }
-  }
-
-  // ─────────────────────────────
-  // FIND PPV IN BANNER — used by home-sport-banner source
-  // ─────────────────────────────
-  private async extractBannerCTAInfo(slide: any): Promise<void> {
-    try {
-      const buyNowBtn = slide.locator(
-        'a:has-text("Buy now"), button:has-text("Buy now"), a:has-text("Buy Now"), button:has-text("Buy Now")'
-      ).first();
-
-      await buyNowBtn.waitFor({ state: 'visible', timeout: 5000 }).catch(() => { });
-
-      const box = await buyNowBtn.boundingBox().catch(() => null);
-      if (box && box.width > 0 && box.height > 0) {
-        this._buyNowCoords = {
-          x: box.x + box.width / 2,
-          y: box.y + box.height / 2
-        };
-        console.log(`📎 [BoxingHomePage] Extracted Buy Now coords: x=${this._buyNowCoords.x}, y=${this._buyNowCoords.y}`);
-      } else {
-        console.log('⚠️ [BoxingHomePage] Extracted Buy Now coords has zero/null bounding box');
-      }
-
-      const href = await buyNowBtn.getAttribute('href').catch(() => '');
-      if (href) {
-        this._bannerBuyNowHref = href;
-        console.log(`📎 [BoxingHomePage] Extracted Buy Now href: ${href}`);
-      }
-    } catch (e: any) {
-      console.log(`⚠️ [BoxingHomePage] Failed to extract CTA info: ${e.message}`);
-    }
-  }
-
-  private async findPPVBannerSlide(eventData: Record<string, string>): Promise<any> {
-    const ppvName = eventData.PPV_NAME || '';
-    console.log(`🔍 [Home Sport Banner] Finding PPV: ${ppvName}`);
-
-    const regex = new RegExp(ppvName.split(/\s+/).join('.*'), 'i');
-
-    const vsMatch = ppvName.match(/(\w+)\s+vs\.?\s+(\w+)/i);
-    const fighter1 = vsMatch ? vsMatch[1].toLowerCase() : '';
-    const fighter2 = vsMatch ? vsMatch[2].toLowerCase() : '';
-    this._fighter1 = fighter1;
-    this._fighter2 = fighter2;
-
-    const nameParts = ppvName.split(/[:\-–]/).map(p => p.trim()).filter(p => p.length > 3);
-    const cleanStr = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
-    const partsWordLists = nameParts.map(part => cleanStr(part).split(/\s+/).filter(Boolean)).filter(list => list.length > 0);
-
-    const matchesBanner = (text: string): boolean => {
-      if (!text) return false;
-      if (regex.test(text)) return true;
-      const ct = cleanStr(text);
-      if (partsWordLists.some(words => words.every(w => ct.includes(w)))) return true;
-      if (fighter1 && fighter2 && ct.includes(fighter1) && ct.includes(fighter2)) return true;
-      return false;
-    };
-
-    await this.stopCarouselAutoSlide();
-
-    const activeSlide = this.page.locator(selectors.banner.activeSlide).first();
-    if (await activeSlide.isVisible({ timeout: 2000 }).catch(() => false)) {
-      const activeText = (await activeSlide.textContent().catch(() => ''))?.trim() || '';
-      if (activeText && matchesBanner(activeText) && activeText.toLowerCase().includes('buy now')) {
-        console.log(`✅ [Home Sport Banner] PPV slide is already the active/first slide`);
-        await this.stopCarouselAutoSlide();
-        await this.extractBannerCTAInfo(activeSlide);
-        return activeSlide;
-      }
-    }
-
-    const swiperEl = this.page.locator('.swiper:not([class*="rail" i]):not([class*="tiles" i])').first();
-    if (!await swiperEl.isVisible({ timeout: 5000 }).catch(() => false)) {
-      console.log('⚠️ [Home Sport Banner] Hero swiper not visible');
-    }
-
-    const allSlides = swiperEl.locator('.swiper-slide');
-    const count = await allSlides.count().catch(() => 0);
-    console.log(`🔍 [Home Sport Banner] Found ${count} slides in the hero swiper`);
-
-    for (let i = 0; i < count; i++) {
-      const slide = allSlides.nth(i);
-      if (!await slide.isVisible().catch(() => false)) continue;
-
-      const isDuplicate = await slide.evaluate((el) => el.classList.contains('swiper-slide-duplicate')).catch(() => false);
-      if (isDuplicate) continue;
-
-      const text = (await slide.textContent().catch(() => ''))?.trim() || '';
-      if (text && matchesBanner(text) && text.toLowerCase().includes('buy now')) {
-        console.log(`✅ [Home Sport Banner] Found matching PPV slide in DOM (index ${i}) with "Buy now" CTA: "${text.substring(0, 100).replace(/\n/g, ' ')}"`);
-
-        console.log(`🎯 [Home Sport Banner] Sliding directly to PPV slide index ${i}`);
-        await this.page.evaluate((idx) => {
-          const swiperEl = document.querySelector('.swiper') as any;
-          if (swiperEl?.swiper) {
-            swiperEl.swiper.autoplay?.stop();
-            swiperEl.swiper.params.autoplay = false;
-            swiperEl.swiper.params.loop = false;
-            swiperEl.swiper.slideTo(idx, 0);
-          }
-        }, i).catch(() => { });
-
-        await this.page.waitForTimeout(300);
-        await this.stopCarouselAutoSlide();
-        await this.extractBannerCTAInfo(slide);
-        return slide;
-      }
-    }
-
-    if (await activeSlide.isVisible({ timeout: 2000 }).catch(() => false)) {
-      const activeText = (await activeSlide.textContent().catch(() => ''))?.trim() || '';
-      if (activeText && matchesBanner(activeText)) {
-        console.log(`✅ [Home Sport Banner] PPV slide matched active slide (fallback)`);
-        await this.stopCarouselAutoSlide();
-        await this.extractBannerCTAInfo(activeSlide);
-        return activeSlide;
-      }
-    }
-
-    throw new Error(
-      `❌ CRITICAL: PPV "${ppvName}" slide with "Buy now" CTA not found in hero banner carousel.`
-    );
-  }
-
-  private async clickPPVBannerBuyNow(): Promise<void> {
-    console.log('🎯 [BoxingHomePage] Clicking Buy Now from active banner');
-
-    if (this._buyNowCoords) {
-      console.log(`🎯 [BoxingHomePage] Clicking pre-captured coordinates: x=${this._buyNowCoords.x}, y=${this._buyNowCoords.y}`);
-      await this.page.mouse.click(this._buyNowCoords.x, this._buyNowCoords.y);
-      console.log(`✅ [BoxingHomePage] Mouse click dispatched at coordinates`);
-
-      const beforeUrl = this.page.url();
-      await this.page.waitForURL(
-        (url: URL) => url.toString() !== beforeUrl,
-        { timeout: 15000 }
-      ).catch(() => {
-        console.log('⚠️ [BoxingHomePage] No URL change detected after coordinate click');
-      });
-      await this.page.waitForLoadState('domcontentloaded').catch(() => { });
-      console.log(`✅ [BoxingHomePage] Current URL after click: ${this.page.url()}`);
-      return;
-    }
-
-    if (this._bannerBuyNowHref) {
-      console.log(`🎯 [BoxingHomePage] Navigating directly to: ${this._bannerBuyNowHref}`);
-      let targetUrl = this._bannerBuyNowHref;
-      if (targetUrl.startsWith('/')) {
-        const currentUrl = this.page.url();
-        const baseMatch = currentUrl.match(/(https:\/\/[a-z0-9.-]*dazn\.com)/i);
-        targetUrl = (baseMatch?.[1] || 'https://www.dazn.com') + targetUrl;
-      }
-      await this.page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-      await this.page.waitForLoadState('domcontentloaded').catch(() => { });
-      console.log(`✅ [BoxingHomePage] Navigated to: ${this.page.url()}`);
-      return;
-    }
-
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      await this.stopCarouselAutoSlide();
-
-      const activeSlide = this.page.locator('.swiper-slide-active:not(.swiper-slide-duplicate)').first();
-
-      const buyNowBtn = activeSlide.locator(
-        'a:has-text("Buy now"), button:has-text("Buy now"), a:has-text("Buy Now"), button:has-text("Buy Now")'
-      ).first();
-
-      if (await buyNowBtn.isVisible().catch(() => false)) {
-        console.log(`Buy Now found (attempt ${attempt})`);
-
-        try {
-          await buyNowBtn.click({ force: true, timeout: 5000 });
-          await this.page.waitForLoadState('domcontentloaded').catch(() => { });
-          console.log(`✅ Navigated to: ${this.page.url()}`);
-          return;
-        } catch (err: any) {
-          console.log(`⚠️ standard click failed: ${err.message}. Trying page.evaluate JS click...`);
-          const clicked = await this.page.evaluate(() => {
-            const els = document.querySelectorAll('.swiper-slide-active:not(.swiper-slide-duplicate) a, .swiper-slide-active:not(.swiper-slide-duplicate) button');
-            for (const el of els) {
-              const text = (el.textContent || '').toLowerCase().trim();
-              if (text.includes('buy now')) {
-                (el as HTMLElement).click();
-                return true;
-              }
-            }
-            return false;
-          }).catch(() => false);
-
-          if (clicked) {
-            console.log(`✅ JS click executed`);
-            await this.page.waitForLoadState('domcontentloaded').catch(() => { });
-            console.log(`✅ Navigated to: ${this.page.url()}`);
-            return;
-          }
-        }
-      }
-
-      console.log(`⚠️ Retry ${attempt} – Buy Now not visible`);
-      await this.page.waitForTimeout(300);
-    }
-
-    throw new Error('❌ Buy Now CTA not clickable in active banner');
   }
 }

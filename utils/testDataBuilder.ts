@@ -11,13 +11,15 @@ type TestUser = {
  */
 export function createTestUser(): TestUser {
   const timestamp = Date.now();
-  const randomSuffix = Math.floor(Math.random() * 1000);
-  
+  const randomSuffix = Math.random().toString(36).slice(2, 10);
+  const runId = process.env.GITHUB_RUN_ID || 'local';
+  const emailDomain = process.env.TEST_EMAIL_DOMAIN || 'yopmail.com';
+
   return {
-    email: `ppv_automation_${timestamp}@yopmail.com`,
+    email: `ppv_${runId}_${timestamp}_${randomSuffix}@${emailDomain}`,
     firstName: 'UAT',
     lastName: 'UAT',
-    password: 'Test1!Password',
+    password: process.env.NEW_USER_PASSWORD || 'Test1!',
   };
 }
 
@@ -31,6 +33,6 @@ export function createTestUserWithEmail(email: string): TestUser {
     email,
     firstName: 'UAT',
     lastName: 'UAT',
-    password: 'Test1!Password',
+    password: process.env.NEW_USER_PASSWORD || 'Test1!',
   };
 }

@@ -131,8 +131,6 @@ export async function dismissMarketingPopup(page: Page, timeout: number = 0): Pr
   if (page.isClosed()) return;
   try {
     const dismissSelectors = [
-      'button:has-text("Keep me updated")',
-      'button:has-text("Keep Me Updated")',
       'button:has-text("Maybe later")',
       'button:has-text("Maybe Later")',
       'button:has-text("No thanks")',
@@ -141,6 +139,8 @@ export async function dismissMarketingPopup(page: Page, timeout: number = 0): Pr
       'button:has-text("Not Now")',
       'button:has-text("Close")',
       'button:has-text("Dismiss")',
+      'button:has-text("Keep me updated")',
+      'button:has-text("Keep Me Updated")',
       '[aria-label="Close"]',
       '[aria-label="close"]',
       '[aria-label*="close" i]',
@@ -148,7 +148,6 @@ export async function dismissMarketingPopup(page: Page, timeout: number = 0): Pr
     ].join(', ');
 
     const popup = page.locator(dismissSelectors).first();
-
     let isVisible = false;
     if (timeout > 0) {
       isVisible = await popup.waitFor({ state: 'visible', timeout })

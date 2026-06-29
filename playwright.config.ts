@@ -1,21 +1,29 @@
 import { defineConfig } from '@playwright/test';
 
+const isHeadless = process.env.HEADLESS === 'true';
+
 export default defineConfig({
-  testDir:   './tests',
-  timeout:   300_000,
-  retries:   0,
-  workers:   process.env.CI ? 4 : 1,
+  testDir: './tests',
+  timeout: 300_000,
+  retries: 0,
+  workers: process.env.CI ? 4 : 4,
   outputDir: 'test-results',
 
   use: {
-    headless:  process.env.HEADLESS === 'true',
+    headless: isHeadless,
+
+    // Keep CI/headless on the same desktop layout as local headed Chrome.
     viewport: { width: 1920, height: 1080 },
+    deviceScaleFactor: 1,
+    isMobile: false,
+    hasTouch: false,
+
     timezoneId: 'Asia/Kolkata',
-    locale:    'en-IN',
+    locale: 'en-IN',
 
     launchOptions: {
       args: [
-        '--start-maximized',
+        '--window-size=1920,1080',
         '--disable-infobars',
         '--no-sandbox',
         '--disable-dev-shm-usage',
@@ -26,7 +34,7 @@ export default defineConfig({
       ],
     },
 
-    actionTimeout:     15_000,
+    actionTimeout: 15_000,
     navigationTimeout: 30_000,
 
     video: {
@@ -35,31 +43,14 @@ export default defineConfig({
     },
 
     screenshot: 'only-on-failure',
-    trace:      'retain-on-failure',
+    trace: 'retain-on-failure',
   },
 
   projects: [
     {
       name: 'chromium',
       use: {
-        channel:  'chrome',
-        headless: process.env.HEADLESS === 'true',
-        viewport: { width: 1920, height: 1080 },
-        timezoneId: 'Asia/Kolkata',
-        locale:    'en-IN',
-
-        launchOptions: {
-          args: [
-            '--start-maximized',
-            '--disable-infobars',
-            '--no-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-blink-features=AutomationControlled',
-            '--password-store=basic',
-            '--use-mock-keychain',
-            '--disable-popup-blocking',
-          ],
-        },
+        channel: 'chrome',
       },
     },
   ],
