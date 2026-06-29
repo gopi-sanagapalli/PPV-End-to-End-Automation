@@ -30,7 +30,7 @@ export function compare(
      .replace(/[\u201C\u201D\u201E\u201F\u2033]/g, '"')
      .replace(/\bppv\b/gi, '')
      .replace(/[\-–—\u2014\u2013]/g, ' ')
-     .replace(/\s+/g, ' ')
+     .replace(/[•·]/g, ' ').replace(/\s+/g, ' ')
      .trim()
      .toLowerCase()
      .replace(/\.$/, '');
@@ -206,7 +206,7 @@ export function compare(
   const aTimeMinutes = parseToMinutes(actual);
   const eTimeMinutes = parseToMinutes(expected);
   if (aTimeMinutes !== null && eTimeMinutes !== null && aTimeMinutes === eTimeMinutes) {
-    const cleanTime = (s: string) => s.replace(/\d{1,2}:\d{2}\s*(?:am|pm)?/gi, '').replace(/\s+/g, ' ').trim();
+    const cleanTime = (s: string) => s.replace(/\d{1,2}:\d{2}\s*(?:am|pm)?/gi, '').replace(/[•·]/g, ' ').replace(/\s+/g, ' ').trim();
     
     // Normalize weekday names & strip date/month parts (e.g. "13th Jun", "27th Jun")
     const normalizeDayAndStripDate = (str: string) => {
@@ -223,7 +223,7 @@ export function compare(
       // Strip day numbers like 13th, 27th, 3, etc.
       s = s.replace(/\b\d{1,2}(st|nd|rd|th)?\b/g, '');
       // Clean up whitespace
-      return s.replace(/\s+/g, ' ').trim();
+      return s.replace(/[•·]/g, ' ').replace(/\s+/g, ' ').trim();
     };
 
     const aClean = normalizeDayAndStripDate(actual);
@@ -240,7 +240,7 @@ export function compare(
   const hasTimeA = /\b\d{1,2}:\d{2}\s*(?:am|pm)?\.?\b/i.test(actual);
   const hasTimeE = /\b\d{1,2}:\d{2}\s*(?:am|pm)?\.?\b/i.test(expected);
   if (hasTimeA && hasTimeE) {
-    const stripTime = (s: string) => s.replace(/\b\d{1,2}:\d{2}\s*(?:am|pm)?\.?\b/gi, '').replace(/\s+/g, ' ').trim();
+    const stripTime = (s: string) => s.replace(/\b\d{1,2}:\d{2}\s*(?:am|pm)?\.?\b/gi, '').replace(/[•·]/g, ' ').replace(/\s+/g, ' ').trim();
     const aNoTime = stripTime(actual);
     const eNoTime = stripTime(expected);
     if (norm(aNoTime) === norm(eNoTime) || norm(aNoTime).includes(norm(eNoTime)) || norm(eNoTime).includes(norm(aNoTime))) {
