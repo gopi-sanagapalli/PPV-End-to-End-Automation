@@ -247,6 +247,13 @@ export async function getPageSnapshot(page: Page): Promise<DOMNode[]> {
       const clean = (s: string) =>
         s.replace(/\u200B/g, '').replace(/\s+/g, ' ').trim();
 
+
+      const getElementClasses = (el: Element): string =>
+        (el.getAttribute('class') || '')
+          .trim()
+          .replace(/\s+/g, ' ');
+
+
       const modalSelectors = [
         '[role="dialog" i]',
         '[aria-modal="true"]',
