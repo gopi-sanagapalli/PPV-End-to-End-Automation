@@ -73,13 +73,31 @@ export function resolveExpected(
 
   const currentSource = (eventData.SOURCE || eventData.source || '').trim().toLowerCase();
 
-  // The PPV detail page renders its own date/time format.
-  // Keep this separate from landing banners, welcome tiles, and plan cards.
+  // Page-specific date expectations
   if (field === 'ppv date and time text') {
-    const ppvPageDateTime = eventData.PPV_PAGE_DATE_TIME;
-    if (ppvPageDateTime) {
-      return String(ppvPageDateTime);
+    switch ((pageName || "").toLowerCase()) {
+      case 'boxing':
+        if (eventData.BOXING_BANNER_DATE) return String(eventData.BOXING_BANNER_DATE);
+        break;
+
+      case 'landing':
+      case 'landing page':
+        if (eventData.LANDING_BANNER_DATE) return String(eventData.LANDING_BANNER_DATE);
+        break;
+
+      case 'ppv':
+        if (eventData.PPV_PAGE_DATE) return String(eventData.PPV_PAGE_DATE);
+        break;
     }
+
+    if (eventData.PPV_PAGE_DATE_TIME) {
+      return String(eventData.PPV_PAGE_DATE_TIME);
+    }
+  }
+
+  // Page-specific subtitle expectations
+  if (field === 'event subtitle' && (pageName || "").toLowerCase() === 'boxing' && eventData.BOXING_BANNER_SUBTITLE) {
+    return String(eventData.BOXING_BANNER_SUBTITLE);
   }
 
   // home-page-dazntile opens the first eligible DAZN entitlement tile.
