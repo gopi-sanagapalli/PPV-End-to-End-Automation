@@ -144,30 +144,6 @@ async function dismissStartupDialogs(driver: WdBrowser): Promise<void> {
 
   for (const yPos of exploreYPositions) {
     for (const x of xPositions) {
-<<<<<<< HEAD
-      console.log(`  Clicking Explore button coordinate (${x}, ${yPos})...`);
-      adbTap(x, yPos);
-      await driver.pause(2000);
-
-      const onHomeScreen = await isVisible(driver, 'Home', 500) ||
-                           await isVisible(driver, 'Schedule', 500) ||
-                           await isVisible(driver, 'Sports', 500) ||
-                           await isVisible(driver, 'Boxing', 500);
-
-      if (onHomeScreen) {
-        console.log(`  ✅ Successfully navigated to Home screen`);
-        exploreClicked = true;
-        break;
-      }
-    }
-    if (exploreClicked) break;
-  }
-
-  await driver.saveScreenshot('./test-results/after_dismiss.png');
-  console.log('  Screenshot saved: after_dismiss.png');
-
-  await driver.pause(1000);
-=======
       for (let clickAttempt = 0; clickAttempt < 3; clickAttempt++) {
         console.log(`  Clicking (${x}, ${yPos}) attempt ${clickAttempt + 1}...`);
         adbTap(x, yPos);
@@ -188,8 +164,6 @@ async function dismissStartupDialogs(driver: WdBrowser): Promise<void> {
   // Don't wait for specific screens - just continue after a delay
   console.log('  Continuing without waiting for specific screen...');
   await driver.pause(2000);
-  
->>>>>>> upstream/hari-main-run-test
   console.log('✅ App loaded\n');
 }
 
