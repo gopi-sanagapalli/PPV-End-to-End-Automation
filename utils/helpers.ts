@@ -131,6 +131,8 @@ export async function dismissMarketingPopup(page: Page, timeout: number = 0): Pr
   if (page.isClosed()) return;
   try {
     const dismissSelectors = [
+      'button:has-text("Keep me updated")',
+      'button:has-text("Keep Me Updated")',
       'button:has-text("Maybe later")',
       'button:has-text("Maybe Later")',
       'button:has-text("No thanks")',
@@ -139,8 +141,6 @@ export async function dismissMarketingPopup(page: Page, timeout: number = 0): Pr
       'button:has-text("Not Now")',
       'button:has-text("Close")',
       'button:has-text("Dismiss")',
-      'button:has-text("Keep me updated")',
-      'button:has-text("Keep Me Updated")',
       '[aria-label="Close"]',
       '[aria-label="close"]',
       '[aria-label*="close" i]',
@@ -148,6 +148,7 @@ export async function dismissMarketingPopup(page: Page, timeout: number = 0): Pr
     ].join(', ');
 
     const popup = page.locator(dismissSelectors).first();
+    
     let isVisible = false;
     if (timeout > 0) {
       isVisible = await popup.waitFor({ state: 'visible', timeout })
@@ -243,31 +244,22 @@ export async function getPageSnapshot(page: Page): Promise<DOMNode[]> {
   if (page.isClosed()) return [];
   try {
     return await page.evaluate((): any[] => {
-      (globalThis as any).__name = (f: any, n: string) => f;
-
       const clean = (s: string) =>
         s.replace(/\u200B/g, '').replace(/\s+/g, ' ').trim();
 
-      const getElementClasses = (el: any): string => {
-        const className = el.className;
-        if (typeof className === 'string') return className;
-        if (className && typeof className.baseVal === 'string') return className.baseVal;
-        return '';
-      };
+      const modalSelectors = [
+        '[role="dialog" i]',
+        '[aria-modal="true"]',
+        '[class*="modal" i]',
+        '[class*="overlay" i]',
+        '[class*="popup" i]',
+      ];
 
-      const isInModal = (el: any): boolean => {
-        let current: any = el;
-        for (let depth = 0; depth < 10 && current; depth++) {
-          if (current.tagName === 'BODY' || current.tagName === 'HTML') break;
-          const role = (current.getAttribute('role') || '').toLowerCase();
-          if (role === 'dialog') return true;
-          if (current.getAttribute('aria-modal') === 'true') return true;
-          const classes = getElementClasses(current).toLowerCase();
-          if (classes.includes('modal') || classes.includes('overlay') || classes.includes('popup')) return true;
-          current = current.parentElement;
-        }
-        return false;
-      };
+      const isInModal = (el: Element): boolean =>
+        modalSelectors.some(sel => {
+          const closest = el.closest(sel);
+          return closest !== null && closest.tagName !== 'BODY' && closest.tagName !== 'HTML';
+        });
 
       const isInInactiveSlide = (el: any): boolean => {
         const slide = el.closest('.swiper-slide, [class*="swiper-slide"]');
@@ -299,17 +291,9 @@ export async function getPageSnapshot(page: Page): Promise<DOMNode[]> {
 
       // OPTIMIZED: avoid getComputedStyle — use only DOM-based checks, except for price elements
       const isStrikethrough = (el: HTMLElement): boolean => {
-        let current: HTMLElement | null = el;
-        for (let depth = 0; depth < 8 && current; depth++) {
-          if (current.tagName === 'DEL' || current.tagName === 'S') return true;
-          const styleAttr = current.getAttribute('style') || '';
-          if (styleAttr.toLowerCase().includes('line-through')) return true;
-          const classes = getElementClasses(current).toLowerCase();
-          if (classes.includes('strike') || classes.includes('line-through') || classes.includes('crossed') || classes.includes('original')) {
-            return true;
-          }
-          current = current.parentElement;
-        }
+        if (el.closest('del, s') !== null) return true;
+        if (el.closest('[style*="line-through"]') !== null) return true;
+        if (el.closest('[class*="strike" i], [class*="line-through" i], [class*="crossed" i], [class*="original" i]') !== null) return true;
 
         // Target specifically text elements that look like prices or contain numbers
         const txt = el.textContent || '';

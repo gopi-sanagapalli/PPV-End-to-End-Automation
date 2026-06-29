@@ -141,8 +141,57 @@ export class LandingPage extends BasePage {
     const ppvName = eventData.PPV_NAME || '';
     console.log(`🔍 [Banner] Finding PPV: ${ppvName}`);
 
-    // Stop auto-slide
-    await this.stopCarouselAutoSlide();
+    // Helper to aggressively stop all swipers on the page via JS + CSS injection
+    const stopAllAutoSlide = async () => {
+      await this.page.evaluate(() => {
+        try {
+          // Inject CSS to freeze carousel transitions
+          const styleId = '__ppv_freeze_carousel__';
+          if (!document.getElementById(styleId)) {
+            const style = document.createElement('style');
+            style.id = styleId;
+            style.textContent = `
+              .swiper-wrapper { transition-duration: 0ms !important; }
+            `;
+            document.head.appendChild(style);
+          }
+
+          const stopSwiper = (swiper: any) => {
+            if (!swiper) return;
+            try { swiper.autoplay?.stop(); } catch {}
+            try {
+              swiper.params.autoplay = false;
+              swiper.params.loop = false;
+            } catch {}
+            try {
+              if (swiper.autoplay?.running) swiper.autoplay.stop();
+            } catch {}
+          };
+
+          // Strategy 1: el.swiper
+          const allSwipers = document.querySelectorAll('.swiper, [class*="swiper"], .swiper-container');
+          allSwipers.forEach((el: any) => {
+            if (el.swiper) stopSwiper(el.swiper);
+          });
+
+          // Strategy 2: window.swiper
+          if ((window as any).swiper) {
+            stopSwiper((window as any).swiper);
+          }
+
+          // Strategy 3: Walk all DOM elements for swiper instances
+          const allEls = document.querySelectorAll('*');
+          allEls.forEach((el: any) => {
+            if (el.swiper && typeof el.swiper === 'object' && el.swiper.autoplay) {
+              stopSwiper(el.swiper);
+            }
+          });
+        } catch {}
+      }).catch(() => {});
+    };
+
+    // Stop auto-slide immediately
+    await stopAllAutoSlide();
 
     // Check if carousel exists (wait for it to become visible)
     const carousel = this.bannerCarousel();
@@ -151,129 +200,172 @@ export class LandingPage extends BasePage {
       return null;
     }
 
-    // Check active slide first — try selectors.json path, then fallback to carousel content
-    const activeSlide = carousel.locator(selectors.banner.activeSlide).locator(':visible').first();
-    let activeText = '';
-    const isActiveVisible = await activeSlide.isVisible({ timeout: 1000 }).catch(() => false);
-    if (isActiveVisible) {
-      activeText = (await activeSlide.textContent().catch(() => ''))?.trim() || '';
-      if (activeText && this.matchesPPVName(activeText, ppvName)) {
-        console.log(`✅ [Banner] PPV already on active slide`);
+    // Scroll to the carousel to ensure it is in view for hover/click interactions
+    await carousel.scrollIntoViewIfNeeded().catch(() => {});
+    await stopAllAutoSlide();
+
+    // Helper to get the currently active slide text
+    const getActiveSlideText = async (): Promise<string> => {
+      const active = carousel.locator(selectors.banner.activeSlide).locator(':visible').first();
+      if (await active.isVisible({ timeout: 1000 }).catch(() => false)) {
+        return ((await active.textContent().catch(() => '')) || '').trim();
+      }
+      return '';
+    };
+
+    // Check active slide first
+    const activeText = await getActiveSlideText();
+    if (activeText && this.matchesPPVName(activeText, ppvName)) {
+      console.log(`✅ [Banner] PPV already on active slide`);
+      await stopAllAutoSlide();
+      // Store the data-swiper-slide-index of this active slide so validateVariant can re-navigate
+      const slideIndex = await carousel.locator(selectors.banner.activeSlide).first()
+        .getAttribute('data-swiper-slide-index').catch(() => null);
+      if (slideIndex !== null) eventData._ppvBannerSlideIndex = slideIndex;
+      return carousel.locator(selectors.banner.activeSlide).locator(':visible').first();
+    }
+    console.log(`ℹ️  Active slide: "${activeText.substring(0, 60)}..." — not our PPV`);
+
+    // Check if swiper has slides at all
+    const slides = this.bannerSlides(carousel);
+    const totalSlideCount = await slides.count().catch(() => 0);
+    if (totalSlideCount === 0) {
+      // Static banner (no swiper slides)
+      const containerText = await carousel.textContent().catch(() => '');
+      if (containerText && this.matchesPPVName(containerText, ppvName)) {
+        console.log('✅ [Banner] PPV found on static banner container');
+        return carousel;
+      }
+      console.log('⚠️ [Banner] PPV not found on static banner');
+      return null;
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // Navigate carousel using > (next) button to find the PPV
+    // ─────────────────────────────────────────────────────────
+    const nextBtnSelectors = [
+      selectors.banner.nextButton,
+      '.swiper-button-next',
+      '[class*="swiper-button-next"]',
+      'button[data-test-id="CHEVRON_RIGHT_ICON"]',
+      'svg[data-test-id="CHEVRON_RIGHT_ICON"]',
+      '[aria-label="Next slide"]',
+      'button[aria-label*="next" i]',
+      'button[class*="swiper-next" i]',
+      'button[class*="chevron" i]',
+      '[class*="chevron-right" i]',
+      '[class*="chevron-next" i]',
+      '[class*="next-button" i]',
+      '[class*="button-next" i]',
+    ].filter(Boolean).join(', ');
+
+    let nextBtn = carousel.locator(nextBtnSelectors).first();
+    let firstSlideText = activeText.substring(0, 100);
+    const maxSlides = Math.max(totalSlideCount + 2, 10); // Navigate at most totalSlides + buffer
+
+    for (let attempt = 0; attempt < maxSlides; attempt++) {
+      await stopAllAutoSlide();
+
+      // Read current active slide
+      const currentText = await getActiveSlideText();
+
+      // Scan every swiper slide before navigating.
+      const allSlides = this.bannerSlides(carousel);
+      const slideCount = await allSlides.count().catch(() => 0);
+
+      for (let i = 0; i < slideCount; i++) {
+        const slide = allSlides.nth(i);
+        const txt = ((await slide.textContent().catch(() => '')) || '').trim();
+
+        if (txt && this.matchesPPVName(txt, ppvName)) {
+          console.log(`✅ [Banner] PPV found in slide ${i}`);
+
+          await slide.evaluate((el:any)=>{
+            const swiper = el.closest('.swiper')?.swiper || el.closest('[class*=swiper]')?.swiper;
+            if (!swiper) return;
+
+            const idx = el.getAttribute('data-swiper-slide-index');
+            if (idx !== null) {
+              swiper.slideToLoop(Number(idx),0,false);
+            }
+          }).catch(()=>{});
+
+          await this.page.waitForTimeout(500);
+          await stopAllAutoSlide();
+
+          return carousel.locator(selectors.banner.activeSlide).first();
+        }
+      }
+
+      // Check if this is our PPV
+      if (currentText && this.matchesPPVName(currentText, ppvName)) {
+        console.log(`✅ [Banner] PPV found after ${attempt} clicks`);
+        await stopAllAutoSlide();
+        // Store slide index for later re-navigation
+        const slideIndex = await carousel.locator(selectors.banner.activeSlide).first()
+          .getAttribute('data-swiper-slide-index').catch(() => null);
+        if (slideIndex !== null) eventData._ppvBannerSlideIndex = slideIndex;
+        // Check if Buy Now exists on this slide
+        const activeSlide = carousel.locator(selectors.banner.activeSlide).locator(':visible').first();
+        const hasBuyNow = await activeSlide.locator('a:has-text("Buy now"), button:has-text("Buy now"), a:has-text("Buy Now"), button:has-text("Buy Now")').first().isVisible({ timeout: 2000 }).catch(() => false);
+        if (hasBuyNow) {
+          console.log(`✅ [Banner] Buy Now found on PPV slide`);
+        } else {
+          console.log(`⚠️ [Banner] PPV slide found but no Buy Now button — returning slide anyway`);
+        }
+        await stopAllAutoSlide();
         return activeSlide;
       }
-      console.log(`ℹ️  Active slide: "${activeText.substring(0, 50)}..." — not our PPV`);
-    } else {
-      // If active slide locator is not visible, check if we have any swiper slides
-      const slides = this.bannerSlides(carousel);
-      const slideCount = await slides.count().catch(() => 0);
-      if (slideCount === 0) {
-        console.log('🔍 [Banner] No swiper slides found. Checking static banner container content...');
-        const containerText = await carousel.textContent().catch(() => '');
-        if (containerText && this.matchesPPVName(containerText, ppvName)) {
-          console.log('✅ [Banner] PPV found on static banner container');
-          return carousel;
-        }
-        console.log('⚠️ [Banner] PPV not found on static banner');
-        return null;
+
+      // Loop detection: if we've cycled back to the first slide, PPV isn't in carousel
+      if (attempt > 0 && currentText && firstSlideText && currentText.substring(0, 100) === firstSlideText) {
+        console.log('🔁 [Banner] Carousel looped back to first slide — PPV not in carousel');
+        break;
       }
-    }
 
-    // Navigate carousel using "Buy now" + CheVRON buttons
-    try {
-      const nextBtnSelectors = [
-        selectors.banner.nextButton,
-        '.swiper-button-next',
-        '[class*="swiper-button-next"]',
-        'button[data-test-id="CHEVRON_RIGHT_ICON"]',
-        'svg[data-test-id="CHEVRON_RIGHT_ICON"]',
-        '[aria-label="Next slide"]',
-        'button[aria-label*="next" i]',
-        'button[class*="swiper-next" i]',
-        'button[class*="chevron" i]',
-      ].filter(Boolean).join(', ');
+      // Click next
+      console.log(`  slide ${attempt + 1}: "${currentText.substring(0, 50)}..." — clicking next`);
 
-      const nextBtn = carousel.locator(nextBtnSelectors).first();
-      let firstSlideText = '';
+      // Hover over the carousel to reveal chevron/navigation buttons
+      await carousel.hover().catch(() => {});
+      await this.page.waitForTimeout(200);
 
-      for (let attempt = 0; attempt < 6; attempt++) {
-        await this.stopCarouselAutoSlide();
+      // Check if next button exists in carousel DOM
+      const nextBtnExists = await nextBtn.count().catch(() => 0) > 0;
+      let nextBtnVisible = nextBtnExists || await nextBtn.isVisible({ timeout: 1000 }).catch(() => false);
 
-        let currentText = '';
-        const current = carousel.locator(selectors.banner.activeSlide).locator(':visible').first();
-
-        if (await current.isVisible({ timeout: 1000 }).catch(() => false)) {
-          currentText = (await current.textContent().catch(() => ''))?.trim() || '';
-        } else {
-          // Fallback: re-read carousel text
-          currentText = (await carousel.innerText().catch(() => ''))?.trim() || '';
-        }
-
-        if (currentText && this.matchesPPVName(currentText, ppvName)) {
-          console.log(`✅ [Banner] PPV found after ${attempt} clicks`);
-          await this.stopCarouselAutoSlide();
-          await this.page.waitForTimeout(200);
-          await this.stopCarouselAutoSlide();
-          return current;
-        }
-
-        // Loop detection
-        if (attempt === 0) {
-          firstSlideText = currentText.substring(0, 100);
-        } else if (attempt > 2 && currentText.substring(0, 100) === firstSlideText) {
-          console.log('🔁 [Banner] Carousel looped — PPV not found');
-          break;
-        }
-
-        console.log(`  slide ${attempt + 1}: "${currentText.substring(0, 50)}..." — clicking next`);
-
+      if (nextBtnVisible) {
         const prevText = currentText;
-        if (await nextBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
-          await nextBtn.click({ force: true }).catch(() => { });
+        await nextBtn.click({ force: true }).catch(() => {});
 
-          // Wait up to 3 seconds for slide text to change
-          await this.page.waitForFunction((args) => {
-            const activeEl = document.querySelector(args.activeSelector);
-            const text = activeEl?.textContent?.trim() || '';
-            return text !== args.prevText;
-          }, { activeSelector: selectors.banner.activeSlide, prevText }, { timeout: 3000 }).catch(() => { });
+        // Wait for slide transition
+        await this.page.waitForFunction((args) => {
+          const activeEl = document.querySelector(args.activeSelector);
+          const text = activeEl?.textContent?.trim() || '';
+          return text !== args.prevText;
+        }, { activeSelector: selectors.banner.activeSlide, prevText }, { timeout: 3000 }).catch(() => {});
 
-          await this.page.waitForTimeout(800); // Wait a brief moment for swiper to fully settle
-          await this.stopCarouselAutoSlide();
-        } else {
-          // Try clicking carousel area to trigger slide change
-          console.log('⚠️  Next button not visible — trying carousel click');
-          await carousel.click({ force: true }).catch(() => { });
-
-          await this.page.waitForFunction((args) => {
-            const activeEl = document.querySelector(args.activeSelector);
-            const text = activeEl?.textContent?.trim() || '';
-            return text !== args.prevText;
-          }, { activeSelector: selectors.banner.activeSlide, prevText }, { timeout: 3000 }).catch(() => { });
-
-          await this.page.waitForTimeout(800);
-          await this.stopCarouselAutoSlide();
-
-          if (attempt > 3) {
-            console.log('⚠️  [Banner] Cannot navigate carousel — giving up');
-            break;
-          }
-        }
+        await this.page.waitForTimeout(500);
+        await stopAllAutoSlide();
+      } else {
+        console.log('⚠️  [Banner] Next button not found in carousel DOM — cannot navigate further');
+        break;
       }
-    } catch (e) {
-      console.log(`⚠️ [Banner] Carousel navigation failed: ${(e as Error).message}`);
     }
 
-    // Check all slides directly using the resilient selector
-    console.log('🔍 [Banner] Checking all slides (resilient selector)...');
+    // ─────────────────────────────────────────────────────────
+    // Fallback: Check all slides directly via DOM (in case navigation missed one)
+    // ─────────────────────────────────────────────────────────
+    console.log('🔍 [Banner] Checking all slides directly...');
     const allSlides = this.bannerSlides(carousel);
     const slideCount = await allSlides.count().catch(() => 0);
 
     for (let i = 0; i < slideCount; i++) {
       const slide = allSlides.nth(i);
-      if (!await slide.isVisible().catch(() => false)) continue;
-      const text = (await slide.textContent().catch(() => ''))?.trim() || '';
+      const text = ((await slide.textContent().catch(() => '')) || '').trim();
       if (text && this.matchesPPVName(text, ppvName)) {
-        console.log(`✅ [Banner] PPV found in slide ${i} — navigating`);
+        console.log(`✅ [Banner] PPV found in slide ${i} — navigating via Swiper API`);
+        // Navigate swiper to this slide
         await this.page.evaluate((index) => {
           const swiperEl = document.querySelector('.swiper') as any;
           if (swiperEl?.swiper) {
@@ -284,17 +376,24 @@ export class LandingPage extends BasePage {
               swiperEl.swiper.slideTo(index);
             }
           }
-        }, i).catch(() => { });
+        }, i).catch(() => {});
 
         await this.page.waitForTimeout(500);
-        await this.stopCarouselAutoSlide();
-        await this.page.waitForTimeout(200);
-        await this.stopCarouselAutoSlide();
+        await stopAllAutoSlide();
+
+        // Store slide index
+        eventData._ppvBannerSlideIndex = String(i);
+
+        // Return the now-active slide (fresh locator, not stale reference)
+        const activeAfterNav = carousel.locator(selectors.banner.activeSlide).locator(':visible').first();
+        if (await activeAfterNav.isVisible({ timeout: 2000 }).catch(() => false)) {
+          return activeAfterNav;
+        }
         return slide;
       }
     }
 
-    console.log('⚠️  [Banner] PPV not found in carousel');
+    console.log('⚠️  [Banner] PPV not found in carousel after checking all slides');
     return null;
   }
 
@@ -733,6 +832,7 @@ export class LandingPage extends BasePage {
           console.log('⚠️ [WelcomeRail] Next button disabled — end of rail');
           break;
         }
+
         await nextBtn.click({ force: true }).catch(() => { });
         await this.page.waitForTimeout(800);
       } else {
@@ -787,8 +887,11 @@ export class LandingPage extends BasePage {
     let targetContainer = container;
 
     // Check if container is a swiper slide
+    // Skip swiper slide activation for banner sources — findPPVInBanner already
+    // ensures the correct slide is active with auto-slide stopped
     try {
-      const isSwiperSlide = await container.evaluate((node: HTMLElement) => {
+      const isBannerSource = src.includes('banner');
+      const isSwiperSlide = !isBannerSource && await container.evaluate((node: HTMLElement) => {
         return node.classList.contains('swiper-slide') || !!node.closest('.swiper-slide');
       }).catch(() => false);
 
@@ -892,10 +995,21 @@ export class LandingPage extends BasePage {
     console.log(`📋 Container preview: "${containerText.substring(0, 80)}"`);
 
     // Check if carousel rotated away (container is stale/invisible)
-    const containerBox = await targetContainer.boundingBox().catch(() => null);
+    let containerBox = await targetContainer.boundingBox().catch(() => null);
+    if (src.includes('banner') && (containerText.length === 0 || !containerBox || containerBox.width === 0)) {
+      console.log('🔄 Re-finding active banner slide container...');
+      const activeSlide = this.page.locator(selectors.banner.activeSlide).locator(':visible').first();
+      if (await activeSlide.isVisible().catch(() => false)) {
+        targetContainer = activeSlide;
+        containerText = (await targetContainer.textContent().catch(() => ''))?.trim() || '';
+        containerBox = await targetContainer.boundingBox().catch(() => null);
+        console.log(`📋 Re-found container preview: "${containerText.substring(0, 80)}"`);
+      }
+    }
+
     if (containerText.length === 0 || (containerBox && containerBox.width === 0)) {
-      console.log('⚠️  Container appears stale/rotated away — re-finding Buy Now on page');
-      containerText = ''; // Force fallback path below
+      console.log('⚠️  Container appears stale or rotated away');
+      containerText = '';
     }
 
     let buyNowBtn: any = null;
@@ -914,63 +1028,13 @@ export class LandingPage extends BasePage {
         // The container might BE the Buy Now link (e.g., <a> with "Buy now" text)
         if (/buy now/i.test(containerText)) {
           buyNowBtn = targetContainer;
-        } else if (src.includes('banner') || src.includes('tile') || src.includes('dont-miss')) {
-          // Strict: for banner/tile sources, do NOT fall back to clicking random buttons
-          throw new Error(
-            `❌ [${src.includes('banner') ? 'Banner' : 'Tile'}] "Buy Now" button not found inside PPV container. ` +
-            `Container text: "${containerText.substring(0, 100)}". ` +
-            `Will not click arbitrary buttons — the PPV may not have a Buy Now CTA in this source.`
-          );
-        } else {
-          buyNowBtn = null; // Force fallback for other sources
         }
-      }
-    }
-
-    // Fallback: container is empty/stale — search page-level for visible Buy Now
-    if (!buyNowBtn || containerText.length === 0) {
-      if (src.includes('tile') || src.includes('dont-miss')) {
-        throw new Error(`❌ [Tile] Buy Now button not found or stale inside PPV tile container.`);
-      }
-      if (src.includes('banner')) {
-        throw new Error(`❌ [Banner] Buy Now button not found or stale inside PPV banner container.`);
-      }
-      console.log('🔄 Container empty or Buy Now not found — falling back to page-level search');
-      const pageBuyNow = this.page.locator('a:has-text("Buy now"), button:has-text("Buy now")');
-      const count = await pageBuyNow.count().catch(() => 0);
-
-      for (let i = 0; i < count; i++) {
-        const btn = pageBuyNow.nth(i);
-        if (!(await btn.isVisible().catch(() => false))) continue;
-
-        // Exclude banner Buy Now buttons (hero section at top of page)
-        const isBanner = await btn.evaluate((el: HTMLElement) => {
-          const rect = el.getBoundingClientRect();
-          const pageY = rect.top + window.scrollY;
-          if (pageY > 0 && pageY < 750) return true;
-          let parent = el.parentElement;
-          for (let d = 0; d < 15; d++) {
-            if (!parent) break;
-            const cls = typeof parent.className === 'string' ? parent.className.toLowerCase() : '';
-            if (cls.includes('hero') || (cls.includes('banner') && !cls.includes('rail'))) return true;
-            parent = parent.parentElement;
-          }
-          return false;
-        }).catch(() => false);
-
-        if (isBanner && !src.includes('banner')) {
-          console.log(`  [Fallback] Skipping banner Buy Now button ${i}`);
-          continue;
-        }
-
-        buyNowBtn = btn;
-        console.log(`✅ [Fallback] Found visible Buy Now button at index ${i}`);
-        break;
       }
     }
 
     if (!buyNowBtn) {
-      throw new Error('❌ Buy Now button not found — neither in container nor on page');
+      const typeLabel = src.includes('banner') ? 'Banner' : (src.includes('welcome-rail') ? 'Welcome Rail' : 'Tile');
+      throw new Error(`❌ [${typeLabel}] "Buy Now" button not found or stale inside PPV container.`);
     }
 
     // Wait for Buy Now to be visible
