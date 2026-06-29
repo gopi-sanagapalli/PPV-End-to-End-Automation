@@ -881,15 +881,9 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
       console.log(`║  User   : ${USER_STATE.padEnd(40)}║`);
       console.log(`╚════════════════════════════════════════════════════╝\n`);
 
-      console.log('🧹 Clearing DAZN app data to ensure a completely fresh start...');
-      adb(`shell pm clear ${APP_PACKAGE}`);
-      await browser.pause(2000);
-      console.log('📱 Launching DAZN app fresh...');
+      console.log('📱 Launching DAZN app...');
       await browser.activateApp(APP_PACKAGE);
       await browser.pause(6000);
-
-      // Call accept cookies method
-      await acceptAppCookies(browser);
     });
 
     it('navigates to PPV buy button as existing user, opens Chrome, captures checkout URL', async () => {
@@ -1085,9 +1079,8 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
         const inputSelectors = [
           `android=new UiSelector().className("android.widget.EditText")`,
           `android=new UiSelector().resourceIdMatches(".*search_src_text.*")`,
-          `android=new UiSelector().resourceIdMatches(".*search.*")`,
           `//android.widget.EditText`,
-          `//*[contains(@resource-id, "search")]`
+          `//android.widget.EditText[contains(@resource-id, "search")]`
         ];
 
         for (const selector of inputSelectors) {
