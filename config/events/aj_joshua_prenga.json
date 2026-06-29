@@ -16,6 +16,10 @@
   "PPV_TIME": "00:30",
 
   "BOXING_BANNER_DATE": "SAT 25TH JUL",
+<<<<<<< HEAD
+=======
+  "LANDING_BANNER_DATE": "SAT 25TH JUL AT 21:30",
+>>>>>>> svp-demo
   "BOXING_BANNER_SUBTITLE": "Main Event • Riyadh, Saudi Arabia • 21:30",
   "BOXING_UPCOMING_DATE": "JUL 25",
   "LANDING_DONT_MISS_DATE": "JUL 25",
@@ -23,6 +27,10 @@
 
   "PPV_CARD_TITLE": "Joshua vs. Prenga",
   "PPV_CARD_DESCRIPTION": "Just the fight - plus 7 days of DAZN Standard, free",
+<<<<<<< HEAD
+=======
+  "BANNER_DESCRIPTION": "AJ returns to the ring against Prenga, an unbeaten unknown with nothing to lose. One upset could change everything.",
+>>>>>>> svp-demo
 
   "BUNDLE_NAME": "The Contender Bundle",
   "BUNDLE_DESCRIPTION": "From Box Office to World Class. Two big fight nights in one bundle.",

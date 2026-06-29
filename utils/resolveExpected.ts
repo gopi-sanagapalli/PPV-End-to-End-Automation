@@ -73,6 +73,20 @@ export function resolveExpected(
 
   const currentSource = (eventData.SOURCE || eventData.source || '').trim().toLowerCase();
 
+<<<<<<< HEAD
+=======
+
+  // Landing banner uses its own display date
+  if (
+    field === 'banner - event date' &&
+    (pageName || '').toLowerCase().startsWith('landing') &&
+    eventData.LANDING_BANNER_DATE
+  ) {
+    return String(eventData.LANDING_BANNER_DATE);
+  }
+
+
+>>>>>>> svp-demo
   // Page-specific date expectations
   if (field === 'ppv date and time text') {
     switch ((pageName || "").toLowerCase()) {
@@ -82,7 +96,16 @@ export function resolveExpected(
 
       case 'landing':
       case 'landing page':
+<<<<<<< HEAD
         if (eventData.LANDING_BANNER_DATE) return String(eventData.LANDING_BANNER_DATE);
+=======
+        if (field === 'banner - event date' && eventData.LANDING_BANNER_DATE) {
+          return String(eventData.LANDING_BANNER_DATE);
+        }
+        if (eventData.LANDING_BANNER_DATE) {
+          return String(eventData.LANDING_BANNER_DATE);
+        }
+>>>>>>> svp-demo
         break;
 
       case 'ppv':
@@ -98,6 +121,14 @@ export function resolveExpected(
   // Page-specific subtitle expectations
   if (field === 'event subtitle' && (pageName || "").toLowerCase() === 'boxing' && eventData.BOXING_BANNER_SUBTITLE) {
     return String(eventData.BOXING_BANNER_SUBTITLE);
+<<<<<<< HEAD
+=======
+  }
+
+
+  if (field === 'banner - event description' && eventData.BANNER_DESCRIPTION) {
+    return String(eventData.BANNER_DESCRIPTION);
+>>>>>>> svp-demo
   }
 
   // home-page-dazntile opens the first eligible DAZN entitlement tile.

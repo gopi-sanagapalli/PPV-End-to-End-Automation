@@ -151,6 +151,7 @@ export class LandingPage extends BasePage {
       return null;
     }
 
+<<<<<<< HEAD
     // Check active slide first — try selectors.json path, then fallback to carousel content
     const activeSlide = carousel.locator(selectors.banner.activeSlide).locator(':visible').first();
     let activeText = '';
@@ -159,6 +160,122 @@ export class LandingPage extends BasePage {
       activeText = (await activeSlide.textContent().catch(() => ''))?.trim() || '';
       if (activeText && this.matchesPPVName(activeText, ppvName)) {
         console.log(`✅ [Banner] PPV already on active slide`);
+=======
+    // Scroll to the carousel to ensure it is in view for hover/click interactions
+    await carousel.scrollIntoViewIfNeeded().catch(() => {});
+    await stopAllAutoSlide();
+
+    // Helper to get the currently active slide text
+    const getActiveSlideText = async (): Promise<string> => {
+      const active = carousel.locator(selectors.banner.activeSlide).locator(':visible').first();
+      if (await active.isVisible({ timeout: 1000 }).catch(() => false)) {
+        return ((await active.textContent().catch(() => '')) || '').trim();
+      }
+      return '';
+    };
+
+    // Check active slide first
+    const activeText = await getActiveSlideText();
+    if (activeText && this.matchesPPVName(activeText, ppvName)) {
+      console.log(`✅ [Banner] PPV already on active slide`);
+      await stopAllAutoSlide();
+      // Store the data-swiper-slide-index of this active slide so validateVariant can re-navigate
+      const slideIndex = await carousel.locator(selectors.banner.activeSlide).first()
+        .getAttribute('data-swiper-slide-index').catch(() => null);
+      if (slideIndex !== null) eventData._ppvBannerSlideIndex = slideIndex;
+      return carousel.locator(selectors.banner.activeSlide).locator(':visible').first();
+    }
+    console.log(`ℹ️  Active slide: "${activeText.substring(0, 60)}..." — not our PPV`);
+
+    // Check if swiper has slides at all
+    const slides = this.bannerSlides(carousel);
+    const totalSlideCount = await slides.count().catch(() => 0);
+    if (totalSlideCount === 0) {
+      // Static banner (no swiper slides)
+      const containerText = await carousel.textContent().catch(() => '');
+      if (containerText && this.matchesPPVName(containerText, ppvName)) {
+        console.log('✅ [Banner] PPV found on static banner container');
+        return carousel;
+      }
+      console.log('⚠️ [Banner] PPV not found on static banner');
+      return null;
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // Navigate carousel using > (next) button to find the PPV
+    // ─────────────────────────────────────────────────────────
+    const nextBtnSelectors = [
+      selectors.banner.nextButton,
+      '.swiper-button-next',
+      '[class*="swiper-button-next"]',
+      'button[data-test-id="CHEVRON_RIGHT_ICON"]',
+      'svg[data-test-id="CHEVRON_RIGHT_ICON"]',
+      '[aria-label="Next slide"]',
+      'button[aria-label*="next" i]',
+      'button[class*="swiper-next" i]',
+      'button[class*="chevron" i]',
+      '[class*="chevron-right" i]',
+      '[class*="chevron-next" i]',
+      '[class*="next-button" i]',
+      '[class*="button-next" i]',
+    ].filter(Boolean).join(', ');
+
+    let nextBtn = carousel.locator(nextBtnSelectors).first();
+    let firstSlideText = activeText.substring(0, 100);
+    const maxSlides = Math.max(totalSlideCount + 2, 10); // Navigate at most totalSlides + buffer
+
+    for (let attempt = 0; attempt < maxSlides; attempt++) {
+      await stopAllAutoSlide();
+
+      // Read current active slide
+      const currentText = await getActiveSlideText();
+
+      // Scan every swiper slide before navigating.
+      const allSlides = this.bannerSlides(carousel);
+      const slideCount = await allSlides.count().catch(() => 0);
+
+      for (let i = 0; i < slideCount; i++) {
+        const slide = allSlides.nth(i);
+        const txt = ((await slide.textContent().catch(() => '')) || '').trim();
+
+        if (txt && this.matchesPPVName(txt, ppvName)) {
+          console.log(`✅ [Banner] PPV found in slide ${i}`);
+
+          await slide.evaluate((el:any)=>{
+            const swiper = el.closest('.swiper')?.swiper || el.closest('[class*=swiper]')?.swiper;
+            if (!swiper) return;
+
+            const idx = el.getAttribute('data-swiper-slide-index');
+            if (idx !== null) {
+              swiper.slideToLoop(Number(idx),0,false);
+            }
+          }).catch(()=>{});
+
+          await this.page.waitForTimeout(500);
+          await stopAllAutoSlide();
+
+          return carousel.locator(selectors.banner.activeSlide).first();
+        }
+      }
+
+      // Check if this is our PPV
+      if (currentText && this.matchesPPVName(currentText, ppvName)) {
+        console.log(`✅ [Banner] PPV found after ${attempt} clicks`);
+        await stopAllAutoSlide();
+        // Store slide index for later re-navigation
+        const slideIndex = await carousel.locator(selectors.banner.activeSlide).first()
+          .getAttribute('data-swiper-slide-index').catch(() => null);
+        if (slideIndex !== null) eventData._ppvBannerSlideIndex = slideIndex;
+        // Check if Buy Now exists on this slide
+        const activeSlide = carousel.locator(selectors.banner.activeSlide).locator(':visible').first();
+        const hasBuyNow = await activeSlide.locator('a:has-text("Buy now"), button:has-text("Buy now"), a:has-text("Buy Now"), button:has-text("Buy Now")').first().isVisible({ timeout: 2000 }).catch(() => false);
+        if (hasBuyNow) {
+          console.log(`✅ [Banner] Buy Now found on PPV slide`);
+        } else {
+          console.log(`⚠️ [Banner] PPV slide found but no Buy Now button — returning slide anyway`);
+        }
+        await stopAllAutoSlide();
+>>>>>>> svp-demo
         return activeSlide;
       }
       console.log(`ℹ️  Active slide: "${activeText.substring(0, 50)}..." — not our PPV`);
@@ -733,6 +850,7 @@ export class LandingPage extends BasePage {
           console.log('⚠️ [WelcomeRail] Next button disabled — end of rail');
           break;
         }
+
         await nextBtn.click({ force: true }).catch(() => { });
         await this.page.waitForTimeout(800);
       } else {
