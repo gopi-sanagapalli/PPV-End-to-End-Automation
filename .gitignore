@@ -35,3 +35,6 @@ actions-runner-5/
 .credentials_rsaparams
 _work/
 _diag/
+
+# AI Tooling & Project Context directories
+PROJECT_CONTEXT_AI/
