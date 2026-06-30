@@ -18,6 +18,39 @@ export class PaymentPage extends BasePage {
     super(page);
   }
 
+  private async capturePreValidationState(eventData: Record<string, string>): Promise<void> {
+    const source = (eventData.SOURCE || eventData.source || 'unknown').replace(/[^a-z0-9_-]/gi, '_');
+    const mode = String(eventData.MOBILE_WEB_HANDOFF || '').toLowerCase() === 'true'
+      ? 'android-handoff'
+      : 'desktop-web';
+    const url = this.page.url();
+    const viewport = this.page.viewportSize();
+
+    console.log(`🔎 [PreValidation:Payment] mode=${mode}`);
+    console.log(`🔎 [PreValidation:Payment] source=${source}`);
+    console.log(`🔎 [PreValidation:Payment] url=${url}`);
+    if (viewport) {
+      console.log(`🔎 [PreValidation:Payment] viewport=${viewport.width}x${viewport.height}`);
+    }
+
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const dir = path.resolve(process.cwd(), 'test-results', 'pre-validation');
+      fs.mkdirSync(dir, { recursive: true });
+
+      const base = `${mode}_${source}_Payment`;
+      const html = await this.page.content().catch(() => '');
+      const text = await this.page.locator('body').innerText({ timeout: 2000 }).catch(() => '');
+      fs.writeFileSync(path.join(dir, `${base}.url.txt`), `${url}\n`, 'utf-8');
+      fs.writeFileSync(path.join(dir, `${base}.html`), html, 'utf-8');
+      fs.writeFileSync(path.join(dir, `${base}.txt`), text, 'utf-8');
+      console.log(`🔎 [PreValidation:Payment] DOM saved: ${path.join(dir, base)}.{url.txt,html,txt}`);
+    } catch (error: any) {
+      console.log(`⚠️ [PreValidation:Payment] Could not save DOM snapshot: ${error?.message || error}`);
+    }
+  }
+
   // ─────────────────────────────
   // CHECK IF ON PAYMENT PAGE
   // ─────────────────────────────
@@ -88,6 +121,8 @@ export class PaymentPage extends BasePage {
       console.log('⚠️ Warning: payment options text did not appear within 10s');
     });
 
+    await this.capturePreValidationState(eventData);
+
     // Dynamically extract name from page — fast targeted selector
     let signedInText = '';
     try {
@@ -135,6 +170,14 @@ export class PaymentPage extends BasePage {
       }
       if (fieldLower === 'ultimate upsell price') {
         console.log(`  ⏭️  Skipping [${field}] in standard loop — should not be validated before switching`);
+        continue;
+      }
+      const isMobileWebHandoff = String(eventData.MOBILE_WEB_HANDOFF || '').toLowerCase() === 'true';
+      if (
+        isMobileWebHandoff &&
+        (fieldLower === 'payment method heading' || fieldLower === 'purchase summary heading')
+      ) {
+        console.log(`  ⏭️  Skipping [${field}] — not applicable on mobile browser handoff`);
         continue;
       }
 
@@ -700,6 +743,56 @@ export class PaymentPage extends BasePage {
     const fieldLower = field.toLowerCase().replace(/\s+/g, ' ').trim();
     const lower = bodyText.toLowerCase();
     const lines = bodyText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    const findVisibleShortText = async (exactText: string, containsText: string): Promise<string> => {
+      const exact = await this.page.getByText(exactText, { exact: true }).first()
+        .innerText({ timeout: 1500 }).catch(() => '');
+      if (exact.trim()) return exact.trim();
+
+      const candidate = await this.page.evaluate(({ needle, exactNeedle }: { needle: string; exactNeedle: string }) => {
+        const normalise = (value: string) => value.replace(/\s+/g, ' ').trim();
+        const isVisible = (el: Element) => {
+          const style = window.getComputedStyle(el);
+          const rect = el.getBoundingClientRect();
+          return style.visibility !== 'hidden' &&
+            style.display !== 'none' &&
+            rect.width > 0 &&
+            rect.height > 0;
+        };
+        const lowerNeedle = needle.toLowerCase();
+        const isHeadingCandidate = (text: string, childCount: number) => {
+          const lowerText = text.toLowerCase();
+          if (lowerText === exactNeedle.toLowerCase()) return true;
+          if (lowerNeedle === 'payment method') {
+            return lowerText.includes(lowerNeedle) &&
+              text.length <= 40 &&
+              childCount <= 1 &&
+              !lowerText.includes('paypal') &&
+              !lowerText.includes('default payment method');
+          }
+          return lowerText.includes(lowerNeedle) && text.length <= 40 && childCount <= 1;
+        };
+
+        return Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6,p,span,div,section'))
+          .map((el) => ({
+            text: normalise((el as HTMLElement).innerText || el.textContent || ''),
+            childCount: el.children.length,
+            visible: isVisible(el),
+          }))
+          .filter(({ text, childCount, visible }) =>
+            visible &&
+            isHeadingCandidate(text, childCount)
+          )
+          .sort((a, b) => {
+            const exactA = a.text.toLowerCase() === needle.toLowerCase() ? 0 : 1;
+            const exactB = b.text.toLowerCase() === needle.toLowerCase() ? 0 : 1;
+            if (exactA !== exactB) return exactA - exactB;
+            if (a.childCount !== b.childCount) return a.childCount - b.childCount;
+            return a.text.length - b.text.length;
+          })[0]?.text || '';
+      }, { needle: containsText, exactNeedle: exactText }).catch(() => '');
+
+      return candidate.trim();
+    };
 
     // ── Page title ─────────────────────────────────────────────
     if (fieldLower === 'page title' || fieldLower === 'pagetitle' || fieldLower === 'page heading') {
@@ -766,16 +859,31 @@ export class PaymentPage extends BasePage {
 
     // ── Payment Method Heading ──────────────────────────────────
     if (fieldLower === 'payment method heading') {
+      const visible = await findVisibleShortText('Payment method', 'payment method');
+      if (visible) return visible;
+
       for (const line of lines) {
         if (line.toLowerCase() === 'payment method') return line;
       }
       for (const line of lines) {
-        if (line.toLowerCase().includes('payment method') && line.length < 40) return line;
+        const lineLower = line.toLowerCase();
+        if (
+          lineLower.includes('payment method') &&
+          line.length < 40 &&
+          !lineLower.includes('paypal') &&
+          !lineLower.includes('default payment method')
+        ) return line;
       }
       const live = await this.page.locator('h1, h2, h3, h4, h5, p, span, div')
         .filter({ hasText: /payment method/i }).first()
         .innerText({ timeout: 3000 }).catch(() => '');
-      if (live.toLowerCase().includes('payment method') && live.length < 40) {
+      const liveLower = live.toLowerCase();
+      if (
+        liveLower.includes('payment method') &&
+        live.length < 40 &&
+        !liveLower.includes('paypal') &&
+        !liveLower.includes('default payment method')
+      ) {
         return live.trim();
       }
       return 'N/A';
@@ -783,6 +891,9 @@ export class PaymentPage extends BasePage {
 
     // ── Purchase Summary Heading ────────────────────────────────
     if (fieldLower === 'purchase summary heading') {
+      const visible = await findVisibleShortText('Purchase summary', 'purchase summary');
+      if (visible) return visible;
+
       for (const line of lines) {
         if (line.toLowerCase() === 'purchase summary') return line;
       }
@@ -1018,6 +1129,18 @@ export class PaymentPage extends BasePage {
 
     // ── Today You Pay Price ────────────────────────────────────
     if (fieldLower === 'today you pay price' || fieldLower === 'today price') {
+      const linePrice = (() => {
+        const pricePattern = /^(?:AED\s?|[£$€₹]\s?)\d+(?:\.\d{2})?$/;
+        for (let i = 0; i < lines.length; i++) {
+          if (!/today\s+you\s+pay/i.test(lines[i])) continue;
+          for (let j = i + 1; j < Math.min(lines.length, i + 6); j++) {
+            if (pricePattern.test(lines[j])) return lines[j];
+          }
+        }
+        return '';
+      })();
+      if (linePrice) return linePrice;
+
       const livePrice = await this.page.evaluate(() => {
         const isStrike = (el: HTMLElement): boolean => {
           if (el.closest('del, s') !== null) return true;

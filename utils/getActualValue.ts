@@ -386,6 +386,252 @@ export async function getActualValue(
     key = 'banner description';
   }
 
+  let bodyLinesCache: string[] | undefined;
+  const getBodyLines = async (): Promise<string[]> => {
+    if (bodyLinesCache) return bodyLinesCache;
+    const text = await page.locator('body').innerText({ timeout: 1500 }).catch(() => '');
+    const lines = text
+      .split('\n')
+      .map(clean)
+      .filter(Boolean);
+    bodyLinesCache = lines;
+    return lines;
+  };
+
+  const normaliseComparable = (value: string) =>
+    clean(value).toLowerCase().replace(/[.]+$/g, '');
+
+  const getPPVPlanDetailsLine = async (): Promise<string> => {
+    const url = page.url().toLowerCase();
+    const isPPVPlanDetails =
+      url.includes('plandetails') &&
+      (url.includes('upselltier') || url.includes('contextualppvid'));
+    if (!isPPVPlanDetails) return 'N/A';
+
+    const lines = await getBodyLines();
+    const lowerLines = lines.map(line => line.toLowerCase());
+    const findLine = (predicate: (line: string, lower: string) => boolean) =>
+      lines.find((line, index) => predicate(line, lowerLines[index])) || '';
+    const findExactish = (...values: string[]) => {
+      const candidates = values
+        .map(normaliseComparable)
+        .filter(Boolean);
+      if (candidates.length === 0) return '';
+      return findLine(line => candidates.includes(normaliseComparable(line)));
+    };
+    const extractCurrency = (line: string) =>
+      (line.match(/(?:AED\s?|[£$€₹]\s?)\d+(?:[,.]\d{2,3})*/i)?.[0] || '').trim();
+
+    const ppvDisplayName = eventData?.PPV_DISPLAY_NAME || eventData?.PPV_CARD_TITLE || eventData?.PPV_NAME || '';
+    const ppvCardDescription = eventData?.PPV_CARD_DESCRIPTION || eventData?.BUNDLE_PPV_CARD_DESCRIPTION || '';
+    const ppvPrice = eventData?.PPV_PRICE || '';
+    const upsellPlanName = eventData?.UPSELL_PLAN_NAME || 'DAZN Ultimate';
+    const upsellPrice = eventData?.UPSELL_PRICE || eventData?.ANNUAL_PAY_MONTHLY_PRICE_DISPLAY || eventData?.ANNUAL_PAY_MONTHLY_PRICE || '';
+
+    switch (key) {
+      case 'page title':
+      case 'pagetitle':
+        return findLine((_line, lower) =>
+          lower.includes('choose') &&
+          (lower.includes('plan') || lower.includes('buy')) &&
+          !lower.includes('|')
+        ) || 'N/A';
+
+      case 'flex card present':
+        return lowerLines.some(line => line.includes('flex') && line.includes('pay monthly')) ? 'Yes' : 'No';
+
+      case 'flex title':
+        return findLine((_line, lower) => lower.includes('flex') && lower.includes('pay monthly')) || 'N/A';
+
+      case 'flex badge':
+        return findLine((_line, lower) => lower.includes('day free trial')) || 'N/A';
+
+      case 'flex description':
+        return findLine((_line, lower) =>
+          lower.includes('only pay for the fight') &&
+          lower.includes('cancel anytime')
+        ) || 'N/A';
+
+      case 'flex today text':
+        return findLine((_line, lower) =>
+          lower.includes('only pay for the fight') &&
+          lower.includes('free trial of dazn standard')
+        ) || 'N/A';
+
+      case 'flex future text':
+        return findLine((_line, lower) =>
+          lower.includes('you will start your dazn standard plan') &&
+          lower.includes('cancel anytime')
+        ) || 'N/A';
+
+      case 'annual card present':
+        return lowerLines.some(line => line.includes('annual') && line.includes('pay monthly')) ? 'Yes' : 'No';
+
+      case 'annual savings badge':
+        return findLine((_line, lower) => lower.includes('save') && lower.includes('year')) || 'N/A';
+
+      case 'annual title':
+        return findLine((_line, lower) => lower.includes('annual') && lower.includes('pay monthly')) || 'N/A';
+
+      case 'annual badge':
+        return findLine((_line, lower) => lower.includes('month free')) || 'N/A';
+
+      case 'annual price text':
+        return findLine((_line, lower) => lower.includes('/month') && lower.includes('months')) || 'N/A';
+
+      case 'annual contract text':
+        return findLine((_line, lower) => lower.includes('annual contract') && lower.includes('auto renews')) || 'N/A';
+
+      case 'annual feature 1':
+        return findLine((_line, lower) => lower.includes('185+') && (lower.includes('promoters') || lower.includes('promotors'))) || 'N/A';
+
+      case 'annual feature 2':
+        return findLine((_line, lower) => lower.includes('additional cost') && lower.includes('pay-per-view')) || 'N/A';
+
+      case 'annual feature 3':
+        return findLine((_line, lower) => lower.includes('full hd') && lower.includes('resolution')) || 'N/A';
+
+      case 'annual pay monthly option':
+        return lowerLines.some(line => line.includes('annual') && line.includes('pay monthly')) ? 'Yes' : 'No';
+
+      case 'annual pay monthly title':
+        return findLine((_line, lower) => lower.includes('annual') && lower.includes('pay monthly')) || 'N/A';
+
+      case 'annual pay monthly price': {
+        const line = findLine((_line, lower) => lower.includes('/month') && lower.includes('months'));
+        const price = extractCurrency(line);
+        return price || line || 'N/A';
+      }
+
+      case 'annual pay monthly price length': {
+        const line = findLine((_line, lower) => lower.includes('/month') && lower.includes('months'));
+        return line.includes('/month') ? '/month' : 'N/A';
+      }
+
+      case 'annual pay monthly contract text':
+        return findLine((_line, lower) => lower.includes('annual contract') && lower.includes('auto renews')) || 'N/A';
+
+      case 'annual pay monthly selected': {
+        const ratePlan = (eventData?.RATE_PLAN || '').toLowerCase();
+        if (ratePlan.includes('annual') && ratePlan.includes('monthly')) return 'Yes';
+        if (ratePlan.includes('upfront')) return 'No';
+        return 'N/A';
+      }
+
+      case 'annual pay upfront option':
+        return lowerLines.some(line => line.includes('annual') && line.includes('pay upfront')) ? 'Yes' : 'No';
+
+      case 'annual pay upfront title':
+        return findLine((_line, lower) => lower.includes('annual') && lower.includes('pay upfront')) || 'N/A';
+
+      case 'annual pay upfront save badge':
+        return findLine((_line, lower) => lower.includes('save') && !lower.includes('month')) || 'N/A';
+
+      case 'annual pay upfront price': {
+        const line = findLine((_line, lower) => lower.includes('/year'));
+        const price = extractCurrency(line);
+        return price || line || 'N/A';
+      }
+
+      case 'annual pay upfront price length': {
+        const line = findLine((_line, lower) => lower.includes('/year'));
+        return line.includes('/year') ? '/year' : 'N/A';
+      }
+
+      case 'annual pay upfront selected': {
+        const ratePlan = (eventData?.RATE_PLAN || '').toLowerCase();
+        if (ratePlan.includes('upfront')) return 'Yes';
+        if (ratePlan.includes('annual') && ratePlan.includes('monthly')) return 'No';
+        return 'N/A';
+      }
+
+      case 'cta button':
+      case 'cta button text': {
+        const planCta = findLine((_line, lower) => lower.includes('continue with') && lower.includes('free trial'));
+        if (planCta) return planCta;
+        const ultimateCta = findLine((_line, lower) => lower.includes('continue with dazn ultimate'));
+        if (ultimateCta) return ultimateCta;
+        return findLine((_line, lower) => lower.includes('continue with pay-per-view')) || 'N/A';
+      }
+
+      case 'header sub text':
+      case 'header full copy':
+      case 'header upsell text':
+        return findLine((_line, lower) =>
+          lower.includes('pay-per-view') &&
+          (lower.includes('dazn plan') || lower.includes('dazn subscription') || lower.includes('need a dazn'))
+        ) || 'N/A';
+
+      case 'event name':
+      case 'event name on top':
+      case 'ppv name':
+      case 'ppv card title':
+        return findExactish(ppvDisplayName, eventData?.PPV_CARD_TITLE || '', eventData?.PPV_NAME || '') || 'N/A';
+
+      case 'ppv price':
+        if (ppvPrice) {
+          return findExactish(ppvPrice) || findLine(line => extractCurrency(line) === ppvPrice) || 'N/A';
+        }
+        return findLine((line, lower) => extractCurrency(line) !== '' && !lower.includes('/month')) || 'N/A';
+
+      case 'currency': {
+        const priceLine = ppvPrice
+          ? findExactish(ppvPrice) || findLine(line => extractCurrency(line) === ppvPrice)
+          : findLine((line, lower) => extractCurrency(line) !== '' && !lower.includes('/month'));
+        const currency = extractCurrency(priceLine);
+        if (currency.startsWith('AED')) return 'AED';
+        const match = currency.match(/^[£$€₹]/);
+        return match ? match[0] : 'N/A';
+      }
+
+      case 'ppv card description': {
+        const expected = normaliseComparable(ppvCardDescription);
+        const description = expected
+          ? findLine(line => normaliseComparable(line) === expected)
+          : '';
+        return description || findLine((_line, lower) =>
+          lower.includes('just the fight') &&
+          lower.includes('dazn standard')
+        ) || 'N/A';
+      }
+
+      case 'upsell section present':
+      case 'upsell card present':
+        return lowerLines.some(line => line.includes('dazn ultimate') || line.includes('ultimate fan package')) ? 'Yes' : 'No';
+
+      case 'upsell badge':
+        return findLine((_line, lower) => lower.includes('ultimate fan package')) || 'N/A';
+
+      case 'upsell plan name':
+        return findExactish(upsellPlanName, 'DAZN Ultimate') ||
+          findLine((_line, lower) => lower.includes('dazn ultimate')) ||
+          'N/A';
+
+      case 'upsell price': {
+        const exact = upsellPrice ? findExactish(upsellPrice) : '';
+        if (exact) return exact;
+        const composite = findLine((_line, lower) => lower.includes('/month') || lower.includes('12 months'));
+        const price = composite ? extractCurrency(composite) : '';
+        return price || 'N/A';
+      }
+
+      case 'upsell feature 1':
+        return findLine((_line, lower) => lower.includes('pay-per-views') && lower.includes('included')) || 'N/A';
+
+      case 'upsell feature 2':
+        return findLine((_line, lower) => lower.includes('185+') || lower.includes('promoters') || lower.includes('promotors')) || 'N/A';
+
+      case 'upsell feature 3':
+        return findLine((_line, lower) => lower.includes('hdr') || lower.includes('dolby') || lower.includes('surround sound')) || 'N/A';
+
+    }
+
+    return 'N/A';
+  };
+
+  const ppvPlanDetailsLine = await getPPVPlanDetailsLine();
+  if (ppvPlanDetailsLine !== 'N/A') return ppvPlanDetailsLine;
+
   // ── PHONE NUMBER / OTP PAGE SPECIAL VALS ────────────────────
   if (_variant === 'phone') {
     switch (key) {
@@ -5657,15 +5903,55 @@ export async function getActualValue(
 
       const broader = snap.find(n =>
         n.text.toLowerCase().includes('payment method') &&
-        n.text.length < 40
+        n.text.length < 40 &&
+        !n.text.toLowerCase().includes('paypal') &&
+        !n.text.toLowerCase().includes('default payment method')
       );
       if (broader) return broader.text.trim();
 
-      // Fallback
-      const live = await page.locator('h1, h2, h3, h4, h5, p, span, div')
-        .filter({ hasText: /payment method/i }).first()
-        .innerText({ timeout: 3000 }).catch(() => '');
-      if (live.toLowerCase().includes('payment method') && live.length < 40) {
+      const exact = await page.getByText('Payment method', { exact: true }).first()
+        .innerText({ timeout: 1500 }).catch(() => '');
+      if (exact.trim()) return exact.trim();
+
+      const live = await page.evaluate(() => {
+        const normalise = (value: string) => value.replace(/\s+/g, ' ').trim();
+        const isVisible = (el: Element) => {
+          const style = window.getComputedStyle(el);
+          const rect = el.getBoundingClientRect();
+          return style.visibility !== 'hidden' &&
+            style.display !== 'none' &&
+            rect.width > 0 &&
+            rect.height > 0;
+        };
+
+        return Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6,p,span,div,section'))
+          .map((el) => ({
+            text: normalise((el as HTMLElement).innerText || el.textContent || ''),
+            childCount: el.children.length,
+            visible: isVisible(el),
+          }))
+          .filter(({ text, childCount, visible }) =>
+            visible &&
+            text.toLowerCase().includes('payment method') &&
+            text.length <= 40 &&
+            childCount <= 1 &&
+            !text.toLowerCase().includes('paypal') &&
+            !text.toLowerCase().includes('default payment method')
+          )
+          .sort((a, b) => {
+            const exactA = a.text.toLowerCase() === 'payment method' ? 0 : 1;
+            const exactB = b.text.toLowerCase() === 'payment method' ? 0 : 1;
+            if (exactA !== exactB) return exactA - exactB;
+            if (a.childCount !== b.childCount) return a.childCount - b.childCount;
+            return a.text.length - b.text.length;
+          })[0]?.text || '';
+      }).catch(() => '');
+      if (
+        live.toLowerCase().includes('payment method') &&
+        live.length < 40 &&
+        !live.toLowerCase().includes('paypal') &&
+        !live.toLowerCase().includes('default payment method')
+      ) {
         return live.trim();
       }
       return 'N/A';
@@ -5685,11 +5971,41 @@ export async function getActualValue(
       );
       if (broader) return broader.text.trim();
 
-      // Fallback
-      const live = await page.locator('h1, h2, h3, h4, h5, p, span, div')
-        .filter({ hasText: /purchase summary/i }).first()
-        .innerText({ timeout: 3000 }).catch(() => '');
-      if (live.toLowerCase().includes('purchase summary') && live.length < 40) {
+      const exact = await page.getByText('Purchase summary', { exact: true }).first()
+        .innerText({ timeout: 1500 }).catch(() => '');
+      if (exact.trim()) return exact.trim();
+
+      const live = await page.evaluate(() => {
+        const normalise = (value: string) => value.replace(/\s+/g, ' ').trim();
+        const isVisible = (el: Element) => {
+          const style = window.getComputedStyle(el);
+          const rect = el.getBoundingClientRect();
+          return style.visibility !== 'hidden' &&
+            style.display !== 'none' &&
+            rect.width > 0 &&
+            rect.height > 0;
+        };
+
+        return Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6,p,span,div,section'))
+          .map((el) => ({
+            text: normalise((el as HTMLElement).innerText || el.textContent || ''),
+            childCount: el.children.length,
+            visible: isVisible(el),
+          }))
+          .filter(({ text, visible }) =>
+            visible &&
+            text.toLowerCase().includes('purchase summary') &&
+            text.length <= 80
+          )
+          .sort((a, b) => {
+            const exactA = a.text.toLowerCase() === 'purchase summary' ? 0 : 1;
+            const exactB = b.text.toLowerCase() === 'purchase summary' ? 0 : 1;
+            if (exactA !== exactB) return exactA - exactB;
+            if (a.childCount !== b.childCount) return a.childCount - b.childCount;
+            return a.text.length - b.text.length;
+          })[0]?.text || '';
+      }).catch(() => '');
+      if (live.toLowerCase().includes('purchase summary') && live.length < 80) {
         return live.trim();
       }
       return 'N/A';

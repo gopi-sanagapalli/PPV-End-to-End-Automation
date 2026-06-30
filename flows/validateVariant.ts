@@ -34,6 +34,44 @@ async function getVisibleTextList(locator: any): Promise<string[]> {
   }
 }
 
+async function capturePreValidationState(
+  page: any,
+  pageName: string,
+  eventData: Record<string, string>,
+): Promise<void> {
+  const source = (eventData.SOURCE || eventData.source || 'unknown').replace(/[^a-z0-9_-]/gi, '_');
+  const mode = String(eventData.MOBILE_WEB_HANDOFF || '').toLowerCase() === 'true'
+    ? 'android-handoff'
+    : 'desktop-web';
+  const safePageName = pageName.replace(/[^a-z0-9_-]/gi, '_');
+  const url = page.url();
+  const viewport = page.viewportSize?.() || null;
+
+  console.log(`🔎 [PreValidation:${pageName}] mode=${mode}`);
+  console.log(`🔎 [PreValidation:${pageName}] source=${source}`);
+  console.log(`🔎 [PreValidation:${pageName}] url=${url}`);
+  if (viewport) {
+    console.log(`🔎 [PreValidation:${pageName}] viewport=${viewport.width}x${viewport.height}`);
+  }
+
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const dir = path.resolve(process.cwd(), 'test-results', 'pre-validation');
+    fs.mkdirSync(dir, { recursive: true });
+
+    const base = `${mode}_${source}_${safePageName}`;
+    const html = await page.content().catch(() => '');
+    const text = await page.locator('body').innerText({ timeout: 2000 }).catch(() => '');
+    fs.writeFileSync(path.join(dir, `${base}.url.txt`), `${url}\n`, 'utf-8');
+    fs.writeFileSync(path.join(dir, `${base}.html`), html, 'utf-8');
+    fs.writeFileSync(path.join(dir, `${base}.txt`), text, 'utf-8');
+    console.log(`🔎 [PreValidation:${pageName}] DOM saved: ${path.join(dir, base)}.{url.txt,html,txt}`);
+  } catch (error: any) {
+    console.log(`⚠️ [PreValidation:${pageName}] Could not save DOM snapshot: ${error?.message || error}`);
+  }
+}
+
 export const validateVariant = async (
   page:      any,
   variant:   string,
@@ -198,6 +236,8 @@ export const validateVariant = async (
     console.log('⚠️ Timeout waiting for body text rendering in validateVariant');
   }
 
+  await capturePreValidationState(page, pageName, eventData);
+
   // ── Pre-fetch DOM snapshot ONCE ───────────────────────────────
   const snapshot = await getPageSnapshot(page);
   console.log(`📸 ${pageName} snapshot: ${snapshot.length} nodes`);
@@ -271,10 +311,17 @@ export const validateVariant = async (
     //    shows real content instead of unhelpful 'N/A'. ──────────────────
     const isPresenceCheck = expectedNorm === 'YES' || expectedNorm === 'NO' || expectedNorm === 'VISIBLE' || expectedNorm === 'NOT VISIBLE' || expectedNorm === 'PRESENT' || expectedNorm === 'NOT FOUND';
     const isExpectedNA = expectedNorm === 'N/A' || expectedNorm === '';
+    const strictActualFields = new Set([
+      'page title',
+      'pagetitle',
+      'currency',
+    ]);
+    const fieldLowerForFallback = field.toLowerCase().replace(/\s+/g, ' ').trim();
+    const requiresExactActual = strictActualFields.has(fieldLowerForFallback);
 
-    if (actual === 'N/A' && !isExpectedNA && !isPresenceCheck) {
+    if (actual === 'N/A' && !isExpectedNA && !isPresenceCheck && !requiresExactActual) {
       try {
-        const fieldLower = field.toLowerCase();
+        const fieldLower = fieldLowerForFallback;
         const isPopupField = fieldLower.startsWith('popup');
         const isBannerField = fieldLower.startsWith('banner');
 

@@ -32,10 +32,11 @@ type WdElement = any;
 
 import { execSync } from 'child_process';
 import { writeHandoffUrl, clearHandoffUrl } from '../../utils/handoff';
+import { prepareAndroidApp } from '../../utils/androidSetup';
 
 // ── Config ───────────────────────────────────────────────────────────────────
 const PPV_NAME    = process.env.PPV_NAME    || 'Joshua';
-const SOURCE      = process.env.SOURCE      || 'boxing-upcoming-fights';
+const SOURCE      = (process.env.SOURCE || 'boxing-upcoming-fights').trim().toLowerCase();
 const APP_PACKAGE = process.env.APP_PACKAGE || 'com.dazn';
 const ANDROID_SDK = process.env.ANDROID_HOME || `${process.env.HOME}/Library/Android/sdk`;
 const ADB         = `${ANDROID_SDK}/platform-tools/adb`;
@@ -109,65 +110,6 @@ async function isVisible(driver: WdBrowser, text: string, timeoutMs = 3000): Pro
     return true;
   } catch { return false; }
 }
-
-// ── App startup: dismiss dialogs using ADB taps (dynamic screen size) ──────
-async function dismissStartupDialogs(driver: WdBrowser): Promise<void> {
-  const screen = getScreenSize();
-  const centerX = Math.round(screen.width / 2);
-
-  console.log(`🔍 Dismissing dialogs with ADB taps (screen: ${screen.width}x${screen.height})...`);
-
-  // Dismiss any system dialogs at top of screen
-  const systemDialogY = Math.round(screen.height * 0.15);
-  for (let i = 0; i < 3; i++) {
-    adbTap(centerX, systemDialogY);
-    await driver.pause(500);
-  }
-
-  console.log('🔍 Clicking "Explore" button on landing page...');
-
-  const exploreYPositions = [
-    Math.round(screen.height * 0.08),
-    Math.round(screen.height * 0.10),
-    Math.round(screen.height * 0.12),
-    Math.round(screen.height * 0.06),
-  ];
-
-  const xPositions = [
-    Math.round(screen.width * 0.65),
-    Math.round(screen.width * 0.70),
-    Math.round(screen.width * 0.60),
-    Math.round(screen.width * 0.75),
-  ];
-
-  let exploreClicked = false;
-
-  for (const yPos of exploreYPositions) {
-    for (const x of xPositions) {
-      for (let clickAttempt = 0; clickAttempt < 3; clickAttempt++) {
-        console.log(`  Clicking (${x}, ${yPos}) attempt ${clickAttempt + 1}...`);
-        adbTap(x, yPos);
-        await driver.pause(2500);
-        
-        if (await isVisible(driver, 'Home', 1500) || await isVisible(driver, 'Schedule', 1500) || 
-            await isVisible(driver, 'Sports', 1500) || await isVisible(driver, 'Boxing', 1500)) {
-          console.log(`  ✅ "Explore" button clicked at (${x}, ${yPos}) - now on home screen`);
-          exploreClicked = true;
-          break;
-        }
-      }
-      if (exploreClicked) break;
-    }
-    if (exploreClicked) break;
-  }
-  
-  // Don't wait for specific screens - just continue after a delay
-  console.log('  Continuing without waiting for specific screen...');
-  await driver.pause(2000);
-  console.log('✅ App loaded\n');
-}
-
-
 
 // ── Find PPV banner anywhere on screen ───────────────────────────────────────
 async function findPPVBanner(driver: WdBrowser): Promise<boolean> {
@@ -508,6 +450,8 @@ describe('DAZN Android PPV → Web Handoff', () => {
   before(async () => {
     clearHandoffUrl();
     require('fs').mkdirSync('./test-results', { recursive: true });
+
+    await prepareAndroidApp(browser);
     console.log(`\n╔════════════════════════════════════════════════════╗`);
     console.log(`║  DAZN Android PPV Handoff                          ║`);
     console.log(`║  Event  : ${PPV_NAME.padEnd(40)}║`);
@@ -525,9 +469,7 @@ describe('DAZN Android PPV → Web Handoff', () => {
       bitRate: '2000000',
     }).catch(e => console.error('⚠️ Failed to start screen recording:', e));
 
-    await driver.pause(5000);
-
-    await dismissStartupDialogs(driver);
+    console.log('✅ Startup handled by prepareAndroidApp; beginning PPV navigation');
     
     let buyTapped = false;
 
@@ -1266,6 +1208,7 @@ describe('DAZN Android PPV → Web Handoff', () => {
 
       const { SignupPage } = require('../../../pages/SignupPage');
       const { PaymentPage } = require('../../../pages/PaymentPage');
+      const { SearchPage } = require('../../../pages/SearchPage');
       const { StandalonePPVPage } = require('../../../pages/StandalonePPVPage');
       const { PPVUpsellSuccessPage } = require('../../../pages/PPVUpsellSuccessPage');
       const { PPVUpsellPaymentPage } = require('../../../pages/PPVUpsellPaymentPage');
@@ -1357,12 +1300,12 @@ describe('DAZN Android PPV → Web Handoff', () => {
       const srcLabel = SOURCE.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
       const flowConfig = {
-        name: `Handoff: ${srcLabel} → ${tierName} → ${planName}`,
+        name: `Android: ${srcLabel} → ${tierName} → ${planName}`,
         source: SOURCE,
         tier: planTier,
         ratePlan: ratePlan,
         endPage: 'payment',
-        enableDevMode: false,
+        enableDevMode: isUltimate,
         planKey: PLAN
       };
 
@@ -1377,6 +1320,8 @@ describe('DAZN Android PPV → Web Handoff', () => {
       const eventData = buildEventData(json, REGION, planTier, ratePlan.replace(/-/g, ' '), SOURCE);
       eventData.source = SOURCE;
       eventData.SOURCE = SOURCE;
+      eventData.MOBILE_WEB_HANDOFF = 'true';
+      eventData['MOBILE_WEB_HANDOFF'] = 'true';
 
       // Compute date variables
       const futureDate = new Date();
@@ -1525,6 +1470,17 @@ describe('DAZN Android PPV → Web Handoff', () => {
           console.log(`🖥️ [Page Console] ${text}`);
         }
       });
+
+      if (flowConfig.enableDevMode) {
+        const daznBaseUrl = webCheckoutUrl.match(/https:\/\/[^/]+\/en-[A-Z]+/i)?.[0] || 'https://www.dazn.com/en-GB';
+        console.log(`\n🎭 Ultimate plan detected — enabling dev mode before opening checkout URL...`);
+        console.log(`🧭 Opening DAZN base URL for dev mode: ${daznBaseUrl}`);
+        await page.goto(daznBaseUrl, { waitUntil: 'domcontentloaded' });
+        await handleCookies(page, 8000).catch(() => {});
+        const searchPage = new SearchPage(page);
+        await searchPage.enableDevMode();
+        console.log('✅ Dev mode enabled — now opening Android checkout URL');
+      }
 
       console.log(`\n🌐 Opening handoff URL: ${webCheckoutUrl}\n`);
       await page.goto(webCheckoutUrl);
@@ -2579,6 +2535,7 @@ describe('DAZN Android PPV → Web Handoff', () => {
         excelPath,
         videoPath,
         userType: 'new-user',
+        platform: 'Android',
       });
 
       const passed = results.filter(r => r.status === 'PASS').length;
@@ -2619,4 +2576,3 @@ describe('DAZN Android PPV → Web Handoff', () => {
     } catch {}
   });
 });
-

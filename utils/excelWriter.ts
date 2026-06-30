@@ -29,7 +29,8 @@ const applyStyles = (ws: XLSX.WorkSheet, data: any[]) => {
 };
 
 export const writeResults = async (
-  results: any[]
+  results: any[],
+  preferredVideoPath?: string | null
 ): Promise<{ excelPath: string | null; videoPath: string | null }> => {
 
   // Centralized cleanup of date/format combinations in expected values
@@ -50,28 +51,38 @@ export const writeResults = async (
   // ── Find video ───────────────────────────────────────────────
   let videoPath: string | null = null;
   try {
-    const videoDirs = [
-      path.resolve(process.cwd(), 'test-results', 'videos'),
-      path.resolve(process.cwd(), 'test-results', 'artifacts'),
-      path.resolve(process.cwd(), 'test-results'),
-    ];
-    const findVideo = (dir: string): string | null => {
-      if (!fs.existsSync(dir)) return null;
-      const entries = fs.readdirSync(dir, { withFileTypes: true });
-      for (const e of entries) {
-        const full = path.join(dir, e.name);
-        if (e.isDirectory()) {
-          const found = findVideo(full);
-          if (found) return found;
-        } else if (e.name.endsWith('.webm') || e.name.endsWith('.mp4')) {
-          return full;
+    if (preferredVideoPath && fs.existsSync(preferredVideoPath)) {
+      videoPath = preferredVideoPath;
+    } else {
+      const videoDirs = [
+        path.resolve(process.cwd(), 'test-results', 'videos'),
+        path.resolve(process.cwd(), 'test-results', 'artifacts'),
+        path.resolve(process.cwd(), 'test-results'),
+      ];
+      const findVideo = (dir: string): string | null => {
+        if (!fs.existsSync(dir)) return null;
+        const entries = fs.readdirSync(dir, { withFileTypes: true })
+          .filter(e => e.name.endsWith('.webm') || e.name.endsWith('.mp4') || e.isDirectory())
+          .sort((a, b) => {
+            const aPath = path.join(dir, a.name);
+            const bPath = path.join(dir, b.name);
+            return fs.statSync(bPath).mtimeMs - fs.statSync(aPath).mtimeMs;
+          });
+        for (const e of entries) {
+          const full = path.join(dir, e.name);
+          if (e.isDirectory()) {
+            const found = findVideo(full);
+            if (found) return found;
+          } else if (e.name.endsWith('.webm') || e.name.endsWith('.mp4')) {
+            return full;
+          }
         }
+        return null;
+      };
+      for (const dir of videoDirs) {
+        videoPath = findVideo(dir);
+        if (videoPath) break;
       }
-      return null;
-    };
-    for (const dir of videoDirs) {
-      videoPath = findVideo(dir);
-      if (videoPath) break;
     }
   } catch {}
 
@@ -80,7 +91,7 @@ export const writeResults = async (
     const dir = path.resolve(process.cwd(), 'test-results');
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
-    const validRows = results.filter((r: any) => r?.field);
+    const validRows = results.filter((r: any) => r?.field && String(r.status || '').toUpperCase() !== 'SKIP');
 
     // ── Row mapper ───────────────────────────────────────────
     const toRow = (

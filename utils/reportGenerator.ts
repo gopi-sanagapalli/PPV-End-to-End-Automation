@@ -17,7 +17,7 @@ export interface ReportResult {
   field: string;
   expected: unknown;
   actual: unknown;
-  status: 'PASS' | 'FAIL';
+  status: 'PASS' | 'FAIL' | 'SKIP';
   screenshot?: string; // absolute path to a red-boxed failure screenshot
 }
 
@@ -36,6 +36,7 @@ export interface ReportMeta {
   userType?: 'new-user' | 'existing-user';
   userStatus?: string;
   paymentMethod?: string;
+  platform?: 'Android' | 'Web' | string;
 }
 
 function inlineImage(p?: string): string | null {
@@ -113,6 +114,7 @@ function buildFolderName(meta: ReportMeta): string {
 function buildHtml(results: ReportResult[], meta: ReportMeta): string {
   // Filter out rows where both expected and actual are N/A — these are non-applicable fields
   results = results.filter(r => {
+    if (String(r.status).toUpperCase() === 'SKIP') return false;
     const expNA = String(r.expected ?? '').trim().toUpperCase() === 'N/A';
     const actNA = String(r.actual ?? '').trim().toUpperCase() === 'N/A';
     return !(expNA && actNA);
@@ -128,6 +130,7 @@ function buildHtml(results: ReportResult[], meta: ReportMeta): string {
   const dur = meta.startTime ? now.getTime() - meta.startTime.getTime() : 0;
 
   const userStatus = meta.userStatus || (meta.userType === 'existing-user' ? 'Existing User' : 'New User');
+  const platform = meta.platform || ((meta.flowName || '').toLowerCase().includes('handoff') ? 'Android' : 'Web');
   const videoExt = meta.videoPath ? path.extname(meta.videoPath) : '.webm';
   const videoName = `PPV_Video${videoExt}`;
 
@@ -211,6 +214,7 @@ function buildHtml(results: ReportResult[], meta: ReportMeta): string {
   // ── Build meta items (conditionally include userStatus and paymentMethod) ──
   const metaItems = `
       <div class="meta-item"><div class="k">PPV Name</div><div class="v">🥊 ${esc(meta.event)}</div></div>
+      <div class="meta-item"><div class="k">Platform</div><div class="v">📱 ${esc(platform)}</div></div>
       <div class="meta-item"><div class="k">Environment</div><div class="v">🧭 ${esc((meta.env || '').toUpperCase())}</div></div>
       <div class="meta-item"><div class="k">Country / Region</div><div class="v">🌍 ${esc(meta.region)}</div></div>
       ${meta.userType === 'existing-user' ? `<div class="meta-item"><div class="k">User Status</div><div class="v">👤 ${esc(userStatus)}</div></div>` : ''}
@@ -292,10 +296,10 @@ function buildHtml(results: ReportResult[], meta: ReportMeta): string {
   .status { display: inline-block; padding: 2px 9px; border-radius: 5px; font-size: 11px; font-weight: 700; white-space: nowrap; }
   .st-pass { background: #dcfce7; color: #15803d; } .st-fail { background: #fee2e2; color: #b91c1c; }
   .foot { margin-top: 30px; color: #94a3b8; font-size: 11px; text-align: center; }
-  .shot-row td { padding: 4px 12px 12px; background: #fff7f7; }
+  .shot-row td { padding: 4px 12px 12px; background: #fff7f7; text-align: center; }
   .shot-label { font-size: 11px; color: #dc2626; font-weight: 600; margin-bottom: 6px; }
   .shot { max-width: 100%; width: auto; max-height: 480px; object-fit: contain; border-radius: 6px; 
-          margin-top: 4px; border: 2px solid #fca5a5; display: block; }
+          margin: 4px auto 0; border: 2px solid #fca5a5; display: block; }
   table.report-files th { width: 30%; }
   table.report-files td:nth-child(2) { font-weight: 600; }
   table.report-files a { color: #2563eb; text-decoration: none; }

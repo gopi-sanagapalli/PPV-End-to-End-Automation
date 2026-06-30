@@ -38,10 +38,11 @@ type WdElement = any;
 
 import { execSync } from 'child_process';
 import { writeHandoffUrl, clearHandoffUrl } from '../../utils/handoff';
+import { prepareAndroidApp } from '../../utils/androidSetup';
 
 // ── Config ───────────────────────────────────────────────────────────────────
 const PPV_NAME = process.env.PPV_NAME || 'Joshua';
-const SOURCE = process.env.SOURCE || 'myaccount';
+const SOURCE = (process.env.SOURCE || 'myaccount').trim().toLowerCase();
 const USER_STATE = process.env.USER_STATE || 'active_standard';
 const APP_PACKAGE = process.env.APP_PACKAGE || 'com.dazn';
 const ANDROID_SDK = process.env.ANDROID_HOME || `${process.env.HOME}/Library/Android/sdk`;
@@ -881,9 +882,7 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
       console.log(`║  User   : ${USER_STATE.padEnd(40)}║`);
       console.log(`╚════════════════════════════════════════════════════╝\n`);
 
-      console.log('📱 Launching DAZN app...');
-      await browser.activateApp(APP_PACKAGE);
-      await browser.pause(6000);
+      await prepareAndroidApp(browser);
     });
 
     it('navigates to PPV buy button as existing user, opens Chrome, captures checkout URL', async () => {
@@ -1411,6 +1410,7 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
 
         const { SignupPage } = require('../../../pages/SignupPage');
         const { PaymentPage } = require('../../../pages/PaymentPage');
+        const { SearchPage } = require('../../../pages/SearchPage');
         const { StandalonePPVPage } = require('../../../pages/StandalonePPVPage');
         const { PPVUpsellSuccessPage } = require('../../../pages/PPVUpsellSuccessPage');
         const { PPVUpsellPaymentPage } = require('../../../pages/PPVUpsellPaymentPage');
@@ -1502,12 +1502,12 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
         const srcLabel = SOURCE.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
         const flowConfig = {
-          name: `Existing User: ${srcLabel} → ${tierName} → ${planName}`,
+          name: `Android Existing User: ${srcLabel} → ${tierName} → ${planName}`,
           source: SOURCE,
           tier: planTier,
           ratePlan: ratePlan,
           endPage: 'payment',
-          enableDevMode: false,
+          enableDevMode: isUltimate,
           planKey: PLAN
         };
 
@@ -1522,6 +1522,8 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
         const eventData = buildEventData(json, REGION, planTier, ratePlan.replace(/-/g, ' '), SOURCE);
         eventData.source = SOURCE;
         eventData.SOURCE = SOURCE;
+        eventData.MOBILE_WEB_HANDOFF = 'true';
+        eventData['MOBILE_WEB_HANDOFF'] = 'true';
 
         // Compute date variables
         const futureDate = new Date();
@@ -1670,6 +1672,17 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
             console.log(`🖥️ [Page Console] ${text}`);
           }
         });
+
+        if (flowConfig.enableDevMode) {
+          const daznBaseUrl = webCheckoutUrl.match(/https:\/\/[^/]+\/en-[A-Z]+/i)?.[0] || 'https://www.dazn.com/en-GB';
+          console.log(`\n🎭 Ultimate plan detected — enabling dev mode before opening checkout URL...`);
+          console.log(`🧭 Opening DAZN base URL for dev mode: ${daznBaseUrl}`);
+          await page.goto(daznBaseUrl, { waitUntil: 'domcontentloaded' });
+          await handleCookies(page, 8000).catch(() => {});
+          const searchPage = new SearchPage(page);
+          await searchPage.enableDevMode();
+          console.log('✅ Dev mode enabled — now opening Android checkout URL');
+        }
 
         console.log(`\n🌐 Opening handoff URL: ${webCheckoutUrl}\n`);
         await page.goto(webCheckoutUrl);
@@ -2640,12 +2653,13 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
         }
 
         console.log('🎥 Stopping screen recording on Android device...');
+        let videoOutputPath: string | null = null;
         try {
           const videoBuffer = await driver.stopRecordingScreen();
           if (videoBuffer) {
             const videoDir = path.resolve(process.cwd(), 'test-results');
             if (!fs.existsSync(videoDir)) fs.mkdirSync(videoDir, { recursive: true });
-            const videoOutputPath = path.join(videoDir, `existinguser_run_${Date.now()}.mp4`);
+            videoOutputPath = path.join(videoDir, `existinguser_run_${Date.now()}.mp4`);
             fs.writeFileSync(videoOutputPath, Buffer.from(videoBuffer, 'base64'));
             console.log(`🎥 Video recording saved to: ${videoOutputPath}`);
           }
@@ -2667,7 +2681,7 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
         });
 
         // Write results to Excel
-        const { excelPath, videoPath } = await writeResults(results);
+        const { excelPath, videoPath } = await writeResults(results, videoOutputPath);
 
         // Display detailed results table
         displayResultsTable(results, 'ppv', {
@@ -2692,6 +2706,7 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
           videoPath,
           userType: 'existing-user',
           userState: USER_STATE,
+          platform: 'Android',
         });
 
         const passed = results.filter(r => r.status === 'PASS').length;

@@ -124,6 +124,8 @@ test.describe('Mobile → Web PPV Handoff', () => {
     const eventData = buildEventData(json, REGION, planTier, ratePlan.replace(/-/g, ' '), SOURCE);
     eventData.source = SOURCE;
     eventData.SOURCE = SOURCE;
+    eventData.MOBILE_WEB_HANDOFF = 'true';
+    eventData['MOBILE_WEB_HANDOFF'] = 'true';
 
     // Compute date variables
     const futureDate = new Date();
