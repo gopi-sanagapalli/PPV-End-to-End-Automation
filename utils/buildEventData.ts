@@ -553,17 +553,19 @@ const isActiveUltimate = [
 
   const offerType = (base.OFFER_TYPE || '1_month_free').toLowerCase();
   if (offerType === '7_day_trial') {
-    base.FLEX_FUTURE_DATE = formatFlexFutureDate(7);
+    base.FLEX_FUTURE_DATE = formatFlexFutureDate(7, isUSRegion);
     // Trial payment page shows trial cancellation text, not legacy "Cancel with 30 days' notice"
     base.PAYMENT_FLEX_CANCEL_NOTICE = 'N/A';
     base.PAYMENT_FLEX_LEGAL_TEXT = 'N/A';
   } else if (offerType === '1_month_free') {
-    const futureDate = getNow();
+    const futureDate = getNowIST();
     futureDate.setMonth(futureDate.getMonth() + 1);
     const day = futureDate.getDate();
-    const month = futureDate.toLocaleString('en-GB', { month: 'long' });
+    const month = futureDate.toLocaleString('en-US', { month: 'long' });
     const year = futureDate.getFullYear();
-    base.FLEX_FUTURE_DATE = `In 1 month • ${day} ${month} ${year}`;
+    base.FLEX_FUTURE_DATE = isUSRegion
+      ? `In 1 month • ${month} ${day}, ${year}`
+      : `In 1 month • ${day} ${month} ${year}`;
     // 1-month free also uses different cancellation text, not "Cancel with 30 days' notice"
     base.PAYMENT_FLEX_CANCEL_NOTICE = 'N/A';
     base.PAYMENT_FLEX_LEGAL_TEXT = 'N/A';
@@ -571,12 +573,14 @@ const isActiveUltimate = [
     // No offer — keep default "Cancel with 30 days' notice" messaging
     base.FLEX_FUTURE_DATE = 'N/A';
   } else {
-    const futureDate = new Date();
+    const futureDate = getNowIST();
     futureDate.setMonth(futureDate.getMonth() + 1);
     const day = futureDate.getDate();
-    const month = futureDate.toLocaleString('en-GB', { month: 'long' });
+    const month = futureDate.toLocaleString('en-US', { month: 'long' });
     const year = futureDate.getFullYear();
-    base.FLEX_FUTURE_DATE = `In 1 month • ${day} ${month} ${year}`;
+    base.FLEX_FUTURE_DATE = isUSRegion
+      ? `In 1 month • ${month} ${day}, ${year}`
+      : `In 1 month • ${day} ${month} ${year}`;
   }
 
   // ── Dynamic calculations for non-1-month-free plans ──

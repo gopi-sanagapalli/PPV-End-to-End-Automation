@@ -303,105 +303,10 @@ export class HomePage extends LandingPage {
         );
       }
 
-      // ── STEP 4: Click tile → Navigate to competition page ────────────
-      console.log(`✅ [Biggest Fights] PPV tile found after ${clicks} carousel clicks`);
-      await targetTile.click({ timeout: 5000 });
-      console.log('🔗 [Biggest Fights] Clicked tile, waiting for competition page...');
-
-      await this.page.waitForURL(
-        (url: URL) => url.toString().includes('/competition/') || url.toString().includes('/sport/'),
-        { timeout: 15000 }
-      );
-      await this.page.waitForLoadState('domcontentloaded').catch(() => { });
-      await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });
-      console.log(`✅ [Biggest Fights] Competition page loaded: ${this.page.url()}`);
-
-      // ── STEP 5: Scroll to "Coming Up" section on competition page ────
-      // Wait for rails content to appear (async API-loaded) instead of hard timeout
-
-      const comingUpHeading = this.page.locator('h2, h3, h4, [class*="title" i]')
-        .filter({ hasText: /coming\s*up/i }).first();
-
-      let foundComingUp = false;
-      for (let i = 0; i < 15; i++) {
-        if (await comingUpHeading.isVisible().catch(() => false)) {
-          foundComingUp = true;
-          break;
-        }
-        await this.page.evaluate((pos: number) => {
-          window.scrollTo({ top: pos, behavior: 'instant' });
-        }, (i + 1) * 400);
-        foundComingUp = await comingUpHeading.waitFor({ state: 'attached', timeout: 500 })
-          .then(() => true).catch(() => false);
-        if (foundComingUp) break;
-      }
-
-      if (!foundComingUp) {
-        throw new Error('❌ [Competition Page] "Coming Up" section not found');
-      }
-
-      await comingUpHeading.scrollIntoViewIfNeeded().catch(() => { });
-      console.log('✅ [Competition Page] "Coming Up" section found');
-
-      // ── STEP 6: Find PPV tile in "Coming Up" rail ────────────────────
-      let comingUpRail = comingUpHeading.locator('xpath=ancestor::div[contains(@class,"rail")][1]');
-      let hasComingUpRail = await comingUpRail.isVisible({ timeout: 3000 }).catch(() => false);
-      if (!hasComingUpRail) {
-        comingUpRail = comingUpHeading.locator('xpath=ancestor::section[1]');
-        hasComingUpRail = await comingUpRail.isVisible({ timeout: 2000 }).catch(() => false);
-      }
-      if (!hasComingUpRail) {
-        comingUpRail = comingUpHeading.locator('xpath=../..');
-      }
-
-      const comingUpTiles = comingUpRail.locator('a[class*="tile" i], a, div[class*="tile" i]');
-      const comingUpNext = comingUpRail.locator([
-        'button[aria-label="Next slide"]',
-        'button[class*="swiper-button-next"]',
-        '[class*="next" i]',
-      ].join(', ')).first();
-
-      const findComingUpTile = async (): Promise<any> => {
-        const count = await comingUpTiles.count().catch(() => 0);
-        for (let i = 0; i < count; i++) {
-          const tile = comingUpTiles.nth(i);
-          if (!await tile.isVisible().catch(() => false)) continue;
-          const text = (await tile.textContent().catch(() => '')) || '';
-          if (matchesTileText(text)) {
-            console.log(`🔍 [Coming Up] Matched tile: "${text.replace(/\s+/g, ' ').trim().substring(0, 80)}"`);
-            return tile;
-          }
-        }
-        return null;
-      };
-
-      await comingUpRail.hover({ force: true }).catch(() => { });
-      let comingUpTile = await findComingUpTile();
-      let cuClicks = 0;
-
-      while (!comingUpTile && cuClicks < 10) {
-        const disabled = await comingUpNext.evaluate((el: Element) =>
-          el.classList.contains('swiper-button-disabled') ||
-          el.className.includes('disable') ||
-          el.hasAttribute('disabled')
-        ).catch(() => true);
-        if (disabled) break;
-
-        await comingUpRail.hover({ force: true }).catch(() => { });
-        await comingUpNext.click({ force: true, timeout: 3000 }).catch(() => { });
-        cuClicks++;
-        await this.page.waitForTimeout(500);
-        comingUpTile = await findComingUpTile();
-      }
-
-      if (!comingUpTile) {
-        throw new Error(
-          `❌ [Competition Page] PPV tile for "${ppvName}" not found in "Coming Up" section.`
-        );
-      }
-
-      console.log(`✅ [Competition Page] PPV tile found in "Coming Up" after ${cuClicks} clicks`);
-      return comingUpTile;
+      console.log(`✅ [HomePage Biggest Fights] PPV tile found on Home Page`);
+      await targetTile.scrollIntoViewIfNeeded().catch(() => { });
+      await this.page.waitForTimeout(150);
+      return targetTile;
     }
 
     if (src === 'home-page-dazntile') {
@@ -680,44 +585,10 @@ export class HomePage extends LandingPage {
         throw new Error(`❌ [HomePage Tile] Could not find "${fighter1 || ppvName}" tile in "Don't Miss" rail after ${clicks} clicks`);
       }
 
-      console.log(`📌 [HomePage Tile] Found PPV tile, clicking to open modal...`);
+      console.log(`📌 [HomePage Tile] Found PPV tile`);
       await found.scrollIntoViewIfNeeded().catch(() => { });
       await this.page.waitForTimeout(150);
-
-      const beforeUrl = this.page.url();
-      try {
-        await found.click({ force: true, timeout: 10000 });
-        console.log(`✅ [HomePage Tile] Clicked PPV tile`);
-      } catch (e: any) {
-        console.log('⚠️ Standard click failed → trying JS click');
-        const handle = await found.elementHandle();
-        if (handle) {
-          await this.page.evaluate((el: any) => el.click(), handle);
-          console.log(`✅ [HomePage Tile] JS click executed on PPV tile`);
-        } else {
-          throw new Error('❌ PPV tile click failed: ' + e.message);
-        }
-      }
-
-      let modal: any = null;
-      for (let attempt = 0; attempt < 15; attempt++) {
-        if (this.page.url() !== beforeUrl) {
-          console.log(`✅ [HomePage Tile] Tile click navigated to: ${this.page.url()}`);
-          return this.page.locator('body');
-        }
-        modal = await this.waitForModal();
-        if (modal) {
-          break;
-        }
-        await this.page.waitForTimeout(150);
-      }
-
-      if (!modal) {
-        throw new Error('❌ [HomePage Tile] Modal popup did not appear after clicking tile');
-      }
-
-      console.log(`✅ [HomePage Tile] Modal popup found`);
-      return modal;
+      return found;
     }
 
     // For home-page-get-started: locate the "Get Started" CTA on the welcome/home page
@@ -864,6 +735,199 @@ export class HomePage extends LandingPage {
     }
 
     return null;
+  }
+
+  override async openPaywall(container: any, source?: string, eventData: any = {}): Promise<void> {
+    const src = (source || '').toLowerCase();
+    console.log(`🔓 [HomePage] openPaywall called for source: ${src}`);
+
+    if (src === 'home-page-dont-miss') {
+      console.log('🖱️ [HomePage Tile] Clicking PPV tile to open modal popup...');
+      if (!container) {
+        throw new Error('❌ [HomePage Tile] PPV tile container is null');
+      }
+
+      const beforeUrl = this.page.url();
+      try {
+        await container.click({ force: true, timeout: 10000 });
+        console.log(`✅ [HomePage Tile] Clicked PPV tile`);
+      } catch (e: any) {
+        console.log('⚠️ Standard click failed → trying JS click');
+        const handle = await container.elementHandle();
+        if (handle) {
+          await this.page.evaluate((el: any) => el.click(), handle);
+          console.log(`✅ [HomePage Tile] JS click executed on PPV tile`);
+        } else {
+          throw new Error('❌ PPV tile click failed: ' + e.message);
+        }
+      }
+
+      // Wait for modal popup to appear
+      let modal: any = null;
+      for (let attempt = 0; attempt < 15; attempt++) {
+        if (this.page.url() !== beforeUrl) {
+          console.log(`✅ [HomePage Tile] Tile click navigated to: ${this.page.url()}`);
+          return;
+        }
+        modal = await this.waitForModal();
+        if (modal) {
+          break;
+        }
+        await this.page.waitForTimeout(150);
+      }
+
+      if (!modal) {
+        throw new Error('❌ [HomePage Tile] Modal popup did not appear after clicking tile');
+      }
+      console.log(`✅ [HomePage Tile] Modal popup found and visible`);
+      return;
+    }
+
+    if (src === 'home-biggest-fights') {
+      console.log('💳 [Biggest Fights] Clicking PPV tile on Home Page → Navigate to Competition page...');
+
+      if (!container) {
+        throw new Error('❌ [Biggest Fights] Home Page tile container is null');
+      }
+
+      // Click the tile on Home Page
+      await container.click({ timeout: 5000 });
+      console.log('🔗 [Biggest Fights] Clicked Home Page tile, waiting for competition page...');
+
+      await this.page.waitForURL(
+        (url: URL) => url.toString().includes('/competition/') || url.toString().includes('/sport/'),
+        { timeout: 15000 }
+      );
+      await this.page.waitForLoadState('domcontentloaded').catch(() => { });
+      await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });
+      console.log(`✅ [Biggest Fights] Competition page loaded: ${this.page.url()}`);
+
+      // Now scroll and find the "Coming Up" tile on the Competition page
+      const comingUpHeading = this.page.locator('h2, h3, h4, [class*="title" i]')
+        .filter({ hasText: /coming\s*up/i }).first();
+
+      let foundComingUp = false;
+      for (let i = 0; i < 15; i++) {
+        if (await comingUpHeading.isVisible().catch(() => false)) {
+          foundComingUp = true;
+          break;
+        }
+        await this.page.evaluate((pos: number) => {
+          window.scrollTo({ top: pos, behavior: 'instant' });
+        }, (i + 1) * 400);
+        foundComingUp = await comingUpHeading.waitFor({ state: 'attached', timeout: 500 })
+          .then(() => true).catch(() => false);
+        if (foundComingUp) break;
+      }
+
+      if (!foundComingUp) {
+        throw new Error('❌ [Competition Page] "Coming Up" section not found');
+      }
+
+      await comingUpHeading.scrollIntoViewIfNeeded().catch(() => { });
+      console.log('✅ [Competition Page] "Coming Up" section found');
+
+      let comingUpRail = comingUpHeading.locator('xpath=ancestor::div[contains(@class,"rail")][1]');
+      let hasComingUpRail = await comingUpRail.isVisible({ timeout: 3000 }).catch(() => false);
+      if (!hasComingUpRail) {
+        comingUpRail = comingUpHeading.locator('xpath=ancestor::section[1]');
+        hasComingUpRail = await comingUpRail.isVisible({ timeout: 2000 }).catch(() => false);
+      }
+      if (!hasComingUpRail) {
+        comingUpRail = comingUpHeading.locator('xpath=../..');
+      }
+
+      const ppvName = eventData.PPV_NAME || '';
+      const vsMatch = ppvName.match(/(\w+)\s+vs\.?\s+(\w+)/i);
+      const fighter1 = vsMatch ? vsMatch[1] : '';
+      const fighter2 = vsMatch ? vsMatch[2] : '';
+      const cleanStr = (s: string) =>
+        (s || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+      const nameParts = ppvName.split(/[:\-–]/).map((p: string) => p.trim()).filter((p: string) => p.length > 3);
+      const partsWordLists = nameParts.map((part: string) => cleanStr(part).split(/\s+/).filter(Boolean)).filter((list: string[]) => list.length > 0);
+
+      const matchesTileTextLocal = (text: string): boolean => {
+        const ct = cleanStr(text);
+        const matchTitle = partsWordLists.some((words: string[]) => words.every((w: string) => ct.includes(w)));
+        const matchFighters = !!(
+          fighter1 && fighter2 &&
+          ct.includes(fighter1.toLowerCase()) &&
+          ct.includes(fighter2.toLowerCase())
+        );
+        return matchTitle || matchFighters;
+      };
+
+      const comingUpTiles = comingUpRail.locator('a[class*="tile" i], a, div[class*="tile" i]');
+      const comingUpNext = comingUpRail.locator([
+        'button[aria-label="Next slide"]',
+        'button[class*="swiper-button-next"]',
+        '[class*="next" i]',
+      ].join(', ')).first();
+
+      const findComingUpTile = async (): Promise<any> => {
+        const count = await comingUpTiles.count().catch(() => 0);
+        for (let i = 0; i < count; i++) {
+          const tile = comingUpTiles.nth(i);
+          if (!await tile.isVisible().catch(() => false)) continue;
+          const text = (await tile.textContent().catch(() => '')) || '';
+          if (matchesTileTextLocal(text)) {
+            console.log(`🔍 [Coming Up] Matched tile: "${text.replace(/\s+/g, ' ').trim().substring(0, 80)}"`);
+            return tile;
+          }
+        }
+        return null;
+      };
+
+      await comingUpRail.hover({ force: true }).catch(() => { });
+      let comingUpTile = await findComingUpTile();
+      let cuClicks = 0;
+
+      while (!comingUpTile && cuClicks < 10) {
+        const disabled = await comingUpNext.evaluate((el: Element) =>
+          el.classList.contains('swiper-button-disabled') ||
+          el.className.includes('disable') ||
+          el.hasAttribute('disabled')
+        ).catch(() => true);
+        if (disabled) break;
+
+        await comingUpRail.hover({ force: true }).catch(() => { });
+        await comingUpNext.click({ force: true, timeout: 3000 }).catch(() => { });
+        cuClicks++;
+        await this.page.waitForTimeout(500);
+        comingUpTile = await findComingUpTile();
+      }
+
+      if (!comingUpTile) {
+        throw new Error(
+          `❌ [Competition Page] PPV tile for "${ppvName}" not found in "Coming Up" section.`
+        );
+      }
+
+      console.log(`✅ [Competition Page] PPV tile found in "Coming Up" after ${cuClicks} clicks. Clicking to open popup...`);
+      await comingUpTile.scrollIntoViewIfNeeded().catch(() => { });
+      await comingUpTile.click({ timeout: 5000 });
+
+      // Wait for popup modal to appear
+      const modalSelectors = [
+        '[role="dialog"]',
+        '[aria-modal="true"]',
+        '[class*="modal" i]',
+        '[class*="popup" i]',
+        '[class*="Dialog" i]',
+      ];
+
+      for (const selector of modalSelectors) {
+        const modalLocator = this.page.locator(selector).first();
+        const appeared = await modalLocator.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false);
+        if (appeared) {
+          console.log('✅ [Biggest Fights] Popup modal appeared — handing off to popup handler for validation + Buy Now click');
+          return;
+        }
+      }
+
+      console.log('⚠️ [Biggest Fights] Popup modal not detected — handlePaywall will attempt to find it');
+      return;
+    }
   }
 
   // Click Buy Now logic:

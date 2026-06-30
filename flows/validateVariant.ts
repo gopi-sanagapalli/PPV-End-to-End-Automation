@@ -1,7 +1,7 @@
 import { resolveExpected } from '../utils/resolveExpected';
 import { getActualValue } from '../utils/getActualValue';
 import { compare } from '../utils/compare';
-import { getPageSnapshot, DOMNode, stabilisePage } from '../utils/helpers';
+import { getPageSnapshot, DOMNode, stabilisePage, deduplicateRules, sortValidationResults } from '../utils/helpers';
 
 import { captureFailures } from '../utils/failureCapture';
 
@@ -90,11 +90,15 @@ export const validateVariant = async (
     return true;
   });
 
-  if (!rules.length) {
+  console.log(`🔍 [validateVariant] rules before deduplication for ${pageName}:`, JSON.stringify(rules, null, 2));
+  const deduplicatedRules = deduplicateRules(rules, tier, ratePlan, variant, normalizedFlow);
+  console.log(`🔍 [validateVariant] deduplicatedRules for ${pageName}:`, JSON.stringify(deduplicatedRules, null, 2));
+
+  if (!deduplicatedRules.length) {
     throw new Error(`❌ No rules for variant: "${variant}" / tier: "${tier}"`);
   }
 
-  console.log(`\n🔍 Validating ${pageName} — ${rules.length} fields`);
+  console.log(`\n🔍 Validating ${pageName} — ${deduplicatedRules.length} fields`);
   console.log(`   💎 Tier: ${tier} | 📋 Rate Plan: ${ratePlan}`);
   if (normalizedFlow) {
     console.log(`   🔀 Flow: ${normalizedFlow}`);
@@ -104,7 +108,9 @@ export const validateVariant = async (
   // Only scroll on pages that need lazy loading
   const url = page.url();
   const urlLower = url.toLowerCase();
+  console.log('🔍 [validateVariant] Checking isModalOpen...');
   const isModalOpen = await page.locator('[role="dialog"], [aria-modal="true"], [class*="modal" i]').first().isVisible().catch(() => false);
+  console.log('🔍 [validateVariant] isModalOpen checked:', isModalOpen);
   const needsScroll =
     (urlLower.includes('/schedule') && !isModalOpen) ||
     urlLower.includes('/addon/purchase') ||     // Choose How To Buy
@@ -181,10 +187,13 @@ export const validateVariant = async (
   }
 
   // Lightweight page readiness — page-specific waits already done above
+  console.log('🔍 [validateVariant] Waiting for domcontentloaded...');
   await page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => { });
+  console.log('🔍 [validateVariant] Stabilising page...');
   await stabilisePage(page);
 
   // Wait for SPA hydration — ensure template placeholders like {price} are resolved
+  console.log('🔍 [validateVariant] Waiting for SPA hydration...');
   try {
     await page.waitForFunction(() => {
       const body = document.body?.innerText || '';
@@ -196,6 +205,7 @@ export const validateVariant = async (
   }
 
   // Wait for dynamic text content to be populated (minimum length for SPA rendering)
+  console.log('🔍 [validateVariant] Waiting for dynamic text content...');
   try {
     const minChars = parseInt(process.env.VALIDATION_MIN_CHARS || '30', 10);
     await page.waitForFunction((len: number) => {
@@ -209,8 +219,12 @@ export const validateVariant = async (
 
 
   // ── Pre-fetch DOM snapshot ONCE ───────────────────────────────
+  console.log('🔍 [validateVariant] Pre-fetching pageSnapshot...');
   const pageSnapshot = await getPageSnapshot(page);
+  console.log(`🔍 [validateVariant] pageSnapshot fetched: ${pageSnapshot.length} nodes`);
+  console.log('🔍 [validateVariant] Pre-fetching scopedSnapshot...');
   const scopedSnapshot = scopedLocator ? await getPageSnapshot(scopedLocator) : undefined;
+  console.log(`🔍 [validateVariant] scopedSnapshot fetched: ${scopedSnapshot ? scopedSnapshot.length : 0} nodes`);
   const snapshot = pageSnapshot; // For backward compatibility with any other direct refs
   console.log(`📸 ${pageName} page snapshot: ${pageSnapshot.length} nodes${scopedSnapshot ? `, scoped snapshot: ${scopedSnapshot.length} nodes` : ''}`);
 
@@ -230,7 +244,7 @@ export const validateVariant = async (
   }
 
   // ── Run ALL field validations in parallel ─────────────────────
-  const validations = rules.map(async (rule) => {
+  const validations = deduplicatedRules.map(async (rule) => {
     const field = (rule.Field || '').trim();
     if (!field) return null;
     // Skip welcome back banner fields because there is no welcome back banner in the new UI
@@ -317,9 +331,8 @@ export const validateVariant = async (
                   bestMatch = txt;
                 }
               }
-              // If no keyword match, return concatenated summary of modal content
-              if (!bestMatch && cleanTexts.length > 0) {
-                bestMatch = `[Modal content] ${cleanTexts.slice(0, 5).join(' | ')}`.substring(0, 200);
+              if (!bestMatch) {
+                bestMatch = 'N/A';
               }
               if (bestMatch) {
                 actual = bestMatch;
@@ -347,8 +360,8 @@ export const validateVariant = async (
                   bestMatch = txt;
                 }
               }
-              if (!bestMatch && cleanTexts.length > 0) {
-                bestMatch = `[Banner content] ${cleanTexts.slice(0, 5).join(' | ')}`.substring(0, 200);
+              if (!bestMatch) {
+                bestMatch = 'N/A';
               }
               if (bestMatch) {
                 actual = bestMatch;
@@ -399,9 +412,8 @@ export const validateVariant = async (
                   bestMatch = txt;
                 }
               }
-              if (!bestMatch && cleanTexts.length > 0) {
-                const label = isTileField ? 'Tile content' : isLandingField ? 'Landing content' : 'Page content';
-                bestMatch = `[${label}] ${cleanTexts.slice(0, 5).join(' | ')}`.substring(0, 200);
+              if (!bestMatch) {
+                bestMatch = 'N/A';
               }
               if (bestMatch) {
                 actual = bestMatch;
@@ -422,24 +434,11 @@ export const validateVariant = async (
 
   const validationResults = await Promise.all(validations);
 
+  const batchResults: any[] = [];
   for (const result of validationResults) {
     if (!result) continue;
     const { field, expected, actual, status } = result;
-    console.log(
-      `  ${status === 'PASS' ? '✅' : '❌'} [${field}]` +
-      `  expected="${expected}"  actual="${actual}"`
-    );
-
-    // Print descriptive failure reason for each failed validation
-    if (status === 'FAIL') {
-      if (actual === 'N/A' || actual === 'Not found' || actual === 'Not found in banner' || actual === 'Not visible') {
-        console.log(`  ⛔ FAIL REASON: ${field} not found in ${pageName} page`);
-      } else {
-        console.log(`  ⛔ FAIL REASON: ${field} mismatch in ${pageName} — expected "${expected}" but got "${actual}"`);
-      }
-    }
-
-    results.push({
+    batchResults.push({
       page: pageName,
       variant,
       tier,
@@ -449,6 +448,28 @@ export const validateVariant = async (
       actual,
       status,
     });
+  }
+
+  // Deterministically sort batch results
+  const sortedBatch = sortValidationResults(batchResults);
+
+  // Print & push sorted results
+  for (const r of sortedBatch) {
+    console.log(
+      `  ${r.status === 'PASS' ? '✅' : '❌'} [${r.field}]` +
+      `  expected="${r.expected}"  actual="${r.actual}"`
+    );
+
+    // Print descriptive failure reason for each failed validation
+    if (r.status === 'FAIL') {
+      if (r.actual === 'N/A' || r.actual === 'Not found' || r.actual === 'Not found in banner' || r.actual === 'Not visible') {
+        console.log(`  ⛔ FAIL REASON: ${r.field} not found in ${pageName} page`);
+      } else {
+        console.log(`  ⛔ FAIL REASON: ${r.field} mismatch in ${pageName} — expected "${r.expected}" but got "${r.actual}"`);
+      }
+    }
+
+    results.push(r);
   }
 
   // ── Capture red-boxed screenshots for any failed fields ──────────

@@ -77,8 +77,6 @@ export class BoxingHomePage extends HomePage {
 
 
   // ─────────────────────────────
-  // CLICK BOXING TAB on home page
-  // ─────────────────────────────
   private async clickBoxingTab(): Promise<void> {
     console.log('🥊 Looking for "Boxing" tab/pill on home page...');
 
@@ -319,45 +317,7 @@ export class BoxingHomePage extends HomePage {
         console.log(`📌 [Home Sport Tile] Found PPV tile, clicking to open modal...`);
         await tile.scrollIntoViewIfNeeded().catch(() => { });
         await this.page.waitForTimeout(150);
-
-        // Step 3: Click the tile to open modal popup
-        const beforeUrl = this.page.url();
-        try {
-          await tile.click({ force: true, timeout: 10000 });
-          console.log(`✅ [Home Sport Tile] Clicked PPV tile`);
-        } catch (e: any) {
-          console.log('⚠️ Standard click failed → trying JS click');
-          const handle = await tile.elementHandle();
-          if (handle) {
-            await this.page.evaluate((el: any) => el.click(), handle);
-            console.log(`✅ [Home Sport Tile] JS click executed on PPV tile`);
-          } else {
-            console.log('⚠️ PPV tile click failed: ' + e.message);
-            return null;
-          }
-        }
-
-        // Step 4: Wait for navigation or modal popup to appear dynamically
-        let modal: any = null;
-        for (let attempt = 0; attempt < 15; attempt++) {
-          if (this.page.url() !== beforeUrl) {
-            console.log(`✅ [Home Sport Tile] Tile click navigated to: ${this.page.url()}`);
-            return this.page.locator('body');
-          }
-          modal = await this.waitForSportModal();
-          if (modal) {
-            break;
-          }
-          await this.page.waitForTimeout(150);
-        }
-
-        if (!modal) {
-          console.log('⚠️ [Home Sport Tile] Modal popup did not appear after clicking tile');
-          return null;
-        }
-
-        console.log(`✅ [Home Sport Tile] Modal popup found`);
-        return modal;
+        return tile;
       } catch (e) {
         console.log(`⚠️ Error in finding PPV tile section: ${(e as Error).message}`);
         return null;
@@ -759,6 +719,54 @@ export class BoxingHomePage extends HomePage {
     return null;
   }
 
+  async openPaywall(container: any, source?: string): Promise<void> {
+    const src = (source || '').toLowerCase();
+    console.log(`🔓 [BoxingHomePage] openPaywall called for source: ${src}`);
+
+    if (src.includes('tile') || src.includes('dont-miss')) {
+      console.log('🖱️ [Home Sport Tile] Clicking PPV tile to open modal popup...');
+      if (!container) {
+        throw new Error('❌ [Home Sport Tile] PPV tile container is null');
+      }
+
+      const beforeUrl = this.page.url();
+      try {
+        await container.click({ force: true, timeout: 10000 });
+        console.log(`✅ [Home Sport Tile] Clicked PPV tile`);
+      } catch (e: any) {
+        console.log('⚠️ Standard click failed → trying JS click');
+        const handle = await container.elementHandle();
+        if (handle) {
+          await this.page.evaluate((el: any) => el.click(), handle);
+          console.log(`✅ [Home Sport Tile] JS click executed on PPV tile`);
+        } else {
+          console.log('⚠️ PPV tile click failed: ' + e.message);
+          return;
+        }
+      }
+
+      // Wait for modal popup to appear
+      let modal: any = null;
+      for (let attempt = 0; attempt < 15; attempt++) {
+        if (this.page.url() !== beforeUrl) {
+          console.log(`✅ [Home Sport Tile] Tile click navigated to: ${this.page.url()}`);
+          return;
+        }
+        modal = await this.waitForSportModal();
+        if (modal) {
+          break;
+        }
+        await this.page.waitForTimeout(150);
+      }
+
+      if (!modal) {
+        throw new Error('❌ [Home Sport Tile] Modal popup did not appear after clicking tile');
+      }
+      console.log(`✅ [Home Sport Tile] Modal popup found and visible`);
+      return;
+    }
+  }
+
   // ─────────────────────────────
   // CLICK BUY NOW — handles both tile (modal popup) and banner sources
   // ─────────────────────────────
@@ -816,21 +824,23 @@ export class BoxingHomePage extends HomePage {
     if (src.includes('tile') || src.includes('dont-miss')) {
       console.log('💳 [Home Sport Tile] Clicking "Buy now" in modal popup...');
 
-      if (!container) {
-        throw new Error('❌ [Home Sport Tile] Modal container is null');
+      // Find the modal first!
+      const modal = await this.waitForSportModal();
+      if (!modal) {
+        throw new Error('❌ [Home Sport Tile] Modal popup not found');
       }
 
       const ctaSelector = 'button:has-text("Buy now"), a:has-text("Buy now"), button:has-text("Buy Now"), ' +
         'button:has-text("Subscribe"), a:has-text("Subscribe"), ' +
         'button:has-text("Continue"), a:has-text("Continue")';
 
-      const dialog = container.locator('[role="dialog"], [aria-modal="true"], [class*="modal" i]').first();
+      const dialog = modal.locator('[role="dialog"], [aria-modal="true"], [class*="modal" i]').first();
       let buyNowBtn = dialog.locator(ctaSelector).first();
 
       let visible = await buyNowBtn.isVisible({ timeout: 2000 }).catch(() => false);
       if (!visible) {
         console.log('⏳ [Home Sport Tile] Dialog selector not active. Trying generic container check...');
-        buyNowBtn = container.locator(ctaSelector).first();
+        buyNowBtn = modal.locator(ctaSelector).first();
         visible = await buyNowBtn.isVisible({ timeout: 2000 }).catch(() => false);
       }
 
@@ -841,7 +851,7 @@ export class BoxingHomePage extends HomePage {
       }
 
       if (!visible) {
-        throw new Error('❌ [Home Sport Tile] Buy now button not found inside modal popup. Will NOT search page-wide to avoid clicking wrong PPV.');
+        throw new Error('❌ [Home Sport Tile] Buy now button not found inside modal popup.');
       }
 
       const beforeUrl = this.page.url();

@@ -341,7 +341,6 @@ export async function getPageSnapshot(pageOrLocator: Page | Locator): Promise<DO
         '[role="dialog" i]',
         '[aria-modal="true"]',
         '[class*="modal" i]',
-        '[class*="overlay" i]',
         '[class*="popup" i]',
         '[class*="dialog" i]',
         '.Modal',
@@ -368,16 +367,27 @@ export async function getPageSnapshot(pageOrLocator: Page | Locator): Promise<DO
       const isInInactiveSlide = (el: any): boolean => {
         const slide = el.closest('.swiper-slide, [class*="swiper-slide"]');
         if (!slide) return false;
-        const isHero = el.closest([
-          'main [class*="banner"]',
-          'main [class*="hero"]',
-          'main .swiper',
-          'section[class*="banner"]',
-          '[class*="heroBanner"]',
-          '[class*="hero-banner"]',
-        ].join(', '));
+        const isHero = el.closest('[class*="hero" i], [class*="banner" i]') !== null;
         if (!isHero) return false;
         return slide.closest('.swiper-slide-active, [class*="swiper-slide-active"]') === null;
+      };
+
+      const isParentTextContainer = (el: HTMLElement): boolean => {
+        const tagLower = el.tagName.toLowerCase();
+        if (tagLower === 'button' || tagLower === 'a') return false;
+
+        const parentText = (el.textContent || '').trim().toLowerCase();
+        const textDescendants = el.querySelectorAll('div, p, li, h1, h2, h3, h4, h5, h6, time, button, a, span');
+        for (let i = 0; i < textDescendants.length; i++) {
+          const desc = textDescendants[i] as HTMLElement;
+          if (desc.offsetWidth > 0 || desc.offsetHeight > 0) {
+            const descText = (desc.textContent || '').trim().toLowerCase();
+            if (descText.length >= 2 && descText !== parentText) {
+              return true;
+            }
+          }
+        }
+        return false;
       };
 
       // OPTIMIZED: avoid getComputedStyle — use offsetWidth/Height + inline style checks
@@ -460,6 +470,7 @@ export async function getPageSnapshot(pageOrLocator: Page | Locator): Promise<DO
           totalProcessed++;
           if (totalProcessed > MAX_ELEMENTS) break;
           if (!isRendered(el)) continue;
+          if (isParentTextContainer(el)) continue;
           const text = isStrikethrough(el) ? clean(el.textContent || '') : clean(getNonStrikeText(el));
           let isInteractive = ['button', 'a', 'img', 'input'].includes(tag);
           if (!isInteractive) {
@@ -518,7 +529,259 @@ export async function getPageSnapshot(pageOrLocator: Page | Locator): Promise<DO
     } else {
       return await (pageOrLocator as Page).evaluate(evaluateFn);
     }
-  } catch {
+  } catch (err: any) {
+    console.error('⚠️ getPageSnapshot evaluation failed:', err.message || err);
     return [];
   }
 }
+
+// ─────────────────────────────────────────────────────────────────
+// DEDUPLICATE RULES BY SPECIFICITY
+// ─────────────────────────────────────────────────────────────────
+export function deduplicateRules(
+  rules: any[],
+  tier: string,
+  ratePlan: string,
+  variant: string,
+  flow: string
+): any[] {
+  const normTier = (tier || '').trim().toLowerCase();
+  const normRatePlan = (ratePlan || '').trim().toLowerCase();
+  const normVariant = (variant || '').trim().toLowerCase();
+  const normFlow = (flow || '').trim().toLowerCase();
+
+  const groups = new Map<string, any[]>();
+  for (const rule of rules) {
+    const field = (rule.Field || '').trim();
+    if (!field) continue;
+    const fieldKey = field.toLowerCase().replace(/\s+/g, ' ').trim();
+    if (!groups.has(fieldKey)) {
+      groups.set(fieldKey, []);
+    }
+    groups.get(fieldKey)!.push(rule);
+  }
+
+  const result: any[] = [];
+  for (const [fieldKey, fieldRules] of groups.entries()) {
+    if (fieldRules.length === 1) {
+      result.push(fieldRules[0]);
+      continue;
+    }
+
+    let bestRule = fieldRules[0];
+    let bestScore = -1;
+
+    for (const r of fieldRules) {
+      let score = 0;
+
+      const rv = (r.Variant || '').trim().toLowerCase();
+      const rf = (r.Flow || '').trim().toLowerCase();
+      const rt = (r.Tier || '').trim().toLowerCase();
+      const rrp = (r['Rate Plan'] || r.RatePlan || '').trim().toLowerCase();
+
+      if (rv && rv !== 'all') {
+        if (rv === normVariant) score += 100;
+        else continue;
+      }
+
+      if (rf && rf !== 'all') {
+        if (rf === normFlow) score += 50;
+        else continue;
+      }
+
+      if (rt && rt !== 'common' && rt !== 'all') {
+        if (rt === normTier) score += 20;
+        else continue;
+      }
+
+      if (rrp && rrp !== 'all') {
+        if (rrp === normRatePlan) score += 10;
+        else continue;
+      }
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestRule = r;
+      }
+    }
+
+    result.push(bestRule);
+  }
+
+  return result;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// VALIDATION FIELD CATEGORY DETERMINATION
+// ─────────────────────────────────────────────────────────────────
+export function getValidationCategory(fieldName: string): number {
+  const name = fieldName.toLowerCase().replace(/\s+/g, ' ').trim();
+
+  if (name.includes('page title') || name.includes('page heading') || name === 'heading') {
+    return 1;
+  }
+
+  if (
+    name.includes('signed in') ||
+    name.includes('section present') ||
+    name.includes('banner present') ||
+    name.includes('logo') ||
+    name.includes('tab') ||
+    name.includes('header')
+  ) {
+    return 2;
+  }
+
+  if (
+    name.includes('ppv name') ||
+    name.includes('event title') ||
+    name.includes('event date') ||
+    name.includes('event time') ||
+    name.includes('event description') ||
+    name.includes('venue') ||
+    name.includes('location') ||
+    name.includes('promoter') ||
+    name.includes('ppv badge') ||
+    name.includes('live badge') ||
+    name.includes('lock icon') ||
+    name.includes('locked badge') ||
+    name.includes('reminder') ||
+    name.includes('image') ||
+    name.includes('tile') ||
+    name.includes('fight')
+  ) {
+    return 3;
+  }
+
+  if (
+    name.includes('tier') ||
+    name.includes('rate plan') ||
+    name.includes('plan name') ||
+    name.includes('plan subtitle') ||
+    name.includes('selected') ||
+    name.includes('flex today text') ||
+    name.includes('flex future text') ||
+    name.includes('flex future date') ||
+    name.includes('annual card') ||
+    name.includes('annual title') ||
+    name.includes('annual subtitle')
+  ) {
+    return 4;
+  }
+
+  if (
+    name.includes('price') ||
+    name.includes('pay price') ||
+    name.includes('pay text') ||
+    name.includes('savings badge') ||
+    name.includes('next payment') ||
+    name.includes('flex price') ||
+    name.includes('flex today price') ||
+    name.includes('upsell price') ||
+    name.includes('upsell text') ||
+    name.includes('offer price') ||
+    name.includes('original price') ||
+    name.includes('save badge')
+  ) {
+    return 5;
+  }
+
+  if (
+    name.includes('cta') ||
+    name.includes('button') ||
+    name.includes('buy now') ||
+    name.includes('continue') ||
+    name.includes('confirm') ||
+    name.includes('submit') ||
+    name.includes('pay now')
+  ) {
+    return 6;
+  }
+
+  if (
+    name.includes('promo code') ||
+    name.includes('redeem') ||
+    name.includes('coupon') ||
+    name.includes('gift card')
+  ) {
+    return 7;
+  }
+
+  if (
+    name.includes('google pay') ||
+    name.includes('paypal') ||
+    name.includes('credit card') ||
+    name.includes('debit card') ||
+    name.includes('payment option')
+  ) {
+    return 8;
+  }
+
+  if (
+    name.includes('cancellation') ||
+    name.includes('legal') ||
+    name.includes('terms') ||
+    name.includes('t&c') ||
+    name.includes('t and c') ||
+    name.includes('agreement') ||
+    name.includes('policy')
+  ) {
+    return 9;
+  }
+
+  if (name.includes('footer') || name.includes('copyright')) {
+    return 10;
+  }
+
+  return 3;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// DETERMINISTIC SORTING OF RESULTS
+// ─────────────────────────────────────────────────────────────────
+export function sortValidationResults(results: any[]): any[] {
+  const PAGE_ORDER = [
+    'schedule',
+    'landing',
+    'home page',
+    'home of boxing',
+    'boxing',
+    'standalone ppv',
+    'ppv',
+    'default signup',
+    'bundle ppv',
+    'dazn plan',
+    'payment',
+    'my account',
+    'choose how to buy',
+    'ppv payment',
+    'upgrade confirmation',
+    'phone number',
+    'otp',
+    'upsell first success',
+    'upsell second success',
+    'upsell payment'
+  ];
+
+  return [...results].sort((a, b) => {
+    const pageA = (a.page || '').trim().toLowerCase();
+    const pageB = (b.page || '').trim().toLowerCase();
+    if (pageA !== pageB) {
+      let idxA = PAGE_ORDER.indexOf(pageA);
+      let idxB = PAGE_ORDER.indexOf(pageB);
+      if (idxA === -1) idxA = 999;
+      if (idxB === -1) idxB = 999;
+      if (idxA !== idxB) {
+        return idxA - idxB;
+      }
+      return pageA.localeCompare(pageB);
+    }
+    const catA = getValidationCategory(a.field);
+    const catB = getValidationCategory(b.field);
+    if (catA !== catB) {
+      return catA - catB;
+    }
+    return a.field.localeCompare(b.field);
+  });
+}
+

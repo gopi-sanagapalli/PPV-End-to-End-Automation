@@ -263,6 +263,9 @@ export function resolveExpected(
     if (pageName === 'payment' || pageName === '') {
       // Payment page header for 7-day trial (monthly only — APM/APU always shows 'Choose how to pay')
       if (currentOfferType === '7_day_trial' && !currentRatePlan.includes('annual') && (field === 'header' || field === 'payment page title')) {
+        if (eventData.USER_STATE === 'frozen') {
+          return eventData.PAYMENT_PAGE_TITLE_STANDARD || 'Choose how to pay';
+        }
         return eventData.PAYMENT_PAGE_TITLE_TRIAL || 'Choose how to pay after your free trial';
       }
       if (field === 'rate plan original price' || field === 'rate plan discounted price') {
@@ -298,7 +301,11 @@ export function resolveExpected(
 
   // ── Monthly flex with no offer at all (no_offer / none) ──
   // For PPVs/regions with no 7-day trial and no 1-month-free
-  const isNoOffer = currentOfferType === 'no_offer' || currentOfferType === 'none';
+  const isReturningUser =
+    (eventData.IS_RETURNING_USER === 'true' ||
+     ['frozen', 'sub_active', 'cancelled'].includes(String(eventData.USER_STATE || '').toLowerCase().trim())) &&
+    (eventData.USER_STATE || '').toLowerCase().trim() !== 'freemium';
+  const isNoOffer = currentOfferType === 'no_offer' || currentOfferType === 'none' || isReturningUser;
   const isMonthlyNoOffer = isNoOffer && (currentRatePlan === 'monthly' || currentRatePlan === '');
 
   if (isMonthlyNoOffer && !isSubscriptionOnly) {

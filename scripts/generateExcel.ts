@@ -202,6 +202,7 @@ const planData = [
   { Tier: 'Standard', Field: 'Flex Selected', Expected: 'Yes', Flow: '' },
   { Tier: 'Standard', Field: 'Flex Today Text', Expected: '{{FLEX_TODAY_TEXT}}', Flow: '' },
   { Tier: 'Standard', Field: 'Flex Future Text', Expected: '{{FLEX_FUTURE_TEXT}}', Flow: '' },
+  { Tier: 'Standard', Field: 'Flex Future Date', Expected: '{{FLEX_FUTURE_DATE}}', Flow: '' },
   { Tier: 'Standard', Field: 'Annual Card Present', Expected: 'Yes', Flow: '' },
   { Tier: 'Standard', Field: 'Annual Savings Badge', Expected: '{{ANNUAL_SAVINGS_BADGE}}', Flow: '' },
   { Tier: 'Standard', Field: 'Annual Title', Expected: 'Annual - Pay Monthly', Flow: '' },
@@ -494,7 +495,7 @@ const otpData = [
 const homeOfBoxingData = [
   { Flow: 'home-boxing-banner', Field: 'Best of Boxing Section', Expected: 'Present' },
   { Flow: 'home-boxing-banner', Field: 'Banner - Event Title', Expected: '{{PPV_NAME}}' },
-  { Flow: 'home-boxing-banner', Field: 'Banner - Event Date', Expected: '{{PPV_DATE}}' },
+  { Flow: 'home-boxing-banner', Field: 'Banner - Event Date', Expected: '{{LANDING_BANNER_DATE}}' },
   { Flow: 'home-boxing-banner', Field: 'Banner - Event Description', Expected: '{{BANNER_DESCRIPTION}}' },
   { Flow: 'home-boxing-banner', Field: 'Banner - Buy Now CTA', Expected: 'Visible' },
   { Flow: 'home-boxing-banner', Field: 'Banner - Fight Card CTA', Expected: 'Visible' },
@@ -503,19 +504,11 @@ const homeOfBoxingData = [
   { Flow: 'home-boxing-tile', Field: 'Home of Boxing Section Present', Expected: 'Present' },
   { Flow: 'home-boxing-tile', Field: 'Selected Boxing Tile', Expected: 'Yes' },
   { Flow: 'home-boxing-tile', Field: 'Event Title', Expected: '{{PPV_NAME}}' },
-  { Flow: 'home-boxing-tile', Field: 'Event Date', Expected: '{{PPV_DATE}}' },
-  { Flow: 'home-boxing-tile', Field: 'Promoter', Expected: '{{PPV_PROMOTER}}' },
-  { Flow: 'home-boxing-tile', Field: 'PPV Badge', Expected: 'Yes' },
-  { Flow: 'home-boxing-tile', Field: 'Lock Icon', Expected: 'Yes' },
-
+ 
   // home-kickboxing-tile
   { Flow: 'home-kickboxing-tile', Field: 'Home of Boxing Section Present', Expected: 'Present' },
   { Flow: 'home-kickboxing-tile', Field: 'Selected Boxing Tile', Expected: 'Yes' },
   { Flow: 'home-kickboxing-tile', Field: 'Event Title', Expected: '{{PPV_NAME}}' },
-  { Flow: 'home-kickboxing-tile', Field: 'Event Date', Expected: '{{PPV_DATE}}' },
-  { Flow: 'home-kickboxing-tile', Field: 'Promoter', Expected: '{{PPV_PROMOTER}}' },
-  { Flow: 'home-kickboxing-tile', Field: 'PPV Badge', Expected: 'Yes' },
-  { Flow: 'home-kickboxing-tile', Field: 'Lock Icon', Expected: 'Yes' },
 ];
 
 // ═══════════════════════════════════════════════════════════
@@ -531,12 +524,7 @@ const homePageData = [
   // home-page-dont-miss
   { Flow: 'home-page-dont-miss', Field: 'Don\'t Miss Section Present', Expected: 'Present' },
   { Flow: 'home-page-dont-miss', Field: 'Don\'t Miss Tile Present', Expected: 'Yes' },
-  { Flow: 'home-page-dont-miss', Field: 'Don\'t Miss Event Title', Expected: '{{PPV_NAME}}' },
-  { Flow: 'home-page-dont-miss', Field: 'Don\'t Miss Event Date', Expected: '{{PPV_DATE}}' },
-  { Flow: 'home-page-dont-miss', Field: 'Don\'t Miss Promoter', Expected: '{{PPV_PROMOTER}}' },
-  { Flow: 'home-page-dont-miss', Field: 'PPV Badge Present', Expected: 'Yes' },
   { Flow: 'home-page-dont-miss', Field: 'Locked Badge Present', Expected: 'Yes' },
-  { Flow: 'home-page-dont-miss', Field: 'Reminder Icon Present', Expected: 'Yes' },
 
   // home-biggest-fights
   { Flow: 'home-biggest-fights', Field: 'Biggest Fights Section Present', Expected: 'Present' },

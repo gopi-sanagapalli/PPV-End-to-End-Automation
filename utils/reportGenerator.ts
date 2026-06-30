@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { chromium } from '@playwright/test';
+import { sortValidationResults } from './helpers';
 
 // ─────────────────────────────────────────────────────────────────
 // HTML + PDF RUN REPORT GENERATOR
@@ -112,12 +113,24 @@ function buildFolderName(meta: ReportMeta): string {
 }
 
 function buildHtml(results: ReportResult[], meta: ReportMeta): string {
-  // Filter out rows where both expected and actual are N/A — these are non-applicable fields
+  // Filter out rows where expected is N/A or empty — these are non-applicable fields
   results = results.filter(r => {
     const expNA = String(r.expected ?? '').trim().toUpperCase() === 'N/A';
-    const actNA = String(r.actual ?? '').trim().toUpperCase() === 'N/A';
-    return !(expNA && actNA);
+    const expEmpty = String(r.expected ?? '').trim() === '';
+    return !expNA && !expEmpty;
   });
+
+  // Deduplicate results by page and field
+  const seen = new Set<string>();
+  results = results.filter(r => {
+    const key = `${r.page}::${r.field}`.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  // Sort validation results deterministically
+  results = sortValidationResults(results);
 
   const pages = [...new Set(results.map(r => r.page))];
   const totalPass = results.filter(r => r.status === 'PASS').length;

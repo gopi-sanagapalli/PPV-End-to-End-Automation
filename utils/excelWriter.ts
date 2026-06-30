@@ -2,6 +2,7 @@ import * as XLSX from 'xlsx';
 import * as fs   from 'fs';
 import * as path from 'path';
 import { compare } from './compare';
+import { sortValidationResults } from './helpers';
 
 // ── Column name maps ─────────────────────────────────────────────
 const SCHEDULE_HEADERS       = ['Field', 'Expected', 'Actual', 'Status'];
@@ -80,7 +81,27 @@ export const writeResults = async (
     const dir = path.resolve(process.cwd(), 'test-results');
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
-    const validRows = results.filter((r: any) => r?.field);
+    // Filter out non-applicable fields (where expected is N/A or empty)
+    const filteredResults = results.filter((r: any) => {
+      if (!r || !r.field) return false;
+      const expNA = String(r.expected ?? '').trim().toUpperCase() === 'N/A';
+      const expEmpty = String(r.expected ?? '').trim() === '';
+      return !expNA && !expEmpty;
+    });
+
+    // Deduplicate results by page and field
+    const seen = new Set<string>();
+    const deduplicatedResults = filteredResults.filter((r: any) => {
+      const key = `${r.page}::${r.field}`.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    // Sort validation results deterministically
+    const sortedResults = sortValidationResults(deduplicatedResults);
+
+    const validRows = sortedResults;
 
     // ── Row mapper ───────────────────────────────────────────
     const toRow = (

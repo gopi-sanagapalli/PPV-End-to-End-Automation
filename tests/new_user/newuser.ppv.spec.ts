@@ -15,6 +15,7 @@ import { SchedulePage } from '../../pages/schedulepage';
 import { MyAccountPage } from '../../pages/MyAccountPage';
 import { RailsInterceptor } from '../../utils/railsInterceptor';
 import { GloryPage } from '../../pages/GloryPage';
+import { AuthenticationManager } from '../../auth/AuthenticationManager';
 
 import {
   readSheet,
@@ -289,33 +290,36 @@ async function runFlow(
       }
 
       const sport = json.SPORT || 'Boxing';
-      let scheduleEventClicked = false;
+      let scheduleEventFound = false;
+      let eventCard: any;
       try {
         await schedule.selectSport(sport);
-        const eventCard = await schedule.findEvent(eventData.PPV_NAME);
-        await schedule.clickEvent(eventCard);
-        scheduleEventClicked = true;
+        eventCard = await schedule.findEvent(eventData.PPV_NAME);
+        scheduleEventFound = true;
       } catch (schedErr: any) {
         console.error(`❌ Schedule flow failed: ${schedErr.message}`);
-        const shotPath = await captureFailShot(page, 'Schedule_Event_Click');
+        const shotPath = await captureFailShot(page, 'Schedule_Event_Find');
         results.push({
           page: 'Schedule',
-          field: 'PPV Event Click',
-          expected: `${eventData.PPV_NAME} clickable via ${sport} filter`,
+          field: 'PPV Event Find',
+          expected: `${eventData.PPV_NAME} found via ${sport} filter`,
           actual: schedErr.message,
           status: 'FAIL',
           screenshot: shotPath,
         });
       }
 
-      if (scheduleEventClicked) {
-        console.log('\n📋 Validating Schedule page...');
+      if (scheduleEventFound) {
+        console.log('\n📋 Validating Schedule page (scoping to event card)...');
         try {
           const scheduleData = readSheet('Schedule page');
-          await validateVariant(page, 'schedule', scheduleData, results, eventData, 'Schedule');
+          await validateVariant(page, 'schedule', scheduleData, results, eventData, 'Schedule', undefined, eventCard);
         } catch (err: any) {
           console.warn(`⚠️  Schedule page validation error: ${err.message}`);
         }
+
+        console.log('🖱️ Clicking schedule event card...');
+        await schedule.clickEvent(eventCard);
 
         // Paywall-first pattern (same as Search):
         // handlePaywall validates paywall + clicks Buy Now inside modal.
@@ -469,7 +473,7 @@ async function runFlow(
             source === 'boxing-join-the-club';
 
           if (!isBoxingSubscriptionSource) {
-            console.log(`\n📋 Validating ${pageName} page...`);
+            console.log(`\n📋 Validating ${pageName} page (scoping to container)...`);
             try {
               const landingData = readSheet(sheetName);
 
@@ -484,7 +488,7 @@ async function runFlow(
                 flowParam = 'boxing';
               }
 
-              await validateVariant(page, 'landing', landingData, results, eventData, pageName, flowParam);
+              await validateVariant(page, 'landing', landingData, results, eventData, pageName, flowParam, container);
             } catch (err: any) {
               console.warn(`⚠️  Entry page validation error: ${err.message}`);
             }
@@ -495,19 +499,17 @@ async function runFlow(
       }
 
       // Home of Sport & Home Page: validate banner/paywall content before clicking Buy Now
-      // NOTE: Skip for home-biggest-fights — the paywall only appears AFTER clicking the
-      // Coming Up tile (which happens inside clickBuyNow). handlePaywall handles it.
       if (isHomeSport || isHomePageSource) {
         const onOnboarding = page.url().includes('signup') || page.url().includes('PlanDetails') || page.url().includes('payment');
         if (onOnboarding) {
           console.log('ℹ️ Already on onboarding page — skipping paywall validations');
         } else {
-          console.log('\n📋 Validating Entry page using Excel sheet...');
+          console.log('\n📋 Validating Entry page using Excel sheet (scoping to container)...');
           try {
             if (isHomePageSource) {
               const homePageData = getHomePageData(source);
               if (homePageData && homePageData.length > 0) {
-                await validateVariant(page, 'home-page', homePageData, results, eventData, 'Home Page', source);
+                await validateVariant(page, 'home-page', homePageData, results, eventData, 'Home Page', source, container);
               } else {
                 console.log(`ℹ️ No spreadsheet rules for homepage source "${source}" — skipping validation`);
               }
@@ -515,7 +517,7 @@ async function runFlow(
               const queryFlow = source.includes('banner') ? 'home-boxing-banner' : 'home-boxing-tile';
               const homeOfBoxingData = getHomeOfBoxingData(queryFlow);
               if (homeOfBoxingData && homeOfBoxingData.length > 0) {
-                await validateVariant(page, 'home-boxing', homeOfBoxingData, results, eventData, 'Home of Boxing', queryFlow);
+                await validateVariant(page, 'home-boxing', homeOfBoxingData, results, eventData, 'Home of Boxing', queryFlow, container);
               } else {
                 console.log(`ℹ️ No spreadsheet rules for home of boxing source "${queryFlow}" — skipping validation`);
               }
@@ -546,6 +548,9 @@ async function runFlow(
         const isPaywallSource = paywallSources.includes(source.toLowerCase());
 
         if (isPaywallSource) {
+          console.log(`🔓 [Paywall Flow] Opening paywall for source: ${source}`);
+          await landing.openPaywall(container, source, eventData);
+
           const paywallHandled = await handlePaywall(page, results, eventData, source, true);
           if (!paywallHandled) {
             console.warn(`⚠️ Paywall not detected by handlePaywall for ${source}. Falling back to clickBuyNow().`);

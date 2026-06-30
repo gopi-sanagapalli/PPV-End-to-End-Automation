@@ -158,14 +158,14 @@ export class LandingPage extends BasePage {
 
           const stopSwiper = (swiper: any) => {
             if (!swiper) return;
-            try { swiper.autoplay?.stop(); } catch {}
+            try { swiper.autoplay?.stop(); } catch { }
             try {
               swiper.params.autoplay = false;
               swiper.params.loop = false;
-            } catch {}
+            } catch { }
             try {
               if (swiper.autoplay?.running) swiper.autoplay.stop();
-            } catch {}
+            } catch { }
           };
 
           // Strategy 1: el.swiper
@@ -186,8 +186,8 @@ export class LandingPage extends BasePage {
               stopSwiper(el.swiper);
             }
           });
-        } catch {}
-      }).catch(() => {});
+        } catch { }
+      }).catch(() => { });
     };
 
     // Stop auto-slide immediately
@@ -201,7 +201,7 @@ export class LandingPage extends BasePage {
     }
 
     // Scroll to the carousel to ensure it is in view for hover/click interactions
-    await carousel.scrollIntoViewIfNeeded().catch(() => {});
+    await carousel.scrollIntoViewIfNeeded().catch(() => { });
     await stopAllAutoSlide();
 
     // Helper to get the currently active slide text
@@ -218,11 +218,16 @@ export class LandingPage extends BasePage {
     if (activeText && this.matchesPPVName(activeText, ppvName)) {
       console.log(`✅ [Banner] PPV already on active slide`);
       await stopAllAutoSlide();
-      // Store the data-swiper-slide-index of this active slide so validateVariant can re-navigate
-      const slideIndex = await carousel.locator(selectors.banner.activeSlide).first()
-        .getAttribute('data-swiper-slide-index').catch(() => null);
+
+      const activeSlide = carousel.locator(selectors.banner.activeSlide).locator(':visible').first();
+      await activeSlide.waitFor({ state: 'visible', timeout: 5000 }).catch(() => { });
+      await this.page.waitForTimeout(1000); // Settle transition
+
+      const slideIndex = await activeSlide.getAttribute('data-swiper-slide-index').catch(() => null);
       if (slideIndex !== null) eventData._ppvBannerSlideIndex = slideIndex;
-      return carousel.locator(selectors.banner.activeSlide).locator(':visible').first();
+
+      await stopAllAutoSlide();
+      return activeSlide;
     }
     console.log(`ℹ️  Active slide: "${activeText.substring(0, 60)}..." — not our PPV`);
 
@@ -269,44 +274,19 @@ export class LandingPage extends BasePage {
       // Read current active slide
       const currentText = await getActiveSlideText();
 
-      // Scan every swiper slide before navigating.
-      const allSlides = this.bannerSlides(carousel);
-      const slideCount = await allSlides.count().catch(() => 0);
-
-      for (let i = 0; i < slideCount; i++) {
-        const slide = allSlides.nth(i);
-        const txt = ((await slide.textContent().catch(() => '')) || '').trim();
-
-        if (txt && this.matchesPPVName(txt, ppvName)) {
-          console.log(`✅ [Banner] PPV found in slide ${i}`);
-
-          await slide.evaluate((el:any)=>{
-            const swiper = el.closest('.swiper')?.swiper || el.closest('[class*=swiper]')?.swiper;
-            if (!swiper) return;
-
-            const idx = el.getAttribute('data-swiper-slide-index');
-            if (idx !== null) {
-              swiper.slideToLoop(Number(idx),0,false);
-            }
-          }).catch(()=>{});
-
-          await this.page.waitForTimeout(500);
-          await stopAllAutoSlide();
-
-          return carousel.locator(selectors.banner.activeSlide).first();
-        }
-      }
-
       // Check if this is our PPV
       if (currentText && this.matchesPPVName(currentText, ppvName)) {
         console.log(`✅ [Banner] PPV found after ${attempt} clicks`);
         await stopAllAutoSlide();
+
+        const activeSlide = carousel.locator(selectors.banner.activeSlide).locator(':visible').first();
+        await activeSlide.waitFor({ state: 'visible', timeout: 5000 }).catch(() => { });
+        await this.page.waitForTimeout(1000); // Settle transition
+
         // Store slide index for later re-navigation
-        const slideIndex = await carousel.locator(selectors.banner.activeSlide).first()
-          .getAttribute('data-swiper-slide-index').catch(() => null);
+        const slideIndex = await activeSlide.getAttribute('data-swiper-slide-index').catch(() => null);
         if (slideIndex !== null) eventData._ppvBannerSlideIndex = slideIndex;
         // Check if Buy Now exists on this slide
-        const activeSlide = carousel.locator(selectors.banner.activeSlide).locator(':visible').first();
         const hasBuyNow = await activeSlide.locator('a:has-text("Buy now"), button:has-text("Buy now"), a:has-text("Buy Now"), button:has-text("Buy Now")').first().isVisible({ timeout: 2000 }).catch(() => false);
         if (hasBuyNow) {
           console.log(`✅ [Banner] Buy Now found on PPV slide`);
@@ -326,30 +306,58 @@ export class LandingPage extends BasePage {
       // Click next
       console.log(`  slide ${attempt + 1}: "${currentText.substring(0, 50)}..." — clicking next`);
 
-      // Hover over the carousel to reveal chevron/navigation buttons
-      await carousel.hover().catch(() => {});
-      await this.page.waitForTimeout(200);
+      // Check next button visibility inside carousel, or globally
+      let isNextVisible = await nextBtn.waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false);
+      if (!isNextVisible) {
+        const globalNextBtn = this.page.locator(nextBtnSelectors).first();
+        if (await globalNextBtn.waitFor({ state: 'visible', timeout: 500 }).then(() => true).catch(() => false)) {
+          nextBtn = globalNextBtn;
+          isNextVisible = true;
+        }
+      }
 
-      // Check if next button exists in carousel DOM
-      const nextBtnExists = await nextBtn.count().catch(() => 0) > 0;
-      let nextBtnVisible = nextBtnExists || await nextBtn.isVisible({ timeout: 1000 }).catch(() => false);
-
-      if (nextBtnVisible) {
+      if (isNextVisible) {
         const prevText = currentText;
-        await nextBtn.click({ force: true }).catch(() => {});
+        await nextBtn.click({ force: true, timeout: 3000 }).catch(() => { });
 
-        // Wait for slide transition
+        // Wait for slide transition AND new slide content to render.
+        // Home/boxing page carousels lazy-render slide content, so we must
+        // wait for the new active slide to have non-empty textContent.
         await this.page.waitForFunction((args) => {
           const activeEl = document.querySelector(args.activeSelector);
           const text = activeEl?.textContent?.trim() || '';
-          return text !== args.prevText;
-        }, { activeSelector: selectors.banner.activeSlide, prevText }, { timeout: 3000 }).catch(() => {});
+          // Slide must have changed AND have content (handles lazy-rendered slides)
+          return text.length > 0 && text !== args.prevText;
+        }, { activeSelector: selectors.banner.activeSlide, prevText }, { timeout: 5000 }).catch(() => { });
 
         await this.page.waitForTimeout(500);
         await stopAllAutoSlide();
       } else {
-        console.log('⚠️  [Banner] Next button not found in carousel DOM — cannot navigate further');
-        break;
+        console.log('⚠️  [Banner] Next button not visible — attempting swipe gesture fallback...');
+        // Ensure carousel is in viewport before getting bounding box
+        await carousel.scrollIntoViewIfNeeded().catch(() => { });
+        await this.page.waitForTimeout(300);
+        const box = await carousel.boundingBox().catch(() => null);
+        if (box) {
+          const prevText = currentText;
+          await this.page.mouse.move(box.x + box.width * 0.8, box.y + box.height / 2).catch(() => { });
+          await this.page.mouse.down().catch(() => { });
+          await this.page.mouse.move(box.x + box.width * 0.2, box.y + box.height / 2, { steps: 10 }).catch(() => { });
+          await this.page.mouse.up().catch(() => { });
+
+          // Wait for transition (must have non-empty content, handles lazy render)
+          await this.page.waitForFunction((args) => {
+            const activeEl = document.querySelector(args.activeSelector);
+            const text = activeEl?.textContent?.trim() || '';
+            return text.length > 0 && text !== args.prevText;
+          }, { activeSelector: selectors.banner.activeSlide, prevText }, { timeout: 5000 }).catch(() => { });
+
+          await this.page.waitForTimeout(500);
+          await stopAllAutoSlide();
+        } else {
+          console.log('⚠️  [Banner] Cannot determine carousel bounding box for swipe — stopping carousel navigation');
+          break;
+        }
       }
     }
 
@@ -368,7 +376,7 @@ export class LandingPage extends BasePage {
         // Navigate swiper to this slide
         await this.page.evaluate((index) => {
           const swiperEl = document.querySelector('.swiper') as any;
-          if (swiperEl?.swiper) {
+          if (swiperEl && swiperEl.swiper) {
             swiperEl.swiper.autoplay?.stop();
             if (swiperEl.swiper.params.loop && typeof swiperEl.swiper.slideToLoop === 'function') {
               swiperEl.swiper.slideToLoop(index);
@@ -376,9 +384,9 @@ export class LandingPage extends BasePage {
               swiperEl.swiper.slideTo(index);
             }
           }
-        }, i).catch(() => {});
+        }, i).catch(() => { });
 
-        await this.page.waitForTimeout(500);
+        await this.page.waitForTimeout(1000);
         await stopAllAutoSlide();
 
         // Store slide index
@@ -479,7 +487,7 @@ export class LandingPage extends BasePage {
           top: Math.max(0, Math.round(nextScrollTop)),
           behavior: 'instant',
         });
-      }).catch(() => {});
+      }).catch(() => { });
 
       await this.page.waitForTimeout(500);
     }
@@ -504,7 +512,7 @@ export class LandingPage extends BasePage {
         top: Math.max(0, Math.round(absoluteTop - headerOffset)),
         behavior: 'instant',
       });
-    }).catch(() => {});
+    }).catch(() => { });
 
     await this.page.waitForTimeout(300);
 
@@ -870,6 +878,10 @@ export class LandingPage extends BasePage {
       `❌ PPV not found in expected source: "${source || 'unknown'}". ` +
       `No fallback search will be attempted. Valid sources: landing-page-banner, landing-page-dont-miss-live, welcome-rail.`
     );
+  }
+
+  async openPaywall(container: any, source?: string, eventData: any = {}): Promise<void> {
+    console.log(`[LandingPage] openPaywall called for source: ${source} - no-op`);
   }
 
   async clickBuyNow(container: any, source?: string): Promise<void> {
