@@ -179,7 +179,7 @@ async function navigateToSchedule(driver: WdBrowser): Promise<void> {
 
 // ── Scroll schedule and find Joshua PPV tile (then center it) ─────
 async function scrollScheduleToPPVTile(driver: WdBrowser): Promise<WdElement | null> {
-  console.log('  Target: Joshua vs. Prenga (July 25)');
+  console.log("  Target: Joshua vs. Prenga (July 25)");
   
   // Step 1: Fast scroll to find "July" header (aggressive swipes)
   console.log('  Step 1: Fast scroll to July...');
@@ -205,9 +205,9 @@ async function scrollScheduleToPPVTile(driver: WdBrowser): Promise<WdElement | n
   for (let i = 0; i < 20; i++) {
     // Check for PPV
     try {
-      const ppvEl = await driver.$(`//android.widget.TextView[@text="Joshua vs. Prenga"]`);
+      const ppvEl = await driver.$(`//android.widget.TextView[@text="${PPV_NAME}"]`);
       if (await ppvEl.isDisplayed()) {
-        console.log(`✅ Found "Joshua vs. Prenga" (July step ${i + 1})`);
+        console.log(`✅ Found "${PPV_NAME}" (step ${i + 1})`);
         
         // Check if it's fully visible (not near bottom nav)
         const rect = await ppvEl.getRect();
@@ -234,7 +234,7 @@ async function scrollScheduleToPPVTile(driver: WdBrowser): Promise<WdElement | n
           await driver.pause(1500);
           
           // Return the re-found element (now centered)
-          const centeredEl = await driver.$(`//android.widget.TextView[@text="Joshua vs. Prenga"]`);
+          const centeredEl = await driver.$(`//android.widget.TextView[@text="${PPV_NAME}"]`);
           if (await centeredEl.isDisplayed()) {
             const newRect = await centeredEl.getRect();
             console.log(`  ✅ Tile centered at y=${newRect.y}`);
@@ -551,9 +551,9 @@ describe('DAZN Android PPV → Web Handoff', () => {
         // Click the PPV tile using exact XPath (most reliable)
         await driver.pause(1000);
         try {
-          const ppvTile = await driver.$(`//android.widget.TextView[@text="Joshua vs. Prenga"]`);
+          const ppvTile = await driver.$(`//android.widget.TextView[@text="${PPV_NAME}"]`);
           await ppvTile.click();
-          console.log(`✅ Clicked Joshua vs. Prenga tile`);
+          console.log(`✅ Clicked ${PPV_NAME} tile`);
         } catch (e) {
           console.log('⚠️ Could not click PPV tile');
         }
