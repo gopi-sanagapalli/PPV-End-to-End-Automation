@@ -1974,11 +1974,11 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
               console.log(`🔍 [${SOURCE === 'schedule' ? 'Schedule' : 'Search'} Flow] Checking URL: ${currentUrl}`);
               const isStag = currentUrl.includes('stag.dazn.com') || currentUrl.includes('sandbox') || currentUrl.includes('staging');
               if (!isStag) {
-                console.log(`⚠️ URL is not stag (URL: ${currentUrl}). Ending flow and closing browser.`);
+                console.log(`⚠️ URL is not stag (URL: ${currentUrl}). Ending checkout actions and generating report.`);
                 if (SOURCE === 'search') {
                   await logoutAppFlow(driver);
                 }
-                return;
+                reachedEndPage = true;
               }
             }
             reachedEndPage = true;
@@ -2652,11 +2652,11 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
               console.log(`🔍 [${SOURCE === 'schedule' ? 'Schedule' : 'Search'} Flow] Checking URL: ${finalUrl}`);
               const isStag = finalUrl.includes('stag.dazn.com') || finalUrl.includes('sandbox') || finalUrl.includes('staging');
               if (!isStag) {
-                console.log(`⚠️ URL is not stag (URL: ${finalUrl}). Ending flow and closing browser.`);
+                console.log(`⚠️ URL is not stag (URL: ${finalUrl}). Ending checkout actions and generating report.`);
                 if (SOURCE === 'search') {
                   await logoutAppFlow(driver);
                 }
-                return;
+                reachedEndPage = true;
               }
             }
             reachedEndPage = true;
