@@ -33,10 +33,15 @@
 //   APP_ACTIVITY     : Launch activity           (default: com.dazn.splash.view.SplashScreenActivity)
 //   PPV_NAME         : Event name to search for  (default: Joshua)
 // ─────────────────────────────────────────────────────────────────────────────
-import type { Options } from '@wdio/types';
+
 
 const ANDROID_SDK = process.env.ANDROID_HOME || `${process.env.HOME}/Library/Android/sdk`;
 const ADB         = `${ANDROID_SDK}/platform-tools/adb`;
+
+// Export ANDROID_HOME at module level so Appium server inherits it
+process.env.ANDROID_HOME = ANDROID_SDK;
+process.env.ANDROID_SDK_ROOT = ANDROID_SDK;
+process.env.ADB_PATH = ADB;
 
 export const config = {
   runner: 'local',
@@ -57,7 +62,7 @@ export const config = {
     ],
   ],
 
-  specs:        ['./tests/android/*.spec.ts'],
+  specs:        ['../tests/android/*.spec.ts'],
   exclude:      [],
   maxInstances: 1,
 
@@ -72,11 +77,13 @@ export const config = {
       'appium:noReset':                  true,
       'appium:forceAppLaunch':           true,
       'appium:autoGrantPermissions':     true,
+      'appium:unicodeKeyboard':          true,
+      'appium:resetKeyboard':            true,
       'appium:chromeOptions':            { androidPackage: 'com.android.chrome' },
       'appium:chromedriverAutodownload': true,
       'appium:newCommandTimeout':        300,
       'appium:uiautomator2ServerInstallTimeout': 60000,
-    } as WebdriverIO.Capabilities,
+    } as any,
   ],
 
   logLevel:               'info',

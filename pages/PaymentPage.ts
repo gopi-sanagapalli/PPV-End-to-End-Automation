@@ -185,7 +185,8 @@ export class PaymentPage extends BasePage {
       planType = '7_day_free_trial';
     }
 
-    const region = eventData.REGION || eventData.region || process.env.DAZN_REGION || 'GB';
+    let region = eventData.REGION || eventData.region || process.env.DAZN_REGION || 'GB';
+    if (region === 'UAE') region = 'AE';
     // Capture red-boxed screenshots BEFORE validateNextPaymentDetails navigates away
     await captureFailures(this.page, results, 'Payment');
 

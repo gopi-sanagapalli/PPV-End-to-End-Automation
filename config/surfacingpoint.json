@@ -51,18 +51,6 @@
     "source": "home-boxing-upcoming",
     "endPage": "payment"
   },
-  "search": {
-    "source": "search",
-    "endPage": "payment"
-  },
-  "schedule": {
-    "source": "schedule",
-    "endPage": "payment"
-  },
-  "myaccount": {
-    "source": "myaccount",
-    "endPage": "payment"
-  },
   "myaccount-subscription-status": {
     "source": "myaccount-subscription-status",
     "endPage": "payment",
@@ -101,13 +89,24 @@
   },
   "boxing-join-the-club": {
     "source": "boxing-join-the-club",
+    "endPage": "payment",
+    "defaultSignup": true
+  },
+  "search": {
+    "source": "search",
     "endPage": "payment"
   },
-  "subscribe-without-pay-per-view": {
-    "source": "home-page-get-started",
-    "endPage": "plan",
-    "defaultSignup": true,
-    "noPpvClick": true
+  "schedule": {
+    "source": "schedule",
+    "endPage": "payment"
+  },
+  "my-account": {
+    "source": "myaccount",
+    "endPage": "payment"
+  },
+  "myaccount": {
+    "source": "myaccount",
+    "endPage": "payment"
   },
   "glory": {
     "source": "glory",

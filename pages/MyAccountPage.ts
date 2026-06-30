@@ -673,7 +673,8 @@ export class MyAccountPage {
     // Fallback: build base URL from env vars if not extractable from URL
     if (!base) {
       const env = (process.env.DAZN_ENV || 'stag').toLowerCase();
-      const region = (process.env.DAZN_REGION || 'GB').toUpperCase();
+      let region = (process.env.DAZN_REGION || 'GB').toUpperCase();
+      if (region === 'UAE') region = 'AE';
       const domain =
         env === 'prod' ? 'www.dazn.com' :
         env === 'beta' ? 'beta.dazn.com' :

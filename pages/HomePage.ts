@@ -911,7 +911,7 @@ export class HomePage extends LandingPage {
       await container.click({ timeout: 5000 });
       console.log('✅ [Biggest Fights] Clicked Coming Up tile, waiting for popup modal...');
 
-      // Wait for popup modal to appear — then return so handlePopupModal can validate + click Buy Now
+      // Wait for popup modal to appear — then return so handlePaywall can validate + click Buy Now
       const modalSelectors = [
         '[role="dialog"]',
         '[aria-modal="true"]',
@@ -929,7 +929,7 @@ export class HomePage extends LandingPage {
         }
       }
 
-      console.log('⚠️ [Biggest Fights] Popup modal not detected — handlePopupModal will attempt to find it');
+      console.log('⚠️ [Biggest Fights] Popup modal not detected — handlePaywall will attempt to find it');
       return;
     }
 

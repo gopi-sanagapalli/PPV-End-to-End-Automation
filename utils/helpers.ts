@@ -132,6 +132,8 @@ export async function dismissMarketingPopup(page: Page, timeout: number = 0): Pr
   if (page.isClosed()) return;
   try {
     const dismissSelectors = [
+      'button:has-text("Keep me updated")',
+      'button:has-text("Keep Me Updated")',
       'button:has-text("Maybe later")',
       'button:has-text("Maybe Later")',
       'button:has-text("No thanks")',
@@ -140,8 +142,6 @@ export async function dismissMarketingPopup(page: Page, timeout: number = 0): Pr
       'button:has-text("Not Now")',
       'button:has-text("Close")',
       'button:has-text("Dismiss")',
-      'button:has-text("Keep me updated")',
-      'button:has-text("Keep Me Updated")',
       '[aria-label="Close"]',
       '[aria-label="close"]',
       '[aria-label*="close" i]',
@@ -330,6 +330,13 @@ export async function getPageSnapshot(pageOrLocator: Page | Locator): Promise<DO
       const clean = (s: string) =>
         s.replace(/\u200B/g, '').replace(/\s+/g, ' ').trim();
 
+
+      const getElementClasses = (el: Element): string =>
+        (el.getAttribute('class') || '')
+          .trim()
+          .replace(/\s+/g, ' ');
+
+
       const modalSelectors = [
         '[role="dialog" i]',
         '[aria-modal="true"]',
@@ -358,7 +365,7 @@ export async function getPageSnapshot(pageOrLocator: Page | Locator): Promise<DO
         });
       };
 
-      const isInInactiveSlide = (el: Element): boolean => {
+      const isInInactiveSlide = (el: any): boolean => {
         const slide = el.closest('.swiper-slide, [class*="swiper-slide"]');
         if (!slide) return false;
         const isHero = el.closest([
@@ -370,11 +377,13 @@ export async function getPageSnapshot(pageOrLocator: Page | Locator): Promise<DO
           '[class*="hero-banner"]',
         ].join(', '));
         if (!isHero) return false;
-        return slide.closest('.swiper-slide-active, .swiper-slide-duplicate-active, [class*="swiper-slide-active"], [class*="swiper-slide-duplicate-active"]') === null;
+        return slide.closest('.swiper-slide-active, [class*="swiper-slide-active"]') === null;
       };
 
+      // OPTIMIZED: avoid getComputedStyle — use offsetWidth/Height + inline style checks
       const isRendered = (el: HTMLElement): boolean => {
-        if (el.offsetWidth === 0 && el.offsetHeight === 0) return false;
+        const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+        if (!isMobile && el.offsetWidth === 0 && el.offsetHeight === 0) return false;
         const style = el.style;
         if (style.display === 'none') return false;
         if (style.visibility === 'hidden') return false;
