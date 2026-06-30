@@ -217,7 +217,12 @@ async function scrollScheduleToPPVTile(driver: WdBrowser): Promise<WdElement | n
         if (rect.y > bottomNavThreshold) {
           // Tile is too low - scroll it to CENTER of screen
           console.log(`  Tile at y=${rect.y} (near bottom), scrolling to center...`);
-          adbSwipe(Math.round(screenH / 2), 0, Math.round(screenH / 2), Math.round(screenH * 0.1));
+          adbSwipe(
+            Math.round(getScreenSize().width / 2),
+            Math.round(screenH * 0.75),
+            Math.round(getScreenSize().width / 2),
+            Math.round(screenH * 0.55)
+          );
           await driver.pause(500);
           
           // Small scroll up to bring tile to center
@@ -1483,7 +1488,23 @@ describe('DAZN Android PPV → Web Handoff', () => {
       }
 
       console.log(`\n🌐 Opening handoff URL: ${webCheckoutUrl}\n`);
-      await page.goto(webCheckoutUrl);
+
+      console.log(`📄 Before goto: ${page.url()}`);
+
+      await page.goto(webCheckoutUrl, {
+        waitUntil: 'domcontentloaded',
+        timeout: 60000,
+      });
+
+      console.log(`📄 After goto: ${page.url()}`);
+      console.log(`📄 Browser title: ${await page.title()}`);
+
+      await page.screenshot({
+        path: './test-results/android_after_goto.png',
+        fullPage: false,
+      });
+
+      console.log('📸 Saved screenshot after goto');
 
       // Explicitly wait for cookies and accept them
       console.log('🍪 Waiting for cookie banner and accepting cookies...');

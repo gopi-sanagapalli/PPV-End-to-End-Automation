@@ -90,7 +90,7 @@ async function isHomeReady(driver: WdBrowser): Promise<boolean> {
   return false;
 }
 
-async function waitForHomePage(driver: WdBrowser, timeoutMs = 45000): Promise<void> {
+export async function waitForHomePage(driver: WdBrowser, timeoutMs = 45000): Promise<void> {
   let sawCookiePrompt = false;
   let sawStartupDialog = false;
 

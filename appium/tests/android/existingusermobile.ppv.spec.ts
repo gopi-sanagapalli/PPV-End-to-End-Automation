@@ -38,7 +38,7 @@ type WdElement = any;
 
 import { execSync } from 'child_process';
 import { writeHandoffUrl, clearHandoffUrl } from '../../utils/handoff';
-import { prepareAndroidApp } from '../../utils/androidSetup';
+import { prepareAndroidApp, waitForHomePage } from '../../utils/androidSetup';
 
 // ── Config ───────────────────────────────────────────────────────────────────
 const PPV_NAME = process.env.PPV_NAME || 'Joshua';
@@ -534,7 +534,12 @@ async function scrollScheduleToPPVTile(driver: WdBrowser): Promise<WdElement | n
         if (rect.y > bottomNavThreshold) {
           // Tile is too low - scroll it to CENTER of screen
           console.log(`  Tile at y=${rect.y} (near bottom), scrolling to center...`);
-          adbSwipe(Math.round(screenH / 2), 0, Math.round(screenH / 2), Math.round(screenH * 0.1));
+          adbSwipe(
+            Math.round(getScreenSize().width / 2),
+            Math.round(screenH * 0.75),
+            Math.round(getScreenSize().width / 2),
+            Math.round(screenH * 0.55)
+          );
           await driver.pause(500);
 
           // Small scroll up to bring tile to center
@@ -917,6 +922,10 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
       // ── Pre-Login Phase ───────────────────────────────────────────────────
       if (isMyAccount || LOGIN_FIRST) {
         await preLoginFlow(driver, baseUrl);
+
+        console.log('🔍 Waiting for post-login cleanup...');
+        await waitForHomePage(driver);
+        console.log('✅ Post-login cleanup complete');
       }
 
       // ── myaccount ─────────────────────────────────────────────────────────
@@ -2715,7 +2724,7 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
         });
 
         // Generate HTML + PDF run reports
-        const reportPaths = await generateReports(results, {
+        await generateReports(results, {
           event: json.PPV_NAME,
           region: REGION,
           source: flowConfig.source,
@@ -2732,8 +2741,6 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
           platform: 'Android',
         });
         reportGenerated = true;
-        if (reportPaths?.htmlPath) console.log(`📄 HTML report: ${reportPaths.htmlPath}`);
-        if (reportPaths?.pdfPath) console.log(`📄 PDF report : ${reportPaths.pdfPath}`);
 
         const passed = results.filter(r => r.status === 'PASS').length;
         const failed = results.filter(r => r.status === 'FAIL').length;
@@ -2798,7 +2805,7 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
               videoPath: written.videoPath,
             });
 
-            const reportPaths = await generateReports(reportResults, {
+            await generateReports(reportResults, {
               event: jsonForReport.PPV_NAME || PPV_NAME,
               region: process.env.DAZN_REGION || 'GB',
               source: flowConfigForReport.source,
@@ -2819,8 +2826,6 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
             const failed = reportResults.filter((r: any) => r.status === 'FAIL').length;
             const total = passed + failed;
             console.log(`\n✅ Flow "${flowConfigForReport.name}" report generated: ${passed}/${total} passed (${total > 0 ? ((passed / total) * 100).toFixed(1) : 0}%)`);
-            if (reportPaths?.htmlPath) console.log(`📄 HTML report: ${reportPaths.htmlPath}`);
-            if (reportPaths?.pdfPath) console.log(`📄 PDF report : ${reportPaths.pdfPath}`);
           } catch (reportErr: any) {
             console.error(`⚠️ Failed to generate fallback existing-user report: ${reportErr.message}`);
           }
