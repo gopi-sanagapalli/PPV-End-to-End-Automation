@@ -42,6 +42,7 @@ import { prepareAndroidApp } from '../../utils/androidSetup';
 
 // ── Config ───────────────────────────────────────────────────────────────────
 const PPV_NAME = process.env.PPV_NAME || 'Joshua';
+const SCHEDULE_PPV_TITLE = process.env.SCHEDULE_PPV_TITLE || (PPV_NAME.toLowerCase().includes('joshua') ? 'Joshua vs. Prenga' : PPV_NAME);
 const SOURCE = (process.env.SOURCE || 'myaccount').trim().toLowerCase();
 const USER_STATE = process.env.USER_STATE || 'active_standard';
 const APP_PACKAGE = process.env.APP_PACKAGE || 'com.dazn';
@@ -490,15 +491,21 @@ async function navigateToSchedule(driver: WdBrowser): Promise<void> {
 
 // ── Scroll schedule and find PPV tile (then center it) ─────
 async function scrollScheduleToPPVTile(driver: WdBrowser): Promise<WdElement | null> {
-  console.log(`  Target: ${PPV_NAME}`);
+  console.log(`  Target: ${SCHEDULE_PPV_TITLE}`);
 
-  // Step 1: Fast scroll to find event
-  console.log('  Step 1: Fast scroll to find event...');
+  // Step 1: Fast scroll to find "July" header (aggressive swipes)
+  console.log('  Step 1: Fast scroll to July...');
   for (let i = 0; i < 20; i++) {
-    if (await isVisible(driver, PPV_NAME, 300)) {
-      console.log(`  ✅ Found event (step ${i + 1})`);
+    if (await isVisible(driver, 'July', 300) || await isVisible(driver, 'JUL', 300)) {
+      console.log(`  ✅ Found July (step ${i + 1})`);
       break;
     }
+
+    if (await isVisible(driver, 'August', 100) || await isVisible(driver, 'AUG', 100)) {
+      console.log('  ⚠️ Reached August before finding July - stopping fast scroll');
+      break;
+    }
+
     // Bigger, faster scrolls
     adbSwipe(Math.round(getScreenSize().width / 2),
       Math.round(getScreenSize().height * 0.75),
@@ -510,15 +517,14 @@ async function scrollScheduleToPPVTile(driver: WdBrowser): Promise<WdElement | n
   await driver.pause(1000);
 
   // Step 2: Look for the event tile
-  console.log('  Step 2: Searching for event tile...');
-  let foundEl: WdElement | null = null;
+  console.log(`  Step 2: Searching July for ${SCHEDULE_PPV_TITLE}...`);
 
   for (let i = 0; i < 20; i++) {
     // Check for PPV
     try {
-      const ppvEl = await driver.$(`//android.widget.TextView[@text="${PPV_NAME}"]`);
+      const ppvEl = await driver.$(`//android.widget.TextView[@text="${SCHEDULE_PPV_TITLE}"]`);
       if (await ppvEl.isDisplayed()) {
-        console.log(`✅ Found "${PPV_NAME}" (step ${i + 1})`);
+        console.log(`✅ Found "${SCHEDULE_PPV_TITLE}" (step ${i + 1})`);
 
         // Check if it's fully visible (not near bottom nav)
         const rect = await ppvEl.getRect();
@@ -540,7 +546,7 @@ async function scrollScheduleToPPVTile(driver: WdBrowser): Promise<WdElement | n
           await driver.pause(1500);
 
           // Return the re-found element (now centered)
-          const centeredEl = await driver.$(`//android.widget.TextView[@text="${PPV_NAME}"]`);
+          const centeredEl = await driver.$(`//android.widget.TextView[@text="${SCHEDULE_PPV_TITLE}"]`);
           if (await centeredEl.isDisplayed()) {
             const newRect = await centeredEl.getRect();
             console.log(`  ✅ Tile centered at y=${newRect.y}`);
@@ -551,6 +557,12 @@ async function scrollScheduleToPPVTile(driver: WdBrowser): Promise<WdElement | n
         return ppvEl;
       }
     } catch (e) { }
+
+    // Stop if we reach August
+    if (await isVisible(driver, 'August', 200) || await isVisible(driver, 'AUG', 200)) {
+      console.log('  ⚠️ Reached August - stopping');
+      break;
+    }
 
     // Gentle swipe
     adbSwipe(Math.round(getScreenSize().width / 2),
@@ -1025,9 +1037,9 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
           // Click the PPV tile using exact XPath (most reliable)
           await driver.pause(1000);
           try {
-            const ppvTile = await driver.$(`//android.widget.TextView[@text="${PPV_NAME}"]`);
+            const ppvTile = await driver.$(`//android.widget.TextView[@text="${SCHEDULE_PPV_TITLE}"]`);
             await ppvTile.click();
-            console.log(`✅ Clicked ${PPV_NAME} tile`);
+            console.log(`✅ Clicked ${SCHEDULE_PPV_TITLE} tile`);
           } catch (e) {
             console.log('⚠️ Could not click PPV tile');
           }
