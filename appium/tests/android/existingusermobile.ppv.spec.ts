@@ -1405,6 +1405,13 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
       let playwrightBrowser: any = null;
       let context: any = null;
       const runStart = new Date();
+      let finalResults: any[] = [];
+      let finalJson: any = null;
+      let finalFlowConfig: any = null;
+      let finalExcelPath: string | null = null;
+      let finalVideoPath: string | null = null;
+      let finalNativeVideoPath: string | null = null;
+      let reportGenerated = false;
 
       try {
         // 1. Change directory to root so paths resolve correctly relative to config and sheets
@@ -1527,6 +1534,9 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
         console.log(`╚═══════════════════════════════════════════════════════╝\n`);
 
         const results: any[] = [];
+        finalJson = json;
+        finalFlowConfig = flowConfig;
+        finalResults = results;
         configureExcelPathForEvent(json.eventKey || '');
 
         const eventData = buildEventData(json, REGION, planTier, ratePlan.replace(/-/g, ' '), SOURCE);
@@ -2670,6 +2680,7 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
             const videoDir = path.resolve(process.cwd(), 'test-results');
             if (!fs.existsSync(videoDir)) fs.mkdirSync(videoDir, { recursive: true });
             videoOutputPath = path.join(videoDir, `existinguser_run_${Date.now()}.mp4`);
+            finalNativeVideoPath = videoOutputPath;
             fs.writeFileSync(videoOutputPath, Buffer.from(videoBuffer, 'base64'));
             console.log(`🎥 Video recording saved to: ${videoOutputPath}`);
           }
@@ -2692,6 +2703,8 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
 
         // Write results to Excel
         const { excelPath, videoPath } = await writeResults(results, videoOutputPath);
+        finalExcelPath = excelPath;
+        finalVideoPath = videoPath;
 
         // Display detailed results table
         displayResultsTable(results, 'ppv', {
@@ -2702,7 +2715,7 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
         });
 
         // Generate HTML + PDF run reports
-        await generateReports(results, {
+        const reportPaths = await generateReports(results, {
           event: json.PPV_NAME,
           region: REGION,
           source: flowConfig.source,
@@ -2718,6 +2731,9 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
           userState: USER_STATE,
           platform: 'Android',
         });
+        reportGenerated = true;
+        if (reportPaths?.htmlPath) console.log(`📄 HTML report: ${reportPaths.htmlPath}`);
+        if (reportPaths?.pdfPath) console.log(`📄 PDF report : ${reportPaths.pdfPath}`);
 
         const passed = results.filter(r => r.status === 'PASS').length;
         const failed = results.filter(r => r.status === 'FAIL').length;
@@ -2740,6 +2756,75 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
 
       } catch (playwrightErr: any) {
         console.error(`❌ Local Playwright Web Checkout failed: ${playwrightErr.message}`);
+        if (!reportGenerated) {
+          try {
+            const { displayResultsTable } = require('../../../utils/resultsDisplay');
+            const { writeResults } = require('../../../utils/excelWriter');
+            const { generateReports } = require('../../../utils/reportGenerator');
+
+            const reportResults = finalResults.length > 0
+              ? finalResults
+              : [{
+                page: 'Run',
+                field: 'Existing User Flow',
+                expected: 'Complete checkout validation and generate report',
+                actual: playwrightErr.message || String(playwrightErr),
+                status: 'FAIL',
+              }];
+
+            const flowConfigForReport = finalFlowConfig || {
+              name: `Android Existing User: ${SOURCE}`,
+              source: SOURCE,
+              tier: 'standard',
+              ratePlan: 'monthly',
+            };
+            const jsonForReport = finalJson || { PPV_NAME };
+
+            reportResults.forEach((r: any) => {
+              r.flowName = r.flowName || flowConfigForReport.name;
+              r.source = r.source || flowConfigForReport.source;
+              r.tier = r.tier || flowConfigForReport.tier;
+              r.ratePlan = r.ratePlan || flowConfigForReport.ratePlan;
+            });
+
+            const written = finalExcelPath && finalVideoPath
+              ? { excelPath: finalExcelPath, videoPath: finalVideoPath }
+              : await writeResults(reportResults, finalNativeVideoPath);
+
+            displayResultsTable(reportResults, 'ppv', {
+              event: jsonForReport.PPV_NAME || PPV_NAME,
+              region: process.env.DAZN_REGION || 'GB',
+              excelPath: written.excelPath,
+              videoPath: written.videoPath,
+            });
+
+            const reportPaths = await generateReports(reportResults, {
+              event: jsonForReport.PPV_NAME || PPV_NAME,
+              region: process.env.DAZN_REGION || 'GB',
+              source: flowConfigForReport.source,
+              ratePlan: flowConfigForReport.ratePlan,
+              tier: flowConfigForReport.tier,
+              env: (process.env.DAZN_ENV || 'stag').toLowerCase(),
+              flowName: flowConfigForReport.name,
+              startTime: runStart,
+              endTime: new Date(),
+              excelPath: written.excelPath,
+              videoPath: written.videoPath,
+              userType: 'existing-user',
+              userState: USER_STATE,
+              platform: 'Android',
+            });
+
+            const passed = reportResults.filter((r: any) => r.status === 'PASS').length;
+            const failed = reportResults.filter((r: any) => r.status === 'FAIL').length;
+            const total = passed + failed;
+            console.log(`\n✅ Flow "${flowConfigForReport.name}" report generated: ${passed}/${total} passed (${total > 0 ? ((passed / total) * 100).toFixed(1) : 0}%)`);
+            if (reportPaths?.htmlPath) console.log(`📄 HTML report: ${reportPaths.htmlPath}`);
+            if (reportPaths?.pdfPath) console.log(`📄 PDF report : ${reportPaths.pdfPath}`);
+          } catch (reportErr: any) {
+            console.error(`⚠️ Failed to generate fallback existing-user report: ${reportErr.message}`);
+          }
+        }
         throw playwrightErr;
       } finally {
         // 2. Clean up context and browser
