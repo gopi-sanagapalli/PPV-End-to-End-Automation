@@ -494,20 +494,25 @@ export class HomePage extends LandingPage {
       await railHeader.scrollIntoViewIfNeeded().catch(() => { });
       console.log(`✅ [HomePage Tile] Section heading is visible`);
 
-      // 2. Locate rail wrapper — strictly use rail__rail-wrapper (confirmed from DOM inspection)
-      // No fallbacks that might resolve to the wrong section
-      let railWrapper = railHeader.locator('xpath=ancestor::*[contains(@class,"rail__rail-wrapper")][1]');
-      let hasWrapper = await railWrapper.isVisible({ timeout: 3000 }).catch(() => false);
+      // 2. Locate rail section — the parent of rail__rail-wrapper contains BOTH
+      //    the heading AND the swiper slides/chevrons.
+      //    DOM: rail___xxx > rail__rail-wrapper (heading only) + swiper-container (slides) + button (chevron)
+      //    So we go UP to rail__rail-wrapper first, then UP one more to rail___xxx.
+      let railHeadingWrapper = railHeader.locator('xpath=ancestor::*[contains(@class,"rail__rail-wrapper")][1]');
+      let hasWrapper = await railHeadingWrapper.isVisible({ timeout: 3000 }).catch(() => false);
       if (!hasWrapper) {
-        railWrapper = railHeader.locator('xpath=ancestor::*[contains(@class,"railWrapper")][1]');
-        hasWrapper = await railWrapper.isVisible({ timeout: 2000 }).catch(() => false);
+        railHeadingWrapper = railHeader.locator('xpath=ancestor::*[contains(@class,"railWrapper")][1]');
+        hasWrapper = await railHeadingWrapper.isVisible({ timeout: 2000 }).catch(() => false);
       }
       if (!hasWrapper) {
-        // Last resort: one level up from railHeader only
-        railWrapper = railHeader.locator('xpath=..');
+        railHeadingWrapper = railHeader.locator('xpath=..');
       }
-      const wrapperCls = await railWrapper.evaluate(el => (el.className || '').substring(0, 80)).catch(() => 'N/A');
-      console.log(`✅ [HomePage Tile] Found rail wrapper: class="${wrapperCls}"`);
+
+      // railSection = parent of rail__rail-wrapper — this is the actual section
+      // that contains heading, swiper slides, AND chevron buttons
+      const railSection = railHeadingWrapper.locator('xpath=..');
+      const sectionCls = await railSection.evaluate(el => (el.className || '').substring(0, 80)).catch(() => 'N/A');
+      console.log(`✅ [HomePage Tile] Found rail section: class="${sectionCls}"`);
 
       // 3. Build search parameters for tile (same as LandingPage.ts)
       const ppvName = eventData.PPV_NAME || '';
@@ -527,100 +532,75 @@ export class HomePage extends LandingPage {
         return matchTitle || matchFighters;
       };
 
-      const exclusions = [
-        'press conference', 'weigh-in', 'workout', 'replay', 'highlights',
-        'preview', 'promo', 'interview', 'behind the scenes', 'episode',
-        'documentary', 'face off'
-      ];
-      const exclusionSelector = exclusions.map(term => `:not([alt*="${term}" i])`).join('');
+      // ── Build match helper that checks BOTH text and image alts ──
+      const getSlideSearchText = async (slide: any): Promise<string> => {
+        const text = (await slide.textContent().catch(() => '') || '').toLowerCase();
+        const imgs = slide.locator('img');
+        const imgCount = await imgs.count().catch(() => 0);
+        const alts: string[] = [];
+        for (let ii = 0; ii < imgCount; ii++) {
+          const alt = await imgs.nth(ii).getAttribute('alt').catch(() => '') || '';
+          if (alt) alts.push(alt.toLowerCase());
+        }
+        return `${text} ${alts.join(' ')}`;
+      };
 
-      let imgSelector = '';
-      if (fighter1 && fighter2) {
-        imgSelector = `img[alt*="${fighter1}" i][alt*="${fighter2}" i]${exclusionSelector}:not(.swiper-slide-duplicate img)`;
-      } else if (fighter1) {
-        imgSelector = `img[alt*="${fighter1}" i]${exclusionSelector}:not(.swiper-slide-duplicate img)`;
-      } else {
-        imgSelector = `img[alt*="${ppvName}" i]${exclusionSelector}:not(.swiper-slide-duplicate img)`;
-      }
-
-      const ppvImg = railWrapper.locator(imgSelector).first();
-      const ppvTileLink = ppvImg.locator('xpath=ancestor::a[1]');
-
-
+      // ── isTileInView: search visible slides inside railSection ──
       const isTileInView = async (): Promise<any> => {
-        // First check candidates by text
-        const tileCandidates = railWrapper.locator('a[class*="tile__link" i], a[class*="tile" i], div[class*="tile" i], div[class*="card" i], a, button');
-        const candidateCount = await tileCandidates.count().catch(() => 0);
+        const slides = railSection.locator('.swiper-slide');
+        const count = await slides.count().catch(() => 0);
 
         let bestTile: any = null;
         let bestScore = 0;
 
-        for (let i = 0; i < candidateCount; i++) {
-          const tile = tileCandidates.nth(i);
-          if (await tile.isVisible().catch(() => false)) {
-            const text = await tile.textContent().catch(() => '');
-            if (text && matchesTileText(text)) {
-              const inView = await tile.evaluate((el: HTMLElement) => {
-                const r = el.getBoundingClientRect();
-                return r.width > 0 && r.right > 0 && r.left < window.innerWidth;
-              }).catch(() => false);
-              if (inView) {
-                const score = this.scorePPVMatch(text, ppvName);
-                if (score > bestScore) {
-                  bestScore = score;
-                  bestTile = tile;
-                }
-              }
-            }
+        for (let i = 0; i < count; i++) {
+          const slide = slides.nth(i);
+
+          // Skip duplicates (Swiper clones)
+          const isDup = await slide.evaluate(
+            (el: HTMLElement) => el.classList.contains('swiper-slide-duplicate')
+          ).catch(() => false);
+          if (isDup) continue;
+
+          if (!await slide.isVisible().catch(() => false)) continue;
+
+          // Check if slide is actually in the viewport
+          const inView = await slide.evaluate((el: HTMLElement) => {
+            const r = el.getBoundingClientRect();
+            return r.width > 0 && r.right > 0 && r.left < window.innerWidth;
+          }).catch(() => false);
+          if (!inView) continue;
+
+          const combined = await getSlideSearchText(slide);
+          if (!matchesTileText(combined)) continue;
+
+          const score = this.scorePPVMatch(combined, ppvName);
+          if (score > bestScore) {
+            bestScore = score;
+            // Resolve to the clickable link inside the slide
+            const link = slide.locator('a').first();
+            bestTile = (await link.count().catch(() => 0) > 0) ? link : slide;
           }
         }
 
         if (bestTile) {
-          const tileText = await bestTile.textContent().catch(() => '');
-          console.log(`✅ [HomePage Tile] Best matching tile (score=${bestScore}): "${(tileText || '').trim().replace(/\s+/g, ' ').substring(0, 80)}"`);
-          return bestTile;
+          console.log(`✅ [HomePage Tile] Match found (score=${bestScore})`);
         }
-
-        // Fallback to image alt matching
-        for (let retry = 0; retry < 2; retry++) {
-          const imgCount = await ppvImg.count().catch(() => 0);
-          if (imgCount === 0) {
-            if (retry === 0) {
-              await this.page.waitForTimeout(100);
-              continue;
-            }
-            break;
-          }
-          const inView = await ppvImg.evaluate((el: HTMLElement) => {
-            const r = el.getBoundingClientRect();
-            return r.width > 0 && r.right > 0 && r.left < window.innerWidth;
-          }).catch(() => false);
-          if (inView) {
-            return ppvTileLink;
-          }
-        }
-        return null;
+        return bestTile;
       };
 
-      // The chevron buttons live OUTSIDE railWrapper — they are following-siblings of
-      // railWrapper's parent (rail___SMX1u) within the rail-container.
-      // DOM: rail-container > rail___SMX1u (contains railWrapper) + BUTTON.custom-swiper-button-next
-      const innerSection = railWrapper.locator('xpath=..');
-
-      // Primary: following-sibling button with aria-label="Next slide"
-      let nextBtn = innerSection.locator('xpath=following-sibling::button[@aria-label="Next slide"][1]');
+      // ── Locate the Next (>) chevron ──
+      // Chevron buttons are direct children of railSection
+      let nextBtn = railSection.locator('button[aria-label="Next slide"]').first();
       let nextFound = await nextBtn.count().catch(() => 0) > 0;
 
       if (!nextFound) {
-        nextBtn = innerSection.locator('xpath=following-sibling::button[contains(@class,"swiper-button-next")][1]');
+        nextBtn = railSection.locator('button[class*="swiper-button-next"]').first();
         nextFound = await nextBtn.count().catch(() => 0) > 0;
       }
-
       if (!nextFound) {
-        // Fallback: search the parent container (rail-container) but only "Next slide" buttons
-        nextBtn = innerSection.locator('xpath=..').locator('button[aria-label="Next slide"]').first();
+        nextBtn = railSection.locator('[class*="custom-swiper-button-next"]').first();
         nextFound = await nextBtn.count().catch(() => 0) > 0;
-        if (nextFound) console.log('⚠️ [HomePage Tile] Chevron via parent container fallback');
       }
 
       if (nextFound) {
@@ -630,17 +610,27 @@ export class HomePage extends LandingPage {
         console.log('⚠️ [HomePage Tile] Chevron not found — carousel navigation will be skipped');
       }
 
-      // Hover the inner section's parent to reveal arrows
-      await innerSection.locator('xpath=..').hover({ force: true }).catch(() => { });
-      await this.page.waitForTimeout(200);
+      // ── Hover to reveal navigation arrows ──
+      await railSection.hover({ force: true }).catch(() => { });
+      await this.page.waitForTimeout(300);
 
+      // ── Search visible tiles first, then navigate carousel ──
       let clicks = 0;
       const maxClicks = 30;
       let found = await isTileInView();
 
-      while (!found && clicks < maxClicks) {
+      if (found) {
+        console.log('✅ [HomePage Tile] PPV tile already visible — no carousel navigation needed');
+      }
+
+      while (!found && clicks < maxClicks && nextFound) {
         if (this.page.isClosed()) throw new Error('Page closed during swiper navigation');
 
+        // Re-hover to keep arrows visible
+        await railSection.hover({ force: true }).catch(() => { });
+        await this.page.waitForTimeout(200);
+
+        // Check if next button is disabled (end of carousel)
         const nextDisabled = await nextBtn.evaluate((el: Element) => {
           return el.classList.contains('swiper-button-disabled') ||
             el.classList.contains('rail-module__disable') ||
@@ -653,9 +643,10 @@ export class HomePage extends LandingPage {
           break;
         }
 
+        // Verify next button still in DOM
         let nextCount = await nextBtn.count().catch(() => 0);
         if (nextCount === 0) {
-          await this.page.waitForTimeout(100);
+          await this.page.waitForTimeout(400);
           nextCount = await nextBtn.count().catch(() => 0);
           if (nextCount === 0) {
             console.log('⚠️ [HomePage Tile] Next button not found in DOM after retry');
@@ -663,41 +654,29 @@ export class HomePage extends LandingPage {
           }
         }
 
+        console.log(`  [HomePage Tile] Click ${clicks + 1}: advancing carousel...`);
         await nextBtn.click({ timeout: 5000, force: true }).catch((e: any) => {
-          console.log('⚠️ Next click error:', e.message);
+          console.log(`⚠️ Next click error: ${e.message}`);
         });
         clicks++;
+        await this.page.waitForTimeout(600);
 
-        await this.page.waitForTimeout(250);
         found = await isTileInView();
       }
 
-      console.log(`✅ [HomePage Tile] Swiper "Next" clicks performed: ${clicks}`);
-
-      if (!found && (await ppvImg.count()) > 0) {
-        console.log('🔍 [HomePage Tile] Tile in DOM but not visible — scrolling into view');
-        await ppvImg.scrollIntoViewIfNeeded().catch(() => { });
-        await this.page.waitForTimeout(150);
-        found = await isTileInView();
-      }
+      console.log(`📊 [HomePage Tile] Carousel clicks performed: ${clicks}`);
 
       if (!found) {
-        const dump = await railWrapper.evaluate((el: HTMLElement) => {
-          const imgs = Array.from(el.querySelectorAll('img')).slice(0, 20).map((img: HTMLImageElement) => ({
-            alt: img.alt,
-            src: img.src?.substring(0, 80),
-            w: img.width,
-            h: img.height,
-          }));
-          return {
-            nextDisabled: el.querySelector('button[aria-label="Next slide"]')?.classList.contains('swiper-button-disabled'),
-            imgs,
-          };
-        }).catch(() => null);
-
-        console.log('=== RAIL DEBUG ===');
-        console.log('Next disabled:', dump?.nextDisabled);
-        console.log('Images:', JSON.stringify(dump?.imgs, null, 2));
+        // Debug dump before throwing
+        const slidesDump = railSection.locator('.swiper-slide');
+        const dumpCount = await slidesDump.count().catch(() => 0);
+        console.log(`=== RAIL DEBUG (${dumpCount} slides) ===`);
+        for (let i = 0; i < Math.min(dumpCount, 20); i++) {
+          const s = slidesDump.nth(i);
+          const cls = await s.evaluate(el => el.className.substring(0, 60)).catch(() => '?');
+          const alt = await s.locator('img').first().getAttribute('alt').catch(() => '') || '';
+          console.log(`  Slide ${i}: class="${cls}" alt="${alt}"`);
+        }
         throw new Error(`❌ [HomePage Tile] Could not find "${fighter1 || ppvName}" tile in "Don't Miss" rail after ${clicks} clicks`);
       }
 
