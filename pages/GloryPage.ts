@@ -505,9 +505,6 @@ export class GloryPage extends BasePage {
             });
           } catch (paymentErr: any) {
             console.error(`❌ Payment filling failed: ${paymentErr.message}`);
-            try {
-              await this.page.screenshot({ path: `test-results/glory_payment_fill_error_${Date.now()}.png`, fullPage: true });
-            } catch { }
             results.push({
               page: 'Payment Success',
               field: 'Payment Completed',

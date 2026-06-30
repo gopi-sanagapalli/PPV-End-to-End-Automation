@@ -180,11 +180,4 @@ export class BasePage {
     }
     console.log(`📋 End snapshot\n`);
   }
-
-  /**
-   * Take a screenshot
-   */
-  async screenshot(filename: string): Promise<void> {
-    await this.page.screenshot({ path: `test-results/${filename}` }).catch(() => { });
-  }
 }

@@ -54,8 +54,7 @@ import {
   assertCountryMatch,
 } from '../../utils/testHelpers';
 
-let REGION = process.env.DAZN_REGION || 'GB';
-if (REGION === 'UAE') REGION = 'AE';
+const REGION = process.env.DAZN_REGION || 'GB';
 const EVENT_CONFIG = process.env.PPV_CONFIG || 'aj_joshua_prenga.json';
 const PLAN = process.env.PLAN || 'standard_monthly';
 const SOURCE = process.env.SOURCE || 'landing-page-banner';
@@ -68,7 +67,7 @@ const PAYMENT_METHOD = (process.env.PAYMENT_METHOD || 'credit_card').toLowerCase
 // RUN A SINGLE FLOW
 // ═══════════════════════════════════════════════════════════════
 
-// ── Screenshot helper for failed fields ─────────────────────────
+// ── Screenshot helper for failed fields (used in HTML/PDF reports) ──
 async function captureFailShot(page: Page, field: string): Promise<string | undefined> {
   try {
     const dir = path.resolve(process.cwd(), 'test-results', 'screenshots');
@@ -81,7 +80,6 @@ async function captureFailShot(page: Page, field: string): Promise<string | unde
     return undefined;
   }
 }
-
 
 async function waitForPostPlanTransition(page: Page): Promise<void> {
   console.log(`⏳ Waiting for post-plan transition. Current URL: ${page.url()}`);
@@ -110,11 +108,6 @@ async function waitForPostPlanTransition(page: Page): Promise<void> {
 
   if (!nextState) {
     const body = await page.locator('body').innerText().catch(() => '');
-    await page.screenshot({
-      path: `test-results/post-plan-transition-failed-${Date.now()}.png`,
-      fullPage: true,
-    }).catch(() => {});
-
     throw new Error(
       `❌ Plan CTA did not transition within 30 seconds.\n` +
       `URL: ${page.url()}\n` +
@@ -338,14 +331,12 @@ async function runFlow(
         scheduleEventClicked = true;
       } catch (schedErr: any) {
         console.error(`❌ Schedule flow failed: ${schedErr.message}`);
-        const shotPath = await captureFailShot(page, 'Schedule_Event_Click');
         results.push({
           page: 'Schedule',
           field: 'PPV Event Click',
           expected: `${eventData.PPV_NAME} clickable via ${sport} filter`,
           actual: schedErr.message,
           status: 'FAIL',
-          screenshot: shotPath,
         });
       }
 
@@ -1202,10 +1193,6 @@ async function runFlow(
             }
           } catch (paymentErr: any) {
             console.error(`❌ Payment filling failed: ${paymentErr.message}`);
-            // Capture a screenshot for debugging
-            try {
-              await page.screenshot({ path: `test-results/payment_fill_error_${Date.now()}.png`, fullPage: true });
-            } catch { }
             const _shotPay = await captureFailShot(page, 'Payment Completed').catch(() => undefined);
             results.push({
               page: 'Payment Success',
@@ -1255,12 +1242,6 @@ async function runFlow(
         if (matchedError) {
           const errorSnippet = bodyTextForError.split('\n').filter((l: string) => errorPatterns.some(p => p.test(l))).join(' | ').substring(0, 200);
           console.log(`❌ [Signup Error] Detected error popup on page: "${errorSnippet}"`);
-          try {
-            await page.screenshot({ path: 'test-results/signup_error_popup.png', fullPage: true });
-            console.log('📸 Screenshot saved to test-results/signup_error_popup.png');
-          } catch (se: any) {
-            console.warn('⚠️  Could not save screenshot:', se.message);
-          }
           throw new Error(`❌ Signup error popup detected: "${errorSnippet}". The signup page shows an error — test cannot proceed.`);
         }
 
@@ -1269,13 +1250,6 @@ async function runFlow(
         // (the email personal details will lead to payment after manual intervention)
         if (emailProcessedCount > 2) {
           console.log('⚠️  Email/personal details loop detected — breaking');
-          // Capture screenshot to see exactly what's on the page
-          try {
-            await page.screenshot({ path: 'test-results/personal_details_error.png', fullPage: true });
-            console.log('📸 Screenshot saved to test-results/personal_details_error.png');
-          } catch (se: any) {
-            console.warn('⚠️  Could not save screenshot:', se.message);
-          }
           // Try one more click on the continue button then break
           const anyBtn = page.locator('button[type="submit"], button:has-text("Continue")').first();
           if (await anyBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
@@ -1920,11 +1894,6 @@ async function runFlow(
           .replace(/\s+/g, ' ')
           .slice(0, 1200)
       );
-
-      await page.screenshot({
-        path: `test-results/end-page-debug-${Date.now()}.png`,
-        fullPage: true,
-      }).catch(() => {});
 
       // Final check — the payment route can vary by experiment/layout.
       const finalUrl = page.url();

@@ -17,8 +17,8 @@
 # ─────────────────────────────────────────────────────────────────────────────
 cd /Users/Hari.Prasad/jobbot/dazn-tests
 export DAZN_ENV=prod
-export DAZN_REGION=GB
+export DAZN_REGION=US
 export PLAN=standard_monthly
-export SOURCE=home-page-live-tv-rail
-export PPV_EVENT=beauty_and_beast
+export SOURCE=landing-page-banner
+export PPV_EVENT=zayas_boots
 npx playwright test tests/new_user/newuser.ppv.spec.ts --headed 2>&1 | tee test_output.log

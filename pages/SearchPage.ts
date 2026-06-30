@@ -324,7 +324,6 @@ export class SearchPage extends BasePage {
       const yellowDotVisible = await yellowDot.isVisible({ timeout: 5000 }).catch(() => false);
       if (yellowDotVisible) {
         console.log('✅ Yellow dot visible on search page — dev mode CONFIRMED ✨');
-        await this.page.screenshot({ path: 'test-results/devmode-yellow-dot-confirmed.png', fullPage: false }).catch(() => { });
 
         // Navigate back to the original URL to continue the flow
         console.log(`🔄 Navigating back to original URL: ${originalUrl}`);
@@ -332,7 +331,6 @@ export class SearchPage extends BasePage {
         await this.waitForConsentAndDismiss().catch(() => { });
       } else {
         console.log('❌ Yellow dot NOT visible — dev mode activation FAILED');
-        await this.page.screenshot({ path: 'test-results/devmode-error-yellow-dot.png', fullPage: true }).catch(() => { });
         throw new Error('❌ Yellow dot not visible on search page after dev mode activation');
       }
 
@@ -342,7 +340,6 @@ export class SearchPage extends BasePage {
 
     } catch (e: any) {
       console.warn('⚠️  Dev mode error:', e.message);
-      await this.page.screenshot({ path: 'test-results/devmode-error.png', fullPage: true }).catch(() => { });
       throw e;
     }
   }

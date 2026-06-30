@@ -37,7 +37,6 @@
 
 const ANDROID_SDK = process.env.ANDROID_HOME || `${process.env.HOME}/Library/Android/sdk`;
 const ADB         = `${ANDROID_SDK}/platform-tools/adb`;
-const USE_UNICODE_KEYBOARD = String(process.env.APPIUM_UNICODE_KEYBOARD || '').toLowerCase() === 'true';
 
 // Export ANDROID_HOME at module level so Appium server inherits it
 process.env.ANDROID_HOME = ANDROID_SDK;
@@ -76,11 +75,10 @@ export const config = {
       'appium:appPackage':               process.env.APP_PACKAGE        || 'com.dazn',
       'appium:appActivity':              process.env.APP_ACTIVITY       || 'com.dazn.splash.view.SplashScreenActivity',
       'appium:noReset':                  true,
-      'appium:autoLaunch':               false,
-      'appium:forceAppLaunch':           false,
+      'appium:forceAppLaunch':           true,
       'appium:autoGrantPermissions':     true,
-      'appium:unicodeKeyboard':          USE_UNICODE_KEYBOARD,
-      'appium:resetKeyboard':            USE_UNICODE_KEYBOARD,
+      'appium:unicodeKeyboard':          true,
+      'appium:resetKeyboard':            true,
       'appium:chromeOptions':            { androidPackage: 'com.android.chrome' },
       'appium:chromedriverAutodownload': true,
       'appium:newCommandTimeout':        300,

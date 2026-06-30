@@ -436,7 +436,6 @@ export class PPVUpsellPaymentPage extends BasePage {
         console.log('✅ CVV entered via VGS iframe');
       } else {
         console.log('❌ CVV input not found anywhere — payment may fail');
-        await this.page.screenshot({ path: 'test-results/saved-card-no-cvv.png' }).catch(() => {});
       }
     }
   }
@@ -457,7 +456,6 @@ export class PPVUpsellPaymentPage extends BasePage {
     ).first();
 
     await payNowBtn.waitFor({ state: 'visible', timeout: 8000 });
-    await this.page.screenshot({ path: 'test-results/saved-card-before-pay.png' }).catch(() => {});
 
     const beforeUrl = this.page.url();
     await payNowBtn.click({ force: true });
