@@ -8,6 +8,10 @@ const COOKIE_BUTTON_XPATH = '//android.widget.Button[@resource-id="com.dazn:id/b
 type WdBrowser = any;
 type WdElement = any;
 
+type PrepareAndroidAppOptions = {
+  clearAppData?: boolean;
+};
+
 function adb(cmd: string): string {
   try {
     return execSync(`${ADB} ${cmd}`, {
@@ -122,7 +126,9 @@ async function waitForHomePage(driver: WdBrowser, timeoutMs = 45000): Promise<vo
   console.log('✅ Home page detected');
 }
 
-export async function prepareAndroidApp(driver: WdBrowser) {
+export async function prepareAndroidApp(driver: WdBrowser, options: PrepareAndroidAppOptions = {}) {
+  const clearAppData = options.clearAppData !== false;
+
   console.log('═══════════════════════════════════════');
   console.log('📱 Preparing Android app');
   console.log('═══════════════════════════════════════');
@@ -133,12 +139,15 @@ export async function prepareAndroidApp(driver: WdBrowser) {
     console.log('✅ App terminated');
   } catch {}
 
-  // Clear app data
-  try {
-    adb(`shell pm clear ${APP_PACKAGE}`);
-    console.log('✅ App data cleared');
-  } catch {
-    console.log('⚠️ Unable to clear app data');
+  if (clearAppData) {
+    try {
+      adb(`shell pm clear ${APP_PACKAGE}`);
+      console.log('✅ App data cleared');
+    } catch {
+      console.log('⚠️ Unable to clear app data');
+    }
+  } else {
+    console.log('ℹ️ App data preserved');
   }
 
   // Launch app

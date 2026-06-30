@@ -882,7 +882,7 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
       console.log(`║  User   : ${USER_STATE.padEnd(40)}║`);
       console.log(`╚════════════════════════════════════════════════════╝\n`);
 
-      await prepareAndroidApp(browser);
+      await prepareAndroidApp(browser, { clearAppData: LOGIN_FIRST });
     });
 
     it('navigates to PPV buy button as existing user, opens Chrome, captures checkout URL', async () => {
@@ -896,9 +896,7 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
         bitRate: '2000000',
       }).catch(e => console.error('⚠️ Failed to start screen recording:', e));
 
-      await driver.pause(5000);
-
-      await dismissStartupDialogs(driver);
+      console.log('✅ Startup handled by prepareAndroidApp; beginning existing-user PPV navigation');
 
       let buyTapped = false;
 
