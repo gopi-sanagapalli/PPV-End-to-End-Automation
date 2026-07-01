@@ -7,7 +7,7 @@ export async function detectPageType(
   p: any,
   pc: Record<string, { detection: string }>,
   planClickCount: number
-): Promise<'ppv' | 'plan' | 'email' | 'payment' | 'phone' | 'otp' | 'unknown' | 'standalone-ppv' | 'success-upsell' | 'saved-card-payment' | 'bet-upsell' | 'default-signup'> {
+): Promise<'ppv' | 'plan' | 'email' | 'payment' | 'phone' | 'otp' | 'unknown' | 'standalone-ppv' | 'success-upsell' | 'saved-card-payment' | 'bet-upsell' | 'default-signup' | 'choose-how-to-buy' | 'confirmation'> {
   if (!p || p.isClosed()) return 'unknown';
 
   // ── Body text detection FIRST for highly specific pages (OTP & Phone) ──
@@ -58,6 +58,13 @@ export async function detectPageType(
   // Phone/OTP pages (highest priority URL checks)
   if (urlLower.includes('phonenumbercollection')) return 'phone';
   if (urlLower.includes('phoneverification') || urlLower.includes('otpverification')) return 'otp';
+
+  // Upgrade confirmation page (after clicking Upgrade to Ultimate)
+  if (urlLower.includes('upgradeplan')) return 'confirmation';
+  if (urlLower.includes('upgradetier') && !urlLower.includes('isupgradetierflow')) return 'confirmation';
+
+  // Choose How To Buy page (active existing user addon purchase)
+  if (urlLower.includes('/addon/purchase')) return 'choose-how-to-buy';
 
   // Payment page
   if (urlLower.includes('paymentdetails') || urlLower.includes('page=payment')) return 'payment';
@@ -127,8 +134,8 @@ export async function detectPageType(
         .innerText({ timeout: 3000 })
         .then((t: string) => t.toLowerCase())
         .catch(() => '');
-      if (routedBody.includes('pay-per-view') || routedBody.includes('choose how to buy') ||
-          routedBody.includes('subscribe without a pay-per-view')) {
+      if (routedBody.includes('choose how to buy')) return 'choose-how-to-buy';
+      if (routedBody.includes('pay-per-view') || routedBody.includes('subscribe without a pay-per-view')) {
         return 'ppv';
       }
       return 'plan';
@@ -138,7 +145,8 @@ export async function detectPageType(
       .innerText({ timeout: 3000 })
       .then((t: string) => t.toLowerCase())
       .catch(() => '');
-    if (bodyCheck.includes('pay-per-view') || bodyCheck.includes('choose how to buy')) return 'ppv';
+    if (bodyCheck.includes('choose how to buy')) return 'choose-how-to-buy';
+    if (bodyCheck.includes('pay-per-view')) return 'ppv';
     if (bodyCheck.includes('choose your plan') || bodyCheck.includes('choose the right plan')) return 'ppv';
     if (bodyCheck.includes('choose a plan')) return 'plan';
     return 'ppv'; // Default fallback if contextualppvid present
@@ -165,7 +173,7 @@ export async function detectPageType(
   if (ppvDetect && body.includes(ppvDetect)) return 'ppv';
   if (body.includes('subscribe without a pay-per-view')) return 'ppv';
   if (body.includes('choose your plan')) return 'ppv';
-  if (body.includes('choose how to buy')) return 'ppv';
+  if (body.includes('choose how to buy')) return 'choose-how-to-buy';
 
   // Standalone/Glory PPV page detection
   if (body.includes("choose a plan that's right") && body.includes("choose your subscription")) {

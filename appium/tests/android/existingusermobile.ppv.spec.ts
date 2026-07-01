@@ -1360,6 +1360,9 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
           getUpsellFirstSuccessData,
           getUpsellSecondSuccessData,
           getUpsellPaymentData,
+          getChooseHowToBuyData,
+          getPPVPaymentData,
+          getUpgradeConfirmationData,
         } = require('../../../utils/excelReader');
 
         const { detectVariant } = require('../../../flows/detectVariant');
@@ -1397,6 +1400,7 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
         const PLAN_TARGET = (process.env.PLAN || '').toLowerCase().replace(/[- ]/g, '_');
         const WANT_ULTIMATE = SWITCH_TO_ULTIMATE || PLAN_TARGET === 'ultimate_apm' || PLAN_TARGET === 'ultimate_apu';
         const WANT_ULTIMATE_APU = PLAN_TARGET === 'ultimate_apu';
+        const purchaseOption = WANT_ULTIMATE ? 'ultimate' : 'ppv';
         const ENV = (process.env.DAZN_ENV || 'stag').toLowerCase();
         const PAYMENT_METHOD = (process.env.PAYMENT_METHOD || 'credit_card').toLowerCase();
 
@@ -1851,6 +1855,37 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
             continue;
           }
 
+          // ── Saved Card Payment — PPV Only (existing active user, non-upsell) ──────
+          if (pageType === 'saved-card-payment' && PPV_TYPE !== 'upsell' && !savedCardPaymentDone) {
+            console.log('💳 PPV Saved Card Payment (existing user)');
+            stuckCount = 0;
+            reachedEndPage = true;
+            savedCardPaymentDone = true;
+
+            const savedCardPage = new PPVUpsellPaymentPage(page);
+            try {
+              const ppvPaymentData = getPPVPaymentData();
+              console.log(`📊 PPV Payment rows: ${ppvPaymentData.length}`);
+              await savedCardPage.validateSavedCardPayment(ppvPaymentData, results, eventData, 'PPV Payment (Saved Card)');
+            } catch (err: any) {
+              console.warn('⚠️ PPV Payment validation error:', err.message);
+            }
+
+            if (ENV === 'stag') {
+              console.log('💳 stag — submitting PPV saved-card payment...');
+              try {
+                await savedCardPage.fillAndSubmit(eventData);
+                results.push({ page: 'PPV Payment', field: 'PPV Payment Completed', expected: 'Success', actual: 'Success', status: 'PASS' });
+                await page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => { });
+                continue;
+              } catch (payErr: any) {
+                console.error('❌ PPV saved-card payment failed:', payErr.message);
+                results.push({ page: 'PPV Payment', field: 'PPV Payment Completed', expected: 'Success', actual: `Failed: ${payErr.message}`, status: 'FAIL' });
+              }
+            }
+            break;
+          }
+
           // ── UPSELL: Saved Card Payment (PPV B purchase) ─────────────
           if (pageType === 'saved-card-payment' && PPV_TYPE === 'upsell' && firstPaymentDone && firstSuccessValidated && !savedCardPaymentDone) {
             console.log('💳 Next Upsell Saved Card Payment');
@@ -2244,6 +2279,108 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
             await page.locator('button:has-text("Continue with pay-per-view"), a:has-text("Continue with pay-per-view")').first().click({ force: true });
             await page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => { });
             continue;
+          }
+
+          // ── Choose How To Buy Page (existing active subscriber) ────────────────
+          if (pageType === 'choose-how-to-buy') {
+            console.log('\n══════════════════════════════════════════════');
+            console.log('🛒 Active Standard — Choose How To Buy');
+            console.log('══════════════════════════════════════════════');
+            stuckCount = 0;
+
+            await page.waitForSelector(
+              '[class*="addon" i], [class*="purchase" i], input[type="radio"]',
+              { state: 'visible', timeout: 8000 }
+            ).catch(() => { });
+
+            try {
+              const chooseBuyData = getChooseHowToBuyData();
+              console.log(`📊 Choose How To Buy rows: ${chooseBuyData.length}`);
+              await validateVariant(page, 'choosebuy', chooseBuyData, results, eventData, 'Choose How To Buy');
+            } catch (e: any) {
+              console.warn('⚠️ Choose How To Buy validation error:', e.message);
+            }
+
+            if (purchaseOption === 'ultimate') {
+              console.log('\n💎 Selecting DAZN Ultimate...');
+              const ultimateCard = page.locator(
+                '[class*="upsell" i], [class*="ultimate" i], label:has-text("DAZN Ultimate")'
+              ).first();
+              if (await ultimateCard.isVisible({ timeout: 3000 }).catch(() => false)) {
+                await safeScrollToElement(page, ultimateCard);
+                await ultimateCard.click({ force: true }).catch(() => { });
+                console.log('✅ Selected DAZN Ultimate');
+              }
+              const ultimateCta = page.locator(
+                'button:has-text("Continue with DAZN Ultimate"), button:has-text("Continue")'
+              ).first();
+              await ultimateCta.waitFor({ state: 'visible', timeout: 8000 }).catch(() => { });
+              await safeScrollToElement(page, ultimateCta);
+              await ultimateCta.click({ force: true });
+              console.log('✅ Clicked Continue with DAZN Ultimate');
+              await page.waitForSelector(
+                'text=/choose your plan|annual|pay monthly|pay upfront/i',
+                { state: 'visible', timeout: 15000 }
+              ).catch(() => { });
+              await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => { });
+            } else {
+              console.log('\n🥊 Selecting PPV only...');
+              const ppvBtnTexts = [
+                `button:has-text("Continue with ${eventData.PPV_NAME} only")`,
+                `button:has-text("Continue with ${eventData.PPV_NAME}")`,
+              ];
+              if (eventData.PPV_NAME) {
+                const nameClean = (eventData.PPV_NAME as string).replace(/[:\-–]/g, ' ');
+                if (nameClean.includes('vs')) {
+                  const fighters = nameClean.split(/\bvs\b/i).map((f: string) => f.trim());
+                  const firstFighter = fighters[0]?.split(/\s+/).pop();
+                  const secondFighter = fighters[1]?.split(/\s+/)[0];
+                  if (firstFighter) ppvBtnTexts.push(`button:has-text("Continue with ${firstFighter}")`);
+                  if (secondFighter) ppvBtnTexts.push(`button:has-text("Continue with ${secondFighter}")`);
+                }
+              }
+              ppvBtnTexts.push('button:has-text("Continue")');
+              const ppvCta = page.locator(ppvBtnTexts.join(', ')).first();
+              await ppvCta.waitFor({ state: 'visible', timeout: 8000 }).catch(() => { });
+              await safeScrollToElement(page, ppvCta);
+              await ppvCta.click({ force: true });
+              console.log('✅ Clicked PPV Only Continue');
+              await page.waitForSelector(
+                'text=/Today you pay|Skip|Pay Now|one time payment/i',
+                { state: 'visible', timeout: 15000 }
+              ).catch(() => { });
+              await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => { });
+            }
+
+            await page.waitForLoadState('domcontentloaded').catch(() => { });
+            continue;
+          }
+
+          // ── Upgrade Confirmation Page ──────────────────────────────────
+          if (pageType === 'confirmation') {
+            console.log('✅ Upgrade Confirmation page');
+            stuckCount = 0;
+            reachedEndPage = true;
+
+            try {
+              const confirmData = getUpgradeConfirmationData(ratePlan);
+              console.log(`📊 Confirmation rows: ${confirmData.length}`);
+              await validateVariant(page, 'confirmation', confirmData, results, eventData, 'Upgrade Confirmation');
+            } catch (e: any) {
+              console.warn('⚠️ Confirmation page validation error:', e.message);
+            }
+
+            if (ENV === 'stag') {
+              const confirmBtn = page.locator(
+                'button:has-text("Confirm"), button:has-text("Pay now"), button:has-text("Pay Now"), button[type="submit"]'
+              ).first();
+              if (await confirmBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+                await clickAndWaitForNav(page, confirmBtn, 'Upgrade Confirm');
+                await page.waitForLoadState('domcontentloaded').catch(() => { });
+                continue;
+              }
+            }
+            break;
           }
 
           // ── PPV Page ───────────────────────────────────────────
