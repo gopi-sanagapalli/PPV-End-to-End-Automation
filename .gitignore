@@ -38,3 +38,4 @@ _diag/
 
 # AI Tooling & Project Context directories
 PROJECT_CONTEXT_AI/
+.agents/
