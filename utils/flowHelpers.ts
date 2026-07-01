@@ -134,8 +134,8 @@ export async function detectPageType(
         .innerText({ timeout: 3000 })
         .then((t: string) => t.toLowerCase())
         .catch(() => '');
-      if (routedBody.includes('choose how to buy')) return 'choose-how-to-buy';
-      if (routedBody.includes('pay-per-view') || routedBody.includes('subscribe without a pay-per-view')) {
+      if (routedBody.includes('pay-per-view') || routedBody.includes('choose how to buy') ||
+          routedBody.includes('subscribe without a pay-per-view')) {
         return 'ppv';
       }
       return 'plan';
@@ -145,8 +145,7 @@ export async function detectPageType(
       .innerText({ timeout: 3000 })
       .then((t: string) => t.toLowerCase())
       .catch(() => '');
-    if (bodyCheck.includes('choose how to buy')) return 'choose-how-to-buy';
-    if (bodyCheck.includes('pay-per-view')) return 'ppv';
+    if (bodyCheck.includes('pay-per-view') || bodyCheck.includes('choose how to buy')) return 'ppv';
     if (bodyCheck.includes('choose your plan') || bodyCheck.includes('choose the right plan')) return 'ppv';
     if (bodyCheck.includes('choose a plan')) return 'plan';
     return 'ppv'; // Default fallback if contextualppvid present
@@ -173,7 +172,7 @@ export async function detectPageType(
   if (ppvDetect && body.includes(ppvDetect)) return 'ppv';
   if (body.includes('subscribe without a pay-per-view')) return 'ppv';
   if (body.includes('choose your plan')) return 'ppv';
-  if (body.includes('choose how to buy')) return 'choose-how-to-buy';
+  if (body.includes('choose how to buy')) return 'ppv';
 
   // Standalone/Glory PPV page detection
   if (body.includes("choose a plan that's right") && body.includes("choose your subscription")) {
