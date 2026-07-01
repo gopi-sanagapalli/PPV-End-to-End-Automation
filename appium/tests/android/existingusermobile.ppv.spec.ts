@@ -1393,6 +1393,10 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
         const PLAN = process.env.PLAN || 'standard_monthly';
         const PPV_TYPE = (process.env.PPV_TYPE || 'normal').toLowerCase();
         const SWITCH_TO_ULTIMATE = (process.env.SWITCH || '').toLowerCase() === 'true';
+        // PLAN env var: 'ultimate_apm' | 'ultimate_apu' → upgrade to Ultimate; anything else → PPV only
+        const PLAN_TARGET = (process.env.PLAN || '').toLowerCase().replace(/[- ]/g, '_');
+        const WANT_ULTIMATE = SWITCH_TO_ULTIMATE || PLAN_TARGET === 'ultimate_apm' || PLAN_TARGET === 'ultimate_apu';
+        const WANT_ULTIMATE_APU = PLAN_TARGET === 'ultimate_apu';
         const ENV = (process.env.DAZN_ENV || 'stag').toLowerCase();
         const PAYMENT_METHOD = (process.env.PAYMENT_METHOD || 'credit_card').toLowerCase();
 
@@ -1910,7 +1914,7 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
             if (isStandardTierForUpsell && isMonthlyOrAPMForUpsell) {
               try {
                 await payment.validateUltimateUpsellBannerText(results, eventData);
-                const shouldClickUpsell = SWITCH_TO_ULTIMATE || SOURCE === 'landing-page-dont-miss-live-switch';
+                const shouldClickUpsell = WANT_ULTIMATE || SOURCE === 'landing-page-dont-miss-live-switch';
 
                 if (shouldClickUpsell) {
                   const switched = await payment.clickUltimateUpsellAndValidate(results, eventData);
@@ -2262,7 +2266,7 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
               ppvValidated = true;
             }
 
-            if (planTier === 'ultimate') {
+            if (WANT_ULTIMATE) {
               console.log('💎 Clicking DAZN Ultimate card...');
               const selectors = [
                 'div:has-text("The Ultimate Fan Package") >> text=DAZN Ultimate',
@@ -2377,8 +2381,8 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
               planValidated = true;
             }
 
-            if (planTier === 'ultimate') {
-              if (ratePlan === 'annual pay upfront') {
+            if (WANT_ULTIMATE) {
+              if (WANT_ULTIMATE_APU) {
                 const upfrontCard = page.locator(
                   'label:has-text("Annual - Pay Upfront"), label:has-text("Pay Upfront"), [role="radio"]:has-text("Upfront")'
                 ).first();
@@ -2469,75 +2473,18 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
               await planBtn.waitFor({ state: 'visible', timeout: 5000 }).catch(() => { });
               await clickAndWaitForNav(page, planBtn, 'Ultimate Plan Continue');
             } else {
-              if (ratePlan === 'annual pay monthly' || ratePlan.includes('annual')) {
-                const annualCard = page.locator(
-                  'label:has-text("Annual - pay over time"), label:has-text("Annual - Pay Monthly")'
-                ).first();
-
-                if (await annualCard.isVisible({ timeout: 3000 }).catch(() => false)) {
-                  await safeScrollToElement(page, annualCard);
-                  await annualCard.click({ force: true }).catch(() => { });
-                } else {
-                  const radio = page.locator('input[type="radio"]').nth(1);
-                  if (await radio.isVisible({ timeout: 1500 }).catch(() => false)) {
-                    await safeScrollToElement(page, radio);
-                    await radio.click({ force: true }).catch(() => { });
-                  }
-                }
-
-                const planBtn = page.locator(
-                  'button:has-text("Continue with 1st Month Free"), ' +
-                  'button:has-text("Continue with Annual"), ' +
-                  'button:has-text("Continue")'
-                ).first();
-                await planBtn.waitFor({ state: 'visible', timeout: 5000 }).catch(() => { });
-
-                // Validate CTA text changed after selecting APM
-                let has1MonthFree = false;
-                if (await annualCard.isVisible({ timeout: 2000 }).catch(() => false)) {
-                  const annualText = await annualCard.textContent().catch(() => '') || '';
-                  if (/1\s*month\s*free|first\s*month\s*free/i.test(annualText)) {
-                    has1MonthFree = true;
-                  }
-                } else {
-                  const radio = page.locator('input[type="radio"]').nth(1);
-                  if (await radio.isVisible({ timeout: 2000 }).catch(() => false)) {
-                    const radioParentText = await radio.evaluate((el: any) => el.parentElement?.textContent || '').catch(() => '');
-                    if (/1\s*month\s*free|first\s*month\s*free/i.test(radioParentText)) {
-                      has1MonthFree = true;
-                    }
-                  }
-                }
-
-                const ctaText = await planBtn.textContent().catch(() => '') || '';
-                const cleanCta = ctaText.replace(/\s+/g, ' ').trim();
-                const expectedCta = has1MonthFree ? 'Continue with 1st Month Free' : 'Continue';
-                const ctaMatch = cleanCta.toLowerCase().includes(expectedCta.toLowerCase());
-                results.push({
-                  page: 'DAZN Plan',
-                  field: 'CTA After APM Selection',
-                  expected: expectedCta,
-                  actual: cleanCta,
-                  status: ctaMatch ? 'PASS' : 'FAIL'
-                });
-
-                await clickAndWaitForNav(page, planBtn, 'Standard Annual Plan Continue');
-              } else {
-                const trialRadio = page.locator('input[type="radio"]').first();
-                if (await trialRadio.isVisible({ timeout: 1500 }).catch(() => false)) {
-                  await safeScrollToElement(page, trialRadio);
-                  await trialRadio.click({ force: true }).catch(() => { });
-                }
-
-                const planBtn = page.locator(
-                  'button:has-text("Continue with 7-day Free Trial"), ' +
-                  'button:has-text("Continue with 1st Month Free"), ' +
-                  'button:has-text("Continue with PPV"), ' +
-                  'button:has-text("Continue")'
-                ).first();
-                await planBtn.waitFor({ state: 'visible', timeout: 5000 }).catch(() => { });
-                await clickAndWaitForNav(page, planBtn, 'Standard Plan Continue');
-              }
+              // Non-ultimate: proceed with PPV only — click PPV CTA, no plan upgrade
+              console.log('🛒 [PPV-only] Clicking PPV/Continue CTA on plan page...');
+              const ppvBtn = page.locator(
+                'button:has-text("Continue with pay-per-view"), ' +
+                'button:has-text("Continue with PPV"), ' +
+                'button:has-text("Buy"), ' +
+                'button:has-text("Continue with 7-day Free Trial"), ' +
+                'button:has-text("Continue with 1st Month Free"), ' +
+                'button:has-text("Continue")'
+              ).first();
+              await ppvBtn.waitFor({ state: 'visible', timeout: 5000 }).catch(() => { });
+              await clickAndWaitForNav(page, ppvBtn, 'PPV Continue (non-ultimate)');
             }
 
             await setupPage(page, 500);
