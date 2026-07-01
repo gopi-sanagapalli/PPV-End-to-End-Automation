@@ -2374,8 +2374,27 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
                       break;
                     }
                     case 'ppv image present': {
-                      const img = page.locator('img').first();
-                      cbActual = (await img.isVisible({ timeout: 2000 }).catch(() => false)) ? 'Yes' : 'No';
+                      // Try common image/poster selectors first
+                      const imgSelectors = [
+                        'img[src]', 'img[srcset]', 'picture',
+                        '[class*="image" i]', '[class*="poster" i]',
+                        '[class*="thumbnail" i]', '[class*="photo" i]', 'figure',
+                      ];
+                      for (const sel of imgSelectors) {
+                        if (await page.locator(sel).first().isVisible({ timeout: 1000 }).catch(() => false)) {
+                          cbActual = 'Yes'; break;
+                        }
+                      }
+                      if (cbActual === 'No') {
+                        // Check via evaluate — img with rendered dimensions (handles lazy/srcset)
+                        const hasImg = await page.evaluate(() => {
+                          const imgs = Array.from(document.querySelectorAll('img'));
+                          return imgs.some((img: HTMLImageElement) =>
+                            img.offsetWidth > 0 && img.offsetHeight > 0
+                          );
+                        }).catch(() => false);
+                        cbActual = hasImg ? 'Yes' : 'No';
+                      }
                       break;
                     }
                     case 'ppv date and time': {
@@ -2433,11 +2452,12 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
                       break;
                     }
                     case 'dazn ultimate price length': {
-                      // Find "/ month" anywhere (no length restriction — can appear in combined line)
+                      // Find "/month" or "/ month" — normalize to always include space
                       const monthLine = bodyLines.find((l: string) => /\/\s*month/i.test(l));
                       if (monthLine) {
                         const m = monthLine.match(/\/\s*month/i);
-                        cbActual = m ? m[0] : monthLine.trim();
+                        // Normalize "/month" → "/ month" so it matches the sheet value
+                        cbActual = m ? m[0].replace(/\/\s*month/i, '/ month') : monthLine.trim();
                       }
                       break;
                     }
@@ -2454,18 +2474,34 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
                       }
                       break;
                     }
-                    case 'upsell feature 1':
-                    case 'upsell feature 2':
-                    case 'upsell feature 3': {
-                      const fIdx = parseInt(cbKey.replace('upsell feature ', ''), 10) - 1;
-                      // Exclude subtitle/promo lines that mention subscription/buy
-                      const featureLines = bodyLines.filter((l: string) =>
+                    case 'upsell feature 1': {
+                      // Feature 1: PPV included / events per year
+                      cbActual = bodyLines.find((l: string) =>
                         l.length > 20 && l.length < 200 &&
-                        /fights|events|ppv|hdr|dolby|surround|promoter/i.test(l) &&
+                        /ppv|pay-per-view|minimum.*event|event.*minimum/i.test(l) &&
                         !l.toLowerCase().includes('subscription') &&
                         !l.toLowerCase().includes('buy ')
-                      );
-                      cbActual = featureLines[fIdx] || 'N/A';
+                      ) || 'N/A';
+                      break;
+                    }
+                    case 'upsell feature 2': {
+                      // Feature 2: 185+ fights / promoters (match by keyword, not DOM order)
+                      cbActual = bodyLines.find((l: string) =>
+                        l.length > 20 && l.length < 200 &&
+                        /185\+?|fights.*year|year.*fights|promoter/i.test(l) &&
+                        !l.toLowerCase().includes('subscription') &&
+                        !l.toLowerCase().includes('buy ')
+                      ) || 'N/A';
+                      break;
+                    }
+                    case 'upsell feature 3': {
+                      // Feature 3: HDR / Dolby / surround (match by keyword, not DOM order)
+                      cbActual = bodyLines.find((l: string) =>
+                        l.length > 20 && l.length < 200 &&
+                        /hdr|dolby|surround/i.test(l) &&
+                        !l.toLowerCase().includes('subscription') &&
+                        !l.toLowerCase().includes('buy ')
+                      ) || 'N/A';
                       break;
                     }
                     case 'cta button': {
