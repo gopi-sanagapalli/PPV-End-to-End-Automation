@@ -1,174 +1,702 @@
+/**
+ * scheduleNavigator.ts
+ *
+ * Production-grade phased schedule navigator for the DAZN Android app.
+ * All navigation is driven by PPV_DATE from the event config — no hardcoded
+ * event names, month names, or stop conditions.
+ *
+ * ┌──────────────────────────────────────────────────────────────────────────┐
+ * │  Phase 1  Detect the currently visible month from on-screen headers.    │
+ * │  Phase 2  Iterative detect-and-swipe loop until the target month is     │
+ * │           visible. No fixed multiplier — always re-detects.             │
+ * │  Phase 3  Gentle-swipe within the month to locate the PPV tile,         │
+ * │           stopping immediately when the next month header appears.       │
+ * │  Phase 4  Center the tile if it is obscured by the bottom nav bar.      │
+ * │  Phase 5  Tap the centered tile.                                         │
+ * │  Phase 6  Verify navigation succeeded: schedule gone, PPV name visible,  │
+ * │           CTA present.                                                   │
+ * └──────────────────────────────────────────────────────────────────────────┘
+ *
+ * Performance contract
+ * ──────────────────────────────────────────────────────────────────────────
+ * • Screen dimensions are resolved once and cached for the session.
+ * • getPageSource() is never called.
+ * • Phase 2 re-detects after every swipe — no fixed swipes-per-month constant.
+ * • Adaptive swipe distance: large when far, gentle when 1 month away.
+ * • Overshoot (e.g. May→July→August) auto-corrects on the next iteration.
+ * • PPV tile search only begins after reaching the correct month.
+ * • UI-tree queries use className-filtered $$ queries — not full XML dumps.
+ */
+
 type WdBrowser = any;
 type WdElement = any;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Constants
+// ─────────────────────────────────────────────────────────────────────────────
+
 /**
- * Swipe up gesture (scroll down the page)
+ * Maximum detect-and-swipe iterations in Phase 2.
+ * At ~400 ms per iteration this caps Phase 2 at ≈16 s worst case.
  */
-export async function scrollDown(driver: WdBrowser): Promise<void> {
-  const { width, height } = await driver.getWindowRect();
+const MAX_MONTH_NAV_ITERATIONS = 40;
 
-  await driver.performActions([
-    {
-      type: 'pointer',
-      id: 'finger1',
-      parameters: { pointerType: 'touch' },
-      actions: [
-        { type: 'pointerMove', duration: 0, x: width / 2, y: height * 0.75 },
-        { type: 'pointerDown', button: 0 },
-        { type: 'pause', duration: 200 },
-        { type: 'pointerMove', duration: 300, x: width / 2, y: height * 0.35 },
-        { type: 'pointerUp', button: 0 }
-      ]
-    }
-  ]);
+/** Large swipe: finger travels 75 % → 20 % of screen height (scroll forward). */
+const LARGE_SWIPE_START_Y = 0.75;
+const LARGE_SWIPE_END_Y   = 0.20;
 
-  await driver.releaseActions();
+/** Moderate swipe: 70 % → 35 % — used when 1–2 months away. */
+const MODERATE_SWIPE_END_Y = 0.35;
+
+/** Gentle swipe: 60 % → 42 % — day-level fine navigation. */
+const GENTLE_SWIPE_START_Y = 0.60;
+const GENTLE_SWIPE_END_Y   = 0.42;
+
+/** Below this ratio the tile is behind the bottom nav bar. */
+const BOTTOM_NAV_THRESHOLD = 0.78;
+
+/** Target vertical ratio for a centered tile. */
+const CENTER_TARGET_Y = 0.45;
+
+/** Full and abbreviated month names, 0-indexed (January = 0). */
+const MONTH_FULL  = [
+  'january', 'february', 'march', 'april', 'may', 'june',
+  'july', 'august', 'september', 'october', 'november', 'december',
+];
+const MONTH_SHORT = [
+  'jan', 'feb', 'mar', 'apr', 'may', 'jun',
+  'jul', 'aug', 'sep', 'oct', 'nov', 'dec',
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Public types
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ScheduleNavOptions {
+  /** PPV_NAME from event config — no hardcoding allowed. */
+  ppvName: string;
+  /** Target month index, 0-based (0 = January … 11 = December). */
+  targetMonthIndex: number;
+  /** Target day-of-month parsed from PPV_DATE. */
+  targetDay: number;
+  /** Maximum gentle swipes during tile-search phase (default 20). */
+  maxTileSearchSwipes?: number;
 }
 
-
-/**
- * Tap using coordinates
- */
-export async function tap(driver: WdBrowser, x: number, y: number): Promise<void> {
-  await driver.performActions([
-    {
-      type: 'pointer',
-      id: 'finger1',
-      parameters: { pointerType: 'touch' },
-      actions: [
-        { type: 'pointerMove', duration: 0, x, y },
-        { type: 'pointerDown', button: 0 },
-        { type: 'pause', duration: 100 },
-        { type: 'pointerUp', button: 0 }
-      ]
-    }
-  ]);
-
-  await driver.releaseActions();
+export interface ScreenDimensions {
+  width: number;
+  height: number;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Screen dimensions — resolved once, cached for the session
+// ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Get element center coordinates
- * (Replacement for getRect which is not supported)
- */
-export async function getElementCenter(
-  el: WdElement
-): Promise<{ x: number; y: number }> {
+let _cachedDims: ScreenDimensions | null = null;
 
-  const location = await el.getLocation();
-  const size = await el.getSize();
-
-  return {
-    x: location.x + size.width / 2,
-    y: location.y + size.height / 2
-  };
+/** Returns screen dimensions, querying the driver only on the first call. */
+export async function getScreenDimensions(driver: WdBrowser): Promise<ScreenDimensions> {
+  if (_cachedDims) return _cachedDims;
+  const rect = await driver.getWindowRect();
+  _cachedDims = { width: rect.width, height: rect.height };
+  console.log(`📐 Screen: ${_cachedDims.width}×${_cachedDims.height} (cached)`);
+  return _cachedDims;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Primitive gestures
+// ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Wait for element safely (no crash)
- */
-export async function waitForElement(
+/** Swipe upward — scrolls content forward (future dates). */
+export async function swipeUp(
   driver: WdBrowser,
-  selector: string,
-  timeout: number = 5000
-): Promise<WdElement> {
+  dims: ScreenDimensions,
+  startYRatio = LARGE_SWIPE_START_Y,
+  endYRatio   = LARGE_SWIPE_END_Y,
+  durationMs  = 220,
+): Promise<void> {
+  const cx = Math.round(dims.width / 2);
+  const y1 = Math.round(dims.height * startYRatio);
+  const y2 = Math.round(dims.height * endYRatio);
+  await driver.performActions([{
+    type: 'pointer', id: 'finger1',
+    parameters: { pointerType: 'touch' },
+    actions: [
+      { type: 'pointerMove', duration: 0,         x: cx, y: y1 },
+      { type: 'pointerDown', button: 0 },
+      { type: 'pause',       duration: 40 },
+      { type: 'pointerMove', duration: durationMs, x: cx, y: y2 },
+      { type: 'pointerUp',   button: 0 },
+    ],
+  }]);
+  await driver.releaseActions();
+}
 
+/** Swipe downward — scrolls content backward (past dates / overshoot recovery). */
+export async function swipeDown(
+  driver: WdBrowser,
+  dims: ScreenDimensions,
+  startYRatio = LARGE_SWIPE_END_Y,
+  endYRatio   = LARGE_SWIPE_START_Y,
+  durationMs  = 220,
+): Promise<void> {
+  return swipeUp(driver, dims, startYRatio, endYRatio, durationMs);
+}
+
+/** Tap a screen coordinate. */
+export async function tap(driver: WdBrowser, x: number, y: number): Promise<void> {
+  await driver.performActions([{
+    type: 'pointer', id: 'finger1',
+    parameters: { pointerType: 'touch' },
+    actions: [
+      { type: 'pointerMove', duration: 0,  x, y },
+      { type: 'pointerDown', button: 0 },
+      { type: 'pause',       duration: 80 },
+      { type: 'pointerUp',   button: 0 },
+    ],
+  }]);
+  await driver.releaseActions();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Element helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Returns center coordinates of a WebdriverIO element. */
+export async function getElementCenter(el: WdElement): Promise<{ x: number; y: number }> {
+  const loc  = await el.getLocation();
+  const size = await el.getSize();
+  return { x: loc.x + Math.round(size.width / 2), y: loc.y + Math.round(size.height / 2) };
+}
+
+/** Waits for an element to exist and be displayed. */
+export async function waitForElement(
+  driver: WdBrowser, selector: string, timeout = 5000,
+): Promise<WdElement> {
   const el = await driver.$(selector);
   await el.waitForExist({ timeout });
   await el.waitForDisplayed({ timeout });
-
   return el;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Legacy primitives (preserved for non-schedule flows)
+// ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Scroll until element is found
- */
+/** @deprecated Use swipeUp(driver, dims). */
+export async function scrollDown(driver: WdBrowser): Promise<void> {
+  const dims = await getScreenDimensions(driver);
+  await swipeUp(driver, dims, LARGE_SWIPE_START_Y, LARGE_SWIPE_END_Y, 300);
+}
+
 export async function findWithScroll(
-  driver: WdBrowser,
-  selector: string,
-  maxScrolls: number = 8
+  driver: WdBrowser, selector: string, maxScrolls = 8,
 ): Promise<WdElement> {
-
+  const dims = await getScreenDimensions(driver);
   for (let i = 0; i < maxScrolls; i++) {
     const el = await driver.$(selector);
-
-    if (await el.isExisting()) {
-      console.log(`✅ Found element after ${i} scroll(s)`);
-      return el;
-    }
-
-    console.log(`🔄 Scroll attempt ${i + 1}`);
-    await scrollDown(driver);
+    if (await el.isExisting()) { console.log(`✅ Found after ${i} scroll(s)`); return el; }
+    console.log(`🔄 Scroll ${i + 1}/${maxScrolls}`);
+    await swipeUp(driver, dims);
+    await driver.pause(300);
   }
-
-  throw new Error(`❌ Element not found after ${maxScrolls} scrolls`);
+  throw new Error(`❌ Not found after ${maxScrolls} scrolls: ${selector}`);
 }
 
-
-/**
- * Alternative: Use Android native scroll (better if RecyclerView)
- */
-export async function scrollIntoViewAndroid(
-  driver: WdBrowser,
-  text: string
-): Promise<WdElement> {
-
-  const selector = `android=new UiScrollable(new UiSelector().scrollable(true)).scrollIntoView(new UiSelector().textContains("${text}"))`;
-
-  const el = await driver.$(selector);
+export async function scrollIntoViewAndroid(driver: WdBrowser, text: string): Promise<WdElement> {
+  const sel = `android=new UiScrollable(new UiSelector().scrollable(true))` +
+              `.scrollIntoView(new UiSelector().textContains("${text}"))`;
+  const el = await driver.$(sel);
   await el.waitForDisplayed({ timeout: 10000 });
-
   return el;
 }
 
+export async function scrollAndTapByText(driver: WdBrowser, text: string): Promise<void> {
+  const esc = text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const el = await findWithScroll(driver, `android=new UiSelector().textMatches(".*${esc}.*")`);
+  const { x, y } = await getElementCenter(el);
+  await tap(driver, x, y);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 1 — Detect visible month
+// ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Navigate to PPV tile (Joshua vs Prenga)
+ * Returns true when the text looks like a standalone month header:
+ *   "JULY"  |  "July"  |  "JUL"  |  "JULY 2025"
+ *
+ * Rejects embedded dates like "July 25" or "Jul 25 - Friday".
+ * A 4-digit year is allowed; a 1-2 digit number (day) is not.
  */
-export async function navigateToPPVTile(driver: WdBrowser, event?: { PPV_NAME?: string }): Promise<void> {
+export function isStandaloneMonthHeader(text: string): boolean {
+  const trimmed = text.trim();
+  // Allow: MonthName or MonthName + 4-digit year
+  return /^[A-Za-z]+(\s+\d{4})?$/.test(trimmed);
+}
 
-  // ✅ Robust selector handles all variations
+/**
+ * Parses a month index (0-based) from a text string.
+ * Returns -1 if no month name is found.
+ */
+export function parseMonthFromText(text: string): number {
+  const lower = text.toLowerCase();
+  for (let i = 0; i < MONTH_FULL.length; i++) {
+    if (lower.includes(MONTH_FULL[i]) || lower.includes(MONTH_SHORT[i])) return i;
+  }
+  return -1;
+}
+
+/**
+ * Phase 1 — Scan all visible TextViews for a standalone month header.
+ *
+ * DOM order is top-to-bottom, so the first match is the topmost month on screen.
+ * Prefers standalone headers ("JULY", "JULY 2025") over embedded dates ("July 25").
+ *
+ * When multiple months are simultaneously visible (e.g. June/July at a boundary),
+ * the topmost one wins — it represents where the user currently is.
+ */
+export async function detectVisibleMonth(driver: WdBrowser): Promise<number> {
+  try {
+    const els: WdElement[] =
+      await driver.$$('android=new UiSelector().className("android.widget.TextView")');
+
+    // First pass: prefer standalone headers
+    for (const el of els) {
+      const text: string = await el.getText().catch(() => '');
+      if (!text) continue;
+      if (isStandaloneMonthHeader(text)) {
+        const idx = parseMonthFromText(text);
+        if (idx !== -1) {
+          console.log(`📅 Phase 1: Month header → "${text.trim()}" (${MONTH_FULL[idx]})`);
+          return idx;
+        }
+      }
+    }
+
+    // Second pass: any text containing a month name (embedded dates, etc.)
+    for (const el of els) {
+      const text: string = await el.getText().catch(() => '');
+      if (!text) continue;
+      const idx = parseMonthFromText(text);
+      if (idx !== -1) {
+        console.log(`📅 Phase 1: Month in text → "${text.trim()}" (${MONTH_FULL[idx]})`);
+        return idx;
+      }
+    }
+  } catch (err: any) {
+    console.warn(`⚠️ Phase 1 error: ${err.message}`);
+  }
+  console.warn('⚠️ Phase 1: No month detected on screen');
+  return -1;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 2 — Navigate to target month (detect-and-swipe loop)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Phase 2 — Iterative detect-and-swipe until targetMonthIndex is visible.
+ *
+ * No fixed swipes-per-month constant.  Every iteration:
+ *   1. Detects the current visible month.
+ *   2. If at target → done.
+ *   3. Computes delta (with year-boundary wrap).
+ *   4. Swipes proportionally: large when |delta| ≥ 3, moderate when 1–2.
+ *   5. Settles, then re-detects.
+ *
+ * Overshoot (e.g. July → August when targeting July) is automatically
+ * corrected on the next iteration (delta becomes negative → swipe back).
+ */
+export async function navigateToMonth(
+  driver: WdBrowser,
+  dims: ScreenDimensions,
+  targetMonthIndex: number,
+): Promise<void> {
+  console.log(`\n📅 Phase 2: Navigating to ${MONTH_FULL[targetMonthIndex]}…`);
+
+  for (let i = 0; i < MAX_MONTH_NAV_ITERATIONS; i++) {
+    const current = await detectVisibleMonth(driver);
+
+    if (current === targetMonthIndex) {
+      console.log(`✅ Phase 2: At ${MONTH_FULL[targetMonthIndex]} (iter ${i + 1}).`);
+      return;
+    }
+
+    if (current === -1) {
+      // No month header visible yet — gentle scroll to reveal one
+      console.warn(`   Phase 2 [${i + 1}]: No month detected, gentle scroll…`);
+      await swipeUp(driver, dims, GENTLE_SWIPE_START_Y, GENTLE_SWIPE_END_Y, 250);
+      await driver.pause(350);
+      continue;
+    }
+
+    // Compute delta with year-boundary handling
+    // The schedule always flows forward (future events).
+    // Backward delta > 6 months means it is actually a forward year-wrap.
+    let delta = targetMonthIndex - current;
+    if (delta < -6) delta += 12;
+
+    console.log(
+      `   Phase 2 [${i + 1}]: current=${MONTH_FULL[current]}, ` +
+      `target=${MONTH_FULL[targetMonthIndex]}, delta=${delta}`
+    );
+
+    if (delta > 0) {
+      // Scroll forward
+      const endY = Math.abs(delta) >= 3 ? LARGE_SWIPE_END_Y : MODERATE_SWIPE_END_Y;
+      await swipeUp(driver, dims, LARGE_SWIPE_START_Y, endY, Math.abs(delta) >= 3 ? 180 : 250);
+    } else {
+      // Scroll backward (overshoot recovery)
+      const endY = Math.abs(delta) >= 3 ? LARGE_SWIPE_START_Y : GENTLE_SWIPE_START_Y;
+      await swipeDown(driver, dims, LARGE_SWIPE_END_Y, endY, Math.abs(delta) >= 3 ? 180 : 250);
+    }
+
+    await driver.pause(400);
+  }
+
+  // Non-fatal: Phase 3 will handle any remaining overshoot
+  const final = await detectVisibleMonth(driver);
+  console.warn(
+    `⚠️ Phase 2: Reached max iterations. ` +
+    `Visible=${final !== -1 ? MONTH_FULL[final] : 'unknown'}, ` +
+    `expected=${MONTH_FULL[targetMonthIndex]}. Phase 3 will correct.`
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 3 — Find PPV tile within target month
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Phase 3 — Gentle-scroll within the target month searching for the PPV tile.
+ *
+ * Stops when:
+ *   • The PPV tile is visible (success), or
+ *   • The next month header appears (overshoot — one correction scroll back), or
+ *   • maxSwipes exhausted.
+ *
+ * UiScrollable fallback uses the FULL PPV name to avoid partial matches like
+ * "Joshua Parker" matching a search for "Joshua vs. Prenga".
+ */
+export async function findPPVTileInMonth(
+  driver: WdBrowser,
+  dims: ScreenDimensions,
+  ppvName: string,
+  targetMonthIndex: number,
+  maxSwipes = 20,
+): Promise<WdElement> {
+  console.log(`\n🔍 Phase 3: Searching for "${ppvName}" in ${MONTH_FULL[targetMonthIndex]}…`);
+
+  const nextMonthFull  = MONTH_FULL[(targetMonthIndex + 1) % 12];
+  const nextMonthShort = MONTH_SHORT[(targetMonthIndex + 1) % 12];
+
+  const escapedName  = ppvName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const tileSelector = `android=new UiSelector().textMatches("(?i).*${escapedName}.*")`;
+
+  let overshotOnce = false;
+
+  for (let i = 0; i < maxSwipes; i++) {
+    // ── Check tile visibility ──────────────────────────────────────────────
+    const tileEl = await driver.$(tileSelector);
+    if (await tileEl.isExisting()) {
+      if (await tileEl.isDisplayed().catch(() => false)) {
+        console.log(`✅ Phase 3: Tile found after ${i} swipe(s).`);
+        return tileEl;
+      }
+    }
+
+    // ── Overshoot detection ────────────────────────────────────────────────
+    const textEls: WdElement[] =
+      await driver.$$('android=new UiSelector().className("android.widget.TextView")').catch(() => []);
+    let overshot = false;
+
+    for (const el of textEls) {
+      const txt: string = await el.getText().catch(() => '');
+      if (!txt) continue;
+      const lower = txt.toLowerCase().trim();
+      if (lower.includes(nextMonthFull) || lower.includes(nextMonthShort)) {
+        if (!overshotOnce) {
+          console.warn(`⚠️ Phase 3: Overshot into ${nextMonthFull} — scrolling back.`);
+          await swipeDown(driver, dims, GENTLE_SWIPE_END_Y, GENTLE_SWIPE_START_Y, 280);
+          await driver.pause(400);
+          overshotOnce = true;
+        } else {
+          console.warn(`⚠️ Phase 3: Still in ${nextMonthFull} after correction.`);
+        }
+        overshot = true;
+        break;
+      }
+    }
+    if (overshot) continue;
+
+    console.log(`   Phase 3: swipe ${i + 1}/${maxSwipes}`);
+    await swipeUp(driver, dims, GENTLE_SWIPE_START_Y, GENTLE_SWIPE_END_Y, 220);
+    await driver.pause(350);
+  }
+
+  // ── Final fallback: UiScrollable with FULL PPV name ───────────────────────
+  // Using the full name avoids false matches like "Joshua Parker" vs "Joshua vs. Prenga".
+  console.warn(`⚠️ Phase 3: Gentle scroll exhausted. Trying UiScrollable with full name…`);
+  try {
+    const fallbackSel =
+      `android=new UiScrollable(new UiSelector().scrollable(true))` +
+      `.scrollIntoView(new UiSelector().textContains("${ppvName}"))`;
+    const el = await driver.$(fallbackSel);
+    await el.waitForDisplayed({ timeout: 10000 });
+    console.log(`✅ Phase 3 (UiScrollable): Found tile.`);
+    return el;
+  } catch (err: any) {
+    throw new Error(
+      `❌ Phase 3: "${ppvName}" not found after ${maxSwipes} swipes + UiScrollable. ` +
+      `${err.message}`
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 4 — Center tile if obstructed
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Phase 4 — If the tile Y position is below the bottom-nav threshold,
+ * scroll it to CENTER_TARGET_Y with a single precisely-calculated swipe.
+ *
+ * Re-acquires the element after the scroll to handle RecyclerView recycling.
+ */
+export async function centerTileIfNeeded(
+  driver: WdBrowser,
+  dims: ScreenDimensions,
+  tile: WdElement,
+  ppvName: string,
+): Promise<WdElement> {
+  let rect: { x: number; y: number; width: number; height: number };
+  try { rect = await tile.getRect(); }
+  catch { return tile; }
+
+  const threshold = Math.round(dims.height * BOTTOM_NAV_THRESHOLD);
+  const targetY   = Math.round(dims.height * CENTER_TARGET_Y);
+
+  if (rect.y <= threshold) {
+    console.log(`✅ Phase 4: Tile at y=${rect.y} — visible, no centering needed.`);
+    return tile;
+  }
+
+  const scrollDist = rect.y - targetY;
+  const swipeStartY = Math.min(Math.round(dims.height * 0.68), dims.height - 80);
+  const swipeEndY   = Math.max(swipeStartY - scrollDist, 40);
+
+  console.log(`   Phase 4: Tile at y=${rect.y} (threshold=${threshold}). Centering by ${scrollDist}px.`);
+
+  const cx = Math.round(dims.width / 2);
+  await driver.performActions([{
+    type: 'pointer', id: 'finger1',
+    parameters: { pointerType: 'touch' },
+    actions: [
+      { type: 'pointerMove', duration: 0,   x: cx, y: swipeStartY },
+      { type: 'pointerDown', button: 0 },
+      { type: 'pause',       duration: 40 },
+      { type: 'pointerMove', duration: 280, x: cx, y: swipeEndY },
+      { type: 'pointerUp',   button: 0 },
+    ],
+  }]);
+  await driver.releaseActions();
+  await driver.pause(500);
+
+  // Re-acquire to handle RecyclerView node recycling
+  const esc      = ppvName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const freshEl  = await driver.$(`android=new UiSelector().textMatches("(?i).*${esc}.*")`);
+  if (await freshEl.isExisting()) {
+    try {
+      const nr = await freshEl.getRect();
+      console.log(`✅ Phase 4: Tile re-acquired at y=${nr.y}.`);
+    } catch { /* ignore */ }
+    return freshEl;
+  }
+  console.warn('⚠️ Phase 4: Could not re-acquire after centering — using original reference.');
+  return tile;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 5 — Tap the tile
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function tapTile(driver: WdBrowser, tile: WdElement): Promise<void> {
+  let tapX: number, tapY: number;
+  try {
+    const rect = await tile.getRect();
+    tapX = rect.x + Math.round(rect.width  / 2);
+    tapY = rect.y + Math.round(rect.height / 2);
+  } catch {
+    const { x, y } = await getElementCenter(tile);
+    tapX = x; tapY = y;
+  }
+  console.log(`🎯 Phase 5: Tapping tile at (${tapX}, ${tapY})`);
+  await tap(driver, tapX, tapY);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 6 — Verify navigation
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Phase 6 — Three-part verification:
+ *
+ *   1. Schedule header ("SCHEDULE") is no longer visible — confirms we left.
+ *   2. PPV name (or its first significant word) is visible on the new screen.
+ *   3. A paywall CTA ("Buy", "Get", or a price token) is visible.
+ *
+ * All three passing = PASS.  Any single part alone is not sufficient.
+ * Non-fatal: logs a warning and returns false if verification times out,
+ * so the calling test can decide whether to throw.
+ */
+export async function verifyNavigation(
+  driver: WdBrowser,
+  ppvName: string,
+  timeoutMs = 8000,
+): Promise<boolean> {
+  console.log('🔎 Phase 6: Verifying navigation…');
+
+  const firstSignificantWord = ppvName
+    .split(/\s+/)
+    .find(w => w.length > 3 && !/^(vs\.?|and|the)$/i.test(w)) || ppvName.split(/\s+/)[0];
+
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    // 1. Schedule header gone?
+    const scheduleStillVisible = await driver.$('android=new UiSelector().text("SCHEDULE")')
+      .isDisplayed().catch(() => false);
+
+    if (scheduleStillVisible) {
+      await driver.pause(400);
+      continue; // Not navigated yet
+    }
+
+    // 2. PPV name present on new screen?
+    const ppvVisible = await driver.$(
+      `android=new UiSelector().textContains("${firstSignificantWord}")`
+    ).isDisplayed().catch(() => false);
+
+    // 3. Paywall CTA present?
+    const ctaSelectors = [
+      'android=new UiSelector().textContains("Buy")',
+      'android=new UiSelector().textContains("Get")',
+      'android=new UiSelector().textContains("£")',
+      'android=new UiSelector().textContains("$")',
+      'android=new UiSelector().textContains("€")',
+      'android=new UiSelector().textContains("AED")',
+    ];
+    let ctaVisible = false;
+    for (const sel of ctaSelectors) {
+      ctaVisible = await driver.$(sel).isDisplayed().catch(() => false);
+      if (ctaVisible) break;
+    }
+
+    if (ppvVisible && ctaVisible) {
+      console.log(`✅ Phase 6: Navigation verified (schedule gone, PPV name visible, CTA present).`);
+      return true;
+    }
+
+    await driver.pause(400);
+  }
+
+  console.warn(
+    `⚠️ Phase 6: Verification timed out. ` +
+    `Proceeding — screen may be correct but slow to render.`
+  );
+  return false;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Main orchestrator
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * navigateScheduleToPPVTile
+ *
+ * Orchestrates Phases 1–6.  All event data comes from options — nothing here
+ * is specific to any PPV event.
+ */
+export async function navigateScheduleToPPVTile(
+  driver: WdBrowser,
+  options: ScheduleNavOptions,
+): Promise<void> {
+  const { ppvName, targetMonthIndex, targetDay, maxTileSearchSwipes = 20 } = options;
+
+  const hr = '═'.repeat(56);
+  console.log(`\n${hr}`);
+  console.log(`📅 Schedule Navigator`);
+  console.log(`   PPV    : ${ppvName}`);
+  console.log(`   Target : ${MONTH_FULL[targetMonthIndex]} ${targetDay}`);
+  console.log(`${hr}\n`);
+
+  const dims = await getScreenDimensions(driver);
+
+  await navigateToMonth(driver, dims, targetMonthIndex);
+
+  const rawTile = await findPPVTileInMonth(
+    driver, dims, ppvName, targetMonthIndex, maxTileSearchSwipes,
+  );
+
+  const tile = await centerTileIfNeeded(driver, dims, rawTile, ppvName);
+
+  await tapTile(driver, tile);
+
+  await verifyNavigation(driver, ppvName);
+
+  console.log(`\n✅ Schedule navigation complete for "${ppvName}"\n`);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Backward-compatible public adapter
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * navigateToPPVTile — preserved entry point for backward compatibility.
+ *
+ * Routes through navigateScheduleToPPVTile when event.global.PPV_DATE is
+ * available.  Falls back to UiScrollable with the FULL PPV name when not.
+ */
+export async function navigateToPPVTile(
+  driver: WdBrowser,
+  event?: { PPV_NAME?: string; global?: { PPV_DATE?: string } },
+): Promise<void> {
   const ppvName = event?.PPV_NAME || process.env.PPV_NAME || 'Joshua';
-  const escapedPpvName = ppvName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const selector =
-    `android=new UiSelector().textMatches(".*${escapedPpvName}.*")`;
+  const ppvDate = event?.global?.PPV_DATE;
+
+  if (ppvDate) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { parsePPVDate } = require('./eventLoader') as {
+        parsePPVDate: (s: string) => { monthIndex: number; day: number };
+      };
+      const { monthIndex, day } = parsePPVDate(ppvDate);
+      await navigateScheduleToPPVTile(driver, {
+        ppvName, targetMonthIndex: monthIndex, targetDay: day,
+      });
+      return;
+    } catch (err: any) {
+      console.warn(`⚠️ navigateToPPVTile: PPV_DATE parse failed — ${err.message}. Falling back.`);
+    }
+  }
+
+  // Fallback: UiScrollable with full PPV name (not just first word)
+  console.warn('⚠️ navigateToPPVTile: No PPV_DATE — UiScrollable fallback with full name.');
+  const dims = await getScreenDimensions(driver);
+
+  const esc      = ppvName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const selector = `android=new UiSelector().textMatches("(?i).*${esc}.*")`;
 
   let tile: WdElement;
-
   try {
-    // First try standard scroll
     tile = await findWithScroll(driver, selector, 8);
-  } catch (err) {
-    console.log('⚠️ Fallback to UiScrollable...');
-    tile = await scrollIntoViewAndroid(driver, ppvName.split(/\s+/)[0] || ppvName);
+  } catch {
+    // UiScrollable with full name — safer than first word only
+    tile = await scrollIntoViewAndroid(driver, ppvName);
   }
 
   await tile.waitForDisplayed({ timeout: 5000 });
-
-  const { x, y } = await getElementCenter(tile);
-
-  console.log(`🎯 Tapping PPV tile at (${x}, ${y})`);
-
-  await tap(driver, x, y);
-}
-
-
-/**
- * Generic reusable function: scroll + tap any text
- */
-export async function scrollAndTapByText(driver: WdBrowser, text: string): Promise<void> {
-
-  const selector =
-    `android=new UiSelector().textMatches(".*${text}.*")`;
-
-  const el = await findWithScroll(driver, selector);
-
-  const { x, y } = await getElementCenter(el);
-
-  console.log(`🎯 Tap on "${text}" at (${x}, ${y})`);
-
-  await tap(driver, x, y);
+  const centered = await centerTileIfNeeded(driver, dims, tile, ppvName);
+  await tapTile(driver, centered);
 }

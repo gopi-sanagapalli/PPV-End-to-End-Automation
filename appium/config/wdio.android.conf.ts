@@ -1,47 +1,84 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // DAZN PPV — WebdriverIO config for ANDROID (UiAutomator2)
 //
-// TARGET DEVICE: Samsung Galaxy Z Fold5 (real device via USB / ADB)
+// Works with ANY connected Android device — deviceName and platformVersion
+// are auto-detected via ADB at runtime (no hardcoding needed).
 //
 // FLOW:
-//   1. Connects to real device (ADB must be authorised — run: adb devices)
+//   1. Connects to first ADB-authorised device (or DEVICE_SERIAL env var)
 //   2. Launches DAZN app (already installed & logged in)
-//   3. Android test:
-//        - Dismisses system dialogs / update prompts
-//        - Finds PPV banner ("Joshua vs. Prenga") on Home screen
-//        - Taps banner → in-app PPV landing page
-//        - Taps "Buy" → app opens Chrome with the checkout URL
-//        - Captures URL via WebView context switch or ADB
-//        - Writes URL to mobile_entry_url.txt
-//   4. run_mobile_test.sh reads the URL → Playwright validates checkout
+//   3. Android test navigates PPV flow and captures checkout URL
 //
 // PRE-REQUISITES:
-//   - Device connected via USB with ADB authorised
-//     Run: adb devices  → should show your device serial
+//   - Device connected via USB with ADB authorised (run: adb devices)
 //   - DAZN app installed and user already logged in (noReset: true)
-//   - Appium 3.x installed globally (appium --version)
-//   - chromedriver will be auto-downloaded by Appium for the device Chrome version
+//   - Appium 3.x installed globally
 //
 // HOW TO RUN:
-//   cd appium
-//   npm run android
+//   cd appium && npm run android
 //
-// ENV VARS (all optional — defaults match Galaxy Z Fold5):
-//   DEVICE_NAME      : ADB device name / serial  (default: Galaxy Z Fold5)
-//   PLATFORM_VERSION : Android OS version        (default: 16.0)
-//   APP_PACKAGE      : DAZN app package          (default: com.dazn)
-//   APP_ACTIVITY     : Launch activity           (default: com.dazn.splash.view.SplashScreenActivity)
-//   PPV_NAME         : Event name to search for  (default: Joshua)
+// ENV VARS (all optional):
+//   DEVICE_SERIAL    : ADB serial (auto-detected if only one device connected)
+//   APP_PACKAGE      : DAZN app package  (default: com.dazn)
+//   APP_ACTIVITY     : Launch activity   (default: com.dazn.splash.view.SplashScreenActivity)
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { execSync } from 'child_process';
 
 const ANDROID_SDK = process.env.ANDROID_HOME || `${process.env.HOME}/Library/Android/sdk`;
 const ADB         = `${ANDROID_SDK}/platform-tools/adb`;
 
 // Export ANDROID_HOME at module level so Appium server inherits it
-process.env.ANDROID_HOME = ANDROID_SDK;
+process.env.ANDROID_HOME     = ANDROID_SDK;
 process.env.ANDROID_SDK_ROOT = ANDROID_SDK;
-process.env.ADB_PATH = ADB;
+process.env.ADB_PATH         = ADB;
+
+// ── Auto-detect device info via ADB ──────────────────────────────────────────
+function adbShell(serial: string, cmd: string): string {
+  try {
+    return execSync(`${ADB} -s ${serial} ${cmd}`, {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: 10000,
+    }).trim();
+  } catch {
+    return '';
+  }
+}
+
+function getConnectedDevices(): string[] {
+  try {
+    const out = execSync(`${ADB} devices`, { encoding: 'utf8', timeout: 10000 });
+    return out
+      .split('\n')
+      .slice(1)
+      .filter(l => l.includes('\tdevice'))
+      .map(l => l.split('\t')[0].trim())
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+// Pick device: prefer DEVICE_SERIAL env var, else first connected device
+const devices    = getConnectedDevices();
+const serial     = process.env.DEVICE_SERIAL || devices[0] || '';
+
+if (!serial) {
+  console.warn('⚠️  No Android device detected via ADB. Ensure USB debugging is enabled and run: adb devices');
+}
+
+// Read device model name (e.g. "SM_G990E" → "SM G990E")
+const rawModel   = serial ? adbShell(serial, 'shell getprop ro.product.model') : '';
+const deviceName = process.env.DEVICE_NAME || rawModel || 'Android Device';
+
+// Read Android OS version (e.g. "15", "14", "13")
+const rawVersion       = serial ? adbShell(serial, 'shell getprop ro.build.version.release') : '';
+const platformVersion  = process.env.PLATFORM_VERSION || rawVersion || '';
+
+console.log(`📱 Device   : ${deviceName} (${serial || 'no device'})`);
+console.log(`🤖 Android  : ${platformVersion || 'unknown'}`);
+// ─────────────────────────────────────────────────────────────────────────────
 
 export const config = {
   runner: 'local',
@@ -69,16 +106,19 @@ export const config = {
   capabilities: [
     {
       platformName:                      'Android',
-      'appium:deviceName':               process.env.DEVICE_NAME       || 'Galaxy Z Fold5',
-      'appium:platformVersion':          process.env.PLATFORM_VERSION   || '16',
+      'appium:deviceName':               deviceName,
+      // platformVersion is optional for UiAutomator2 — omit if empty so
+      // Appium matches any connected device automatically
+      ...(platformVersion ? { 'appium:platformVersion': platformVersion } : {}),
+      'appium:udid':                     serial || undefined,
       'appium:automationName':           'UiAutomator2',
-      'appium:appPackage':               process.env.APP_PACKAGE        || 'com.dazn',
-      'appium:appActivity':              process.env.APP_ACTIVITY       || 'com.dazn.splash.view.SplashScreenActivity',
+      'appium:appPackage':               process.env.APP_PACKAGE   || 'com.dazn',
+      'appium:appActivity':              process.env.APP_ACTIVITY  || 'com.dazn.splash.view.SplashScreenActivity',
       'appium:noReset':                  true,
       'appium:forceAppLaunch':           true,
       'appium:autoGrantPermissions':     true,
-      'appium:unicodeKeyboard':          true,
-      'appium:resetKeyboard':            true,
+      'appium:unicodeKeyboard':          false,
+      'appium:resetKeyboard':            false,
       'appium:chromeOptions':            { androidPackage: 'com.android.chrome' },
       'appium:chromedriverAutodownload': true,
       'appium:newCommandTimeout':        300,

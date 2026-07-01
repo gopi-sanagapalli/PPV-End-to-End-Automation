@@ -33,9 +33,12 @@ type WdElement = any;
 import { execSync } from 'child_process';
 import { writeHandoffUrl, clearHandoffUrl } from '../../utils/handoff';
 import { prepareAndroidApp } from '../../utils/androidSetup';
+import { loadEventConfig as loadAppiumEvent, parsePPVDate } from '../../utils/eventLoader';
+import { navigateScheduleToPPVTile } from '../../utils/scheduleNavigator';
 
 // ── Config ───────────────────────────────────────────────────────────────────
-const PPV_NAME    = process.env.PPV_NAME    || 'Joshua';
+const _appiumEvent = (() => { try { return loadAppiumEvent(); } catch { return null; } })();
+const PPV_NAME     = _appiumEvent?.PPV_NAME || process.env.PPV_NAME || 'Joshua';
 const SOURCE      = (process.env.SOURCE || 'boxing-upcoming-fights').trim().toLowerCase();
 const APP_PACKAGE = process.env.APP_PACKAGE || 'com.dazn';
 const ANDROID_SDK = process.env.ANDROID_HOME || `${process.env.HOME}/Library/Android/sdk`;
@@ -177,91 +180,6 @@ async function navigateToSchedule(driver: WdBrowser): Promise<void> {
 }
 
 
-// ── Scroll schedule and find Joshua PPV tile (then center it) ─────
-async function scrollScheduleToPPVTile(driver: WdBrowser): Promise<WdElement | null> {
-  console.log("  Target: Joshua vs. Prenga (July 25)");
-  
-  // Step 1: Fast scroll to find "July" header (aggressive swipes)
-  console.log('  Step 1: Fast scroll to July...');
-  for (let i = 0; i < 20; i++) {
-    if (await isVisible(driver, 'July', 300) || await isVisible(driver, 'JUL', 300)) {
-      console.log(`  ✅ Found July (step ${i + 1})`);
-      break;
-    }
-    // Bigger, faster scrolls to get through June quickly
-    adbSwipe(Math.round(getScreenSize().width / 2), 
-             Math.round(getScreenSize().height * 0.75), 
-             Math.round(getScreenSize().width / 2), 
-             Math.round(getScreenSize().height * 0.20));
-    await driver.pause(500);
-  }
-  
-  await driver.pause(1000);
-  
-  // Step 2: Scroll through July looking for Joshua vs. Prenga
-  console.log('  Step 2: Searching July for Joshua...');
-  let foundEl: WdElement | null = null;
-  
-  for (let i = 0; i < 20; i++) {
-    // Check for PPV
-    try {
-      const ppvEl = await driver.$(`//android.widget.TextView[@text="${PPV_NAME}"]`);
-      if (await ppvEl.isDisplayed()) {
-        console.log(`✅ Found "${PPV_NAME}" (step ${i + 1})`);
-        
-        // Check if it's fully visible (not near bottom nav)
-        const rect = await ppvEl.getRect();
-        const screenH = getScreenSize().height;
-        const bottomNavThreshold = screenH * 0.75;
-        
-        if (rect.y > bottomNavThreshold) {
-          // Tile is too low - scroll it to CENTER of screen
-          console.log(`  Tile at y=${rect.y} (near bottom), scrolling to center...`);
-          adbSwipe(
-            Math.round(getScreenSize().width / 2),
-            Math.round(screenH * 0.75),
-            Math.round(getScreenSize().width / 2),
-            Math.round(screenH * 0.55)
-          );
-          await driver.pause(500);
-          
-          // Small scroll up to bring tile to center
-          const scrollUp = Math.round(rect.y - (screenH * 0.4));
-          adbSwipe(Math.round(getScreenSize().width / 2), 
-                   Math.round(screenH * 0.7), 
-                   Math.round(getScreenSize().width / 2), 
-                   Math.round(screenH * 0.3));
-          await driver.pause(1500);
-          
-          // Return the re-found element (now centered)
-          const centeredEl = await driver.$(`//android.widget.TextView[@text="${PPV_NAME}"]`);
-          if (await centeredEl.isDisplayed()) {
-            const newRect = await centeredEl.getRect();
-            console.log(`  ✅ Tile centered at y=${newRect.y}`);
-            return centeredEl;
-          }
-        }
-        
-        return ppvEl;
-      }
-    } catch (e) {}
-    
-    // Stop if we reach August
-    if (await isVisible(driver, 'August', 200) || await isVisible(driver, 'AUG', 200)) {
-      console.log('  ⚠️ Reached August - stopping');
-      break;
-    }
-    
-    // Gentle swipe through July
-    adbSwipe(Math.round(getScreenSize().width / 2), 
-             Math.round(getScreenSize().height * 0.55), 
-             Math.round(getScreenSize().width / 2), 
-             Math.round(getScreenSize().height * 0.45));
-    await driver.pause(800);
-  }
-  
-  return null;
-}
 
 // ── Navigate to Boxing page via Sports nav tab ───────────────────────────────
 async function navigateToBoxingPage(driver: WdBrowser): Promise<void> {
@@ -545,17 +463,22 @@ describe('DAZN Android PPV → Web Handoff', () => {
         console.log(`Finding ${PPV_NAME}...`);
         await driver.pause(5000);
         
-        console.log(`Scrolling to ${PPV_NAME}...`);
-        const ppvElement = await scrollScheduleToPPVTile(driver);
-        
-        // Click the PPV tile using exact XPath (most reliable)
-        await driver.pause(1000);
-        try {
-          const ppvTile = await driver.$(`//android.widget.TextView[@text="${PPV_NAME}"]`);
-          await ppvTile.click();
-          console.log(`✅ Clicked ${PPV_NAME} tile`);
-        } catch (e) {
-          console.log('⚠️ Could not click PPV tile');
+        console.log(`Navigating schedule to "${PPV_NAME}" using phased navigator…`);
+        {
+          const _ppvDate = _appiumEvent?.global?.PPV_DATE;
+          if (_ppvDate) {
+            const { monthIndex: _mi, day: _d } = parsePPVDate(_ppvDate);
+            await navigateScheduleToPPVTile(driver, {
+              ppvName: PPV_NAME, targetMonthIndex: _mi, targetDay: _d,
+            });
+          } else {
+            console.warn('⚠️ PPV_DATE unavailable — using UiScrollable fallback');
+            const _fw = PPV_NAME.split(/\s+/)[0];
+            const _sel = `android=new UiScrollable(new UiSelector().scrollable(true)).scrollIntoView(new UiSelector().textContains("${_fw}"))`;
+            const _el = await driver.$(_sel);
+            await _el.waitForDisplayed({ timeout: 10000 });
+            await _el.click();
+          }
         }
         
         await driver.pause(2000);

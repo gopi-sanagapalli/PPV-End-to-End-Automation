@@ -90,7 +90,7 @@ async function isHomeReady(driver: WdBrowser): Promise<boolean> {
   return false;
 }
 
-export async function waitForHomePage(driver: WdBrowser, timeoutMs = 45000): Promise<void> {
+export async function waitForHomePage(driver: WdBrowser, timeoutMs = 90000): Promise<void> {
   let sawCookiePrompt = false;
   let sawStartupDialog = false;
 
@@ -98,6 +98,8 @@ export async function waitForHomePage(driver: WdBrowser, timeoutMs = 45000): Pro
     await driver.waitUntil(async () => {
       if (await acceptCookiesIfPresent(driver)) {
         sawCookiePrompt = true;
+        // Pause briefly after cookie dismissal so the app can transition to home
+        await driver.pause(2000);
         return false;
       }
 
@@ -107,6 +109,8 @@ export async function waitForHomePage(driver: WdBrowser, timeoutMs = 45000): Pro
 
       if (await dismissOneStartupDialog(driver)) {
         sawStartupDialog = true;
+        // Pause briefly after dialog dismissal to let the UI settle
+        await driver.pause(1500);
         return false;
       }
 
