@@ -425,6 +425,7 @@ const ppvPaymentData = [
   { Field: 'Skip CTA', Expected: 'Yes' },
   { Field: 'PPV Name', Expected: '{{PPV_NAME}}' },
   { Field: 'PPV Description', Expected: 'Yes' },
+  { Field: 'PPV Description Text', Expected: '{{BANNER_DESCRIPTION}}' },
   { Field: 'PPV Image Present', Expected: 'Yes' },
   { Field: 'PPV Date and Time', Expected: '{{PPV_DATE}}' },
   { Field: 'Order Summary PPV Name', Expected: '{{PPV_NAME}}' },

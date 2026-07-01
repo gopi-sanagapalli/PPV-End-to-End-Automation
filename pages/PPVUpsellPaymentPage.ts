@@ -114,6 +114,13 @@ export class PPVUpsellPaymentPage extends BasePage {
         const desc = paras.find((p: string) => p.trim().length > 20 && !p.toLowerCase().includes('payment'));
         actual = desc ? 'Yes' : 'No';
 
+      // ── PPV Description Text (actual text content) ──
+      } else if (key === 'ppv description text') {
+        const paras = await this.page.locator('p, [class*="description" i], [class*="subtitle" i]')
+          .allTextContents().catch(() => []);
+        const desc = paras.find((p: string) => p.trim().length > 20 && !p.toLowerCase().includes('payment') && !p.toLowerCase().includes('in order to purchase'));
+        actual = desc?.trim() || 'N/A';
+
       // ── PPV Image Present ──
       } else if (key === 'ppv image present' || key.includes('ppv image') || key.includes('image present')) {
         const imgs = this.page.locator('img');

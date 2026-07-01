@@ -2790,7 +2790,30 @@ export async function getActualValue(
     // ════════════════════════════════════════════════════════════
     // PPV DESCRIPTION / LOCATION (Landing / Boxing / Welcome / PPV Payment)
     // ════════════════════════════════════════════════════════════
-    case 'ppv description text':
+    case 'ppv description text': {
+      const descUrl = page.url();
+      const isDescPPVPayment = descUrl.includes('/addon/purchase') ||
+        (eventData?.CURRENT_PAGE && ['ppv payment', 'ppv payment page'].includes(eventData.CURRENT_PAGE.toLowerCase()));
+      if (isDescPPVPayment) {
+        // Return actual text for PPV Payment page so it can be validated against BANNER_DESCRIPTION
+        const descFound = snapFind(n =>
+          (n.tag === 'p' || n.tag === 'span' || n.tag === 'div') &&
+          n.text.length > 20 &&
+          !matchesVsPattern(n.text) &&
+          !isDateText(n.text) &&
+          !isPriceText(n.text) &&
+          !n.text.toLowerCase().includes('terms') &&
+          !n.text.toLowerCase().includes('privacy') &&
+          !n.text.toLowerCase().includes('payment method') &&
+          !n.text.toLowerCase().includes('today you pay') &&
+          !n.text.toLowerCase().includes('one time payment') &&
+          !n.text.toLowerCase().includes('secure checkout') &&
+          !n.text.toLowerCase().includes('in order to purchase')
+        );
+        return descFound !== 'N/A' ? descFound : 'N/A';
+      }
+      // For non-PPV-Payment pages, fall through to 'ppv description' handler
+    }
     case 'ppv description': {
       const url = page.url();
 
