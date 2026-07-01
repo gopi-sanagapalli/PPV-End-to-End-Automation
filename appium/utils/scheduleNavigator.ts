@@ -565,8 +565,11 @@ export async function verifyNavigation(
 
   while (Date.now() < deadline) {
     // 1. Schedule header gone?
-    const scheduleStillVisible = await driver.$('android=new UiSelector().text("SCHEDULE")')
-      .isDisplayed().catch(() => false);
+    // Use textMatches with (?i) flag — the app renders "Schedule" (title case),
+    // not "SCHEDULE", so an exact .text() check would silently never match.
+    const scheduleStillVisible = await driver.$(
+      'android=new UiSelector().textMatches("(?i)^schedule$")'
+    ).isDisplayed().catch(() => false);
 
     if (scheduleStillVisible) {
       await driver.pause(400);
