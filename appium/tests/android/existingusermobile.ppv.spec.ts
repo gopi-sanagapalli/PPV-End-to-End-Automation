@@ -2296,7 +2296,138 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
             try {
               const chooseBuyData = getChooseHowToBuyData();
               console.log(`📊 Choose How To Buy rows: ${chooseBuyData.length}`);
-              await validateVariant(page, 'choosebuy', chooseBuyData, results, eventData, 'Choose How To Buy');
+
+              // ── Inline choosebuy validator (getActualValue has no choosebuy handlers) ──
+              const bodyText = await page.locator('body').innerText({ timeout: 4000 }).catch(() => '');
+              const bodyLines = bodyText.split('\n').map((l: string) => l.trim()).filter(Boolean);
+              const { resolveExpected: resolveExp } = require('../../../utils/resolveExpected');
+
+              for (const row of chooseBuyData) {
+                const cbField = (row['Field'] || '').trim();
+                if (!cbField) continue;
+                const cbRatePlan = (row['Rate Plan'] || '').trim().toLowerCase();
+                if (cbRatePlan && cbRatePlan !== 'all' && cbRatePlan !== ratePlan) continue;
+
+                let cbExpected = '';
+                try { cbExpected = resolveExp(row, eventData); } catch { cbExpected = String(row['Expected'] || ''); }
+                if (!cbExpected || cbExpected.trim().toUpperCase() === 'N/A') continue;
+
+                const cbKey = cbField.toLowerCase().trim();
+                let cbActual = 'N/A';
+
+                try {
+                  switch (cbKey) {
+                    case 'page title': {
+                      cbActual = (await page.locator('h1').first().innerText({ timeout: 3000 }).catch(() => '')).trim() || 'N/A';
+                      break;
+                    }
+                    case 'header ppv name': {
+                      const firstWord = (eventData.PPV_NAME || '').split(' ')[0].toLowerCase();
+                      cbActual = bodyLines.find((l: string) =>
+                        l.toLowerCase().includes(firstWord) && l.length < 100 &&
+                        !l.toLowerCase().includes('choose how to buy') &&
+                        !l.toLowerCase().includes('subscription') &&
+                        !l.toLowerCase().includes('buy ')
+                      ) || 'N/A';
+                      break;
+                    }
+                    case 'header sub text': {
+                      const subEl = page.locator('p, span, div, h2, h3').filter({ hasText: /or get it included/i }).first();
+                      if (await subEl.isVisible({ timeout: 2000 }).catch(() => false)) {
+                        cbActual = (await subEl.innerText().catch(() => '')).replace(/\s+/g, ' ').trim();
+                      } else {
+                        cbActual = bodyLines.find((l: string) => l.toLowerCase().includes('or get it included')) || 'N/A';
+                      }
+                      break;
+                    }
+                    case 'ppv option price': {
+                      for (const line of bodyLines) {
+                        const m = line.match(/[$£€]\d+[\.,]\d{2}/);
+                        if (m && !line.toLowerCase().includes('month') && !line.toLowerCase().includes('annual')) {
+                          cbActual = m[0]; break;
+                        }
+                      }
+                      if (cbActual === 'N/A') {
+                        const priceLine = bodyLines.find((l: string) => /[$£€]\d+[\.,]\d{2}/.test(l));
+                        if (priceLine) { const m2 = priceLine.match(/[$£€]\d+[\.,]\d{2}/); if (m2) cbActual = m2[0]; }
+                      }
+                      break;
+                    }
+                    case 'dazn ultimate option present': {
+                      const ultEl = page.locator('label, [class*="card" i], [class*="option" i], [class*="upsell" i]').filter({ hasText: /dazn ultimate/i }).first();
+                      cbActual = (await ultEl.isVisible({ timeout: 3000 }).catch(() => false)) ? 'Yes' : 'No';
+                      break;
+                    }
+                    case 'dazn ultimate price text': {
+                      const ultIdx = bodyLines.findIndex((l: string) => l.toLowerCase().includes('dazn ultimate'));
+                      if (ultIdx >= 0) {
+                        const fromLine = bodyLines.slice(ultIdx, ultIdx + 8).find((l: string) => l.trim().toLowerCase() === 'from');
+                        cbActual = fromLine ? fromLine.trim() : 'N/A';
+                      }
+                      break;
+                    }
+                    case 'dazn ultimate price': {
+                      const ultIdx2 = bodyLines.findIndex((l: string) => l.toLowerCase().includes('dazn ultimate'));
+                      if (ultIdx2 >= 0) {
+                        for (const l of bodyLines.slice(ultIdx2, ultIdx2 + 10)) {
+                          const m = l.match(/[$£€]\d+[\.,]\d{2}/);
+                          if (m) { cbActual = m[0]; break; }
+                        }
+                      }
+                      break;
+                    }
+                    case 'dazn ultimate price length': {
+                      const monthLine = bodyLines.find((l: string) => /\/\s*month/i.test(l) && l.length < 20);
+                      if (monthLine) { cbActual = (monthLine.match(/\/\s*month/i) || [])[0]?.replace(/\s+/g, ' ') || monthLine.trim(); }
+                      break;
+                    }
+                    case 'dazn ultimate billing text': {
+                      cbActual = bodyLines.find((l: string) => l.toLowerCase().includes('annual') && l.toLowerCase().includes('renew') && l.length < 100) || 'N/A';
+                      break;
+                    }
+                    case 'ppv included tag': {
+                      const tagEl = page.locator('[class*="tag" i], [class*="badge" i], [class*="label" i]').filter({ hasText: /^included$/i }).first();
+                      cbActual = (await tagEl.isVisible({ timeout: 2000 }).catch(() => false)) ? 'Yes' : 'No';
+                      break;
+                    }
+                    case 'upsell feature 1':
+                    case 'upsell feature 2':
+                    case 'upsell feature 3': {
+                      const fIdx = parseInt(cbKey.replace('upsell feature ', ''), 10) - 1;
+                      const featureLines = bodyLines.filter((l: string) =>
+                        l.length > 20 && l.length < 200 &&
+                        /fights|events|ppv|hdr|dolby|surround|promoter|included/i.test(l)
+                      );
+                      cbActual = featureLines[fIdx] || 'N/A';
+                      break;
+                    }
+                    case 'whats included cta': {
+                      const ctaEl = page.locator('button, a, span').filter({ hasText: /what.?s included|whats included/i }).first();
+                      if (await ctaEl.isVisible({ timeout: 2000 }).catch(() => false)) {
+                        cbActual = (await ctaEl.innerText().catch(() => '')).trim();
+                      } else {
+                        cbActual = bodyLines.find((l: string) => /whats? included/i.test(l) && l.length < 40) || 'N/A';
+                      }
+                      break;
+                    }
+                    default: {
+                      const kws = cbKey.split(' ').filter((w: string) => w.length > 2);
+                      cbActual = bodyLines.find((l: string) =>
+                        kws.some(w => l.toLowerCase().includes(w)) && l.length < 200
+                      ) || 'N/A';
+                    }
+                  }
+                } catch (ce: any) {
+                  console.warn(`⚠️ choosebuy [${cbField}] extract error: ${ce.message}`);
+                }
+
+                const aN = cbActual.replace(/\s+/g, ' ').trim().toLowerCase();
+                const eN = cbExpected.replace(/\s+/g, ' ').trim().toLowerCase();
+                const pass = aN === eN || aN.includes(eN) || eN.includes(aN);
+                const cbStatus = pass ? 'PASS' : 'FAIL';
+                console.log(`  ${cbStatus === 'PASS' ? '✅' : '❌'} [${cbField}] expected="${cbExpected}" actual="${cbActual}"`);
+                results.push({ page: 'Choose How To Buy', field: cbField, expected: cbExpected, actual: cbActual, status: cbStatus });
+              }
             } catch (e: any) {
               console.warn('⚠️ Choose How To Buy validation error:', e.message);
             }
