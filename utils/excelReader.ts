@@ -304,7 +304,7 @@ export const getHomeOfBoxingData = (flowName: string) => {
   const data = readSheet('Home of Boxing');
   console.log(`🔍 [getHomeOfBoxingData] Loaded raw data:`, JSON.stringify(data, null, 2));
   const normalize = (val: any) => val?.toString().trim().toLowerCase();
-  const queryFlow = flowName === 'home-boxing-upcoming' ? 'home-boxing-tile' : flowName;
+  const queryFlow = flowName;
   const flowData = data.filter(
     (d: any) => normalize(d.Flow) === normalize(queryFlow)
   );

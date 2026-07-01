@@ -742,7 +742,9 @@ for (const stateKey of userStatesToRun) {
             pageName = 'Home of Boxing';
             flowParam = SOURCE.includes('banner')
               ? 'home-boxing-banner'
-              : 'home-boxing-tile';
+              : SOURCE.includes('upcoming')
+                ? 'home-boxing-upcoming'
+                : 'home-boxing-tile';
           } else if (isBoxingSourceInner) {
             sheetName = 'Boxing page';
             pageName = 'Boxing';

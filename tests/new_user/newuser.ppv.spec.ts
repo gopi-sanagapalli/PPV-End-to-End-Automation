@@ -514,7 +514,7 @@ async function runFlow(
                 console.log(`ℹ️ No spreadsheet rules for homepage source "${source}" — skipping validation`);
               }
             } else {
-              const queryFlow = source.includes('banner') ? 'home-boxing-banner' : 'home-boxing-tile';
+              const queryFlow = source.includes('banner') ? 'home-boxing-banner' : source.includes('upcoming') ? 'home-boxing-upcoming' : 'home-boxing-tile';
               const homeOfBoxingData = getHomeOfBoxingData(queryFlow);
               if (homeOfBoxingData && homeOfBoxingData.length > 0) {
                 await validateVariant(page, 'home-boxing', homeOfBoxingData, results, eventData, 'Home of Boxing', queryFlow, container);

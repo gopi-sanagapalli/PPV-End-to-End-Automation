@@ -506,6 +506,10 @@ const homeOfBoxingData = [
   { Flow: 'home-boxing-tile', Field: 'Selected Boxing Tile', Expected: 'Yes' },
   { Flow: 'home-boxing-tile', Field: 'Event Title', Expected: '{{PPV_NAME}}' },
  
+  // home-boxing-upcoming
+  { Flow: 'home-boxing-upcoming', Field: 'Home of Boxing Section Present', Expected: 'Present' },
+  { Flow: 'home-boxing-upcoming', Field: 'Event Title', Expected: '{{PPV_NAME}}' },
+
   // home-kickboxing-tile
   { Flow: 'home-kickboxing-tile', Field: 'Home of Boxing Section Present', Expected: 'Present' },
   { Flow: 'home-kickboxing-tile', Field: 'Selected Boxing Tile', Expected: 'Yes' },
