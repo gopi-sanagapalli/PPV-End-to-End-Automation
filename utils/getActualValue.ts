@@ -5148,6 +5148,24 @@ export async function getActualValue(
       const nextPrice = eventData?.NEXT_PAYMENT_PRICE || '';
       const currency = eventData?.CURRENCY || '';
 
+      // Mobile web handoff renders the checkout in Chrome — the DOM structure
+      // differs from desktop. Rather than using label-proximity scanning (which
+      // picks up the subscription monthly price), search directly for the known
+      // today-you-pay value (PPV price) as a positive anchor.
+      const isMobileHandoff = String(eventData?.MOBILE_WEB_HANDOFF || '').toLowerCase() === 'true';
+      if (isMobileHandoff) {
+        const todayPayTarget = eventData?.TODAY_YOU_PAY_PRICE || eventData?.PPV_PRICE || '';
+        if (todayPayTarget) {
+          const found = snapFind(n =>
+            !n.isStrike &&
+            n.childCount === 0 &&
+            (n.text === todayPayTarget ||
+              n.text.replace(/\s/g, '') === todayPayTarget.replace(/\s/g, ''))
+          );
+          if (found !== 'N/A') return found;
+        }
+      }
+
       if (tier === 'ultimate' && ratePlan === 'annual pay upfront') {
         if (annualUpfront) {
           // FIX: removed double currency prefix bug ($${currency}$${price} → ${currency}${price})
