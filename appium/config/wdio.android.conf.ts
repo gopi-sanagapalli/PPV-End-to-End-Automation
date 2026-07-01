@@ -115,7 +115,7 @@ export const config = {
       'appium:appPackage':               process.env.APP_PACKAGE   || 'com.dazn',
       'appium:appActivity':              process.env.APP_ACTIVITY  || 'com.dazn.splash.view.SplashScreenActivity',
       'appium:noReset':                  true,
-      'appium:forceAppLaunch':           true,
+      'appium:forceAppLaunch':           false,   // prepareAndroidApp owns the launch; prevent double-open
       'appium:autoGrantPermissions':     true,
       'appium:unicodeKeyboard':          false,
       'appium:resetKeyboard':            false,
