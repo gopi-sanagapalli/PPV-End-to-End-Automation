@@ -205,7 +205,7 @@ async function scrollScheduleToPPVTile(driver: WdBrowser): Promise<WdElement | n
   for (let i = 0; i < 20; i++) {
     // Check for PPV
     try {
-      const ppvEl = await driver.$(`//android.widget.TextView[@text="${PPV_NAME}"]`);
+      const ppvEl = await driver.$(`//android.widget.TextView[contains(@text, "${PPV_NAME}")]`);
       if (await ppvEl.isDisplayed()) {
         console.log(`✅ Found "${PPV_NAME}" (step ${i + 1})`);
         
@@ -234,7 +234,7 @@ async function scrollScheduleToPPVTile(driver: WdBrowser): Promise<WdElement | n
           await driver.pause(1500);
           
           // Return the re-found element (now centered)
-          const centeredEl = await driver.$(`//android.widget.TextView[@text="${PPV_NAME}"]`);
+          const centeredEl = await driver.$(`//android.widget.TextView[contains(@text, "${PPV_NAME}")]`);
           if (await centeredEl.isDisplayed()) {
             const newRect = await centeredEl.getRect();
             console.log(`  ✅ Tile centered at y=${newRect.y}`);
@@ -551,7 +551,7 @@ describe('DAZN Android PPV → Web Handoff', () => {
         // Click the PPV tile using exact XPath (most reliable)
         await driver.pause(1000);
         try {
-          const ppvTile = await driver.$(`//android.widget.TextView[@text="${PPV_NAME}"]`);
+          const ppvTile = await driver.$(`//android.widget.TextView[contains(@text, "${PPV_NAME}")]`);
           await ppvTile.click();
           console.log(`✅ Clicked ${PPV_NAME} tile`);
         } catch (e) {
