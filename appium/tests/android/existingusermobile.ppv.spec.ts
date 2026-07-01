@@ -2297,9 +2297,20 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
               const chooseBuyData = getChooseHowToBuyData();
               console.log(`📊 Choose How To Buy rows: ${chooseBuyData.length}`);
 
-              // ── Inline choosebuy validator (getActualValue has no choosebuy handlers) ──
-              const bodyText = await page.locator('body').innerText({ timeout: 4000 }).catch(() => '');
-              const bodyLines = bodyText.split('\n').map((l: string) => l.trim()).filter(Boolean);
+              // ── Inline choosebuy validator ──────────────────────────────────────────
+              // Scroll through page to trigger lazy-loaded sections (mobile 375px)
+              await page.evaluate(() => { window.scrollTo(0, document.body.scrollHeight); }).catch(() => {});
+              await page.waitForTimeout(800);
+              await page.evaluate(() => { window.scrollTo(0, 0); }).catch(() => {});
+              await page.waitForTimeout(400);
+
+              // Use textContent (not innerText) — includes hidden/off-screen text on mobile
+              const bodyText = await page.evaluate(() =>
+                (document.body.textContent || '').replace(/\t/g, ' ')
+              ).catch(async () =>
+                page.locator('body').innerText({ timeout: 4000 }).catch(() => '')
+              );
+              const bodyLines = (bodyText as string).split('\n').map((l: string) => l.trim()).filter(Boolean);
               const { resolveExpected: resolveExp } = require('../../../utils/resolveExpected');
 
               for (const row of chooseBuyData) {
@@ -2506,7 +2517,9 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
                 const pass = aN === eN || aN.includes(eN) || eN.includes(aN);
                 const cbStatus = pass ? 'PASS' : 'FAIL';
                 console.log(`  ${cbStatus === 'PASS' ? '✅' : '❌'} [${cbField}] expected="${cbExpected}" actual="${cbActual}"`);
-                results.push({ page: 'Choose How To Buy', field: cbField, expected: cbExpected, actual: cbActual, status: cbStatus });
+                // Capture screenshot for every failing field (same as other page validators)
+                const cbShot = cbStatus === 'FAIL' ? await captureFailShot(page, cbField) : undefined;
+                results.push({ page: 'Choose How To Buy', field: cbField, expected: cbExpected, actual: cbActual, status: cbStatus, screenshot: cbShot });
               }
             } catch (e: any) {
               console.warn('⚠️ Choose How To Buy validation error:', e.message);
