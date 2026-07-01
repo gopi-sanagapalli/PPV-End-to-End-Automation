@@ -2318,7 +2318,9 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
                 try {
                   switch (cbKey) {
                     case 'page title': {
-                      cbActual = (await page.locator('h1').first().innerText({ timeout: 3000 }).catch(() => '')).trim() || 'N/A';
+                      const raw = (await page.locator('h1').first().innerText({ timeout: 3000 }).catch(() => '')).trim();
+                      // strip zero-width spaces and other invisible chars
+                      cbActual = raw.replace(/[\u200b\u200c\u200d\ufeff]/g, '').trim() || 'N/A';
                       break;
                     }
                     case 'header ppv name': {
@@ -2340,6 +2342,41 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
                       }
                       break;
                     }
+                    case 'ppv option present': {
+                      // Look for a PPV buy option card/radio (not the Ultimate section)
+                      const ppvKeyword = (eventData.PPV_NAME || '').split(' vs')[0].split(' ')[0];
+                      const ppvCard = page.locator('label, [class*="card" i], [class*="option" i]')
+                        .filter({ hasText: new RegExp(ppvKeyword, 'i') }).first();
+                      cbActual = (await ppvCard.isVisible({ timeout: 3000 }).catch(() => false)) ? 'Yes' : 'No';
+                      if (cbActual === 'No') {
+                        // fallback: any radio visible
+                        const anyRadio = page.locator('input[type="radio"]').first();
+                        cbActual = (await anyRadio.isVisible({ timeout: 2000 }).catch(() => false)) ? 'Yes' : 'No';
+                      }
+                      break;
+                    }
+                    case 'ppv option selected': {
+                      // Check if the PPV (first) radio is pre-selected
+                      const firstRadio = page.locator('input[type="radio"]').first();
+                      const checked = await firstRadio.isChecked({ timeout: 2000 }).catch(() => false);
+                      cbActual = checked ? 'Yes' : 'No';
+                      break;
+                    }
+                    case 'ppv image present': {
+                      const img = page.locator('img').first();
+                      cbActual = (await img.isVisible({ timeout: 2000 }).catch(() => false)) ? 'Yes' : 'No';
+                      break;
+                    }
+                    case 'ppv date and time': {
+                      // Find a line with month name + number (e.g. "26 Jul at 00:30")
+                      const dateLine = bodyLines.find((l: string) =>
+                        /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/i.test(l) &&
+                        /\d{1,2}/.test(l) && l.length < 60 &&
+                        !l.toLowerCase().includes('feature') && !l.toLowerCase().includes('fight')
+                      );
+                      cbActual = dateLine || 'N/A';
+                      break;
+                    }
                     case 'ppv option price': {
                       for (const line of bodyLines) {
                         const m = line.match(/[$£€]\d+[\.,]\d{2}/);
@@ -2358,18 +2395,26 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
                       cbActual = (await ultEl.isVisible({ timeout: 3000 }).catch(() => false)) ? 'Yes' : 'No';
                       break;
                     }
+                    case 'upsell plan name': {
+                      // Find the "DAZN Ultimate" heading line (exact, not substring of subtitle)
+                      cbActual = bodyLines.find((l: string) => l.trim().toLowerCase() === 'dazn ultimate') || 'N/A';
+                      break;
+                    }
                     case 'dazn ultimate price text': {
-                      const ultIdx = bodyLines.findIndex((l: string) => l.toLowerCase().includes('dazn ultimate'));
-                      if (ultIdx >= 0) {
-                        const fromLine = bodyLines.slice(ultIdx, ultIdx + 8).find((l: string) => l.trim().toLowerCase() === 'from');
+                      // Find "From" line near the DAZN Ultimate section heading
+                      const ultHeadIdx = bodyLines.findIndex((l: string) => l.trim().toLowerCase() === 'dazn ultimate');
+                      if (ultHeadIdx >= 0) {
+                        const fromLine = bodyLines.slice(ultHeadIdx, ultHeadIdx + 8).find((l: string) => l.trim().toLowerCase() === 'from');
                         cbActual = fromLine ? fromLine.trim() : 'N/A';
                       }
                       break;
                     }
                     case 'dazn ultimate price': {
-                      const ultIdx2 = bodyLines.findIndex((l: string) => l.toLowerCase().includes('dazn ultimate'));
-                      if (ultIdx2 >= 0) {
-                        for (const l of bodyLines.slice(ultIdx2, ultIdx2 + 10)) {
+                      // Use exact heading match to avoid matching subtitle "...DAZN Ultimate subscription"
+                      const ultHeadIdx2 = bodyLines.findIndex((l: string) => l.trim().toLowerCase() === 'dazn ultimate');
+                      const startIdx = ultHeadIdx2 >= 0 ? ultHeadIdx2 : bodyLines.findIndex((l: string) => l.toLowerCase().includes('dazn ultimate'));
+                      if (startIdx >= 0) {
+                        for (const l of bodyLines.slice(startIdx, startIdx + 12)) {
                           const m = l.match(/[$£€]\d+[\.,]\d{2}/);
                           if (m) { cbActual = m[0]; break; }
                         }
@@ -2377,8 +2422,12 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
                       break;
                     }
                     case 'dazn ultimate price length': {
-                      const monthLine = bodyLines.find((l: string) => /\/\s*month/i.test(l) && l.length < 20);
-                      if (monthLine) { cbActual = (monthLine.match(/\/\s*month/i) || [])[0]?.replace(/\s+/g, ' ') || monthLine.trim(); }
+                      // Find "/ month" anywhere (no length restriction — can appear in combined line)
+                      const monthLine = bodyLines.find((l: string) => /\/\s*month/i.test(l));
+                      if (monthLine) {
+                        const m = monthLine.match(/\/\s*month/i);
+                        cbActual = m ? m[0] : monthLine.trim();
+                      }
                       break;
                     }
                     case 'dazn ultimate billing text': {
@@ -2386,19 +2435,45 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
                       break;
                     }
                     case 'ppv included tag': {
-                      const tagEl = page.locator('[class*="tag" i], [class*="badge" i], [class*="label" i]').filter({ hasText: /^included$/i }).first();
+                      // Try DOM element first, then plain text scan
+                      const tagEl = page.locator('[class*="tag" i], [class*="badge" i], [class*="label" i], span, div').filter({ hasText: /^included$/i }).first();
                       cbActual = (await tagEl.isVisible({ timeout: 2000 }).catch(() => false)) ? 'Yes' : 'No';
+                      if (cbActual === 'No') {
+                        cbActual = bodyLines.some((l: string) => l.trim().toLowerCase() === 'included') ? 'Yes' : 'No';
+                      }
                       break;
                     }
                     case 'upsell feature 1':
                     case 'upsell feature 2':
                     case 'upsell feature 3': {
                       const fIdx = parseInt(cbKey.replace('upsell feature ', ''), 10) - 1;
+                      // Exclude subtitle/promo lines that mention subscription/buy
                       const featureLines = bodyLines.filter((l: string) =>
                         l.length > 20 && l.length < 200 &&
-                        /fights|events|ppv|hdr|dolby|surround|promoter|included/i.test(l)
+                        /fights|events|ppv|hdr|dolby|surround|promoter/i.test(l) &&
+                        !l.toLowerCase().includes('subscription') &&
+                        !l.toLowerCase().includes('buy ')
                       );
                       cbActual = featureLines[fIdx] || 'N/A';
+                      break;
+                    }
+                    case 'cta button': {
+                      // Find the PPV CTA button text
+                      const ppvName = (eventData.PPV_NAME || '') as string;
+                      const ctaCandidates = [
+                        `button:has-text("Continue with ${ppvName} only")`,
+                        `button:has-text("Continue with ${ppvName}")`,
+                        `button:has-text("Continue with pay-per-view")`,
+                        `button:has-text("Buy")`,
+                        `button:has-text("Continue")`,
+                      ];
+                      for (const sel of ctaCandidates) {
+                        const btn = page.locator(sel).first();
+                        if (await btn.isVisible({ timeout: 1500 }).catch(() => false)) {
+                          cbActual = (await btn.innerText().catch(() => '')).replace(/\s+/g, ' ').trim();
+                          break;
+                        }
+                      }
                       break;
                     }
                     case 'whats included cta': {
@@ -2411,10 +2486,15 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
                       break;
                     }
                     default: {
-                      const kws = cbKey.split(' ').filter((w: string) => w.length > 2);
-                      cbActual = bodyLines.find((l: string) =>
-                        kws.some(w => l.toLowerCase().includes(w)) && l.length < 200
-                      ) || 'N/A';
+                      // Only keyword-match non-date/non-price fields to avoid wrong matches
+                      const kws = cbKey.split(' ').filter((w: string) => w.length > 3);
+                      if (kws.length > 0) {
+                        cbActual = bodyLines.find((l: string) =>
+                          kws.every(w => l.toLowerCase().includes(w)) && l.length < 200
+                        ) || bodyLines.find((l: string) =>
+                          kws.some(w => l.toLowerCase().includes(w)) && l.length < 100
+                        ) || 'N/A';
+                      }
                     }
                   }
                 } catch (ce: any) {
