@@ -547,11 +547,18 @@ export async function getActualValue(
 
       case 'cta button':
       case 'cta button text': {
-        const planCta = findLine((_line, lower) => lower.includes('continue with') && lower.includes('free trial'));
-        if (planCta) return planCta;
+        // Try most specific matches first, then fall back to any "Continue with" button
+        const trialCta = findLine((_line, lower) => lower.includes('continue with') && lower.includes('free trial'));
+        if (trialCta) return trialCta;
         const ultimateCta = findLine((_line, lower) => lower.includes('continue with dazn ultimate'));
         if (ultimateCta) return ultimateCta;
-        return findLine((_line, lower) => lower.includes('continue with pay-per-view')) || 'N/A';
+        const ppvCta = findLine((_line, lower) => lower.includes('continue with pay-per-view'));
+        if (ppvCta) return ppvCta;
+        // Generic: any "Continue with X" button line (e.g. "Continue with DAZN Ultimate")
+        const genericCta = findLine((_line, lower) => lower.startsWith('continue with'));
+        if (genericCta) return genericCta;
+        // Last resort: any visible button-like line starting with "Continue"
+        return findLine((_line, lower) => lower.startsWith('continue')) || 'N/A';
       }
 
       case 'header sub text':
@@ -6369,6 +6376,8 @@ export async function getActualValue(
     }
 
     case 'page description': {
+      // Helper: strip trailing "... More" / "…More" truncation added by mobile browsers
+      const stripMore = (t: string) => t.replace(/\s*\.{2,3}\s*More\s*$/i, '').replace(/\s*…\s*More\s*$/i, '').trim();
       if (_variant === 'confirmation') {
         const descNode = snapFind(n =>
           (n.tag === 'p' || n.tag === 'span' || n.tag === 'div') &&
@@ -6376,19 +6385,19 @@ export async function getActualValue(
             n.text.toLowerCase().includes('fights') ||
             n.text.toLowerCase().includes('pay-per-view')) &&
           n.text.length > 40 &&
-          n.text.length < 300
+          n.text.length < 400
         );
-        if (descNode !== 'N/A') return descNode;
+        if (descNode !== 'N/A') return stripMore(descNode);
       }
       const found = snapFind(n =>
         (n.tag === 'p' || n.tag === 'span') &&
         n.text.length > 20 &&
-        n.text.length < 300 &&
+        n.text.length < 400 &&
         !n.text.toLowerCase().includes('terms') &&
         !n.text.toLowerCase().includes('privacy')
       );
       if (_variant === 'confirmation') {
-        return found;
+        return found !== 'N/A' ? stripMore(found) : found;
       }
       return found !== 'N/A' ? 'Yes' : 'No';
     }

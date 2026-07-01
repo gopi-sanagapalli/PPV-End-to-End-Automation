@@ -172,8 +172,8 @@
             "USER_PASSWORD": "TODO_ADD_PASSWORD"
           },
           "prod": {
-            "USER_EMAIL": "TODO_ADD_GB_STANDARD_APM_ACCOUNT",
-            "USER_PASSWORD": "TODO_ADD_PASSWORD"
+            "USER_EMAIL": "tarunukprod@t.dazn.com",
+            "USER_PASSWORD": "Test@123"
           }
         }
       },

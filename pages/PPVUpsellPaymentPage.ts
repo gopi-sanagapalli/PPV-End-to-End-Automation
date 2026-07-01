@@ -108,11 +108,16 @@ export class PPVUpsellPaymentPage extends BasePage {
 
       // ── PPV Description ──
       } else if (key === 'ppv description') {
-        // Check for descriptive paragraph text below the heading
+        // Return actual description text; fall back to 'Yes'/'No' if expected is Yes/No
         const paras = await this.page.locator('p, [class*="description" i], [class*="subtitle" i]')
           .allTextContents().catch(() => []);
         const desc = paras.find((p: string) => p.trim().length > 20 && !p.toLowerCase().includes('payment'));
-        actual = desc ? 'Yes' : 'No';
+        const expectedLower = (expected || '').trim().toLowerCase();
+        if (expectedLower === 'yes' || expectedLower === 'no') {
+          actual = desc ? 'Yes' : 'No';
+        } else {
+          actual = desc ? desc.trim() : 'N/A';
+        }
 
       // ── PPV Image Present ──
       } else if (key === 'ppv image present' || key.includes('ppv image') || key.includes('image present')) {
