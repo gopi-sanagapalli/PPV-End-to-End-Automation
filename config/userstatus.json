@@ -118,8 +118,8 @@
             "USER_PASSWORD": "TODO_ADD_PASSWORD"
           },
           "prod": {
-            "USER_EMAIL": "TODO_ADD_GB_STANDARD_MONTHLY_ACCOUNT",
-            "USER_PASSWORD": "TODO_ADD_PASSWORD"
+            "USER_EMAIL": "ukprod.and@yopmail.com",
+            "USER_PASSWORD": "Dazn@1"
           }
         }
       },
@@ -172,8 +172,8 @@
             "USER_PASSWORD": "TODO_ADD_PASSWORD"
           },
           "prod": {
-            "USER_EMAIL": "TODO_ADD_GB_STANDARD_APM_ACCOUNT",
-            "USER_PASSWORD": "TODO_ADD_PASSWORD"
+            "USER_EMAIL": "gb.uij@yopmail.com",
+            "USER_PASSWORD": "Dazn@123"
           }
         }
       },
@@ -226,8 +226,8 @@
             "USER_PASSWORD": "Dazn@123"
           },
           "prod": {
-            "USER_EMAIL": "uk11a@yopmail.com",
-            "USER_PASSWORD": "Test1!"
+            "USER_EMAIL": "saiultimate1@t.dazn.com",
+            "USER_PASSWORD": "Dazn@1"
           }
         }
       },
@@ -268,8 +268,8 @@
             "USER_PASSWORD": "TODO_ADD_PASSWORD"
           },
           "prod": {
-            "USER_EMAIL": "TODO_ADD_GB_ULTIMATE_UPFRONT_ACCOUNT",
-            "USER_PASSWORD": "TODO_ADD_PASSWORD"
+            "USER_EMAIL": "Gbultimateupfront@yopmail.com",
+            "USER_PASSWORD": "Dazn@123"
           }
         }
       },
