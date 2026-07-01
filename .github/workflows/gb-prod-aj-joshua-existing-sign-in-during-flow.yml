@@ -56,16 +56,12 @@ jobs:
           - boxing-page-banner
           - boxing-page-bundle
           - boxing-upcoming-fights
-          - boxing-banner-ultimate
-          - boxing-ultimate-subscription
-          - boxing-standard-subscription
-          - boxing-join-the-club
           - search
           - schedule
           - myaccount
           - glory
         include:
-          # ── Switch route: standard plans only ───────────────────────────
+          # ── Switch route: standard plans only ───────────────────────
           - source: landing-page-dont-miss-live-switch
             plan: standard_monthly
             switch: 'true'
@@ -73,7 +69,7 @@ jobs:
             plan: standard_apm
             switch: 'true'
 
-          # ── Freemium — all four plans ──────────────────────────────────
+          # ── Freemium — all 4 plans ──────────────────────────────────
           - user_state: freemium
             plan: standard_monthly
           - user_state: freemium
@@ -83,7 +79,7 @@ jobs:
           - user_state: freemium
             plan: ultimate_upfront
 
-          # ── Frozen — all four plans ─────────────────────────────────────
+          # ── Frozen — all 4 plans ────────────────────────────────────
           - user_state: frozen
             plan: standard_monthly
           - user_state: frozen
@@ -93,77 +89,7 @@ jobs:
           - user_state: frozen
             plan: ultimate_upfront
 
-          # ── home-page-get-started: freemium only, all four plans ────────
-          - source: home-page-get-started
-            user_state: freemium
-            plan: standard_monthly
-          - source: home-page-get-started
-            user_state: freemium
-            plan: standard_apm
-          - source: home-page-get-started
-            user_state: freemium
-            plan: ultimate_apm
-          - source: home-page-get-started
-            user_state: freemium
-            plan: ultimate_upfront
-
-          # ── home-page-subscribe: freemium only, all four plans ──────────
-          - source: home-page-subscribe
-            user_state: freemium
-            plan: standard_monthly
-          - source: home-page-subscribe
-            user_state: freemium
-            plan: standard_apm
-          - source: home-page-subscribe
-            user_state: freemium
-            plan: ultimate_apm
-          - source: home-page-subscribe
-            user_state: freemium
-            plan: ultimate_upfront
-
-          # ── home-page-dazntile: freemium only, all four plans ───────────
-          - source: home-page-dazntile
-            user_state: freemium
-            plan: standard_monthly
-          - source: home-page-dazntile
-            user_state: freemium
-            plan: standard_apm
-          - source: home-page-dazntile
-            user_state: freemium
-            plan: ultimate_apm
-          - source: home-page-dazntile
-            user_state: freemium
-            plan: ultimate_upfront
-
-          # ── myaccount-subscription-status: freemium, all four plans ─────
-          - source: myaccount-subscription-status
-            user_state: freemium
-            plan: standard_monthly
-          - source: myaccount-subscription-status
-            user_state: freemium
-            plan: standard_apm
-          - source: myaccount-subscription-status
-            user_state: freemium
-            plan: ultimate_apm
-          - source: myaccount-subscription-status
-            user_state: freemium
-            plan: ultimate_upfront
-
-          # ── myaccount-subscription-status: frozen, all four plans ───────
-          - source: myaccount-subscription-status
-            user_state: frozen
-            plan: standard_monthly
-          - source: myaccount-subscription-status
-            user_state: frozen
-            plan: standard_apm
-          - source: myaccount-subscription-status
-            user_state: frozen
-            plan: ultimate_apm
-          - source: myaccount-subscription-status
-            user_state: frozen
-            plan: ultimate_upfront
-
-          # ── Active Standard — PPV + Ultimate upgrade routes ─────────────
+          # ── Active Standard Monthly — purchase path variants ────────
           - user_state: active_standard_monthly
             plan: standard_monthly
             purchase_path: ppv_only
@@ -173,6 +99,8 @@ jobs:
           - user_state: active_standard_monthly
             plan: standard_monthly
             purchase_path: ultimate_upfront
+
+          # ── Active Standard APM — purchase path variants ────────────
           - user_state: active_standard_apm
             plan: standard_apm
             purchase_path: ppv_only
@@ -180,11 +108,163 @@ jobs:
             plan: standard_apm
             purchase_path: ultimate_apm
 
-          # ── Active Ultimate — entitlement validation ─────────────────────
+          # ── Active Ultimate — entitlement validation ─────────────────
           - user_state: active_ultimate_apm
             plan: ultimate_apm
           - user_state: active_ultimate_upfront
             plan: ultimate_upfront
+
+          # ── home-page-get-started: freemium only, all 4 plans ───────
+          - source: home-page-get-started
+            user_state: freemium
+            plan: standard_monthly
+          - source: home-page-get-started
+            user_state: freemium
+            plan: standard_apm
+          - source: home-page-get-started
+            user_state: freemium
+            plan: ultimate_apm
+          - source: home-page-get-started
+            user_state: freemium
+            plan: ultimate_upfront
+
+          # ── home-page-dazntile: freemium only, all 4 plans ──────────
+          - source: home-page-dazntile
+            user_state: freemium
+            plan: standard_monthly
+          - source: home-page-dazntile
+            user_state: freemium
+            plan: standard_apm
+          - source: home-page-dazntile
+            user_state: freemium
+            plan: ultimate_apm
+          - source: home-page-dazntile
+            user_state: freemium
+            plan: ultimate_upfront
+
+          # ── home-page-subscribe: freemium only, all 4 plans ─────────
+          - source: home-page-subscribe
+            user_state: freemium
+            plan: standard_monthly
+          - source: home-page-subscribe
+            user_state: freemium
+            plan: standard_apm
+          - source: home-page-subscribe
+            user_state: freemium
+            plan: ultimate_apm
+          - source: home-page-subscribe
+            user_state: freemium
+            plan: ultimate_upfront
+
+          # ── myaccount-subscription-status: freemium, all 4 plans ────
+          - source: myaccount-subscription-status
+            user_state: freemium
+            plan: standard_monthly
+          - source: myaccount-subscription-status
+            user_state: freemium
+            plan: standard_apm
+          - source: myaccount-subscription-status
+            user_state: freemium
+            plan: ultimate_apm
+          - source: myaccount-subscription-status
+            user_state: freemium
+            plan: ultimate_upfront
+
+          # ── myaccount-subscription-status: frozen, all 4 plans ──────
+          - source: myaccount-subscription-status
+            user_state: frozen
+            plan: standard_monthly
+          - source: myaccount-subscription-status
+            user_state: frozen
+            plan: standard_apm
+          - source: myaccount-subscription-status
+            user_state: frozen
+            plan: ultimate_apm
+          - source: myaccount-subscription-status
+            user_state: frozen
+            plan: ultimate_upfront
+
+          # ── boxing-banner-ultimate: ultimate plans only ──────────────
+          - source: boxing-banner-ultimate
+            user_state: freemium
+            plan: ultimate_apm
+          - source: boxing-banner-ultimate
+            user_state: freemium
+            plan: ultimate_upfront
+          - source: boxing-banner-ultimate
+            user_state: frozen
+            plan: ultimate_apm
+          - source: boxing-banner-ultimate
+            user_state: frozen
+            plan: ultimate_upfront
+          - source: boxing-banner-ultimate
+            user_state: active_ultimate_apm
+            plan: ultimate_apm
+          - source: boxing-banner-ultimate
+            user_state: active_ultimate_upfront
+            plan: ultimate_upfront
+
+          # ── boxing-ultimate-subscription: ultimate plans only ────────
+          - source: boxing-ultimate-subscription
+            user_state: freemium
+            plan: ultimate_apm
+          - source: boxing-ultimate-subscription
+            user_state: freemium
+            plan: ultimate_upfront
+          - source: boxing-ultimate-subscription
+            user_state: frozen
+            plan: ultimate_apm
+          - source: boxing-ultimate-subscription
+            user_state: frozen
+            plan: ultimate_upfront
+          - source: boxing-ultimate-subscription
+            user_state: active_ultimate_apm
+            plan: ultimate_apm
+          - source: boxing-ultimate-subscription
+            user_state: active_ultimate_upfront
+            plan: ultimate_upfront
+
+          # ── boxing-join-the-club: ultimate plans only ────────────────
+          - source: boxing-join-the-club
+            user_state: freemium
+            plan: ultimate_apm
+          - source: boxing-join-the-club
+            user_state: freemium
+            plan: ultimate_upfront
+          - source: boxing-join-the-club
+            user_state: frozen
+            plan: ultimate_apm
+          - source: boxing-join-the-club
+            user_state: frozen
+            plan: ultimate_upfront
+          - source: boxing-join-the-club
+            user_state: active_ultimate_apm
+            plan: ultimate_apm
+          - source: boxing-join-the-club
+            user_state: active_ultimate_upfront
+            plan: ultimate_upfront
+
+          # ── boxing-standard-subscription: standard plans only ────────
+          - source: boxing-standard-subscription
+            user_state: freemium
+            plan: standard_monthly
+          - source: boxing-standard-subscription
+            user_state: freemium
+            plan: standard_apm
+          - source: boxing-standard-subscription
+            user_state: frozen
+            plan: standard_monthly
+          - source: boxing-standard-subscription
+            user_state: frozen
+            plan: standard_apm
+          - source: boxing-standard-subscription
+            user_state: active_standard_monthly
+            plan: standard_monthly
+            purchase_path: ppv_only
+          - source: boxing-standard-subscription
+            user_state: active_standard_apm
+            plan: standard_apm
+            purchase_path: ppv_only
 
     env:
       CI: 'true'
