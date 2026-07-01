@@ -479,6 +479,7 @@ describe('DAZN Android PPV → Web Handoff', () => {
             await _el.waitForDisplayed({ timeout: 10000 });
             await _el.click();
           }
+
         }
         
         await driver.pause(2000);

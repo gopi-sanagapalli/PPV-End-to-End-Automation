@@ -211,7 +211,7 @@ async function dismissStartupDialogs(driver: WdBrowser): Promise<void> {
 // ── Pre-Login Flow: Sign in existing user ───────────────────────────────────
 async function preLoginFlow(driver: WdBrowser, baseUrl: string): Promise<void> {
   console.log('\n🔐 PRE-LOGIN FLOW: Signing in existing user...');
-  await driver.pause(2000);
+  await driver.pause(500);
 
   // Try to find direct Login/Sign In button on the home page (typically at the top)
   const directLoginSelectors = [
@@ -244,7 +244,7 @@ async function preLoginFlow(driver: WdBrowser, baseUrl: string): Promise<void> {
       if (await loginBtn.isDisplayed()) {
         console.log(`  Found direct login button with selector: ${selector}, clicking...`);
         await loginBtn.click();
-        await driver.pause(4000);
+        await driver.pause(1500);
         loginClicked = true;
         break;
       }
@@ -270,7 +270,7 @@ async function preLoginFlow(driver: WdBrowser, baseUrl: string): Promise<void> {
         if (await profileBtn.isDisplayed()) {
           console.log('  Found Profile/Account button, tapping...');
           await profileBtn.click();
-          await driver.pause(2000);
+          await driver.pause(800);
           profileFound = true;
           break;
         }
@@ -284,7 +284,7 @@ async function preLoginFlow(driver: WdBrowser, baseUrl: string): Promise<void> {
       const profileX = Math.round(screenSize.width * 0.90);
       const profileY = Math.round(screenSize.height * 0.06);
       adbTap(profileX, profileY);
-      await driver.pause(2000);
+      await driver.pause(1000);
     }
 
     // Look for Sign In button in the Profile menu
@@ -294,7 +294,7 @@ async function preLoginFlow(driver: WdBrowser, baseUrl: string): Promise<void> {
         if (await signInBtn.isDisplayed()) {
           console.log('  Found Sign In button in profile menu, tapping...');
           await signInBtn.click();
-          await driver.pause(4000);
+          await driver.pause(1500);
           loginClicked = true;
           break;
         }
@@ -311,10 +311,10 @@ async function preLoginFlow(driver: WdBrowser, baseUrl: string): Promise<void> {
     );
     if (emailInput) {
       await emailInput.click();
-      await driver.pause(1000);
+      await driver.pause(500);
       await emailInput.clearValue();
       await emailInput.setValue(USER_EMAIL);
-      await driver.pause(1500);
+      await driver.pause(500);
 
       // Tap Continue/Next button
       const continueSelectors = [
@@ -331,7 +331,7 @@ async function preLoginFlow(driver: WdBrowser, baseUrl: string): Promise<void> {
           const continueBtn = await driver.$(selector);
           if (await continueBtn.isDisplayed()) {
             await continueBtn.click();
-            await driver.pause(3000);
+            await driver.pause(1500);
             break;
           }
         } catch { }
@@ -348,10 +348,10 @@ async function preLoginFlow(driver: WdBrowser, baseUrl: string): Promise<void> {
     );
     if (passwordInput) {
       await passwordInput.click();
-      await driver.pause(1000);
+      await driver.pause(500);
       await passwordInput.clearValue();
       await passwordInput.setValue(USER_PASSWORD);
-      await driver.pause(1500);
+      await driver.pause(500);
 
       // Tap Sign In/Login button
       const signInSelectors = [
@@ -369,7 +369,7 @@ async function preLoginFlow(driver: WdBrowser, baseUrl: string): Promise<void> {
           const signInBtnFinal = await driver.$(selector);
           if (await signInBtnFinal.isDisplayed()) {
             await signInBtnFinal.click();
-            await driver.pause(5000);
+            await driver.pause(2500);
             break;
           }
         } catch { }
@@ -812,19 +812,19 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
       console.log(`║  User   : ${USER_STATE.padEnd(40)}║`);
       console.log(`╚════════════════════════════════════════════════════╝\n`);
 
-      await prepareAndroidApp(browser, { clearAppData: LOGIN_FIRST });
+      console.log('🎥 Starting screen recording on Android device...');
+      await browser.startRecordingScreen({
+        timeLimit: 180, // 3 minutes max (Android limit)
+        videoSize: '1280x720',
+        bitRate: '2000000',
+      }).catch(e => console.error('⚠️ Failed to start screen recording:', e));
+
+      await prepareAndroidApp(browser, { clearAppData: true });
     });
 
     it('navigates to PPV buy button as existing user, opens Chrome, captures checkout URL', async () => {
       const driver = browser;
       const baseUrl = 'https://www.dazn.com';
-
-      console.log('🎥 Starting screen recording on Android device...');
-      await driver.startRecordingScreen({
-        timeLimit: 300, // 5 minutes (300 seconds)
-        videoSize: '1280x720',
-        bitRate: '2000000',
-      }).catch(e => console.error('⚠️ Failed to start screen recording:', e));
 
       console.log('✅ Startup handled by prepareAndroidApp; beginning existing-user PPV navigation');
 
@@ -840,6 +840,8 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
         await waitForHomePage(driver);
         console.log('✅ Post-login cleanup complete');
       }
+
+      // Split recording removed to record in a single video
 
       // ── myaccount ─────────────────────────────────────────────────────────
       if (isMyAccount) {
@@ -1887,9 +1889,6 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
               const isStag = currentUrl.includes('stag.dazn.com') || currentUrl.includes('sandbox') || currentUrl.includes('staging');
               if (!isStag) {
                 console.log(`⚠️ URL is not stag (URL: ${currentUrl}). Ending checkout actions and generating report.`);
-                if (SOURCE === 'search') {
-                  await logoutAppFlow(driver);
-                }
                 reachedEndPage = true;
               }
             }
@@ -2565,9 +2564,6 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
               const isStag = finalUrl.includes('stag.dazn.com') || finalUrl.includes('sandbox') || finalUrl.includes('staging');
               if (!isStag) {
                 console.log(`⚠️ URL is not stag (URL: ${finalUrl}). Ending checkout actions and generating report.`);
-                if (SOURCE === 'search') {
-                  await logoutAppFlow(driver);
-                }
                 reachedEndPage = true;
               }
             }
@@ -2660,9 +2656,7 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
           throw new Error(`❌ Flow "${flowConfig.name}" did not reach the expected end page`);
         }
 
-        if (SOURCE === 'search') {
-          await logoutAppFlow(driver);
-        }
+        // Removed logout flow for search to remain logged in
 
       } catch (playwrightErr: any) {
         console.error(`❌ Local Playwright Web Checkout failed: ${playwrightErr.message}`);
