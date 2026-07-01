@@ -372,23 +372,6 @@ export async function getPageSnapshot(pageOrLocator: Page | Locator): Promise<DO
         return slide.closest('.swiper-slide-active, [class*="swiper-slide-active"]') === null;
       };
 
-      const isParentTextContainer = (el: HTMLElement): boolean => {
-        const tagLower = el.tagName.toLowerCase();
-        if (tagLower === 'button' || tagLower === 'a') return false;
-
-        const parentText = (el.textContent || '').trim().toLowerCase();
-        const textDescendants = el.querySelectorAll('div, p, li, h1, h2, h3, h4, h5, h6, time, button, a, span');
-        for (let i = 0; i < textDescendants.length; i++) {
-          const desc = textDescendants[i] as HTMLElement;
-          if (desc.offsetWidth > 0 || desc.offsetHeight > 0) {
-            const descText = (desc.textContent || '').trim().toLowerCase();
-            if (descText.length >= 2 && descText !== parentText) {
-              return true;
-            }
-          }
-        }
-        return false;
-      };
 
       // OPTIMIZED: avoid getComputedStyle — use offsetWidth/Height + inline style checks
       const isRendered = (el: HTMLElement): boolean => {
@@ -470,7 +453,6 @@ export async function getPageSnapshot(pageOrLocator: Page | Locator): Promise<DO
           totalProcessed++;
           if (totalProcessed > MAX_ELEMENTS) break;
           if (!isRendered(el)) continue;
-          if (isParentTextContainer(el)) continue;
           const text = isStrikethrough(el) ? clean(el.textContent || '') : clean(getNonStrikeText(el));
           let isInteractive = ['button', 'a', 'img', 'input'].includes(tag);
           if (!isInteractive) {

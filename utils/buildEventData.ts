@@ -562,12 +562,19 @@ const isActiveUltimate = [
   }
 
   const offerType = (base.OFFER_TYPE || '1_month_free').toLowerCase();
-  if (offerType === '7_day_trial') {
+
+  // FLEX-specific calculations (FLEX_FUTURE_DATE, etc.) must reflect standard_monthly's regional offer type
+  const flexPlanData = plans['standard_monthly'];
+  const flexOfferType = (flexPlanData?.regions?.[region.toUpperCase()]?.OFFER_TYPE
+    || flexPlanData?.regions?.[region]?.OFFER_TYPE
+    || '7_day_trial').toLowerCase();
+
+  if (flexOfferType === '7_day_trial') {
     base.FLEX_FUTURE_DATE = formatFlexFutureDate(7, isUSRegion);
     // Trial payment page shows trial cancellation text, not legacy "Cancel with 30 days' notice"
     base.PAYMENT_FLEX_CANCEL_NOTICE = 'N/A';
     base.PAYMENT_FLEX_LEGAL_TEXT = 'N/A';
-  } else if (offerType === '1_month_free') {
+  } else if (flexOfferType === '1_month_free') {
     const futureDate = getNowIST();
     futureDate.setMonth(futureDate.getMonth() + 1);
     const day = futureDate.getDate();
@@ -579,7 +586,7 @@ const isActiveUltimate = [
     // 1-month free also uses different cancellation text, not "Cancel with 30 days' notice"
     base.PAYMENT_FLEX_CANCEL_NOTICE = 'N/A';
     base.PAYMENT_FLEX_LEGAL_TEXT = 'N/A';
-  } else if (offerType === 'no_offer' || offerType === 'none') {
+  } else if (flexOfferType === 'no_offer' || flexOfferType === 'none') {
     // No offer — keep default "Cancel with 30 days' notice" messaging
     base.FLEX_FUTURE_DATE = 'N/A';
   } else {

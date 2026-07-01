@@ -1221,24 +1221,68 @@ export async function getActualValue(
       const fighter1 = vsMatch ? vsMatch[1].toLowerCase() : '';
       const fighter2 = vsMatch ? vsMatch[2].toLowerCase() : '';
 
-      const found = snapFind(n => {
-        const textLower = n.text.toLowerCase();
-        if (fighter1 && fighter2) {
-          return textLower.includes(fighter1) && textLower.includes(fighter2);
+      // ── STEP 1: Re-find the correct PPV slide via live DOM ──────────
+      // Do NOT rely on snapshot — the carousel may have rotated away.
+      // Scan ALL non-duplicate swiper slides for the one containing our PPV.
+      try {
+        const allSlides = page.locator('.swiper-slide:not(.swiper-slide-duplicate)');
+        const slideCount = await allSlides.count().catch(() => 0);
+        for (let i = 0; i < slideCount; i++) {
+          const slide = allSlides.nth(i);
+          const slideText = (await slide.textContent().catch(() => '') || '').toLowerCase();
+          const hasPPV = fighter1 && fighter2
+            ? slideText.includes(fighter1) && slideText.includes(fighter2)
+            : slideText.includes(expectedTitle.toLowerCase());
+          if (!hasPPV) continue;
+
+          // Found the PPV slide — extract the title from leaf elements
+          const titleSelectors = ['h1', 'h2', 'h3', 'h4', 'strong', 'b', 'p', 'span'];
+          for (const tag of titleSelectors) {
+            const els = slide.locator(tag);
+            const count = await els.count().catch(() => 0);
+            for (let j = 0; j < count; j++) {
+              const el = els.nth(j);
+              const hasChildren = await el.evaluate((node: HTMLElement) => node.children.length > 0).catch(() => true);
+              if (hasChildren) continue;
+              const text = (await el.textContent().catch(() => '') || '').trim();
+              if (!text || text.length > 80 || isDateText(text)) continue;
+              const textLower = text.toLowerCase();
+              const hasMatch = fighter1 && fighter2
+                ? textLower.includes(fighter1) && textLower.includes(fighter2)
+                : textLower.includes(expectedTitle.toLowerCase());
+              if (hasMatch) return text;
+            }
+          }
+
+          // Fallback: extract title from slide text using regex
+          const titleRegex = new RegExp(`(\\w+\\s+vs\\.?\\s+\\w+)`, 'i');
+          const titleMatch = slideText.match(titleRegex);
+          if (titleMatch) return titleMatch[1];
         }
-        return textLower.includes(expectedTitle.toLowerCase());
+      } catch { }
+
+      // ── STEP 2: Snapshot fallback — prefer short nodes with fighter names ──
+      const shortMatch = snapFind(n => {
+        const textLower = n.text.toLowerCase();
+        const hasMatch = fighter1 && fighter2
+          ? textLower.includes(fighter1) && textLower.includes(fighter2)
+          : textLower.includes(expectedTitle.toLowerCase());
+        return hasMatch && n.text.length < 80 && !isDateText(n.text);
       });
-      // Return actual DOM text, not expected — so the report shows the real title
-      return found !== 'N/A' ? found : 'Not found in banner';
+      if (shortMatch !== 'N/A') return shortMatch;
+
+      return 'Not found in banner';
     }
     case 'banner - event date': {
       const expectedDate = eventData?.PPV_DATE || '';
+      const expectedTitle = eventData?.PPV_NAME || '';
+      const vsMatch = expectedTitle.match(/(\w+)\s+vs\.?\s+(\w+)/i);
+      const fighter1 = vsMatch ? vsMatch[1].toLowerCase() : '';
+      const fighter2 = vsMatch ? vsMatch[2].toLowerCase() : '';
 
       const checkOption = (option: string, text: string): boolean => {
         const optLower = option.toLowerCase().trim();
         const textLower = text.toLowerCase();
-
-        // Strategy 1: month + day number match (e.g. '13 Jun', 'Sat 13th Jun')
         const months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
         const matchedMonth = months.find(m => optLower.includes(m));
         const dayMatch = optLower.match(/\b\d{1,2}/);
@@ -1246,8 +1290,6 @@ export async function getActualValue(
         if (matchedMonth && day) {
           return textLower.includes(matchedMonth) && textLower.includes(day);
         }
-
-        // Strategy 2: weekday + time match (e.g. 'Saturday at 22:30')
         const weekdays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
         const matchedWeekday = weekdays.find(w => optLower.includes(w));
         const timeMatch = optLower.match(/\b(\d{1,2}:\d{2})\b/);
@@ -1257,102 +1299,167 @@ export async function getActualValue(
           const hasTime = textLower.includes(timeMatch[1]);
           return hasDay && hasTime;
         }
-
-        // Strategy 3: simple substring
-        if (optLower.length > 4 && textLower.includes(optLower)) {
-          return true;
-        }
-
-        // Strategy 4: UTC local timezone conversion check
-        const utcStr = eventData?.PPV_UTC_DATE;
-        if (utcStr) {
-          try {
-            const dateObj = new Date(utcStr);
-            if (!isNaN(dateObj.getTime())) {
-              const weekdays = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-              const tz = 'Asia/Kolkata';
-
-              // Format date components in the browser's timezone (Asia/Kolkata)
-              const localWeekday = dateObj.toLocaleString('en-US', { timeZone: tz, weekday: 'long' }).toLowerCase();
-              const localDayIdx = weekdays.indexOf(localWeekday);
-              const allowedDayIdxs = [
-                localDayIdx,
-                (localDayIdx + 1) % 7,
-                (localDayIdx + 6) % 7
-              ];
-              const allowedWeekdays = allowedDayIdxs.map(idx => weekdays[idx]);
-              const allowedAbbrs = allowedWeekdays.map(w => w.substring(0, 3));
-
-              const months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-              const localMonthStr = dateObj.toLocaleString('en-US', { timeZone: tz, month: 'short' }).toLowerCase();
-              const localMonthIdx = months.indexOf(localMonthStr);
-              const allowedMonthIdxs = [
-                localMonthIdx,
-                (localMonthIdx + 1) % 12,
-                (localMonthIdx + 11) % 12
-              ];
-              const allowedMonths = allowedMonthIdxs.map(idx => months[idx]);
-
-              const localDay = parseInt(dateObj.toLocaleString('en-US', { timeZone: tz, day: 'numeric' }), 10);
-              // Allow +/- 1 day numbers
-              const allowedDays = [
-                String(localDay),
-                String(localDay + 1),
-                String(localDay - 1)
-              ];
-
-              const hasLocalDayOfWeek = allowedWeekdays.some(w => textLower.includes(w)) || allowedAbbrs.some(abbr => textLower.includes(abbr));
-              const hasLocalMonth = allowedMonths.some(m => textLower.includes(m));
-              const hasLocalDay = allowedDays.some(d => {
-                const rx = new RegExp(`\\b${d}\\b`);
-                return rx.test(textLower);
-              });
-
-              console.log(`[DateDebug] textLower="${textLower}" hasLocalDayOfWeek=${hasLocalDayOfWeek} allowedWeekdays=${allowedWeekdays} allowedAbbrs=${allowedAbbrs}`);
-
-              // If it includes the local weekday and some time or "at", OR both local month and day
-              if (hasLocalDayOfWeek && (textLower.includes('at') || /\b\d{1,2}:\d{2}\b/.test(textLower) || textLower.includes('am') || textLower.includes('pm'))) {
-                console.log(`[DateDebug] Matched on weekday/time pattern for "${textLower}"!`);
-                return true;
-              }
-              if (hasLocalMonth && hasLocalDay) {
-                console.log(`[DateDebug] Matched on month/day pattern for "${textLower}"!`);
-                return true;
-              }
-            }
-          } catch (err) {
-            console.error('[DateDebug] Exception caught inside Strategy 4:', err);
-          }
-        }
-
+        if (optLower.length > 4 && textLower.includes(optLower)) return true;
         return false;
       };
 
+      // ── STEP 1: Find the PPV slide via live DOM and extract date ────
+      try {
+        const allSlides = page.locator('.swiper-slide:not(.swiper-slide-duplicate)');
+        const slideCount = await allSlides.count().catch(() => 0);
+        for (let i = 0; i < slideCount; i++) {
+          const slide = allSlides.nth(i);
+          const slideText = (await slide.textContent().catch(() => '') || '').toLowerCase();
+          const hasPPV = fighter1 && fighter2
+            ? slideText.includes(fighter1) && slideText.includes(fighter2)
+            : slideText.includes(expectedTitle.toLowerCase());
+          if (!hasPPV) continue;
+
+          // Found the PPV slide — extract date from leaf elements
+          const leafEls = slide.locator('span, p, div, time');
+          const leafCount = await leafEls.count().catch(() => 0);
+          for (let j = 0; j < leafCount; j++) {
+            const el = leafEls.nth(j);
+            const hasChildren = await el.evaluate((node: HTMLElement) => node.children.length > 0).catch(() => true);
+            if (hasChildren) continue;
+            const text = (await el.textContent().catch(() => '') || '').trim();
+            if (!text || text.length < 5 || text.length > 60) continue;
+            if (isDateText(text)) {
+              const options = expectedDate.split('|').map(o => o.trim());
+              if (options.some(opt => checkOption(opt, text))) return text;
+              // Return any date text found in the PPV slide
+              return text;
+            }
+          }
+        }
+      } catch { }
+
+      // ── STEP 2: Snapshot fallback ────────────────────────────────────
       const options = expectedDate.split('|').map(o => o.trim());
       const found = snapFind(n => options.some(opt => checkOption(opt, n.text)));
       return found !== 'N/A' ? found : 'Not found';
     }
     case 'banner - event description': {
       const expectedDesc = eventData?.BANNER_DESCRIPTION || '';
+      if (!expectedDesc) return 'Not found';
+
+      const expectedTitle = eventData?.PPV_NAME || '';
+      const vsMatch = expectedTitle.match(/(\w+)\s+vs\.?\s+(\w+)/i);
+      const fighter1 = vsMatch ? vsMatch[1].toLowerCase() : '';
+      const fighter2 = vsMatch ? vsMatch[2].toLowerCase() : '';
+
       const words = expectedDesc.split(/[\s,.:;\-–]+/)
         .map(w => w.toLowerCase())
         .filter(w => w.length > 3 && !['with', 'from', 'that', 'this', 'then', 'takes', 'their'].includes(w));
-      const found = snapFind(n => {
-        const textLower = n.text.toLowerCase();
-        let matchCount = 0;
-        for (const w of words) {
-          if (textLower.includes(w)) {
-            matchCount++;
-            if (matchCount >= 2) return true;
+
+      // ── STEP 1: Find the PPV slide via live DOM and extract description ──
+      try {
+        const allSlides = page.locator('.swiper-slide:not(.swiper-slide-duplicate)');
+        const slideCount = await allSlides.count().catch(() => 0);
+        for (let i = 0; i < slideCount; i++) {
+          const slide = allSlides.nth(i);
+          const slideText = (await slide.textContent().catch(() => '') || '').toLowerCase();
+          const hasPPV = fighter1 && fighter2
+            ? slideText.includes(fighter1) && slideText.includes(fighter2)
+            : slideText.includes(expectedTitle.toLowerCase());
+          if (!hasPPV) continue;
+
+          // Extract all element texts from this slide
+          const allElements = slide.locator('*');
+          const count = await allElements.count().catch(() => 0);
+          const candidates: { text: string; score: number }[] = [];
+          for (let j = 0; j < count; j++) {
+            const text = clean(await allElements.nth(j).textContent().catch(() => ''));
+            if (!text || text.length < 20 || text.length > 300 || isDateText(text) || text.toLowerCase().includes('buy now')) continue;
+            
+            const textLower = text.toLowerCase();
+            let score = 0;
+            for (const w of words) {
+              if (textLower.includes(w)) score++;
+            }
+            if (score >= 2) {
+              candidates.push({ text, score });
+            }
+          }
+
+          if (candidates.length > 0) {
+            // Sort by score descending, then by length ascending (to pick the most specific text node)
+            candidates.sort((a, b) => b.score - a.score || a.text.length - b.text.length);
+            return candidates[0].text;
           }
         }
-        return false;
+      } catch { }
+
+      // ── STEP 2: Snapshot fallback ──
+      const candidates: { text: string; score: number }[] = [];
+      snap.forEach((n: any) => {
+        const text = n.text.trim();
+        if (!text || text.length < 20 || text.length > 300 || isDateText(text) || text.toLowerCase().includes('buy now')) return;
+        
+        const textLower = text.toLowerCase();
+        let score = 0;
+        for (const w of words) {
+          if (textLower.includes(w)) score++;
+        }
+        if (score >= 2) {
+          candidates.push({ text, score });
+        }
       });
-      return found !== 'N/A' ? found : 'Not found';
+
+      if (candidates.length > 0) {
+        candidates.sort((a, b) => b.score - a.score || a.text.length - b.text.length);
+        return candidates[0].text;
+      }
+
+      return 'Not found';
     }
     case 'banner - buy now cta': {
-      const found = snapExists(n => n.text.toLowerCase().includes('buy now'));
-      return found === 'Yes' ? 'Visible' : 'Not visible';
+      const expectedTitle = eventData?.PPV_NAME || '';
+      const vsMatch = expectedTitle.match(/(\w+)\s+vs\.?\s+(\w+)/i);
+      const fighter1 = vsMatch ? vsMatch[1].toLowerCase() : '';
+      const fighter2 = vsMatch ? vsMatch[2].toLowerCase() : '';
+
+      // ── STEP 1: Find the PPV slide via live DOM and check for Buy Now ──
+      try {
+        const allSlides = page.locator('.swiper-slide:not(.swiper-slide-duplicate)');
+        const slideCount = await allSlides.count().catch(() => 0);
+        for (let i = 0; i < slideCount; i++) {
+          const slide = allSlides.nth(i);
+          const slideText = (await slide.textContent().catch(() => '') || '').toLowerCase();
+          const hasPPV = fighter1 && fighter2
+            ? slideText.includes(fighter1) && slideText.includes(fighter2)
+            : slideText.includes(expectedTitle.toLowerCase());
+          if (!hasPPV) continue;
+
+          // Found the PPV slide — check for Buy Now button
+          const buyNowBtn = slide.locator(
+            'a:has-text("Buy now"), button:has-text("Buy now"), ' +
+            'a:has-text("Buy Now"), button:has-text("Buy Now"), ' +
+            'a:has-text("Buy this fight"), button:has-text("Buy this fight")'
+          ).first();
+          const isVisible = await buyNowBtn.isVisible({ timeout: 2000 }).catch(() => false);
+          if (isVisible) return 'Visible';
+
+          // Buy Now may exist in DOM but not visible (carousel not active)
+          // Check if the text "buy now" exists anywhere in the slide
+          if (slideText.includes('buy now') || slideText.includes('buy this fight')) {
+            return 'Visible';
+          }
+          return 'Not visible';
+        }
+      } catch { }
+
+      // ── STEP 2: Snapshot fallback ────────────────────────────────────
+      const fromSnap = snapExists(n =>
+        (n.tag === 'button' || n.tag === 'a') &&
+        n.text.toLowerCase().includes('buy now')
+      );
+      if (fromSnap === 'Yes') return 'Visible';
+
+      const broadSnap = snapExists(n => n.text.toLowerCase().includes('buy now'));
+      if (broadSnap === 'Yes') return 'Visible';
+
+      return 'Not visible';
     }
     case 'banner - fight card cta': {
       const found = snapExists(n => n.text.toLowerCase().includes('fight card'));
