@@ -94,7 +94,7 @@
     "googlePay": "text=/Google Pay/i"
   },
   "banner": {
-    "activeSlide": ".swiper-slide-active:not(.swiper-slide-duplicate), [class*='swiper-slide-active']:not([class*='duplicate'])",
+    "activeSlide": ".swiper-slide-active:not(.swiper-slide-duplicate)",
     "nextButton": ".swiper-button-next, [class*='swiper-button-next']"
   }
 }

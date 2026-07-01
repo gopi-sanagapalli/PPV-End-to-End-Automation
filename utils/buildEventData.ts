@@ -122,12 +122,33 @@ export function buildEventData(
     ...regional,
   };
 
-  // OFFER_TYPE priority: DaznPlan.json (per plan+region) → event config → default
-  // Plan-level OFFER_TYPE is already merged by configLoader.ts (deepMerge(planData, eventData)).
-  // Since event configs no longer define OFFER_TYPE, the plan value flows through.
-  // This fallback handles the case where neither plan nor event defines it.
+  // Load DaznPlan.json dynamically to read plan-level offers
+  const plansPath = path.resolve(process.cwd(), 'config/DaznPlan.json');
+  let plans: any = {};
+  try {
+    plans = JSON.parse(fs.readFileSync(plansPath, 'utf-8'));
+  } catch (e: any) {
+    console.warn('⚠️ buildEventData: Failed to read DaznPlan.json:', e.message);
+  }
+
+  const planKey = json.planKey || 'standard_monthly';
+  const planData = plans[planKey];
+
+  // OFFER_TYPE priority:
+  // 1. Regional event config (eventRegional.OFFER_TYPE) — already in base via ...regional
+  // 2. DaznPlan.json regional OFFER_TYPE — read explicitly here
+  // 3. DaznPlan.json top-level OFFER_TYPE — already merged by configLoader
+  // 4. Default fallback
   if (!base.OFFER_TYPE) {
-    base.OFFER_TYPE = '1_month_free';
+    // Try to read from DaznPlan.json regional data directly
+    const planOfferType = planData?.regions?.[region.toUpperCase()]?.OFFER_TYPE
+      || planData?.regions?.[region]?.OFFER_TYPE;
+    if (planOfferType) {
+      base.OFFER_TYPE = planOfferType;
+      console.log(`💡 OFFER_TYPE resolved from DaznPlan regional: ${planOfferType}`);
+    } else {
+      base.OFFER_TYPE = '1_month_free';
+    }
   }
 
   // PPV1_UPSELL_TILE_DATE: fallback to LANDING_PAGE_PPV_DATE (same short-date format)
@@ -189,17 +210,6 @@ export function buildEventData(
     }
   }
 
-   // Load DaznPlan.json dynamically to read plan-level offers
-  const plansPath = path.resolve(process.cwd(), 'config/DaznPlan.json');
-  let plans: any = {};
-  try {
-    plans = JSON.parse(fs.readFileSync(plansPath, 'utf-8'));
-  } catch (e: any) {
-    console.warn('⚠️ buildEventData: Failed to read DaznPlan.json:', e.message);
-  }
-
-  const planKey = json.planKey || 'standard_monthly';
-  const planData = plans[planKey];
   const planRegionalOffers = planData?.regions?.[region.toUpperCase()]?.offers || [];
   const eventRegionalOffers = eventRegional?.offers || [];
 

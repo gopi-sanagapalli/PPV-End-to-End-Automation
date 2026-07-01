@@ -277,15 +277,46 @@ export class LandingPage extends BasePage {
       // Check if this is our PPV
       if (currentText && this.matchesPPVName(currentText, ppvName)) {
         console.log(`✅ [Banner] PPV found after ${attempt} clicks`);
+        // Stop auto-slide multiple times to prevent carousel rotating away
+        await stopAllAutoSlide();
+        await this.page.waitForTimeout(300);
         await stopAllAutoSlide();
 
         const activeSlide = carousel.locator(selectors.banner.activeSlide).locator(':visible').first();
         await activeSlide.waitFor({ state: 'visible', timeout: 5000 }).catch(() => { });
-        await this.page.waitForTimeout(1000); // Settle transition
 
         // Store slide index for later re-navigation
         const slideIndex = await activeSlide.getAttribute('data-swiper-slide-index').catch(() => null);
         if (slideIndex !== null) eventData._ppvBannerSlideIndex = slideIndex;
+
+        // Verify the active slide still shows our PPV — if not, re-navigate
+        const verifyText = ((await activeSlide.textContent().catch(() => '')) || '').trim();
+        if (!this.matchesPPVName(verifyText, ppvName)) {
+          console.log(`⚠️ [Banner] Active slide rotated away after finding PPV — re-navigating`);
+          await stopAllAutoSlide();
+          // Use Swiper API to jump directly to the correct slide index
+          const slideIdx = eventData._ppvBannerSlideIndex;
+          if (slideIdx !== undefined) {
+            await this.page.evaluate((idx: number) => {
+              const swiperEl = document.querySelector('.swiper') as any;
+              if (swiperEl?.swiper) {
+                swiperEl.swiper.autoplay?.stop();
+                swiperEl.swiper.params.autoplay = false;
+                swiperEl.swiper.params.loop = false;
+                if (typeof swiperEl.swiper.slideToLoop === 'function') {
+                  swiperEl.swiper.slideToLoop(idx, 0);
+                } else {
+                  swiperEl.swiper.slideTo(idx, 0);
+                }
+              }
+            }, Number(slideIdx)).catch(() => {});
+            await this.page.waitForTimeout(500);
+            await stopAllAutoSlide();
+          }
+        }
+
+        await this.page.waitForTimeout(500);
+
         // Check if Buy Now exists on this slide
         const hasBuyNow = await activeSlide.locator('a:has-text("Buy now"), button:has-text("Buy now"), a:has-text("Buy Now"), button:has-text("Buy Now")').first().isVisible({ timeout: 2000 }).catch(() => false);
         if (hasBuyNow) {
@@ -297,69 +328,65 @@ export class LandingPage extends BasePage {
         return activeSlide;
       }
 
-      // Loop detection: if we've cycled back to the first slide, PPV isn't in carousel
-      if (attempt > 0 && currentText && firstSlideText && currentText.substring(0, 100) === firstSlideText) {
-        console.log('🔁 [Banner] Carousel looped back to first slide — PPV not in carousel');
+      // Scan every swiper slide in DOM before navigating (catches lazy-rendered slides)
+      const allSlidesNow = this.bannerSlides(carousel);
+      const slideCountNow = await allSlidesNow.count().catch(() => 0);
+      for (let i = 0; i < slideCountNow; i++) {
+        const slide = allSlidesNow.nth(i);
+        const txt = ((await slide.textContent().catch(() => '')) || '').trim();
+        if (txt && this.matchesPPVName(txt, ppvName)) {
+          console.log(`✅ [Banner] PPV found in slide ${i} via DOM scan — navigating directly`);
+          await slide.evaluate((el: any) => {
+            const swiper = el.closest('.swiper')?.swiper || el.closest('[class*=swiper]')?.swiper;
+            if (!swiper) return;
+            const idx = el.getAttribute('data-swiper-slide-index');
+            if (idx !== null) {
+              swiper.slideToLoop(Number(idx), 0, false);
+            }
+          }).catch(() => { });
+          await this.page.waitForTimeout(500);
+          await stopAllAutoSlide();
+          return carousel.locator(selectors.banner.activeSlide).first();
+        }
+      }
+
+      // Only break on loop if we have navigated at least totalSlideCount times
+      // This prevents breaking early when firstSlide is a non-PPV slide
+      if (attempt >= maxSlides - 1) {
+        console.log('🔁 [Banner] Max slides reached — PPV not found in carousel');
         break;
       }
 
       // Click next
       console.log(`  slide ${attempt + 1}: "${currentText.substring(0, 50)}..." — clicking next`);
 
-      // Check next button visibility inside carousel, or globally
-      let isNextVisible = await nextBtn.waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false);
-      if (!isNextVisible) {
-        const globalNextBtn = this.page.locator(nextBtnSelectors).first();
-        if (await globalNextBtn.waitFor({ state: 'visible', timeout: 500 }).then(() => true).catch(() => false)) {
-          nextBtn = globalNextBtn;
-          isNextVisible = true;
-        }
-      }
+      // Hover over carousel to reveal chevron/navigation buttons
+      await carousel.hover().catch(() => { });
+      await this.page.waitForTimeout(200);
+
+      // Check if next button exists in DOM (not just visible — it may be hidden until hover)
+      const nextBtnExists = await nextBtn.count().catch(() => 0) > 0;
+      const isNextVisible = nextBtnExists || await nextBtn.isVisible({ timeout: 1000 }).catch(() => false);
 
       if (isNextVisible) {
         const prevText = currentText;
-        await nextBtn.click({ force: true, timeout: 3000 }).catch(() => { });
+        await nextBtn.click({ force: true }).catch(() => { });
 
-        // Wait for slide transition AND new slide content to render.
-        // Home/boxing page carousels lazy-render slide content, so we must
-        // wait for the new active slide to have non-empty textContent.
+        // Wait for slide transition
         await this.page.waitForFunction((args) => {
           const activeEl = document.querySelector(args.activeSelector);
           const text = activeEl?.textContent?.trim() || '';
-          // Slide must have changed AND have content (handles lazy-rendered slides)
-          return text.length > 0 && text !== args.prevText;
-        }, { activeSelector: selectors.banner.activeSlide, prevText }, { timeout: 5000 }).catch(() => { });
+          return text !== args.prevText;
+        }, { activeSelector: selectors.banner.activeSlide, prevText }, { timeout: 3000 }).catch(() => { });
 
         await this.page.waitForTimeout(500);
         await stopAllAutoSlide();
       } else {
-        console.log('⚠️  [Banner] Next button not visible — attempting swipe gesture fallback...');
-        // Ensure carousel is in viewport before getting bounding box
-        await carousel.scrollIntoViewIfNeeded().catch(() => { });
-        await this.page.waitForTimeout(300);
-        const box = await carousel.boundingBox().catch(() => null);
-        if (box) {
-          const prevText = currentText;
-          await this.page.mouse.move(box.x + box.width * 0.8, box.y + box.height / 2).catch(() => { });
-          await this.page.mouse.down().catch(() => { });
-          await this.page.mouse.move(box.x + box.width * 0.2, box.y + box.height / 2, { steps: 10 }).catch(() => { });
-          await this.page.mouse.up().catch(() => { });
-
-          // Wait for transition (must have non-empty content, handles lazy render)
-          await this.page.waitForFunction((args) => {
-            const activeEl = document.querySelector(args.activeSelector);
-            const text = activeEl?.textContent?.trim() || '';
-            return text.length > 0 && text !== args.prevText;
-          }, { activeSelector: selectors.banner.activeSlide, prevText }, { timeout: 5000 }).catch(() => { });
-
-          await this.page.waitForTimeout(500);
-          await stopAllAutoSlide();
-        } else {
-          console.log('⚠️  [Banner] Cannot determine carousel bounding box for swipe — stopping carousel navigation');
-          break;
-        }
+        console.log('⚠️  [Banner] Next button not found in carousel DOM — cannot navigate further');
+        break;
       }
     }
+
 
     // ─────────────────────────────────────────────────────────
     // Fallback: Check all slides directly via DOM (in case navigation missed one)

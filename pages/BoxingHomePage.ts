@@ -544,7 +544,7 @@ export class BoxingHomePage extends HomePage {
     const ppvTile = ppvImg.locator('xpath=ancestor::a[1]');
 
     const isTileInView = async (): Promise<any> => {
-      const tileCandidates = railWrapper.locator('.swiper-slide, [class*="tile" i], [class*="card" i], article, li, a, button');
+      const tileCandidates = railWrapper.locator('a[class*="tile__link" i], a[class*="tile" i], div[class*="tile" i], div[class*="card" i], a, button');
       const candidateCount = await tileCandidates.count().catch(() => 0);
 
       let bestTile: any = null;
