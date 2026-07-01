@@ -46,6 +46,17 @@ export function resolveExpected(
   }
 
   if (pageName === 'payment') {
+    const isMobileWebHandoff = String(eventData.MOBILE_WEB_HANDOFF || eventData.mobile_web_handoff || '').toLowerCase() === 'true';
+
+    // Mobile checkout does not render these desktop payment-section headings.
+    // Returning N/A lets validateVariant skip them via its existing not-required path.
+    if (
+      isMobileWebHandoff &&
+      (field === 'payment method heading' || field === 'purchase summary heading')
+    ) {
+      return 'N/A';
+    }
+
     const isReturning =
       String(rule.Flow || rule.flow).toLowerCase() === 'returning' ||
       ['frozen', 'sub_active', 'cancelled'].includes(String(eventData.USER_STATE || process.env.USER_STATE || '').toLowerCase().trim());

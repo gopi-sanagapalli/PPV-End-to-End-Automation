@@ -39,10 +39,13 @@ type WdElement = any;
 import { execSync } from 'child_process';
 import { writeHandoffUrl, clearHandoffUrl } from '../../utils/handoff';
 import { prepareAndroidApp, waitForHomePage } from '../../utils/androidSetup';
+import { loadEventConfig, EventConfig } from '../../utils/eventLoader';
+import { navigateToPPVTile } from '../../utils/scheduleNavigator';
 
 // ── Config ───────────────────────────────────────────────────────────────────
-const PPV_NAME = process.env.PPV_NAME || 'Joshua';
-const SCHEDULE_PPV_TITLE = process.env.SCHEDULE_PPV_TITLE || (PPV_NAME.toLowerCase().includes('joshua') ? 'Joshua vs. Prenga' : PPV_NAME);
+const event: EventConfig = loadEventConfig();
+const PPV_NAME = event.PPV_NAME;
+const SCHEDULE_PPV_TITLE = event.PPV_NAME;
 const SOURCE = (process.env.SOURCE || 'myaccount').trim().toLowerCase();
 const USER_STATE = process.env.USER_STATE || 'active_standard';
 const APP_PACKAGE = process.env.APP_PACKAGE || 'com.dazn';
@@ -1040,18 +1043,8 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
           console.log(`Finding ${PPV_NAME}...`);
           await driver.pause(5000);
 
-          console.log(`Scrolling to ${PPV_NAME}...`);
-          const ppvElement = await scrollScheduleToPPVTile(driver);
-
-          // Click the PPV tile using exact XPath (most reliable)
-          await driver.pause(1000);
-          try {
-            const ppvTile = await driver.$(`//android.widget.TextView[@text="${SCHEDULE_PPV_TITLE}"]`);
-            await ppvTile.click();
-            console.log(`✅ Clicked ${SCHEDULE_PPV_TITLE} tile`);
-          } catch (e) {
-            console.log('⚠️ Could not click PPV tile');
-          }
+          console.log(`Navigating to ${PPV_NAME} using adaptive schedule navigator...`);
+          await navigateToPPVTile(driver, event);
 
           await driver.pause(2000);
 
