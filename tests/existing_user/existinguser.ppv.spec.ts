@@ -233,8 +233,10 @@ for (const stateKey of userStatesToRun) {
       size: { width: 1280, height: 720 },
     } : undefined;
 
+    const isHeadless = process.env.HEADLESS === 'true';
     const context = await browser.newContext({
-      viewport: null,
+      viewport: isHeadless ? { width: 1920, height: 1080 } : null,
+      ...(isHeadless ? { deviceScaleFactor: 1 } : {}),
       colorScheme: 'dark',
       reducedMotion: 'no-preference',
       timezoneId: 'Asia/Kolkata',
