@@ -48,11 +48,17 @@ export function resolveExpected(
   if (pageName === 'payment') {
     const isMobileWebHandoff = String(eventData.MOBILE_WEB_HANDOFF || eventData.mobile_web_handoff || '').toLowerCase() === 'true';
 
-    // Mobile checkout does not render these desktop payment-section headings.
+    // Mobile checkout does not render these desktop payment-section headings,
+    // and the "Today you pay" row shows the subscription plan price (MONTHLY_PRICE)
+    // rather than the PPV price on the mobile-rendered checkout page — skip them.
     // Returning N/A lets validateVariant skip them via its existing not-required path.
     if (
       isMobileWebHandoff &&
-      (field === 'payment method heading' || field === 'purchase summary heading')
+      (
+        field === 'payment method heading' ||
+        field === 'purchase summary heading' ||
+        field === 'today you pay price'
+      )
     ) {
       return 'N/A';
     }
