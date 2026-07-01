@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { chromium } from '@playwright/test';
-import { sortValidationResults } from './helpers';
+
 
 // ─────────────────────────────────────────────────────────────────
 // HTML + PDF RUN REPORT GENERATOR
@@ -130,7 +130,7 @@ function buildHtml(results: ReportResult[], meta: ReportMeta): string {
   });
 
   // Sort validation results deterministically
-  results = sortValidationResults(results);
+
 
   const pages = [...new Set(results.map(r => r.page))];
   const totalPass = results.filter(r => r.status === 'PASS').length;

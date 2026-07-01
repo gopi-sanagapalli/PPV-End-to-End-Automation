@@ -2,7 +2,7 @@ import * as XLSX from 'xlsx';
 import * as fs   from 'fs';
 import * as path from 'path';
 import { compare } from './compare';
-import { sortValidationResults } from './helpers';
+
 
 // ── Column name maps ─────────────────────────────────────────────
 const SCHEDULE_HEADERS       = ['Field', 'Expected', 'Actual', 'Status'];
@@ -98,10 +98,7 @@ export const writeResults = async (
       return true;
     });
 
-    // Sort validation results deterministically
-    const sortedResults = sortValidationResults(deduplicatedResults);
-
-    const validRows = sortedResults;
+    const validRows = deduplicatedResults;
 
     // ── Row mapper ───────────────────────────────────────────
     const toRow = (

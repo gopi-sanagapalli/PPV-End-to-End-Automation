@@ -1,4 +1,4 @@
-import { sortValidationResults } from './helpers';
+
 
 type Result = {
   page:     string;
@@ -36,18 +36,58 @@ export function displayResultsTable(
     return true;
   });
 
-  // Sort validation results deterministically
-  const sorted = sortValidationResults(deduplicated);
-
-  if (!sorted.length) {
+  if (!deduplicated.length) {
     console.log('\n⚠️  No results to display');
     return;
   }
 
+  // Define the logical flow order for pages
+  const PAGE_ORDER = [
+    'Schedule',
+    'Landing',
+    'Home Page',
+    'Home of Boxing',
+    'Boxing',
+    'Paywall',
+    'Sign In',
+    'Standalone PPV',
+    'PPV',
+    'Default Signup',
+    'Bundle PPV',
+    'DAZN Plan',
+    'Choose How To Buy',
+    'Payment',
+    'PPV Payment',
+    'Upgrade Confirmation',
+    'My Account',
+    'Phone Number',
+    'OTP',
+    'Upsell First Success',
+    'Upsell Second Success',
+    'Upsell Payment'
+  ];
+
+  // Group results by page, preserving the original Excel field order
+  const groupedByPage = new Map<string, any[]>();
+  for (const r of deduplicated) {
+    if (!groupedByPage.has(r.page)) {
+      groupedByPage.set(r.page, []);
+    }
+    groupedByPage.get(r.page)!.push(r);
+  }
+
+  // Sort the pages according to PAGE_ORDER, but keep fields in original order
+  const pages = Array.from(groupedByPage.keys()).sort((a, b) => {
+    let idxA = PAGE_ORDER.findIndex(p => p.toLowerCase() === a.toLowerCase());
+    let idxB = PAGE_ORDER.findIndex(p => p.toLowerCase() === b.toLowerCase());
+    if (idxA === -1) idxA = 999;
+    if (idxB === -1) idxB = 999;
+    if (idxA !== idxB) return idxA - idxB;
+    return a.localeCompare(b);
+  });
+
   const line  = '─'.repeat(55);
   const dline = '═'.repeat(55);
-
-  const pages = [...new Set(sorted.map(r => r.page))];
 
   console.log(`\n${dline}`);
   console.log('  📊  TEST RESULTS SUMMARY');
@@ -62,7 +102,7 @@ export function displayResultsTable(
   console.log('');
 
   for (const p of pages) {
-    const pageResults = sorted.filter(r => r.page === p);
+    const pageResults = groupedByPage.get(p) || [];
     const pass  = pageResults.filter(r => r.status === 'PASS').length;
     const fail  = pageResults.filter(r => r.status === 'FAIL').length;
     const total = pageResults.length;
@@ -90,9 +130,9 @@ export function displayResultsTable(
   }
 
   // ── Overall totals ───────────────────────────────────────────
-  const totalPass = sorted.filter(r => r.status === 'PASS').length;
-  const totalFail = sorted.filter(r => r.status === 'FAIL').length;
-  const total     = sorted.length;
+  const totalPass = deduplicated.filter((r: any) => r.status === 'PASS').length;
+  const totalFail = deduplicated.filter((r: any) => r.status === 'FAIL').length;
+  const total     = deduplicated.length;
   const totalPct  = total ? ((totalPass / total) * 100).toFixed(1) : '0';
 
   console.log(line);

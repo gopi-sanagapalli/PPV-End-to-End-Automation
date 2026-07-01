@@ -1,7 +1,7 @@
 import { resolveExpected } from '../utils/resolveExpected';
 import { getActualValue } from '../utils/getActualValue';
 import { compare } from '../utils/compare';
-import { getPageSnapshot, DOMNode, stabilisePage, deduplicateRules, sortValidationResults } from '../utils/helpers';
+import { getPageSnapshot, DOMNode, stabilisePage, deduplicateRules } from '../utils/helpers';
 
 import { captureFailures } from '../utils/failureCapture';
 
@@ -450,11 +450,8 @@ export const validateVariant = async (
     });
   }
 
-  // Deterministically sort batch results
-  const sortedBatch = sortValidationResults(batchResults);
-
-  // Print & push sorted results
-  for (const r of sortedBatch) {
+  // Print & push results in original Excel order
+  for (const r of batchResults) {
     console.log(
       `  ${r.status === 'PASS' ? '✅' : '❌'} [${r.field}]` +
       `  expected="${r.expected}"  actual="${r.actual}"`
