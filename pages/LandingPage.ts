@@ -161,7 +161,6 @@ export class LandingPage extends BasePage {
             try { swiper.autoplay?.stop(); } catch {}
             try {
               swiper.params.autoplay = false;
-              swiper.params.loop = false;
             } catch {}
             try {
               if (swiper.autoplay?.running) swiper.autoplay.stop();
@@ -280,20 +279,47 @@ export class LandingPage extends BasePage {
         if (txt && this.matchesPPVName(txt, ppvName)) {
           console.log(`✅ [Banner] PPV found in slide ${i}`);
 
-          await slide.evaluate((el:any)=>{
-            const swiper = el.closest('.swiper')?.swiper || el.closest('[class*=swiper]')?.swiper;
-            if (!swiper) return;
+          // Navigate swiper to this slide by DOM index (works with or without loop mode)
+          await this.page.evaluate((domIndex: number) => {
+            try {
+              const heroEls = document.querySelectorAll(
+                'main .swiper, [class*="heroBanner"] .swiper, [class*="bannersContainer"] .swiper, .swiper'
+              );
+              let swiperInst: any = null;
+              for (const el of Array.from(heroEls)) {
+                if ((el as any).swiper) { swiperInst = (el as any).swiper; break; }
+              }
+              if (!swiperInst) return;
+              try { swiperInst.autoplay?.stop(); } catch {}
+              try { swiperInst.params.autoplay = false; } catch {}
+              const nonDup = Array.from(
+                swiperInst.el.querySelectorAll('.swiper-slide:not(.swiper-slide-duplicate)')
+              );
+              const target = nonDup[domIndex] as HTMLElement | undefined;
+              if (!target) return;
+              const loopIdx = target.getAttribute('data-swiper-slide-index');
+              if (loopIdx !== null && typeof swiperInst.slideToLoop === 'function') {
+                swiperInst.slideToLoop(Number(loopIdx), 300, false);
+              } else if (typeof swiperInst.slideTo === 'function') {
+                swiperInst.slideTo(domIndex, 300, false);
+              }
+            } catch {}
+          }, i).catch(() => {});
 
-            const idx = el.getAttribute('data-swiper-slide-index');
-            if (idx !== null) {
-              swiper.slideToLoop(Number(idx),0,false);
-            }
-          }).catch(()=>{});
-
-          await this.page.waitForTimeout(500);
+          await this.page.waitForTimeout(600);
           await stopAllAutoSlide();
 
-          return carousel.locator(selectors.banner.activeSlide).first();
+          // Verify PPV is now the active slide
+          const verifyText = await getActiveSlideText();
+          if (verifyText && this.matchesPPVName(verifyText, ppvName)) {
+            console.log(`✅ [Banner] PPV slide confirmed active`);
+            eventData._ppvBannerSlideIndex = String(i);
+            return carousel.locator(selectors.banner.activeSlide).locator(':visible').first();
+          }
+          // Fallback: return the found slide directly
+          console.log(`⚠️ [Banner] Returning found slide directly (active slide not yet updated)`);
+          eventData._ppvBannerSlideIndex = String(i);
+          return slide;
         }
       }
 
@@ -880,8 +906,41 @@ export class LandingPage extends BasePage {
     const src = (source || '').toLowerCase();
     console.log('💳 Clicking Buy Now via container...');
 
-    await this.stopCarouselAutoSlide();
+    // For banner sources: use aggressive CSS-injection stop (same as findPPVInBanner)
+    // to prevent carousel from rotating between finding the slide and clicking Buy Now
+    if (src.includes('banner')) {
+      await this.page.evaluate(() => {
+        try {
+          const styleId = '__ppv_freeze_carousel__';
+          if (!document.getElementById(styleId)) {
+            const style = document.createElement('style');
+            style.id = styleId;
+            style.textContent = '.swiper-wrapper { transition-duration: 0ms !important; }';
+            document.head.appendChild(style);
+          }
+          const stopSwiper = (swiper: any) => {
+            if (!swiper) return;
+            try { swiper.autoplay?.stop(); } catch {}
+            try { swiper.params.autoplay = false; } catch {}
+            try { if (swiper.autoplay?.running) swiper.autoplay.stop(); } catch {}
+          };
+          document.querySelectorAll('.swiper, [class*="swiper"], .swiper-container').forEach((el: any) => {
+            if (el.swiper) stopSwiper(el.swiper);
+          });
+          document.querySelectorAll('*').forEach((el: any) => {
+            if (el.swiper && typeof el.swiper === 'object' && el.swiper.autoplay) stopSwiper(el.swiper);
+          });
+        } catch {}
+      }).catch(() => {});
+    } else {
+      await this.stopCarouselAutoSlide();
+    }
     await container.scrollIntoViewIfNeeded().catch(() => { });
+    if (this.page.isClosed()) {
+      throw new Error(
+        `❌ [clickBuyNow] Page was closed after scroll — likely a session redirect or account-state issue (source: ${source || 'unknown'})`
+      );
+    }
     await this.page.waitForTimeout(200);
 
     let targetContainer = container;

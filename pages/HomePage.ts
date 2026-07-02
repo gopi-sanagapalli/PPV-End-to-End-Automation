@@ -90,30 +90,37 @@ export class HomePage extends LandingPage {
       let foundHeading = false;
       let matchedPattern = '';
 
-      // Check all patterns at each scroll position (not one pattern at a time)
-      for (let i = 0; i < 15 && !foundHeading; i++) {
+      // Check all patterns at each scroll position.
+      // IMPORTANT: skip any heading that is wrapped inside an <a> element —
+      // those are article/promo tiles (href="/en-GB/home/ArticleId:..."), not rail headings.
+      for (let i = 0; i < 20 && !foundHeading; i++) {
         for (const pattern of sectionPatterns) {
-          const candidate = this.page.locator('h2, h3, [class*="title" i]')
-            .filter({ hasText: pattern }).first();
-          if (await candidate.isVisible().catch(() => false)) {
+          const allCandidates = this.page.locator('h2, h3, [class*="title" i]')
+            .filter({ hasText: pattern });
+          const count = await allCandidates.count().catch(() => 0);
+          for (let j = 0; j < count; j++) {
+            const candidate = allCandidates.nth(j);
+            if (!await candidate.isVisible().catch(() => false)) continue;
+            // Skip if heading is inside an <a> link (promo/article tile)
+            const insideLink = await candidate.locator('xpath=ancestor::a[1]').count().catch(() => 0) > 0;
+            if (insideLink) {
+              const txt = (await candidate.textContent().catch(() => '')) || '';
+              console.log(`⏭️ [Biggest Fights] Skipping heading inside <a>: "${txt.trim().substring(0, 60)}"`);
+              continue;
+            }
             sectionHeading = candidate;
             foundHeading = true;
             matchedPattern = pattern.source;
             break;
           }
-          const attached = await candidate.waitFor({ state: 'attached', timeout: 200 })
-            .then(() => true).catch(() => false);
-          if (attached) {
-            sectionHeading = candidate;
-            foundHeading = true;
-            matchedPattern = pattern.source;
-            break;
-          }
+          if (foundHeading) break;
         }
         if (!foundHeading) {
+          if (this.page.isClosed()) break;
           await this.page.evaluate((pos: number) => {
             window.scrollTo({ top: pos, behavior: 'instant' });
-          }, (i + 1) * 500);
+          }, (i + 1) * 400).catch(() => { });
+          await this.page.waitForTimeout(200).catch(() => { });
         }
       }
 
@@ -127,20 +134,6 @@ export class HomePage extends LandingPage {
       await sectionHeading.scrollIntoViewIfNeeded().catch(() => { });
       console.log(`✅ [HomePage Biggest Fights] Section heading found (matched: ${matchedPattern})`);
 
-      // ── STEP 2: Find the rail wrapper ────────────────────────────────
-      let sectionWrapper = sectionHeading.locator('xpath=ancestor::div[contains(@class,"rail")][1]');
-      let hasWrapper = await sectionWrapper.isVisible({ timeout: 3000 }).catch(() => false);
-      if (!hasWrapper) {
-        sectionWrapper = sectionHeading.locator('xpath=ancestor::section[1]');
-        hasWrapper = await sectionWrapper.isVisible({ timeout: 2000 }).catch(() => false);
-      }
-      if (!hasWrapper) {
-        sectionWrapper = sectionHeading.locator('xpath=../..');
-        hasWrapper = await sectionWrapper.isVisible({ timeout: 1000 }).catch(() => false);
-      }
-      console.log(`✅ [HomePage Biggest Fights] Rail wrapper found (hasWrapper=${hasWrapper})`);
-
-      // ── STEP 3: Find the matching PPV tile by fighter names ──────────
       const ppvName = eventData.PPV_NAME || '';
       const vsMatch = ppvName.match(/(\w+)\s+vs\.?\s+(\w+)/i);
       const fighter1 = vsMatch ? vsMatch[1] : '';
@@ -151,12 +144,10 @@ export class HomePage extends LandingPage {
 
       const cleanStr = (s: string) =>
         (s || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
-
       const nameParts = ppvName.split(/[:\-–]/).map(p => p.trim()).filter(p => p.length > 3);
       const partsWordLists = nameParts
         .map(part => cleanStr(part).split(/\s+/).filter(Boolean))
         .filter(list => list.length > 0);
-
       const matchesTileText = (text: string): boolean => {
         const ct = cleanStr(text);
         const matchTitle = partsWordLists.some(words => words.every(w => ct.includes(w)));
@@ -168,148 +159,169 @@ export class HomePage extends LandingPage {
         return matchTitle || matchFighters;
       };
 
-      // Extract short month from PPV_UTC_DATE for date-based disambiguation
-      // e.g., "2025-07-25T19:00:00Z" → "jul"
       let ppvMonth = '';
-      let ppvDay = '';
       if (ppvUtcDate) {
         const d = new Date(ppvUtcDate);
         if (!isNaN(d.getTime())) {
-          ppvMonth = d.toLocaleString('en-US', { month: 'short' }).toLowerCase(); // "jul"
-          ppvDay = String(d.getDate()); // "25"
+          ppvMonth = d.toLocaleString('en-US', { month: 'short' }).toLowerCase();
         }
       }
 
-      // ── RailsInterceptor: entitlement-based matching (Priority 1) ──
+      // ── RailsInterceptor (for diagnostics) ──
       const railsInterceptor: RailsInterceptor | undefined = (eventData as any)._railsInterceptor;
-      let entitlementTileIndex = -1;
-      let entitlementRailTitle = '';
       if (railsInterceptor && ppvEntitlementId) {
         const matches = railsInterceptor.findTilesByEntitlement([ppvEntitlementId]);
         if (matches.length > 0) {
-          entitlementTileIndex = matches[0].tileIndex;
-          entitlementRailTitle = matches[0].railTitle;
-          console.log(`🎯 [Biggest Fights] Entitlement match found: rail="${entitlementRailTitle}", tileIndex=${entitlementTileIndex}, tileTitle="${matches[0].tileTitle}"`);
+          console.log(`🎯 [Biggest Fights] Entitlement match: rail="${matches[0].railTitle}", tileIndex=${matches[0].tileIndex}`);
         } else {
-          console.log(`⚠️ [Biggest Fights] No entitlement match for "${ppvEntitlementId}" — falling back to text/date matching`);
+          console.log(`⚠️ [Biggest Fights] No entitlement match for "${ppvEntitlementId}" — falling back to link-based navigation`);
         }
         railsInterceptor.printRailsSummary();
       }
 
-      // For biggest-fights, tiles are competition tiles (show promoter names, not fighter names).
-      // The image alt attribute contains Competition:<ID> which matches our PPV_ENTITLEMENT_ID.
-      // Strategy: use Competition ID to find the correct tile, navigate carousel with > until visible.
-      const tiles = sectionWrapper.locator('a[class*="tile" i], a[href*="competition"], a[href*="sport"], div[class*="tile" i] a, .swiper-slide a');
-      const nextBtn = sectionWrapper.locator([
+      // ── STEP 2: Find the rail container, then locate the correct tile ─────────
+      // IMPORTANT: scope ALL img/link searches to the rail container, not the full
+      // page, so we don't accidentally pick up Joshua tiles from Don't Miss or Banner.
+      await sectionHeading.scrollIntoViewIfNeeded().catch(() => {});
+
+      // Walk up from heading to the nearest ancestor that has competition links
+      let railContainer: any = sectionHeading.locator('xpath=..');
+      for (const xpath of ['xpath=..', 'xpath=../..', 'xpath=../../..', 'xpath=../../../..', 'xpath=../../../../..']) {
+        const candidate = sectionHeading.locator(xpath);
+        const lc = await candidate.locator('a[href*="/competition/"], a[href*="/sport/"], a[href]').count().catch(() => 0);
+        if (lc > 0) {
+          railContainer = candidate;
+          console.log(`✅ [Biggest Fights] Rail container found at ${xpath} (${lc} links)`);
+          break;
+        }
+      }
+
+      await railContainer.scrollIntoViewIfNeeded().catch(() => {});
+      await this.page.waitForTimeout(400);
+      await railContainer.hover({ force: true }).catch(() => {});
+
+      const nextBtn = railContainer.locator([
         'button[aria-label="Next slide"]',
-        'button[class*="swiper-button-next"]',
+        'button[class*="swiper-button-next" i]',
         '[class*="next" i]:not(a)',
-        'button[class*="next" i]',
       ].join(', ')).first();
 
-      const findMatchingTile = async (): Promise<any> => {
-        const count = await tiles.count().catch(() => 0);
+      let targetTile: any = null;
 
-        // Priority 1: Competition ID — match via image alt attribute (most reliable for competition tiles)
-        if (ppvEntitlementId) {
-          const competitionImg = sectionWrapper.locator(`img[alt*="Competition:${ppvEntitlementId}" i]:not(.swiper-slide-duplicate img)`).first();
-          const imgFound = await competitionImg.count().catch(() => 0);
-          if (imgFound > 0) {
-            const inView = await competitionImg.evaluate((el: HTMLElement) => {
-              const r = el.getBoundingClientRect();
-              return r.width > 0 && r.right > 0 && r.left < window.innerWidth;
-            }).catch(() => false);
-            if (inView) {
-              // Walk up to the parent tile link
-              const parentTile = competitionImg.locator('xpath=ancestor::a[1]');
-              if (await parentTile.count().catch(() => 0) > 0) {
-                console.log(`🎯 [Biggest Fights] ✅ Found PPV tile via Competition ID: ${ppvEntitlementId}`);
-                return parentTile;
+      // ── Strategy A: RailsInterceptor imageUrl fragment → scoped img[src] ──
+      if (railsInterceptor) {
+        const fightNightPattern = /saturday.?fight.?night|fight.?night|biggest.?fights|upcoming.?fight/i;
+        let railMatches = railsInterceptor.findTilesByRailTitle(
+          fightNightPattern,
+          (title) => matchesTileText(title)
+        );
+
+        if (railMatches.length === 0) {
+          const allRailTiles = railsInterceptor.findTilesByRailTitle(fightNightPattern);
+          console.log(`ℹ️ [Biggest Fights] No title match in API; all tiles in matching rails:`);
+          allRailTiles.forEach(m => console.log(`   tile[${m.tileIndex}] "${m.tileTitle}" img="${m.imageUrl?.substring(0, 80) || 'none'}"`));
+          railMatches = allRailTiles;
+        }
+
+        for (const match of railMatches) {
+          console.log(`🎯 [Biggest Fights] API tile: rail="${match.railTitle}" tile="${match.tileTitle}" img="${match.imageUrl?.substring(0, 80) || 'none'}"`);
+          if (!match.imageUrl) continue;
+
+          const urlParts = match.imageUrl.split('/').filter(Boolean);
+          const uniqueFragment = urlParts.reverse().find(
+            p => p.length > 8 && !/^(image|poster|thumb|thumbnail|jpg|jpeg|png|webp|gif)$/i.test(p)
+          );
+          if (!uniqueFragment) continue;
+
+          // Scope search to railContainer so we don't pick up other rails
+          const imgByUrl = railContainer.locator(`img[src*="${uniqueFragment}" i]:not(.swiper-slide-duplicate img)`).first();
+          if (await imgByUrl.count().catch(() => 0) > 0 && await imgByUrl.isVisible().catch(() => false)) {
+            const parentLink = imgByUrl.locator('xpath=ancestor::a[1]');
+            if (await parentLink.count().catch(() => 0) > 0) {
+              const href = await parentLink.getAttribute('href').catch(() => '');
+              console.log(`✅ [Biggest Fights] Found tile by imageUrl fragment (scoped): href="${href}"`);
+              targetTile = parentLink;
+              break;
+            }
+          }
+        }
+      }
+
+      // ── Strategy B: scoped img[alt] / img[src] matching within railContainer ──
+      const findTileInRail = async (): Promise<any> => {
+        const imgSelectors = [
+          fighter1 && fighter2 ? `img[alt*="${fighter1}" i][alt*="${fighter2}" i]:not(.swiper-slide-duplicate img)` : null,
+          fighter1 ? `img[alt*="${fighter1}" i]:not(.swiper-slide-duplicate img)` : null,
+          fighter1 ? `img[src*="${fighter1.toLowerCase()}"]:not(.swiper-slide-duplicate img)` : null,
+          ppvEntitlementId ? `img[alt*="${ppvEntitlementId}" i]:not(.swiper-slide-duplicate img)` : null,
+          ppvEntitlementId ? `a[href*="${ppvEntitlementId}" i]` : null,
+        ].filter(Boolean) as string[];
+
+        for (const sel of imgSelectors) {
+          // All searches scoped to railContainer
+          const el = railContainer.locator(sel).first();
+          if (await el.count().catch(() => 0) > 0 && await el.isVisible().catch(() => false)) {
+            const tagName = await el.evaluate((e: HTMLElement) => e.tagName.toLowerCase()).catch(() => '');
+            if (tagName === 'a') {
+              const href = await el.getAttribute('href').catch(() => '');
+              if (!href?.includes('ArticleId')) return el;
+            }
+            const link = el.locator('xpath=ancestor::a[1]');
+            if (await link.count().catch(() => 0) > 0) {
+              const href = await link.getAttribute('href').catch(() => '');
+              if (href && !href.includes('ArticleId')) {
+                console.log(`✅ [Biggest Fights] Found tile by "${sel}" (scoped): href="${href}"`);
+                return link;
               }
             }
           }
         }
 
-        // Priority 2: Entitlement-based — match by data-target-id from API tile index
-        if (entitlementTileIndex >= 0 && entitlementTileIndex < count) {
-          const tile = tiles.nth(entitlementTileIndex);
-          if (await tile.isVisible().catch(() => false)) {
-            console.log(`🎯 [Biggest Fights] Using entitlement-matched tile at index ${entitlementTileIndex}`);
-            return tile;
-          }
+        // Last resort: first visible competition link in the scoped rail
+        const compLinks = railContainer.locator('a[href*="/competition/"], a[href*="/sport/"]');
+        const cnt = await compLinks.count().catch(() => 0);
+        for (let i = 0; i < cnt; i++) {
+          const t = compLinks.nth(i);
+          if (await t.isVisible().catch(() => false)) return t;
         }
-
-        // Priority 3: fighter name / PPV name text match
-        let dateMatchTile: any = null;
-        const promoter = (eventData.PPV_PROMOTER || '').toLowerCase().trim();
-
-        for (let i = 0; i < count; i++) {
-          const tile = tiles.nth(i);
-          if (!await tile.isVisible().catch(() => false)) continue;
-          const text = (await tile.textContent().catch(() => '')) || '';
-          const textLower = text.toLowerCase().trim();
-
-          if (matchesTileText(text)) {
-            console.log(`🔍 [Biggest Fights] Matched tile by text: "${text.replace(/\s+/g, ' ').trim().substring(0, 80)}"`);
-            return tile;
-          }
-
-          // Priority 4: promoter + date disambiguation
-          if (promoter && textLower.includes(promoter)) {
-            if (ppvMonth && textLower.includes(ppvMonth)) {
-              if (!ppvDay || textLower.includes(ppvDay)) {
-                console.log(`📅 [Biggest Fights] Date-matched promoter tile: "${textLower.substring(0, 80)}" (month=${ppvMonth}, day=${ppvDay})`);
-                dateMatchTile = tile;
-              }
-            }
-          }
-        }
-
-        if (dateMatchTile) return dateMatchTile;
         return null;
       };
 
-      await sectionWrapper.hover({ force: true }).catch(() => { });
-
-      let targetTile = await findMatchingTile();
-      let clicks = 0;
-      const maxClicks = 15;
-
-      while (!targetTile && clicks < maxClicks) {
-        const nextDisabled = await nextBtn.evaluate((el: Element) =>
-          el.classList.contains('swiper-button-disabled') ||
-          el.className.includes('disable') ||
-          el.hasAttribute('disabled')
-        ).catch(() => true);
-
-        if (nextDisabled) {
-          console.log('⚠️ [Biggest Fights] Next button disabled — end of carousel');
-          break;
+      if (!targetTile) {
+        targetTile = await findTileInRail();
+        let clicks = 0;
+        while (!targetTile && clicks < 15) {
+          const nd = await nextBtn.evaluate((el: Element) =>
+            el.classList.contains('swiper-button-disabled') || el.hasAttribute('disabled')
+          ).catch(() => true);
+          if (nd) { console.log('⚠️ [Biggest Fights] Carousel end reached'); break; }
+          await railContainer.hover({ force: true }).catch(() => {});
+          await nextBtn.click({ force: true, timeout: 3000 }).catch(() => {});
+          clicks++;
+          await this.page.waitForTimeout(500);
+          targetTile = await findTileInRail();
         }
-
-        await sectionWrapper.hover({ force: true }).catch(() => { });
-        console.log(`  [Biggest Fights] Click ${clicks + 1}: advancing carousel...`);
-        await nextBtn.click({ force: true, timeout: 3000 }).catch(() => { });
-        clicks++;
-        await this.page.waitForTimeout(500);
-        targetTile = await findMatchingTile();
       }
 
       if (!targetTile) {
         throw new Error(
-          `❌ [HomePage Biggest Fights] PPV tile for "${ppvName}" not found in ` +
-          `"Saturday Fight Night" section after ${clicks} carousel slides. ` +
-          `Competition ID: ${ppvEntitlementId || 'N/A'}`
+          `❌ [HomePage Biggest Fights] No competition tile found. ` +
+          `PPV: "${ppvName}", Competition ID: ${ppvEntitlementId || 'N/A'}`
         );
       }
 
       // ── STEP 4: Click tile → Navigate to competition page ────────────
-      console.log(`✅ [Biggest Fights] PPV tile found after ${clicks} carousel clicks`);
+      const tileHref = await targetTile.getAttribute('href').catch(() => '');
+      console.log(`✅ [Biggest Fights] Clicking competition tile: href="${tileHref}"`);
+      await targetTile.scrollIntoViewIfNeeded().catch(() => {});
       await targetTile.click({ timeout: 5000 });
-      console.log('🔗 [Biggest Fights] Clicked tile, waiting for competition page...');
+      console.log('🔗 [Biggest Fights] Clicked tile, waiting for competition/sport page...');
 
       await this.page.waitForURL(
-        (url: URL) => url.toString().includes('/competition/') || url.toString().includes('/sport/'),
+        (url: URL) => {
+          const u = url.toString();
+          return u.includes('/competition/') || u.includes('/sport/') || u.includes('/event/');
+        },
         { timeout: 15000 }
       );
       await this.page.waitForLoadState('domcontentloaded').catch(() => { });
