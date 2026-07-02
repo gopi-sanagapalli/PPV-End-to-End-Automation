@@ -817,9 +817,6 @@ for (const stateKey of userStatesToRun) {
             if ((sheetName === 'Home of Boxing' || sheetName === 'Home page') && (isStandalone || onOnboarding)) {
               console.log('ℹ️ Standalone flow or direct navigation — skipping popup modal validations');
             } else {
-              // Stop carousel auto-slide BEFORE validation to prevent slide rotation
-              // during the validation loop which would make the container stale
-              await (landing as any).stopCarouselAutoSlide?.().catch(() => {});
               const landingData = sheetName === 'Home page'
                 ? getHomePageData(flowParam)
                 : sheetName === 'Home of Boxing'
@@ -832,11 +829,24 @@ for (const stateKey of userStatesToRun) {
           }
         }
 
-        // Guard: ensure page is still open before clicking Buy Now
-        if (page.isClosed()) {
-          throw new Error('❌ Page was closed before clickBuyNow — carousel may have navigated away during validation');
+        // Re-find the PPV container after validation — carousel may have rotated
+        // Do NOT freeze the carousel; instead re-locate the PPV slide before clicking
+        let clickContainer = container;
+        if (SOURCE.includes('banner') || SOURCE.includes('home-page-banner')) {
+          console.log('🔄 Re-finding PPV banner slide before clicking Buy Now...');
+          try {
+            const freshContainer = await landing.findPPVContainer(eventData, SOURCE);
+            if (freshContainer) {
+              clickContainer = freshContainer;
+              console.log('✅ Re-found PPV banner slide');
+            } else {
+              console.log('⚠️ Could not re-find PPV banner — using original container');
+            }
+          } catch (refindErr: any) {
+            console.warn(`⚠️ Re-find failed: ${refindErr.message} — using original container`);
+          }
         }
-        await landing.clickBuyNow(container, SOURCE);
+        await landing.clickBuyNow(clickContainer, SOURCE);
       }
 
       // Handle generic popup validations and click-through

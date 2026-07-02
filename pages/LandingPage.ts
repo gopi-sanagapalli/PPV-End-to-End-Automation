@@ -882,7 +882,7 @@ export class LandingPage extends BasePage {
 
     await this.stopCarouselAutoSlide();
     await container.scrollIntoViewIfNeeded().catch(() => { });
-    if (!this.page.isClosed()) await this.page.waitForTimeout(200);
+    await this.page.waitForTimeout(200);
 
     let targetContainer = container;
 
