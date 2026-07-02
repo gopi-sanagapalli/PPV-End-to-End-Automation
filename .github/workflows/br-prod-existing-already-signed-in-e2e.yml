@@ -98,6 +98,50 @@ jobs:
           - active_ultimate_apm/ultimate_apm
           - active_ultimate_upfront/ultimate_upfront
 
+        exclude:
+          # boxing-banner-ultimate, boxing-ultimate-subscription, boxing-join-the-club
+          # require an Ultimate upgrade journey. With standard/freemium event configs
+          # (no TIER key), only active_standard × ultimate_* purchase paths pass the
+          # spec guard. All other profiles throw at test start — exclude them.
+          - { source: boxing-banner-ultimate,        profile: freemium/standard_monthly }
+          - { source: boxing-banner-ultimate,        profile: freemium/standard_apm }
+          - { source: boxing-banner-ultimate,        profile: freemium/ultimate_apm }
+          - { source: boxing-banner-ultimate,        profile: freemium/ultimate_upfront }
+          - { source: boxing-banner-ultimate,        profile: frozen/standard_monthly }
+          - { source: boxing-banner-ultimate,        profile: frozen/standard_apm }
+          - { source: boxing-banner-ultimate,        profile: frozen/ultimate_apm }
+          - { source: boxing-banner-ultimate,        profile: frozen/ultimate_upfront }
+          - { source: boxing-banner-ultimate,        profile: "active_standard_monthly/standard_monthly/ppv_only" }
+          - { source: boxing-banner-ultimate,        profile: "active_standard_apm/standard_apm/ppv_only" }
+          - { source: boxing-banner-ultimate,        profile: "active_ultimate_apm/ultimate_apm" }
+          - { source: boxing-banner-ultimate,        profile: "active_ultimate_upfront/ultimate_upfront" }
+
+          - { source: boxing-ultimate-subscription,  profile: freemium/standard_monthly }
+          - { source: boxing-ultimate-subscription,  profile: freemium/standard_apm }
+          - { source: boxing-ultimate-subscription,  profile: freemium/ultimate_apm }
+          - { source: boxing-ultimate-subscription,  profile: freemium/ultimate_upfront }
+          - { source: boxing-ultimate-subscription,  profile: frozen/standard_monthly }
+          - { source: boxing-ultimate-subscription,  profile: frozen/standard_apm }
+          - { source: boxing-ultimate-subscription,  profile: frozen/ultimate_apm }
+          - { source: boxing-ultimate-subscription,  profile: frozen/ultimate_upfront }
+          - { source: boxing-ultimate-subscription,  profile: "active_standard_monthly/standard_monthly/ppv_only" }
+          - { source: boxing-ultimate-subscription,  profile: "active_standard_apm/standard_apm/ppv_only" }
+          - { source: boxing-ultimate-subscription,  profile: "active_ultimate_apm/ultimate_apm" }
+          - { source: boxing-ultimate-subscription,  profile: "active_ultimate_upfront/ultimate_upfront" }
+
+          - { source: boxing-join-the-club,          profile: freemium/standard_monthly }
+          - { source: boxing-join-the-club,          profile: freemium/standard_apm }
+          - { source: boxing-join-the-club,          profile: freemium/ultimate_apm }
+          - { source: boxing-join-the-club,          profile: freemium/ultimate_upfront }
+          - { source: boxing-join-the-club,          profile: frozen/standard_monthly }
+          - { source: boxing-join-the-club,          profile: frozen/standard_apm }
+          - { source: boxing-join-the-club,          profile: frozen/ultimate_apm }
+          - { source: boxing-join-the-club,          profile: frozen/ultimate_upfront }
+          - { source: boxing-join-the-club,          profile: "active_standard_monthly/standard_monthly/ppv_only" }
+          - { source: boxing-join-the-club,          profile: "active_standard_apm/standard_apm/ppv_only" }
+          - { source: boxing-join-the-club,          profile: "active_ultimate_apm/ultimate_apm" }
+          - { source: boxing-join-the-club,          profile: "active_ultimate_upfront/ultimate_upfront" }
+
         include:
           # home-page-subscribe: freemium only, all four plans
           - source: home-page-subscribe
