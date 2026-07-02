@@ -31,7 +31,7 @@ permissions:
 
 jobs:
   prod:
-    name: ${{ matrix.source }} | ${{ matrix.user_state }} | ${{ matrix.plan }} | ${{ matrix.purchase_path || 'default' }} | ${{ matrix.purchase_path || 'default' }}
+    name: ${{ matrix.source }} | ${{ matrix.profile }}
 
     runs-on:
       - self-hosted
@@ -70,92 +70,64 @@ jobs:
           - schedule
           - myaccount
 
-        include:
+        # Each profile encodes:  user_state/plan[/purchase_path]
+        # 15 profiles × 20 sources = 300 base jobs
+        profile:
           # Freemium — all four plans
-          - user_state: freemium
-            plan: standard_monthly
-          - user_state: freemium
-            plan: standard_apm
-          - user_state: freemium
-            plan: ultimate_apm
-          - user_state: freemium
-            plan: ultimate_upfront
+          - freemium/standard_monthly
+          - freemium/standard_apm
+          - freemium/ultimate_apm
+          - freemium/ultimate_upfront
 
           # Frozen — all four plans
-          - user_state: frozen
-            plan: standard_monthly
-          - user_state: frozen
-            plan: standard_apm
-          - user_state: frozen
-            plan: ultimate_apm
-          - user_state: frozen
-            plan: ultimate_upfront
+          - frozen/standard_monthly
+          - frozen/standard_apm
+          - frozen/ultimate_apm
+          - frozen/ultimate_upfront
 
-          # Special sources — explicit valid combinations only
-          # home-page-subscribe: Freemium only, all four plans
-          - source: home-page-subscribe
-            user_state: freemium
-            plan: standard_monthly
-          - source: home-page-subscribe
-            user_state: freemium
-            plan: standard_apm
-          - source: home-page-subscribe
-            user_state: freemium
-            plan: ultimate_apm
-          - source: home-page-subscribe
-            user_state: freemium
-            plan: ultimate_upfront
+          # Active Standard Monthly — three purchase paths
+          - active_standard_monthly/standard_monthly/ppv_only
+          - active_standard_monthly/standard_monthly/ultimate_monthly
+          - active_standard_monthly/standard_monthly/ultimate_upfront
 
-          # myaccount-subscription-status: Freemium, all four plans
-          - source: myaccount-subscription-status
-            user_state: freemium
-            plan: standard_monthly
-          - source: myaccount-subscription-status
-            user_state: freemium
-            plan: standard_apm
-          - source: myaccount-subscription-status
-            user_state: freemium
-            plan: ultimate_apm
-          - source: myaccount-subscription-status
-            user_state: freemium
-            plan: ultimate_upfront
-
-          # myaccount-subscription-status: Frozen, all four plans
-          - source: myaccount-subscription-status
-            user_state: frozen
-            plan: standard_monthly
-          - source: myaccount-subscription-status
-            user_state: frozen
-            plan: standard_apm
-          - source: myaccount-subscription-status
-            user_state: frozen
-            plan: ultimate_apm
-          - source: myaccount-subscription-status
-            user_state: frozen
-            plan: ultimate_upfront
-
-          # Active Standard — five valid PPV / Ultimate upgrade routes
-          - user_state: active_standard_monthly
-            plan: standard_monthly
-            purchase_path: ppv_only
-          - user_state: active_standard_monthly
-            plan: standard_monthly
-            purchase_path: ultimate_monthly
-          - user_state: active_standard_monthly
-            plan: standard_monthly
-            purchase_path: ultimate_upfront
-          - user_state: active_standard_apm
-            plan: standard_apm
-            purchase_path: ppv_only
-          - user_state: active_standard_apm
-            plan: standard_apm
-            purchase_path: ultimate_apm
+          # Active Standard APM — two purchase paths
+          - active_standard_apm/standard_apm/ppv_only
+          - active_standard_apm/standard_apm/ultimate_apm
 
           # Active Ultimate — entitlement validation
-          - user_state: active_ultimate_apm
-            plan: ultimate_apm
-          - user_state: active_ultimate_upfront
-            plan: ultimate_upfront
+          - active_ultimate_apm/ultimate_apm
+          - active_ultimate_upfront/ultimate_upfront
+
+        include:
+          # home-page-subscribe: freemium only, all four plans
+          - source: home-page-subscribe
+            profile: freemium/standard_monthly
+          - source: home-page-subscribe
+            profile: freemium/standard_apm
+          - source: home-page-subscribe
+            profile: freemium/ultimate_apm
+          - source: home-page-subscribe
+            profile: freemium/ultimate_upfront
+
+          # myaccount-subscription-status: freemium, all four plans
+          - source: myaccount-subscription-status
+            profile: freemium/standard_monthly
+          - source: myaccount-subscription-status
+            profile: freemium/standard_apm
+          - source: myaccount-subscription-status
+            profile: freemium/ultimate_apm
+          - source: myaccount-subscription-status
+            profile: freemium/ultimate_upfront
+
+          # myaccount-subscription-status: frozen, all four plans
+          - source: myaccount-subscription-status
+            profile: frozen/standard_monthly
+          - source: myaccount-subscription-status
+            profile: frozen/standard_apm
+          - source: myaccount-subscription-status
+            profile: frozen/ultimate_apm
+          - source: myaccount-subscription-status
+            profile: frozen/ultimate_upfront
 
     env:
       CI: 'true'
@@ -164,9 +136,7 @@ jobs:
       DAZN_ENV: prod
       LOGIN_FIRST: 'false'
       SOURCE: ${{ matrix.source }}
-      USER_STATE: ${{ matrix.user_state }}
-      PLAN: ${{ matrix.plan }}
-      PURCHASE_PATH: ${{ matrix.purchase_path || 'default' }}
+      PROFILE: ${{ matrix.profile }}
       PPV_CONFIG: ${{ inputs.PPV_CONFIG }}
       PAYMENT_METHOD: ${{ inputs.PAYMENT_METHOD }}
       SWITCH: ${{ inputs.SWITCH }}
@@ -194,6 +164,13 @@ jobs:
       - name: Verify Playwright
         run: npx playwright --version
 
+      - name: Set USER_STATE, PLAN, PURCHASE_PATH from matrix profile
+        run: |
+          IFS='/' read -r _US _PL _PP <<< "$PROFILE"
+          echo "USER_STATE=${_US}"      >> $GITHUB_ENV
+          echo "PLAN=${_PL}"           >> $GITHUB_ENV
+          echo "PURCHASE_PATH=${_PP:-default}" >> $GITHUB_ENV
+
       - name: Run PROD PPV Flow
         run: npx playwright test tests/existing_user/existinguser.ppv.spec.ts --project=chromium
 
@@ -205,7 +182,7 @@ jobs:
           WORKFLOW_NAME="${{ github.workflow }}"
           RUN_ID="${{ github.run_id }}"
           RUN_NUMBER="${{ github.run_number }}"
-          JOB_NAME="${{ matrix.source }}-${{ matrix.plan }}"
+          JOB_NAME="${{ matrix.source }}-${{ matrix.profile }}"
           TIMESTAMP="$(date '+%Y-%m-%d_%H-%M-%S')"
 
           SAFE_WORKFLOW="$(echo "$WORKFLOW_NAME" | tr ' /:|' '_' | tr -cd '[:alnum:]_.-')"
@@ -240,7 +217,7 @@ jobs:
         if: ${{ false }}
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report-${{ matrix.source }}-${{ matrix.user_state }}-${{ matrix.plan }}-${{ matrix.purchase_path || 'default' }}-${{ github.run_id }}
+          name: playwright-report-${{ matrix.source }}-${{ matrix.profile }}-${{ github.run_id }}
           path: playwright-report/
           if-no-files-found: ignore
 
@@ -248,7 +225,7 @@ jobs:
         if: ${{ false }}
         uses: actions/upload-artifact@v4
         with:
-          name: test-results-${{ matrix.source }}-${{ matrix.user_state }}-${{ matrix.plan }}-${{ matrix.purchase_path || 'default' }}-${{ github.run_id }}
+          name: test-results-${{ matrix.source }}-${{ matrix.profile }}-${{ github.run_id }}
           path: |
             test-results/
             reports/
