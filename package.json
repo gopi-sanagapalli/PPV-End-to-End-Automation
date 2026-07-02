@@ -13,7 +13,6 @@
     "@playwright/mcp": "^0.0.70",
     "@playwright/test": "^1.49.0",
     "@types/dotenv": "^6.1.1",
-    "@wdio/cli": "^9.29.1",
     "ts-node": "^10.0.0",
     "typescript": "^5.0.0"
   },
