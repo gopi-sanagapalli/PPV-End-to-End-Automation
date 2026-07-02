@@ -46,9 +46,10 @@ jobs:
       matrix:
         # Landing-page sources are valid here — user is NOT signed in when they
         # hit the surfacing point; they sign in mid-checkout.
+        # Note: landing-page-dont-miss-live omitted to stay under GitHub's 256-job
+        # matrix limit (266→251). The switch variant is retained as an include below.
         source:
           - landing-page-banner
-          - landing-page-dont-miss-live
 
           - home-page-banner
           - home-page-dont-miss
