@@ -199,8 +199,20 @@ export class RailsInterceptor {
   ): Promise<RailTileMatch | undefined> {
     if (matches.length === 0) return undefined;
 
+    // Exclude tiles from scheduling/live rails — these open event-detail cards,
+    // not subscription modals, when clicked on the home page.
+    const schedulingRailPattern = /upcoming\s*fights?|live\s*(and|&|\+)?\s*coming|coming\s*up|live\s*now|dazn\s*48|live\s*event/i;
+    const filtered = matches.filter(m => !schedulingRailPattern.test(m.railTitle));
+    const effective = filtered.length > 0 ? filtered : matches; // fall back if all filtered
+    if (filtered.length < matches.length) {
+      console.log(
+        `🔎 [RailsInterceptor] Excluded ${matches.length - filtered.length} scheduling-rail tile(s) ` +
+        `(Upcoming Fights / Live & Coming Up). Using ${effective.length} candidate(s).`
+      );
+    }
+
     const byTitle = new Map<string, RailTileMatch[]>();
-    for (const match of matches) {
+    for (const match of effective) {
       const key = match.tileTitle.trim().toLowerCase();
       byTitle.set(key, [...(byTitle.get(key) || []), match]);
     }
@@ -227,24 +239,50 @@ export class RailsInterceptor {
       const scrollY = await this.page.evaluate(() => window.scrollY);
 
       for (const [normalizedTitle, titleMatches] of byTitle) {
-        const title = this.page.getByText(titleMatches[0].tileTitle, {
-          exact: true,
-        }).first();
+        const match = titleMatches[0];
 
-        if (!await title.isVisible().catch(() => false)) continue;
+        // Strategy A: title text present in DOM
+        const textEl = this.page.getByText(match.tileTitle, { exact: true }).first();
+        let clickable = (await textEl.isVisible().catch(() => false))
+          ? textEl.locator(
+              'xpath=ancestor-or-self::a | ancestor-or-self::button | ' +
+              'ancestor-or-self::*[@role="link"] | ancestor-or-self::*[@role="button"]'
+            ).first()
+          : null;
 
-        const target = title.locator(
-          'xpath=ancestor-or-self::a | ancestor-or-self::button | ' +
-          'ancestor-or-self::*[@role="link"] | ancestor-or-self::*[@role="button"]'
-        ).first();
+        // If text match not found, fall back to image URL fragment matching (Strategy B).
+        // Many home-page tiles render their title only as an image overlay; the
+        // URL fragment (e.g. "/some-content-id/") uniquely identifies the tile
+        // even when no text node is visible.
+        if ((!clickable || !(await clickable.count().catch(() => 0))) && match.imageUrl) {
+          const urlFragment = match.imageUrl
+            .split('/')
+            .filter(Boolean)
+            .slice(-2, -1)[0]; // second-to-last path segment
 
-        const clickable = (await target.count()) > 0 ? target : title;
+          if (urlFragment && urlFragment.length > 4) {
+            const imgEl = this.page
+              .locator(`img[src*="${urlFragment}"]`)
+              .first();
+
+            if (await imgEl.isVisible().catch(() => false)) {
+              clickable = imgEl.locator(
+                'xpath=ancestor-or-self::a | ancestor-or-self::button | ' +
+                'ancestor-or-self::*[@role="link"] | ancestor-or-self::*[@role="button"]'
+              ).first();
+
+              if (!(await clickable.count().catch(() => 0))) {
+                clickable = imgEl;
+              }
+            }
+          }
+        }
+
+        if (!clickable || !(await clickable.count().catch(() => 0))) continue;
         const box = await clickable.boundingBox().catch(() => null);
         if (!box) continue;
 
-        const match = titleMatches[0];
         const key = `${match.railIndex}:${match.tileIndex}:${normalizedTitle}`;
-
         discovered.set(key, {
           match,
           top: box.y + scrollY,
@@ -269,26 +307,15 @@ export class RailsInterceptor {
           `(top=${Math.round(first.top)}, left=${Math.round(first.left)})`
         );
 
-        const title = this.page.getByText(first.match.tileTitle, {
-          exact: true,
-        }).first();
-
-        const target = title.locator(
-          'xpath=ancestor-or-self::a | ancestor-or-self::button | ' +
-          'ancestor-or-self::*[@role="link"] | ancestor-or-self::*[@role="button"]'
-        ).first();
-
-        const clickable = (await target.count()) > 0 ? target : title;
-
-        await clickable.scrollIntoViewIfNeeded().catch(() => {});
-        await this.page.waitForTimeout(250);
-
-        if (await clickable.isVisible().catch(() => false)) {
-          await clickable.click({ force: true, timeout: 8_000 });
-          console.log(
-            `✅ [RailsInterceptor] Clicked entitled tile "${first.match.tileTitle}"`
-          );
-          return first.match;
+        const clickable = await this.resolveClickable(first.match);
+        if (clickable) {
+          await clickable.scrollIntoViewIfNeeded().catch(() => {});
+          await this.page.waitForTimeout(250);
+          if (await clickable.isVisible().catch(() => false)) {
+            await clickable.click({ force: true, timeout: 8_000 });
+            console.log(`✅ [RailsInterceptor] Clicked entitled tile "${first.match.tileTitle}"`);
+            return first.match;
+          }
         }
       }
 
@@ -322,23 +349,13 @@ export class RailsInterceptor {
       return undefined;
     }
 
-    const title = this.page.getByText(first.match.tileTitle, {
-      exact: true,
-    }).first();
-
-    const target = title.locator(
-      'xpath=ancestor-or-self::a | ancestor-or-self::button | ' +
-      'ancestor-or-self::*[@role="link"] | ancestor-or-self::*[@role="button"]'
-    ).first();
-
-    const clickable = (await target.count()) > 0 ? target : title;
+    const clickable = await this.resolveClickable(first.match);
+    if (!clickable) return undefined;
 
     await clickable.scrollIntoViewIfNeeded().catch(() => {});
     await this.page.waitForTimeout(250);
 
-    if (!await clickable.isVisible().catch(() => false)) {
-      return undefined;
-    }
+    if (!await clickable.isVisible().catch(() => false)) return undefined;
 
     console.log(
       `🎯 [RailsInterceptor] Clicking earliest discovered entitlement tile ` +
@@ -347,7 +364,6 @@ export class RailsInterceptor {
 
     await clickable.click({ force: true, timeout: 8_000 });
     console.log(`✅ [RailsInterceptor] Clicked entitled tile "${first.match.tileTitle}"`);
-
     return first.match;
   }
 
@@ -360,6 +376,57 @@ export class RailsInterceptor {
     match: RailTileMatch
   ): Promise<RailTileMatch | undefined> {
     return this.clickFirstVisibleEntitlementTile([match]);
+  }
+
+  /**
+   * Find tiles within rails whose title matches a pattern, with an optional
+   * per-tile title check. Useful when tile text lives on an image overlay
+   * (not in DOM text) but is available in the API response's tile title field.
+   */
+  findTilesByRailTitle(
+    railTitlePattern: RegExp,
+    tileTitleCheck?: (title: string) => boolean
+  ): RailTileMatch[] {
+    const matches: RailTileMatch[] = [];
+
+    this.allRails.forEach((rail, railIndex) => {
+      const railTitle =
+        this.readString(rail, ['Title', 'title', 'Name', 'name', 'Heading', 'heading']) ||
+        `Rail ${railIndex}`;
+
+      if (!railTitlePattern.test(railTitle)) return;
+
+      const tiles = this.readArray(rail, ['Tiles', 'tiles', 'Items', 'items', 'Contents', 'contents']);
+      console.log(
+        `🔍 [RailsInterceptor] Rail "${railTitle}" matched pattern — scanning ${tiles.length} tile(s)`
+      );
+
+      tiles.forEach((rawTile, tileIndex) => {
+        if (!this.isRecord(rawTile)) return;
+
+        const tileTitle =
+          this.readString(rawTile, ['Title', 'title', 'Name', 'name', 'Heading', 'heading']) ||
+          `Tile ${tileIndex}`;
+
+        if (tileTitleCheck && !tileTitleCheck(tileTitle)) return;
+
+        matches.push({
+          railIndex,
+          railTitle,
+          railId: this.readString(rail, ['Id', 'id', 'RailId', 'railId']),
+          tileIndex,
+          tileTitle,
+          tileId: this.readString(rawTile, [
+            'Id', 'id', 'TileId', 'tileId', 'ContentId', 'contentId', 'AssetId', 'assetId',
+          ]),
+          entitlementIds: this.extractEntitlementIds(rawTile),
+          imageUrl: this.findImageUrl(rawTile),
+        });
+      });
+    });
+
+    console.log(`🎯 [RailsInterceptor] findTilesByRailTitle: ${matches.length} match(es)`);
+    return matches;
   }
 
   printRailsSummary(): void {
@@ -502,6 +569,39 @@ export class RailsInterceptor {
       'watch for free',
       'freeview',
     ].some(label => value.includes(label));
+  }
+
+  /**
+   * Resolve a clickable element for a tile using Strategy A (title text) then
+   * Strategy B (image URL fragment). Used by both early-exit and post-loop click sites.
+   */
+  private async resolveClickable(match: RailTileMatch) {
+    // Strategy A: title text node visible in DOM
+    const textEl = this.page.getByText(match.tileTitle, { exact: true }).first();
+    if (await textEl.isVisible().catch(() => false)) {
+      const target = textEl.locator(
+        'xpath=ancestor-or-self::a | ancestor-or-self::button | ' +
+        'ancestor-or-self::*[@role="link"] | ancestor-or-self::*[@role="button"]'
+      ).first();
+      return (await target.count().catch(() => 0)) > 0 ? target : textEl;
+    }
+
+    // Strategy B: image URL fragment match
+    if (match.imageUrl) {
+      const urlFragment = match.imageUrl.split('/').filter(Boolean).slice(-2, -1)[0];
+      if (urlFragment && urlFragment.length > 4) {
+        const imgEl = this.page.locator(`img[src*="${urlFragment}"]`).first();
+        if (await imgEl.isVisible().catch(() => false)) {
+          const target = imgEl.locator(
+            'xpath=ancestor-or-self::a | ancestor-or-self::button | ' +
+            'ancestor-or-self::*[@role="link"] | ancestor-or-self::*[@role="button"]'
+          ).first();
+          return (await target.count().catch(() => 0)) > 0 ? target : imgEl;
+        }
+      }
+    }
+
+    return null;
   }
 
   private isRecord(value: unknown): value is AnyRecord {

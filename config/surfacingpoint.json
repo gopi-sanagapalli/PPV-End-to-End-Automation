@@ -103,22 +103,7 @@
     "source": "boxing-join-the-club",
     "endPage": "payment",
     "defaultSignup": true
-  },
-  "search": {
-    "source": "search",
-    "endPage": "payment"
-  },
-  "schedule": {
-    "source": "schedule",
-    "endPage": "payment"
-  },
-  "my-account": {
-    "source": "myaccount",
-    "endPage": "payment"
-  },
-  "myaccount": {
-    "source": "myaccount",
-    "endPage": "payment"
+
   },
   "glory": {
     "source": "glory",
