@@ -160,7 +160,7 @@ jobs:
       HEADLESS: 'true'
       DAZN_REGION: GB
       DAZN_ENV: prod
-      LOGIN_FIRST: 'true'
+      LOGIN_FIRST: 'false'
       SOURCE: ${{ matrix.source }}
       PROFILE: ${{ matrix.profile }}
       PPV_CONFIG: ${{ inputs.PPV_CONFIG }}

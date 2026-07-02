@@ -176,7 +176,7 @@ jobs:
       HEADLESS: 'true'
       DAZN_REGION: BR
       DAZN_ENV: prod
-      LOGIN_FIRST: 'false'
+      LOGIN_FIRST: 'true'
       SOURCE: ${{ matrix.source }}
       PROFILE: ${{ matrix.profile }}
       PPV_CONFIG: ${{ inputs.PPV_CONFIG }}
