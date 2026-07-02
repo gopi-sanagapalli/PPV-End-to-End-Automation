@@ -3363,7 +3363,9 @@ for (const stateKey of userStatesToRun) {
         .filter(r => r.status === 'FAIL')
         .map(r => `  - [${r.page}] ${r.field}: expected "${r.expected}", actual "${r.actual}"`)
         .join('\n');
-      console.warn(`⚠️  Validation failures (not failing test):\n${failMsgs}`);
+      throw new Error(
+        `❌ Flow "${SOURCE} (${stateKey})" completed navigation but had ${failed} validation failure(s):\n${failMsgs}`
+      );
     }
 
   } catch (error) {
