@@ -188,6 +188,55 @@ export class SearchPage extends BasePage {
     throw new Error(`❌ PPV tile not found for: ${eventName}`);
   }
 
+  // ── SEARCH + CLICK WITH UPCOMING FALLBACK ────────────────────
+  // Strategy:
+  //   1. Search with bare PPV name → try to find & click tile
+  //   2. If not found → retry with "<name> Upcoming"
+  //   3. If still not found → throw clear failure
+  async searchAndClick(eventName: string): Promise<void> {
+    // Strip leading "Sport:" prefix if present
+    let searchQuery = eventName;
+    if (eventName.includes(':')) {
+      searchQuery = eventName.split(':').pop()?.trim() || eventName;
+    }
+
+    // ── Attempt 1: bare PPV name ──────────────────────────────
+    console.log(`🔍 [Search Attempt 1] Searching with: "${searchQuery}"`);
+    await this.searchForEvent(searchQuery);
+    try {
+      await this.clickPPVTile(eventName);
+      return; // success
+    } catch {
+      console.log(`⚠️ [Search Attempt 1] Tile not found for "${eventName}" — retrying with "Upcoming" suffix...`);
+    }
+
+    // ── Attempt 2: append "Upcoming" ──────────────────────────
+    const upcomingQuery = `${searchQuery} Upcoming`;
+    console.log(`🔍 [Search Attempt 2] Searching with: "${upcomingQuery}"`);
+    await this.searchForEvent(upcomingQuery);
+    try {
+      await this.clickPPVTile(eventName);
+      return; // success
+    } catch {
+      console.log(`❌ [Search Attempt 2] Tile still not found for "${eventName}"`);
+    }
+
+    // Both attempts failed — dump page content for diagnosis
+    const allText = await this.page.evaluate(() => {
+      return Array.from(document.querySelectorAll('article, li, [class*="result" i]'))
+        .map(el => (el as HTMLElement).innerText?.substring(0, 100))
+        .filter(t => t && t.length > 5)
+        .slice(0, 10)
+        .join('\n');
+    }).catch(() => 'N/A');
+    console.log('📋 Page content sample:\n', allText);
+
+    throw new Error(
+      `❌ PPV tile not found for: "${eventName}" ` +
+      `(tried "${searchQuery}" and "${upcomingQuery}")`
+    );
+  }
+
   // ── CLICK BUY NOW ─────────────────────────────────────────────
   async clickBuyNow(): Promise<void> {
     console.log('💳 Clicking Buy Now CTA...');

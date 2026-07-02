@@ -392,6 +392,14 @@ export class BoxingHomePage extends HomePage {
       await this.page.waitForLoadState('domcontentloaded').catch(() => { });
       await this.page.waitForTimeout(1500);
 
+      // Scroll past the hero/banner section so the Upcoming Fights schedule cards
+      // are in view. Without this, the card search finds the hero banner PPV card
+      // (which also contains the event name + "Buy now") at y~=298 instead of the
+      // correct schedule card further down the page.
+      console.log('📜 [Home Sport Upcoming] Scrolling past hero banner to schedule section...');
+      await this.page.evaluate(() => window.scrollTo({ top: 700, behavior: 'instant' })).catch(() => {});
+      await this.page.waitForTimeout(800);
+
       const ppvName = eventData.PPV_NAME || '';
       console.log(`🔍 [Home Sport Upcoming] Searching for PPV card: "${ppvName}"`);
 
@@ -431,7 +439,10 @@ export class BoxingHomePage extends HomePage {
                 const hasBuyNow = text.toLowerCase().includes('buy now') || text.toLowerCase().includes('buy');
                 if (matchesCard(text) && hasBuyNow) {
                   const box = await el.boundingBox().catch(() => null);
-                  if (box && box.width > 50 && box.width < 700 && box.height > 50 && box.height < 500) {
+                  // box.y is viewport-relative in Playwright. After scrolling to page-y=700,
+                  // any element above that scroll position (e.g. the hero banner at page-y~0-400)
+                  // will have a negative viewport-y and must be excluded.
+                  if (box && box.width > 50 && box.width < 700 && box.height > 50 && box.height < 500 && box.y > 0) {
                     const score = this.scorePPVMatch(text, ppvName);
                     if (score > bestCardScore) {
                       bestCardScore = score;

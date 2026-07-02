@@ -274,6 +274,7 @@ for (const stateKey of userStatesToRun) {
 
   const page = await context.newPage();
   const results: any[] = [];
+  let capturedVideoPath: string | null = null;
 
   // ── detectPageType ────────────────────────────────────────────
   const detectPageType = async (
@@ -651,30 +652,7 @@ for (const stateKey of userStatesToRun) {
           await searchPage.enableDevMode();
         }
 
-        let searchQuery = eventData.PPV_NAME;
-        if (eventData.PPV_NAME && eventData.PPV_NAME.includes(':')) {
-          searchQuery = eventData.PPV_NAME.split(':').pop()?.trim() || eventData.PPV_NAME;
-        }
-
-        let searchSuccess = false;
-        try {
-          await searchPage.searchForEvent(searchQuery);
-          await searchPage.clickPPVTile(eventData.PPV_NAME);
-          searchSuccess = true;
-        } catch (err: any) {
-          console.log(`⚠️ Search for "${searchQuery}" failed: ${err.message}. Trying fallback search...`);
-        }
-
-        if (!searchSuccess) {
-          if (eventData.PPV_PROMOTER && eventData.PPV_PROMOTER !== 'N/A') {
-            console.log(`🔄 Searching with promoter fallback: "${eventData.PPV_PROMOTER}"`);
-            await searchPage.searchForEvent(eventData.PPV_PROMOTER);
-            await searchPage.clickPPVTile(eventData.PPV_NAME);
-            searchSuccess = true;
-          } else {
-            throw new Error(`❌ PPV event "${eventData.PPV_NAME}" not found via search`);
-          }
-        }
+        await searchPage.searchAndClick(eventData.PPV_NAME);
 
         console.log('\n📋 Validating Search page...');
         try {
@@ -785,6 +763,28 @@ for (const stateKey of userStatesToRun) {
                 : 'boxing';
         }
 
+        // Stop carousel auto-slide before finding PPV container
+        // This prevents the banner from scrolling past the PPV slide during findPPVInBanner
+        if (SOURCE.includes('banner')) {
+          await page.evaluate(() => {
+            try {
+              const stopSwiper = (swiper: any) => {
+                if (!swiper) return;
+                try { swiper.autoplay?.stop(); } catch {}
+                try { swiper.params.autoplay = false; swiper.params.loop = false; } catch {}
+                try { if (swiper.autoplay?.running) swiper.autoplay.stop(); } catch {}
+              };
+              document.querySelectorAll('.swiper, [class*="swiper"], .swiper-container').forEach((el: any) => {
+                if (el.swiper) stopSwiper(el.swiper);
+              });
+              document.querySelectorAll('*').forEach((el: any) => {
+                if (el.swiper && typeof el.swiper === 'object' && el.swiper.autoplay) stopSwiper(el.swiper);
+              });
+            } catch {}
+          }).catch(() => {});
+          await page.waitForTimeout(300);
+        }
+
         const container = await landing.findPPVContainer(eventData, SOURCE);
 
         // Stop intercepting after findPPVContainer completes
@@ -816,6 +816,25 @@ for (const stateKey of userStatesToRun) {
             const onOnboarding = page.url().includes('signup') || page.url().includes('PlanDetails') || page.url().includes('payment') || page.url().includes('checkout');
             if ((sheetName === 'Home of Boxing' || sheetName === 'Home page') && (isStandalone || onOnboarding)) {
               console.log('ℹ️ Standalone flow or direct navigation — skipping popup modal validations');
+            } else if (SOURCE === 'home-page-banner') {
+              // For home-page-banner: validate directly from the active slide container
+              // to avoid validateVariant triggering page navigation (waitForLoadState)
+              // which causes the carousel to disappear before clickBuyNow
+              console.log('ℹ️ [home-page-banner] Validating directly from active slide container...');
+              try {
+                const containerText = (await container.textContent().catch(() => '')) || '';
+                const hasPPVName = containerText.toLowerCase().includes(eventData.PPV_NAME.toLowerCase().split(' vs')[0].toLowerCase());
+                const hasBuyNow = await container.locator('a:has-text("Buy now"), button:has-text("Buy now"), a:has-text("Buy Now"), button:has-text("Buy Now")').first().isVisible({ timeout: 2000 }).catch(() => false);
+                const hasFightCard = await container.locator('a:has-text("Fight Card"), button:has-text("Fight Card"), a:has-text("Fight card"), button:has-text("Fight card")').first().isVisible({ timeout: 2000 }).catch(() => false);
+                results.push({ page: pageName, field: 'Banner - Event Title', expected: eventData.PPV_NAME, actual: hasPPVName ? eventData.PPV_NAME : 'N/A', status: hasPPVName ? 'PASS' : 'FAIL' });
+                results.push({ page: pageName, field: 'Banner - Buy Now CTA', expected: 'Visible', actual: hasBuyNow ? 'Visible' : 'N/A', status: hasBuyNow ? 'PASS' : 'FAIL' });
+                results.push({ page: pageName, field: 'Banner - Fight Card CTA', expected: 'Visible', actual: hasFightCard ? 'Visible' : 'N/A', status: hasFightCard ? 'PASS' : 'FAIL' });
+                console.log(`  ${hasPPVName ? '✅' : '❌'} [Banner - Event Title] actual="${hasPPVName ? eventData.PPV_NAME : 'N/A'}"`);
+                console.log(`  ${hasBuyNow ? '✅' : '❌'} [Banner - Buy Now CTA] actual="${hasBuyNow ? 'Visible' : 'N/A'}"`);
+                console.log(`  ${hasFightCard ? '✅' : '❌'} [Banner - Fight Card CTA] actual="${hasFightCard ? 'Visible' : 'N/A'}"`);
+              } catch (bannerErr: any) {
+                console.warn(`⚠️ Banner direct validation error: ${bannerErr.message}`);
+              }
             } else {
               const landingData = sheetName === 'Home page'
                 ? getHomePageData(flowParam)
@@ -829,24 +848,7 @@ for (const stateKey of userStatesToRun) {
           }
         }
 
-        // Re-find the PPV container after validation — carousel may have rotated
-        // Do NOT freeze the carousel; instead re-locate the PPV slide before clicking
-        let clickContainer = container;
-        if (SOURCE.includes('banner') || SOURCE.includes('home-page-banner')) {
-          console.log('🔄 Re-finding PPV banner slide before clicking Buy Now...');
-          try {
-            const freshContainer = await landing.findPPVContainer(eventData, SOURCE);
-            if (freshContainer) {
-              clickContainer = freshContainer;
-              console.log('✅ Re-found PPV banner slide');
-            } else {
-              console.log('⚠️ Could not re-find PPV banner — using original container');
-            }
-          } catch (refindErr: any) {
-            console.warn(`⚠️ Re-find failed: ${refindErr.message} — using original container`);
-          }
-        }
-        await landing.clickBuyNow(clickContainer, SOURCE);
+        await landing.clickBuyNow(container, SOURCE);
       }
 
       // Handle generic popup validations and click-through
@@ -1354,7 +1356,10 @@ for (const stateKey of userStatesToRun) {
         }
 
         reachedEndPage = true;
-        const { excelPath, videoPath } = await writeResults(results);
+        // Capture video path and finalize video file BEFORE report generation
+        capturedVideoPath = (await page.video()?.path().catch(() => null)) ?? null;
+        await context.close().catch(() => {});
+        const { excelPath, videoPath } = await writeResults(results, capturedVideoPath);
 
         // Display detailed per-page results
         displayResultsTable(results, tier, {
@@ -1469,7 +1474,10 @@ for (const stateKey of userStatesToRun) {
         }
 
         reachedEndPage = true;
-        const { excelPath, videoPath } = await writeResults(results);
+        // Capture video path and finalize video file BEFORE report generation
+        capturedVideoPath = (await page.video()?.path().catch(() => null)) ?? null;
+        await context.close().catch(() => {});
+        const { excelPath, videoPath } = await writeResults(results, capturedVideoPath);
 
         // Display detailed per-page results
         displayResultsTable(results, 'ultimate', {
@@ -3303,7 +3311,10 @@ for (const stateKey of userStatesToRun) {
     // ══════════════════════════════════════════════════════════════
     // STEP 8 — RESULTS
     // ══════════════════════════════════════════════════════════════
-    const { excelPath, videoPath } = await writeResults(results);
+    // Capture video path and finalize video file BEFORE report generation
+    capturedVideoPath = (await page.video()?.path().catch(() => null)) ?? null;
+    await context.close().catch(() => {});
+    const { excelPath, videoPath } = await writeResults(results, capturedVideoPath);
 
     // Display detailed per-page results
     displayResultsTable(results, tier, {
@@ -3361,13 +3372,13 @@ for (const stateKey of userStatesToRun) {
 
   } finally {
     try {
-      await page.waitForTimeout(50);
-      const videoPath = await page.video()?.path();
-      if (videoPath) console.log(`🎥 Video saved: ${videoPath}`);
+      // Only log — context may already be closed by early-exit paths above
+      if (capturedVideoPath) console.log(`🎥 Video saved: ${capturedVideoPath}`);
       else console.log('⚠️  No video found');
     } catch (e: any) {
       console.log('⚠️  Video path error:', e.message);
     }
+    // Safe no-op if already closed by an early-exit branch
     await context.close().catch(() => { });
   }
 });
