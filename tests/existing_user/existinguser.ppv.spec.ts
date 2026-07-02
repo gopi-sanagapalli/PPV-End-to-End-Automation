@@ -817,6 +817,9 @@ for (const stateKey of userStatesToRun) {
             if ((sheetName === 'Home of Boxing' || sheetName === 'Home page') && (isStandalone || onOnboarding)) {
               console.log('ℹ️ Standalone flow or direct navigation — skipping popup modal validations');
             } else {
+              // Stop carousel auto-slide BEFORE validation to prevent slide rotation
+              // during the validation loop which would make the container stale
+              await (landing as any).stopCarouselAutoSlide?.().catch(() => {});
               const landingData = sheetName === 'Home page'
                 ? getHomePageData(flowParam)
                 : sheetName === 'Home of Boxing'
@@ -829,6 +832,10 @@ for (const stateKey of userStatesToRun) {
           }
         }
 
+        // Guard: ensure page is still open before clicking Buy Now
+        if (page.isClosed()) {
+          throw new Error('❌ Page was closed before clickBuyNow — carousel may have navigated away during validation');
+        }
         await landing.clickBuyNow(container, SOURCE);
       }
 
