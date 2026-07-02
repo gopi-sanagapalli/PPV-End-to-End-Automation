@@ -82,14 +82,15 @@ jobs:
           - frozen/ultimate_apm
           - frozen/ultimate_upfront
 
-          # Active Standard Monthly — three purchase paths
-          - active_standard_monthly/standard_monthly/ppv_only
-          - active_standard_monthly/standard_monthly/ultimate_monthly
-          - active_standard_monthly/standard_monthly/ultimate_upfront
+          # Active Standard Monthly — ppv_only stays on standard_monthly plan;
+          # upgrade paths use the ultimate plan they are switching to
+          - active_standard_monthly/standard_monthly
+          - active_standard_monthly/ultimate_monthly
+          - active_standard_monthly/ultimate_upfront
 
-          # Active Standard APM — two purchase paths
-          - active_standard_apm/standard_apm/ppv_only
-          - active_standard_apm/standard_apm/ultimate_apm
+          # Active Standard APM — ppv_only stays on standard_apm; upgrade to ult_apm
+          - active_standard_apm/standard_apm
+          - active_standard_apm/ultimate_apm
 
           # Active Ultimate — entitlement validation
           - active_ultimate_apm/ultimate_apm
@@ -108,10 +109,10 @@ jobs:
           - { source: boxing-banner-ultimate,        profile: frozen/standard_apm }
           - { source: boxing-banner-ultimate,        profile: frozen/ultimate_apm }
           - { source: boxing-banner-ultimate,        profile: frozen/ultimate_upfront }
-          - { source: boxing-banner-ultimate,        profile: "active_standard_monthly/standard_monthly/ppv_only" }
-          - { source: boxing-banner-ultimate,        profile: "active_standard_apm/standard_apm/ppv_only" }
-          - { source: boxing-banner-ultimate,        profile: "active_ultimate_apm/ultimate_apm" }
-          - { source: boxing-banner-ultimate,        profile: "active_ultimate_upfront/ultimate_upfront" }
+          - { source: boxing-banner-ultimate,        profile: active_standard_monthly/standard_monthly }
+          - { source: boxing-banner-ultimate,        profile: active_standard_apm/standard_apm }
+          - { source: boxing-banner-ultimate,        profile: active_ultimate_apm/ultimate_apm }
+          - { source: boxing-banner-ultimate,        profile: active_ultimate_upfront/ultimate_upfront }
 
           - { source: boxing-ultimate-subscription,  profile: freemium/standard_monthly }
           - { source: boxing-ultimate-subscription,  profile: freemium/standard_apm }
@@ -121,10 +122,10 @@ jobs:
           - { source: boxing-ultimate-subscription,  profile: frozen/standard_apm }
           - { source: boxing-ultimate-subscription,  profile: frozen/ultimate_apm }
           - { source: boxing-ultimate-subscription,  profile: frozen/ultimate_upfront }
-          - { source: boxing-ultimate-subscription,  profile: "active_standard_monthly/standard_monthly/ppv_only" }
-          - { source: boxing-ultimate-subscription,  profile: "active_standard_apm/standard_apm/ppv_only" }
-          - { source: boxing-ultimate-subscription,  profile: "active_ultimate_apm/ultimate_apm" }
-          - { source: boxing-ultimate-subscription,  profile: "active_ultimate_upfront/ultimate_upfront" }
+          - { source: boxing-ultimate-subscription,  profile: active_standard_monthly/standard_monthly }
+          - { source: boxing-ultimate-subscription,  profile: active_standard_apm/standard_apm }
+          - { source: boxing-ultimate-subscription,  profile: active_ultimate_apm/ultimate_apm }
+          - { source: boxing-ultimate-subscription,  profile: active_ultimate_upfront/ultimate_upfront }
 
           - { source: boxing-join-the-club,          profile: freemium/standard_monthly }
           - { source: boxing-join-the-club,          profile: freemium/standard_apm }
@@ -134,10 +135,10 @@ jobs:
           - { source: boxing-join-the-club,          profile: frozen/standard_apm }
           - { source: boxing-join-the-club,          profile: frozen/ultimate_apm }
           - { source: boxing-join-the-club,          profile: frozen/ultimate_upfront }
-          - { source: boxing-join-the-club,          profile: "active_standard_monthly/standard_monthly/ppv_only" }
-          - { source: boxing-join-the-club,          profile: "active_standard_apm/standard_apm/ppv_only" }
-          - { source: boxing-join-the-club,          profile: "active_ultimate_apm/ultimate_apm" }
-          - { source: boxing-join-the-club,          profile: "active_ultimate_upfront/ultimate_upfront" }
+          - { source: boxing-join-the-club,          profile: active_standard_monthly/standard_monthly }
+          - { source: boxing-join-the-club,          profile: active_standard_apm/standard_apm }
+          - { source: boxing-join-the-club,          profile: active_ultimate_apm/ultimate_apm }
+          - { source: boxing-join-the-club,          profile: active_ultimate_upfront/ultimate_upfront }
 
         include:
           # home-page-subscribe: freemium only, all four plans
@@ -180,7 +181,7 @@ jobs:
       PROFILE: ${{ matrix.profile }}
       PPV_CONFIG: ${{ inputs.PPV_CONFIG }}
       PAYMENT_METHOD: ${{ inputs.PAYMENT_METHOD }}
-      SWITCH: ${{ inputs.SWITCH }}
+      SWITCH: ${{ matrix.switch || inputs.SWITCH }}
 
     steps:
       - name: Checkout repository
@@ -205,12 +206,21 @@ jobs:
       - name: Verify Playwright
         run: npx playwright --version
 
-      - name: Set USER_STATE, PLAN, PURCHASE_PATH from matrix profile
+      - name: Set USER_STATE and PLAN from matrix profile
         run: |
-          IFS='/' read -r _US _PL _PP <<< "$PROFILE"
-          echo "USER_STATE=${_US}"      >> $GITHUB_ENV
-          echo "PLAN=${_PL}"           >> $GITHUB_ENV
-          echo "PURCHASE_PATH=${_PP:-default}" >> $GITHUB_ENV
+          IFS='/' read -r _US _PL <<< "$PROFILE"
+          echo "USER_STATE=${_US}" >> $GITHUB_ENV
+          echo "PLAN=${_PL}"       >> $GITHUB_ENV
+
+      - name: Log matrix context
+        run: |
+          echo "=============================="
+          echo "SOURCE      = $SOURCE"
+          echo "USER_STATE  = $USER_STATE"
+          echo "PLAN        = $PLAN"
+          echo "LOGIN_FIRST = $LOGIN_FIRST"
+          echo "SWITCH      = $SWITCH"
+          echo "=============================="
 
       - name: Run PROD PPV Flow
         run: npx playwright test tests/existing_user/existinguser.ppv.spec.ts --project=chromium
