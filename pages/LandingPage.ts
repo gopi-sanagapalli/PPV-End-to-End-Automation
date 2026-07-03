@@ -955,12 +955,16 @@ export class LandingPage extends BasePage {
 
           if (!isActiveMatching) {
             console.log('🔄 Active slide does not match — navigating via carousel next-button clicks (safe: avoids DAZN SPA trigger)...');
-            // Use DOM next-button clicks instead of swiper.slideToLoop() — the JS Swiper API
-            // triggers DAZN route changes that close the Playwright page context.
-            const carouselEl = swiperCount > 0
-              ? swiperLocator
-              : this.page.locator('[class*="heroBanner"], [class*="bannersContainer"], .swiper').first();
+            // For banner sources: MUST use the broad bannerCarousel() container, NOT swiperLocator.
+            // The chevron next buttons are siblings of .swiper inside the heroBanner wrapper —
+            // searching inside .swiper (swiperLocator) misses them entirely.
+            // A non-active slide's Buy Now link routes to the competition page, NOT PPV signup,
+            // so making the slide active via next-button clicks is essential.
+            const carouselEl = src.includes('banner')
+              ? this.bannerCarousel()
+              : (swiperCount > 0 ? swiperLocator : this.page.locator('[class*="heroBanner"], [class*="bannersContainer"], .swiper').first());
             const nextBtnSel = [
+              selectors.banner.nextButton,
               'button[data-test-id="CHEVRON_RIGHT_ICON"]',
               'svg[data-test-id="CHEVRON_RIGHT_ICON"]',
               'button[aria-label="Next slide"]',
