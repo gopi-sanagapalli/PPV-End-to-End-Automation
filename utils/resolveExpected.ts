@@ -70,17 +70,35 @@ export function resolveExpected(
       return userState === 'freemium' ? 'No' : 'Yes';
     }
 
-    // ── Next Payment fields: skip for GB, IT, and 7-day trial ──
+    // ── Next Payment fields: skip for GB, IE, and 7-day trial ──
     if (field === 'next payment label' || field === 'next payment price') {
       const region = (eventData.DAZN_REGION || process.env.DAZN_REGION || '').toUpperCase();
       const offerType = (eventData.OFFER_TYPE || '').toLowerCase();
-      if (region === 'GB' || region === 'IT' || offerType === '7_day_trial') {
+      if (region === 'GB' || region === 'IE' || offerType === '7_day_trial') {
         return 'N/A';
       }
     }
   }
 
+  // ── Excluding Tax ──────────────────────────────────────────────
+  if (field === 'excluding tax text' || field === 'excluding tax') {
+    const isUS = (eventData.BASE_URL || '').includes('/en-US') ||
+      (eventData.DAZN_REGION || process.env.DAZN_REGION || '') === 'US';
+    return isUS ? '(excluding tax)' : 'N/A';
+  }
+
+  // ── Annual plan selection: flip Yes/No based on actual RATE_PLAN ─────────
+  // Excel default assumes APM selected (ultimate_apm). For APU plans, invert.
+  if (field === 'annual pay monthly selected' || field === 'annual pay upfront selected') {
+    const rp = (eventData.RATE_PLAN || eventData.rate_plan || '').toLowerCase().trim();
+    const isAPU = rp.includes('upfront');
+    if (field === 'annual pay monthly selected') return isAPU ? 'No' : 'Yes';
+    if (field === 'annual pay upfront selected') return isAPU ? 'Yes' : 'No';
+  }
+  // ─────────────────────────────────────────────────────────────────────────
+
   let raw = rule.Expected ?? rule.Value;
+
 
   const currentSource = (eventData.SOURCE || eventData.source || '').trim().toLowerCase();
 
@@ -146,14 +164,14 @@ export function resolveExpected(
   ) {
     return 'N/A';
   }
-  
+
   // Check if a PPV event is active. If a PPV event is active, the boxing subscription-only sources
   // will render the PPV-bundled offers on the live site, so they should be validated using the PPV rules.
   const hasPPVEvent = eventData.PPV_NAME && eventData.PPV_NAME !== 'N/A' && eventData.PPV_NAME !== 'none';
   const isSubscriptionOnly =
     (currentSource === 'boxing-ultimate-subscription' ||
-     currentSource === 'boxing-standard-subscription' ||
-     currentSource === 'boxing-join-the-club') &&
+      currentSource === 'boxing-standard-subscription' ||
+      currentSource === 'boxing-join-the-club') &&
     !hasPPVEvent;
 
   if (isSubscriptionOnly) {
@@ -263,7 +281,7 @@ export function resolveExpected(
     if (pageName === 'payment' || pageName === '') {
       // Payment page header for 7-day trial (monthly only — APM/APU always shows 'Choose how to pay')
       if (currentOfferType === '7_day_trial' && !currentRatePlan.includes('annual') && (field === 'header' || field === 'payment page title')) {
-        return eventData.PAYMENT_PAGE_TITLE_TRIAL || 'Choose how to pay after your free trial';
+        return eventData.PAYMENT_PAGE_TITLE || eventData.PAYMENT_PAGE_TITLE_TRIAL || 'Choose how to pay after your free trial';
       }
       if (field === 'rate plan original price' || field === 'rate plan discounted price') {
         return 'N/A| |';
@@ -398,37 +416,6 @@ export function resolveExpected(
         currentSource !== 'boxing-join-the-club'
       ) {
         raw = 'N/A';
-      }
-    } else if (field === 'saturday badge') {
-      const eventDate = eventData.PPV_DATE || '';
-      const match = eventDate.match(/^([A-Za-z]+)\s+(\d+)(?:st|nd|rd|th)?\s+([A-Za-z]+)/i);
-      if (match) {
-        const shortDay = match[1].substring(0, 3).toUpperCase();
-        const dateNum = match[2];
-        const shortMonth = match[3].substring(0, 3).toUpperCase();
-
-        const getOrdinalSuffix = (dStr: string) => {
-          const d = parseInt(dStr, 10);
-          if (isNaN(d)) return 'th';
-          if (d >= 11 && d <= 13) return 'th';
-          switch (d % 10) {
-            case 1: return 'st';
-            case 2: return 'nd';
-            case 3: return 'rd';
-            default: return 'th';
-          }
-        };
-
-        raw = `${shortDay} ${dateNum}${getOrdinalSuffix(dateNum)} ${shortMonth}`;
-      } else {
-        const dayNames = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-        const matchedDays: string[] = [];
-        for (const day of dayNames) {
-          if (eventDate.toLowerCase().includes(day)) {
-            matchedDays.push(day.toUpperCase());
-          }
-        }
-        raw = matchedDays.length > 0 ? matchedDays.join('|') : 'SATURDAY';
       }
     } else if (field === 'next payment label') {
       if (ratePlan.includes('annual pay monthly')) {

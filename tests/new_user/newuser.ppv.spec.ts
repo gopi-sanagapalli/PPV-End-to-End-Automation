@@ -34,7 +34,7 @@ import {
 import { detectVariant } from '../../flows/detectVariant';
 import { validateVariant } from '../../flows/validateVariant';
 import { buildEventData } from '../../utils/buildEventData';
-import { detectPageType } from '../../utils/flowHelpers';
+import { detectPageType, handleNoPpvClick } from '../../utils/flowHelpers';
 import { displayResultsTable } from '../../utils/resultsDisplay';
 import { writeResults } from '../../utils/excelWriter';
 import { generateReports } from '../../utils/reportGenerator';
@@ -53,6 +53,8 @@ import {
   handlePopupModal,
   assertCountryMatch,
 } from '../../utils/testHelpers';
+import { AuthenticationManager } from '../../auth/AuthenticationManager';
+
 
 const REGION = process.env.DAZN_REGION || 'GB';
 const EVENT_CONFIG = process.env.PPV_CONFIG || 'aj_joshua_prenga.json';
@@ -125,7 +127,8 @@ async function runFlow(
   region: string,
   validateLanding: boolean
 ): Promise<{ results: any[]; reachedEndPage: boolean; skipped?: boolean; videoPath?: string | null }> {
-  const { name, source, tier, ratePlan: rawRatePlan, enableDevMode: devModeEnabled } = flowConfig;
+  const { name, source, tier, ratePlan: rawRatePlan, enableDevMode: devModeEnabled, noPpvClick: noPpvClickConfig } = flowConfig;
+  let noPpvClick = !!(noPpvClickConfig);
   const ratePlan = (rawRatePlan || '').replace(/-/g, ' ').toLowerCase();
   if ((SOURCE === 'boxing-banner-ultimate' || SOURCE === 'boxing-ultimate-subscription' || SOURCE === 'boxing-join-the-club') && tier !== 'ultimate') {
     throw new Error(`❌ SOURCE "${SOURCE}" requires an Ultimate plan (e.g., PLAN=ultimate_apm).`);
@@ -685,7 +688,7 @@ async function runFlow(
       const hasPPVOption = stdBody.toLowerCase().includes('subscribe without a pay-per-view') ||
         stdBody.toLowerCase().includes('continue without pay-per-view') ||
         stdBody.toLowerCase().includes('continue without a pay-per-view');
-      if (!hasPPVOption) {
+      if (!hasPPVOption && !noPpvClick) {
         if (source === 'home-page-dazntile') {
           throw new Error(
             `❌ [${source}] PPV is not configured in default sign-up after ` +
@@ -1197,6 +1200,17 @@ async function runFlow(
           `📧 Signup state | plan=${ratePlan} | email=${user.email} | url=${page.url()}`
         );
 
+        // ── Social login mid-flow (AUTH_METHOD=google etc.) ──────────────────
+        const authMethodEnv = (process.env.AUTH_METHOD || '').toLowerCase().trim();
+        if (authMethodEnv && authMethodEnv !== 'email') {
+          console.log(`🔐 [New User] AUTH_METHOD="${authMethodEnv}" — authenticating mid-flow via AuthenticationManager`);
+          const authManager = new AuthenticationManager(page, context, baseUrl);
+          await authManager.authenticate(eventData);
+          console.log('✅ [New User] Social login complete — continuing flow');
+          continue;
+        }
+        // ─────────────────────────────────────────────────────────────────────
+
         if (page.url().includes('userExists=true')) {
           throw new Error(
             `❌ DAZN rejected generated signup identity as an existing user. ` +
@@ -1488,6 +1502,14 @@ async function runFlow(
       if (pageType === 'ppv') {
         console.log('👉 PPV page');
         stuckCount = 0;
+
+        // ── Subscribe Without PPV opt-out ──────────────────────────────
+        if (noPpvClick) {
+          console.log('🔗 [noPpvClick] Triggering subscribe-without-pay-per-view flow...');
+          await handleNoPpvClick(page, eventData);
+          noPpvClick = false; // reset so it only fires once
+          continue;           // re-detect page type after navigation
+        }
 
         if (!ppvValidated) {
           try {
@@ -1968,7 +1990,8 @@ for (const planKey of plansToRun) {
         ratePlan: (planData.RATE_PLAN || 'monthly').toLowerCase(),
         endPage: endPage,
         enableDevMode: devMode,
-        planKey: planKey
+        planKey: planKey,
+        noPpvClick: !!(srcConfig.noPpvClick),
       };
 
       console.log(`\n╔═══════════════════════════════════════════════════════╗`);
