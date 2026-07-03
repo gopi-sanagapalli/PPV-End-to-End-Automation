@@ -1,0 +1,7 @@
+18:01:56  Acquired tunnel connection to device.
+18:01:56  Enabling developer disk image services.
+18:01:56  Acquired usage assertion.
+Apps installed:
+Name   Bundle Identifier         Version   Bundle Version
+----   -----------------------   -------   --------------
+Kayo   au.com.streamotion.kayo   6.1.0     202606161707  
