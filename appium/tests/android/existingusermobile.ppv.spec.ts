@@ -46,9 +46,10 @@ import { navigateToPPVTile } from '../../utils/scheduleNavigator';
 const event: EventConfig = loadEventConfig();
 const PPV_NAME = event.PPV_NAME;
 const SCHEDULE_PPV_TITLE = event.PPV_NAME;
-const SOURCE = (process.env.SOURCE || 'myaccount').trim().toLowerCase();
+const SOURCE: string = (process.env.SOURCE || 'myaccount').trim().toLowerCase();
 const USER_STATE = process.env.USER_STATE || 'active_standard';
 const APP_PACKAGE = process.env.APP_PACKAGE || 'com.dazn';
+const MOBILE_BROWSER_PACKAGE = process.env.MOBILE_BROWSER_PACKAGE || 'com.android.chrome';
 const ANDROID_SDK = process.env.ANDROID_HOME || `${process.env.HOME}/Library/Android/sdk`;
 const ADB = `${ANDROID_SDK}/platform-tools/adb`;
 const REGION = process.env.DAZN_REGION || 'GB';
@@ -115,6 +116,11 @@ function adbBack(): void {
   adb('shell input keyevent 4');
 }
 
+function closeMobileBrowser(): void {
+  console.log(`📱 Closing mobile browser (${MOBILE_BROWSER_PACKAGE})...`);
+  adb(`shell am force-stop ${MOBILE_BROWSER_PACKAGE}`);
+}
+
 // ── Helper: extract DAZN URL from Chrome via ADB UI dump ────────────────────
 function getChromeUrl(): string {
   adb('shell uiautomator dump /sdcard/window_dump.xml');
@@ -149,6 +155,114 @@ async function isVisible(driver: WdBrowser, text: string, timeoutMs = 3000): Pro
     await el.waitForDisplayed({ timeout: timeoutMs });
     return true;
   } catch { return false; }
+}
+
+const androidAvailabilityResults: any[] = [];
+let androidAvailabilityReportGenerated = false;
+
+function androidAvailabilityPageName(source = SOURCE): string {
+  if (source.includes('landing')) return 'Landing';
+  if (source.includes('schedule')) return 'Schedule';
+  if (source.includes('search')) return 'Search';
+  if (source.includes('myaccount')) return 'My Account';
+  if (source.includes('boxing')) return 'Home of Boxing';
+  if (source.includes('home')) return 'Home Page';
+  return 'Android';
+}
+
+function androidAvailabilityCheckName(source = SOURCE): string {
+  const surface = source.includes('banner') ? 'banner' : 'tile';
+  return `${PPV_NAME} ${surface}`;
+}
+
+function recordAndroidPPVAvailability(available: boolean, screenshot?: string, page?: string): void {
+  const pageName = page || androidAvailabilityPageName();
+  const field = androidAvailabilityCheckName();
+  const existingIndex = androidAvailabilityResults.findIndex(
+    r => r.page === pageName && r.field === field,
+  );
+  const row = {
+    page: pageName,
+    field,
+    expected: PPV_NAME,
+    actual: available ? PPV_NAME : `${PPV_NAME} not available`,
+    status: available ? 'PASS' : 'FAIL',
+    screenshot,
+  };
+
+  if (existingIndex >= 0) {
+    androidAvailabilityResults[existingIndex] = row;
+  } else {
+    androidAvailabilityResults.push(row);
+  }
+}
+
+async function saveAndroidScreenshot(driver: WdBrowser, relativePath: string): Promise<string | undefined> {
+  try {
+    await driver.saveScreenshot(relativePath);
+    const path = require('path');
+    return path.resolve(process.cwd(), relativePath);
+  } catch {
+    return undefined;
+  }
+}
+
+async function generateAndroidAvailabilityFailureReport(errorMessage: string): Promise<void> {
+  if (androidAvailabilityReportGenerated) return;
+  androidAvailabilityReportGenerated = true;
+
+  if (!androidAvailabilityResults.length) {
+    recordAndroidPPVAvailability(false);
+  }
+
+  const originalCwd = process.cwd();
+  try {
+    const path = require('path');
+    const projectRoot = path.resolve(__dirname, '../../..');
+    process.chdir(projectRoot);
+
+    const { writeResults } = require('../../../utils/excelWriter');
+    const { generateReports } = require('../../../utils/reportGenerator');
+    const { displayResultsTable } = require('../../../utils/resultsDisplay');
+
+    const srcLabel = SOURCE.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    const rows = androidAvailabilityResults.map(r => ({
+      ...r,
+      flowName: `Android ${USER_STATE}: ${srcLabel}`,
+      source: SOURCE,
+      tier: 'standard',
+      ratePlan: 'monthly',
+    }));
+
+    const { excelPath, videoPath } = await writeResults(rows);
+    displayResultsTable(rows, 'ppv', {
+      event: PPV_NAME,
+      region: REGION,
+      excelPath,
+      videoPath,
+    });
+    await generateReports(rows, {
+      event: PPV_NAME,
+      region: REGION,
+      source: SOURCE,
+      ratePlan: 'monthly',
+      tier: 'standard',
+      env: (process.env.DAZN_ENV || 'stag').toLowerCase(),
+      flowName: `Android ${USER_STATE}: ${srcLabel}`,
+      startTime: new Date(),
+      endTime: new Date(),
+      excelPath,
+      videoPath,
+      userType: 'existing-user',
+      userStatus: USER_STATE,
+      platform: 'Android',
+    });
+    console.log(`📊 Android PPV availability failure report generated: ${errorMessage}`);
+  } catch (reportErr: any) {
+    console.error(`⚠️ Failed to generate Android availability failure report: ${reportErr.message}`);
+  } finally {
+    process.chdir(originalCwd);
+  }
 }
 
 // ── App startup: dismiss dialogs using ADB taps (dynamic screen size) ──────
@@ -819,7 +933,9 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
         bitRate: '2000000',
       }).catch(e => console.error('⚠️ Failed to start screen recording:', e));
 
-      await prepareAndroidApp(browser, { clearAppData: true });
+      // For landing-page-banner, don't wait for home page (stays on landing page)
+      const shouldWaitHome = SOURCE !== 'landing-page-banner';
+      await prepareAndroidApp(browser, { clearAppData: true, waitForHome: shouldWaitHome });
     });
 
     it('navigates to PPV buy button as existing user, opens Chrome, captures checkout URL', async () => {
@@ -829,6 +945,8 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
       console.log('✅ Startup handled by prepareAndroidApp; beginning existing-user PPV navigation');
 
       let buyTapped = false;
+      let bannerUrlCaptured = false;
+      let bannerCheckoutUrl = "";
 
       const isMyAccount = SOURCE === 'myaccount' || SOURCE === 'myaccount-subscription-status';
 
@@ -854,14 +972,24 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
         console.log(`🔍 Looking for PPV: "${PPV_NAME}" in My Account...`);
 
         // Scroll to find PPV
+        let ppvAvailableInMyAccount = false;
         for (let i = 0; i < 10; i++) {
           if (await isVisible(driver, PPV_NAME, 2000)) {
             console.log(`✅ Found PPV: "${PPV_NAME}"`);
+            ppvAvailableInMyAccount = true;
             break;
           }
           scrollDown(driver);
           await driver.pause(1000);
         }
+
+        if (!ppvAvailableInMyAccount) {
+          const shot = await saveAndroidScreenshot(driver, './test-results/android_myaccount_ppv_not_found.png');
+          recordAndroidPPVAvailability(false, shot, 'My Account');
+          await generateAndroidAvailabilityFailureReport(`PPV "${PPV_NAME}" not found in My Account`);
+          throw new Error(`❌ PPV "${PPV_NAME}" not found in My Account. See test-results/android_myaccount_ppv_not_found.png`);
+        }
+        recordAndroidPPVAvailability(true, undefined, 'My Account');
 
         // Look for Buy Now button
         const buyNowSelectors = [
@@ -956,7 +1084,15 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
           await driver.pause(5000);
 
           console.log(`Navigating to ${PPV_NAME} using adaptive schedule navigator...`);
-          await navigateToPPVTile(driver, event);
+          try {
+            await navigateToPPVTile(driver, event);
+            recordAndroidPPVAvailability(true, undefined, 'Schedule');
+          } catch (e: any) {
+            const shot = await saveAndroidScreenshot(driver, './test-results/android_schedule_ppv_not_found.png');
+            recordAndroidPPVAvailability(false, shot, 'Schedule');
+            await generateAndroidAvailabilityFailureReport(`PPV "${PPV_NAME}" not found on Schedule`);
+            throw e;
+          }
 
           await driver.pause(2000);
 
@@ -1104,6 +1240,7 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
         }
 
         if (ppvTile) {
+          recordAndroidPPVAvailability(true, undefined, 'Search');
           console.log(`✅ Found PPV tile - tapping it...`);
           await ppvTile.click();
           await driver.pause(4000);
@@ -1113,6 +1250,9 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
           console.log('  On paywall screen - will capture URL via Copy button');
           buyTapped = true;
         } else {
+          const shot = await saveAndroidScreenshot(driver, './test-results/android_search_ppv_not_found.png');
+          recordAndroidPPVAvailability(false, shot, 'Search');
+          await generateAndroidAvailabilityFailureReport(`PPV "${PPV_NAME}" not found in Search`);
           throw new Error(`❌ PPV event "${PPV_NAME}" not found in search results (after primary & retry search).`);
         }
       }
@@ -1130,9 +1270,12 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
           }
         }
         if (!found) {
-          await driver.saveScreenshot('./test-results/android_boxing_debug.png');
+          const shot = await saveAndroidScreenshot(driver, './test-results/android_boxing_debug.png');
+          recordAndroidPPVAvailability(false, shot, 'Home of Boxing');
+          await generateAndroidAvailabilityFailureReport(`PPV "${PPV_NAME}" not found on Boxing page`);
           throw new Error(`❌ "${PPV_NAME}" not found on Boxing page. Check test-results/android_boxing_debug.png`);
         }
+        recordAndroidPPVAvailability(true, undefined, 'Home of Boxing');
 
         console.log(`✅ Found "${PPV_NAME}" — tapping card...`);
         await driver.saveScreenshot('./test-results/android_ppv_found.png');
@@ -1158,27 +1301,382 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
       else if (SOURCE === 'boxing-page-banner') {
         await navigateToBoxingPage(driver);
         await driver.pause(1500);
+        const ppvBannerFoundBpb = await findPPVBanner(driver);
+        if (!ppvBannerFoundBpb) {
+          const shot = await saveAndroidScreenshot(driver, './test-results/android_boxing_page_ppv_banner_not_found.png');
+          recordAndroidPPVAvailability(false, shot, 'Home of Boxing');
+          await generateAndroidAvailabilityFailureReport(`PPV banner "${PPV_NAME}" not found on Boxing page`);
+          throw new Error(`❌ PPV banner "${PPV_NAME}" not found on Boxing page. See test-results/android_boxing_page_ppv_banner_not_found.png`);
+        }
+        recordAndroidPPVAvailability(true, undefined, 'Home of Boxing');
         for (const cta of ['Buy this fight', 'Buy now', 'Buy Now', 'Buy']) {
           if (await tapByText(driver, cta, 7000)) { buyTapped = true; console.log(`✅ Tapped "${cta}"`); break; }
         }
       }
 
-      // ── home-boxing-banner ────────────────────────────────────────────────
-      else if (SOURCE === 'home-boxing-banner') {
-        if (!await findPPVBanner(driver)) {
-          await driver.saveScreenshot('./test-results/android_home_debug.png');
-          throw new Error(`❌ PPV banner "${PPV_NAME}" not found on Home`);
+      // ── home-page-banner ──────────────────────────────────────────────────
+      else if (SOURCE === 'home-page-banner') {
+        console.log('🏠 Home Page → Find PPV banner → Buy now');
+
+        // Ensure we're on home page
+        const homeTab = await driver.$(`android=new UiSelector().text("Home")`);
+        if (await homeTab.isDisplayed().catch(() => false)) {
+          console.log('  Already on Home page');
+        } else {
+          // Try clicking Home tab
+          const homeClicked = await tapByText(driver, 'Home', 3000);
+          if (!homeClicked) {
+            // Try coordinate tap for home tab (usually at bottom left)
+            const screenSize = getScreenSize();
+            const homeX = Math.round(screenSize.width * 0.15);
+            const homeY = Math.round(screenSize.height * 0.92);
+            adbTap(homeX, homeY);
+            await driver.pause(3000);
+          }
         }
-        await tapByText(driver, PPV_NAME);
+
         await driver.pause(2000);
-        for (const cta of ['Buy now', 'Buy Now', 'Buy', 'Get PPV']) {
-          if (await tapByText(driver, cta, 6000)) { buyTapped = true; break; }
+
+        // Step 3: Find PPV banner on Home page
+        console.log(`  Step 3: Finding PPV banner for "${PPV_NAME}" on Home page...`);
+        let ppvBannerFoundHpb = false;
+        if (await isVisible(driver, PPV_NAME, 3000)) {
+          ppvBannerFoundHpb = true;
+        } else {
+          console.log('  PPV banner not immediately visible. Swiping left on Home page to find it...');
+          for (let i = 0; i < 8; i++) {
+            await swipeLeft(driver);
+            if (await isVisible(driver, PPV_NAME, 1500)) {
+              ppvBannerFoundHpb = true;
+              break;
+            }
+          }
         }
+
+        if (!ppvBannerFoundHpb) {
+          console.log('  ⚠️ Swiping left exhausted. Trying vertical scroll down on Home page...');
+          for (let i = 0; i < 5; i++) {
+            await scrollDown(driver);
+            if (await isVisible(driver, PPV_NAME, 1500)) {
+              ppvBannerFoundHpb = true;
+              break;
+            }
+          }
+        }
+
+        if (!ppvBannerFoundHpb) {
+          const shot = await saveAndroidScreenshot(driver, './test-results/android_home_ppv_banner_not_found.png');
+          recordAndroidPPVAvailability(false, shot, 'Home Page');
+          await generateAndroidAvailabilityFailureReport(`PPV banner "${PPV_NAME}" not found on Home page`);
+          throw new Error(`❌ PPV banner "${PPV_NAME}" not found on Home page. See test-results/android_home_ppv_banner_not_found.png`);
+        }
+        recordAndroidPPVAvailability(true, undefined, 'Home Page');
+
+        console.log(`  ✅ Verified banner title: "${PPV_NAME}"`);
+        await driver.saveScreenshot('./test-results/android_home_ppv_banner_found.png');
+
+        // Step 4: Click Buy now button on the PPV banner
+        console.log('  Step 4: Clicking "Buy now" on the PPV banner...');
+        let buyCTAFoundHpb = false;
+        for (const cta of ['Buy now', 'Buy Now', 'Buy this fight', 'Buy', 'Get PPV']) {
+          if (await tapByText(driver, cta, 6000)) {
+            console.log(`  ✅ Tapped "${cta}" on PPV banner`);
+            buyCTAFoundHpb = true;
+            break;
+          }
+        }
+        if (!buyCTAFoundHpb) {
+          // Scroll down slightly and try again
+          await scrollDown(driver);
+          await driver.pause(1000);
+          for (const cta of ['Buy now', 'Buy Now', 'Buy']) {
+            if (await tapByText(driver, cta, 3000)) {
+              console.log(`  ✅ Tapped "${cta}" after scroll`);
+              buyCTAFoundHpb = true;
+              break;
+            }
+          }
+        }
+        if (!buyCTAFoundHpb) {
+          await driver.saveScreenshot('./test-results/android_home_buy_cta_not_found.png');
+          throw new Error(`❌ Could not tap Buy CTA on PPV banner on Home page. See test-results/android_home_buy_cta_not_found.png`);
+        }
+
+        // ── Immediate Copy click: paywall is a sliding overlay, must act fast ──
+        console.log('  ⚡ Paywall overlay displayed — clicking Copy button immediately...');
+        await driver.pause(800); // minimal wait for paywall to render
+        await driver.saveScreenshot('./test-results/android_home_paywall.png');
+        const screenSizeHpb = getScreenSize();
+        try {
+          // Use the exact XPath provided for the Copy button
+          const copyBtnHpb = await driver.$(`//android.view.View[@resource-id="ItemContent"]/android.view.View/android.widget.Button`);
+          await copyBtnHpb.waitForDisplayed({ timeout: 3000 });
+          await copyBtnHpb.click();
+          console.log('  ✅ Clicked Copy button (XPath) on home-page-banner paywall');
+        } catch (e: any) {
+          console.log(`  ⚠️ XPath Copy click failed: ${e.message}. Trying coordinate tap...`);
+          const copyX = Math.round(screenSizeHpb.width * 0.19);
+          const copyY = Math.round(screenSizeHpb.height * 0.89);
+          adbTap(copyX, copyY);
+          console.log(`  ✅ Tapped Copy button at (${copyX}, ${copyY}) on home-page-banner paywall`);
+        }
+        await driver.pause(1500);
+        await driver.saveScreenshot('./test-results/android_home_after_copy.png');
+
+        // Read URL from clipboard
+        try {
+          const base64Hpb = await driver.getClipboard();
+          bannerCheckoutUrl = Buffer.from(base64Hpb, 'base64').toString('utf8');
+          console.log(`  Clipboard (home-page-banner): ${bannerCheckoutUrl.substring(0, 100)}...`);
+        } catch (e: any) {
+          console.log(`  Appium clipboard failed: ${e.message}. Trying ADB...`);
+          bannerCheckoutUrl = adb('shell am clipht get');
+          console.log(`  ADB clipboard (home-page-banner): ${bannerCheckoutUrl.substring(0, 100)}...`);
+        }
+
+        if (bannerCheckoutUrl && (bannerCheckoutUrl.includes('dazn.com') || bannerCheckoutUrl.includes('amazonaws.com'))) {
+          console.log('  ✅ URL captured from clipboard (home-page-banner)');
+          bannerUrlCaptured = true;
+        } else {
+          console.log('  ❌ Clipboard did not contain a valid DAZN URL. Will retry in shared block...');
+        }
+
+        buyTapped = true;
+      }
+      // ── landing-page-banner ────────────────────────────────────────────────
+      else if (SOURCE === 'landing-page-banner') {
+        console.log('🏠 Landing Page → Find PPV banner → Buy now → Copy URL');
+
+        // ── Step 1: Check if PPV banner is visible, swipe if needed ─────────
+        console.log(`  Step 1: Finding PPV banner for "${PPV_NAME}" on Landing page...`);
+        let ppvBannerFoundLpb = false;
+
+        // Check if PPV banner is immediately visible
+        if (await isVisible(driver, PPV_NAME, 3000)) {
+          console.log(`  ✅ PPV banner is visible: "${PPV_NAME}"`);
+          ppvBannerFoundLpb = true;
+        } else {
+          // PPV banner not visible - swipe left to find it
+          console.log('  PPV banner not visible. Swiping left to find it...');
+          for (let i = 0; i < 8; i++) {
+            // BEFORE swiping, check if PPV banner is now visible
+            if (await isVisible(driver, PPV_NAME, 1000)) {
+              console.log(`  ✅ PPV banner found before swipe ${i + 1}`);
+              ppvBannerFoundLpb = true;
+              break;
+            }
+
+            // Swipe left to find next banner
+            await swipeLeft(driver);
+            await driver.pause(500);
+
+            // AFTER swiping, check if PPV banner is now visible
+            if (await isVisible(driver, PPV_NAME, 1500)) {
+              console.log(`  ✅ Found PPV banner after ${i + 1} swipe(s)`);
+              ppvBannerFoundLpb = true;
+              break;
+            }
+          }
+        }
+
+        if (!ppvBannerFoundLpb) {
+          console.log('  ⚠️ Swiping left exhausted. Trying vertical scroll down...');
+          for (let i = 0; i < 5; i++) {
+            await scrollDown(driver);
+            if (await isVisible(driver, PPV_NAME, 1500)) {
+              ppvBannerFoundLpb = true;
+              break;
+            }
+          }
+        }
+
+        if (!ppvBannerFoundLpb) {
+          const shot = await saveAndroidScreenshot(driver, './test-results/android_landing_ppv_banner_not_found.png');
+          recordAndroidPPVAvailability(false, shot, 'Landing');
+          await generateAndroidAvailabilityFailureReport(`PPV banner "${PPV_NAME}" not found on Landing page`);
+          throw new Error(`❌ PPV banner "${PPV_NAME}" not found on Landing page. See test-results/android_landing_ppv_banner_not_found.png`);
+        }
+        recordAndroidPPVAvailability(true, undefined, 'Landing');
+
+        console.log(`  ✅ Verified banner title: "${PPV_NAME}"`);
+        await driver.saveScreenshot('./test-results/android_landing_ppv_banner_found.png');
+
+        // ── Step 2: Click "Buy now" IMMEDIATELY before carousel auto-swipes ──
+        console.log('  Step 2: Clicking "Buy now" IMMEDIATELY (before carousel auto-swipes)...');
+        let buyCTAFoundLpb = false;
+        
+        // Try to click Buy now with very short timeout to act fast
+        for (const cta of ['Buy now', 'Buy Now', 'Buy this fight', 'Buy', 'Get PPV']) {
+          if (await tapByText(driver, cta, 3000)) {
+            console.log(`  ✅ Tapped "${cta}" on PPV banner`);
+            buyCTAFoundLpb = true;
+            break;
+          }
+        }
+
+        if (!buyCTAFoundLpb) {
+          // If not found immediately, try scrolling slightly
+          await scrollDown(driver);
+          await driver.pause(500);
+          for (const cta of ['Buy now', 'Buy Now', 'Buy']) {
+            if (await tapByText(driver, cta, 2000)) {
+              console.log(`  ✅ Tapped "${cta}" after scroll`);
+              buyCTAFoundLpb = true;
+              break;
+            }
+          }
+        }
+
+        if (!buyCTAFoundLpb) {
+          await driver.saveScreenshot('./test-results/android_landing_buy_cta_not_found.png');
+          throw new Error(`❌ Could not tap Buy CTA on PPV banner on Landing page. See test-results/android_landing_buy_cta_not_found.png`);
+        }
+
+        // ── Step 3: Wait for Copy button to appear, then click it ────────────
+        console.log('  Step 3: Waiting for Copy button to appear on paywall...');
+        const screenSizeLpb = getScreenSize();
+        const copyXLpb = Math.round(screenSizeLpb.width * 0.19);
+        const copyYLpb = Math.round(screenSizeLpb.height * 0.89);
+
+        // Wait for Copy button to be visible (up to 5 seconds)
+        let copyButtonFound = false;
+        for (let waitAttempt = 0; waitAttempt < 10; waitAttempt++) {
+          await driver.pause(500); // Check every 500ms
+          
+          // Check if Copy button is visible via XPath
+          try {
+            const copyBtn = await driver.$(`//android.view.View[@resource-id="ItemContent"]/android.view.View/android.widget.Button`);
+            if (await copyBtn.isDisplayed({ timeout: 500 })) {
+              console.log(`  ✅ Copy button appeared after ${(waitAttempt + 1) * 500}ms`);
+              await copyBtn.click();
+              console.log('  ✅ Clicked Copy button (XPath)');
+              copyButtonFound = true;
+              break;
+            }
+          } catch (e: any) {
+            // Button not yet visible, continue waiting
+          }
+          
+          // Also check by looking for "Copy" text
+          if (await isVisible(driver, 'Copy', 500)) {
+            console.log(`  ✅ Copy button text appeared after ${(waitAttempt + 1) * 500}ms`);
+            // Try clicking via coordinate
+            adbTap(copyXLpb, copyYLpb);
+            console.log(`  ✅ Tapped Copy button at (${copyXLpb}, ${copyYLpb}) via ADB`);
+            copyButtonFound = true;
+            break;
+          }
+        }
+
+        if (!copyButtonFound) {
+          console.log('  ⚠️ Copy button did not appear within 5 seconds');
+          await driver.saveScreenshot('./test-results/android_landing_copy_button_not_found.png');
+        } else {
+          await driver.pause(1000);
+          await driver.saveScreenshot('./test-results/android_landing_after_copy.png');
+
+          // Read URL from clipboard
+          let clipUrl = '';
+          try {
+            const base64Lpb = await driver.getClipboard();
+            clipUrl = Buffer.from(base64Lpb, 'base64').toString('utf8');
+          } catch (e: any) {
+            clipUrl = adb('shell am clipht get');
+          }
+
+          if (clipUrl && (clipUrl.includes('dazn.com') || clipUrl.includes('amazonaws.com'))) {
+            bannerCheckoutUrl = clipUrl;
+            bannerUrlCaptured = true;
+            console.log(`  ✅ URL captured from clipboard (landing-page-banner): ${bannerCheckoutUrl.substring(0, 100)}...`);
+          } else {
+            console.log('  ⚠️ Copy button clicked but clipboard does not contain valid URL');
+            console.log('  Carousel may have auto-swiped - swiping back to PPV banner and retrying...');
+
+            // ── Step 4: If clipboard failed, carousel auto-swiped - swipe back ──
+            const { width: wLpb, height: hLpb } = await driver.getWindowSize();
+            
+            for (let swipeBack = 0; swipeBack < 5; swipeBack++) {
+              // Check if PPV banner is visible before swiping
+              const ppvVisibleBeforeSwipe = await isVisible(driver, PPV_NAME, 1000);
+              console.log(`  PPV banner visible before swipe ${swipeBack + 1}: ${ppvVisibleBeforeSwipe}`);
+
+              // If PPV banner is visible, wait for Copy button and click it
+              if (ppvVisibleBeforeSwipe) {
+                console.log(`  ✅ PPV banner found after ${swipeBack} swipe(s) back`);
+                console.log('  Waiting for Copy button to appear...');
+                
+                // Wait for Copy button to appear
+                let copyFoundOnRetry = false;
+                for (let retryWait = 0; retryWait < 10; retryWait++) {
+                  await driver.pause(500);
+                  try {
+                    const copyBtnRetry = await driver.$(`//android.view.View[@resource-id="ItemContent"]/android.view.View/android.widget.Button`);
+                    if (await copyBtnRetry.isDisplayed({ timeout: 500 })) {
+                      console.log(`  ✅ Copy button appeared after ${(retryWait + 1) * 500}ms on retry`);
+                      await copyBtnRetry.click();
+                      copyFoundOnRetry = true;
+                      break;
+                    }
+                  } catch (e: any) { }
+                  
+                  if (await isVisible(driver, 'Copy', 500)) {
+                    console.log(`  ✅ Copy button text appeared after ${(retryWait + 1) * 500}ms on retry`);
+                    adbTap(copyXLpb, copyYLpb);
+                    copyFoundOnRetry = true;
+                    break;
+                  }
+                }
+
+                if (copyFoundOnRetry) {
+                  await driver.pause(1000);
+                  
+                  // Read URL from clipboard
+                  try {
+                    const base64Retry = await driver.getClipboard();
+                    clipUrl = Buffer.from(base64Retry, 'base64').toString('utf8');
+                  } catch (e: any) {
+                    clipUrl = adb('shell am clipht get');
+                  }
+
+                  if (clipUrl && (clipUrl.includes('dazn.com') || clipUrl.includes('amazonaws.com'))) {
+                    bannerCheckoutUrl = clipUrl;
+                    bannerUrlCaptured = true;
+                    console.log(`  ✅ URL captured from clipboard after swipe back: ${bannerCheckoutUrl.substring(0, 100)}...`);
+                    break;
+                  }
+                }
+              }
+
+              // Swipe right to go back to previous banner
+              await driver.action('pointer')
+                .move({ x: Math.round(wLpb * 0.2), y: Math.round(hLpb * 0.35) })
+                .down()
+                .move({ x: Math.round(wLpb * 0.8), y: Math.round(hLpb * 0.35) })
+                .up()
+                .perform();
+              await driver.pause(800); // Wait for carousel animation
+              console.log(`  Swiped right (attempt ${swipeBack + 1})...`);
+            }
+
+          if (!bannerUrlCaptured) {
+            console.log('  ❌ Could not capture URL after swiping back');
+          }
+        }
+      }
+
+        buyTapped = true;
       }
 
       // ── home-boxing-tile ──────────────────────────────────────────────────
       else if (SOURCE === 'home-boxing-tile') {
-        await scrollToText(driver, PPV_NAME);
+        const ppvTileFound = await scrollToText(driver, PPV_NAME) || await isVisible(driver, PPV_NAME, 2000);
+        if (!ppvTileFound) {
+          const shot = await saveAndroidScreenshot(driver, './test-results/android_home_boxing_tile_not_found.png');
+          recordAndroidPPVAvailability(false, shot, 'Home of Boxing');
+          await generateAndroidAvailabilityFailureReport(`PPV tile "${PPV_NAME}" not found on Home Boxing rail`);
+          throw new Error(`❌ "${PPV_NAME}" not found on Home Boxing rail. See test-results/android_home_boxing_tile_not_found.png`);
+        }
+        recordAndroidPPVAvailability(true, undefined, 'Home of Boxing');
         await tapByText(driver, PPV_NAME, 8000);
         await driver.pause(2000);
         for (const cta of ['Buy now', 'Buy Now', 'Buy']) {
@@ -1189,7 +1687,14 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
       // ── fallback ──────────────────────────────────────────────────────────
       else {
         console.log(`⚠️  Unknown SOURCE "${SOURCE}" — generic Home screen fallback`);
-        if (!await findPPVBanner(driver)) throw new Error(`❌ "${PPV_NAME}" not found`);
+        const ppvAvailableFallback = await findPPVBanner(driver);
+        if (!ppvAvailableFallback) {
+          const shot = await saveAndroidScreenshot(driver, './test-results/android_ppv_not_found.png');
+          recordAndroidPPVAvailability(false, shot);
+          await generateAndroidAvailabilityFailureReport(`PPV "${PPV_NAME}" not found`);
+          throw new Error(`❌ "${PPV_NAME}" not found`);
+        }
+        recordAndroidPPVAvailability(true);
         await tapByText(driver, PPV_NAME);
         await driver.pause(2000);
         for (const cta of ['Buy now', 'Buy Now', 'Buy']) {
@@ -1313,7 +1818,7 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
       // ── Playwright Web Checkout Phase ──────────────────────────────────────────
       // Force-stop Chrome to ensure a completely fresh browser launch (not a new tab).
       console.log("Force-stopping Chrome to ensure fresh browser launch...");
-      adb("shell am force-stop com.android.chrome");
+      closeMobileBrowser();
       await driver.pause(1000);
       const originalCwd = process.cwd();
       let playwrightBrowser: any = null;
@@ -1440,8 +1945,14 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
         const tierName = planTier.charAt(0).toUpperCase() + planTier.slice(1);
         const srcLabel = SOURCE.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
+        // Format USER_STATE for display (e.g., "active_standard_monthly" → "Active Standard Monthly")
+        const formattedUserState = USER_STATE
+          .split('_')
+          .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+          .join(' ');
+
         const flowConfig = {
-          name: `Android Existing User: ${srcLabel} → ${tierName} → ${planName}`,
+          name: `Android ${formattedUserState}: ${srcLabel} → ${tierName} → ${planName}`,
           source: SOURCE,
           tier: planTier,
           ratePlan: ratePlan,
@@ -1456,6 +1967,7 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
         console.log(`╚═══════════════════════════════════════════════════════╝\n`);
 
         const results: any[] = [];
+        results.push(...androidAvailabilityResults);
         finalJson = json;
         finalFlowConfig = flowConfig;
         finalResults = results;
@@ -1553,7 +2065,7 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
         console.log(`📱 Connected to device: ${device.model()} (${device.serial()})`);
 
         console.log('Force-stopping Chrome on device...');
-        await device.shell('am force-stop com.android.chrome');
+        await device.shell(`am force-stop ${MOBILE_BROWSER_PACKAGE}`);
         await sleep(1000);
 
         console.log('Launching Chrome browser on Android device...');
@@ -1604,7 +2116,7 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
         }
 
         console.log('Bringing Chrome browser UI to the foreground...');
-        await device.shell('am start -n com.android.chrome/com.google.android.apps.chrome.Main');
+        await device.shell(`am start -n ${MOBILE_BROWSER_PACKAGE}/com.google.android.apps.chrome.Main`);
         await sleep(1500);
 
         page.on('console', (msg: any) => {
@@ -3315,7 +3827,7 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
           excelPath,
           videoPath,
           userType: 'existing-user',
-          userState: USER_STATE,
+          userStatus: USER_STATE,
           platform: 'Android',
         });
         reportGenerated = true;
@@ -3355,8 +3867,12 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
                 status: 'FAIL',
               }];
 
+            const formattedUserState = USER_STATE
+              .split('_')
+              .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+              .join(' ');
             const flowConfigForReport = finalFlowConfig || {
-              name: `Android Existing User: ${SOURCE}`,
+              name: `Android ${formattedUserState}: ${SOURCE}`,
               source: SOURCE,
               tier: 'standard',
               ratePlan: 'monthly',
@@ -3394,7 +3910,7 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
               excelPath: written.excelPath,
               videoPath: written.videoPath,
               userType: 'existing-user',
-              userState: USER_STATE,
+              userStatus: USER_STATE,
               platform: 'Android',
             });
 
@@ -3415,6 +3931,7 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
         if (playwrightBrowser) {
           await playwrightBrowser.close().catch(() => { });
         }
+        closeMobileBrowser();
         // 3. Restore original working directory
         process.chdir(originalCwd);
         console.log(`📂 Restored working directory to: ${process.cwd()}`);
@@ -3425,5 +3942,6 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
       try {
         await browser.stopRecordingScreen().catch(() => { });
       } catch { }
+      closeMobileBrowser();
     });
   });

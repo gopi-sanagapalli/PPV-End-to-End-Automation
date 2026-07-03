@@ -38,6 +38,7 @@ import { prepareAndroidApp, waitForHomePage } from '../../utils/androidSetup';
 const PPV_NAME    = process.env.PPV_NAME    || 'Joshua';
 const SOURCE      = (process.env.SOURCE || 'home-boxing-upcoming').trim().toLowerCase();
 const APP_PACKAGE = process.env.APP_PACKAGE || 'com.dazn';
+const MOBILE_BROWSER_PACKAGE = process.env.MOBILE_BROWSER_PACKAGE || 'com.android.chrome';
 const ANDROID_SDK = process.env.ANDROID_HOME || `${process.env.HOME}/Library/Android/sdk`;
 const ADB         = `${ANDROID_SDK}/platform-tools/adb`;
 
@@ -73,6 +74,11 @@ function adbSwipe(x1: number, y1: number, x2: number, y2: number): void {
 // ── Helper: press Back button via ADB ───────────────────────────────────────
 function adbBack(): void {
   adb('shell input keyevent 4');
+}
+
+function closeMobileBrowser(): void {
+  console.log(`📱 Closing mobile browser (${MOBILE_BROWSER_PACKAGE})...`);
+  adb(`shell am force-stop ${MOBILE_BROWSER_PACKAGE}`);
 }
 
 // ── Helper: extract DAZN URL from Chrome via ADB UI dump ────────────────────
@@ -1906,7 +1912,7 @@ describe('DAZN Android PPV → Web Handoff', () => {
     // ── Playwright Web Checkout Phase ──────────────────────────────────────────
     // Force-stop Chrome to ensure a completely fresh browser launch (not a new tab).
     console.log("Force-stopping Chrome to ensure fresh browser launch...");
-    adb("shell am force-stop com.android.chrome");
+    closeMobileBrowser();
     await driver.pause(1000);
     const originalCwd = process.cwd();
     let playwrightBrowser: any = null;
@@ -2128,7 +2134,7 @@ describe('DAZN Android PPV → Web Handoff', () => {
       console.log(`📱 Connected to device: ${device.model()} (${device.serial()})`);
 
       console.log('Force-stopping Chrome on device...');
-      await device.shell('am force-stop com.android.chrome');
+      await device.shell(`am force-stop ${MOBILE_BROWSER_PACKAGE}`);
       await sleep(1000);
 
       console.log('Launching Chrome browser on Android device...');
@@ -2179,7 +2185,7 @@ describe('DAZN Android PPV → Web Handoff', () => {
       }
 
       console.log('Bringing Chrome browser UI to the foreground...');
-      await device.shell('am start -n com.android.chrome/com.google.android.apps.chrome.Main');
+      await device.shell(`am start -n ${MOBILE_BROWSER_PACKAGE}/com.google.android.apps.chrome.Main`);
       await sleep(1500);
 
       page.on('console', (msg: any) => {
@@ -3299,6 +3305,7 @@ describe('DAZN Android PPV → Web Handoff', () => {
       if (playwrightBrowser) {
         await playwrightBrowser.close().catch(() => {});
       }
+      closeMobileBrowser();
       // 3. Restore original working directory
       process.chdir(originalCwd);
       console.log(`📂 Restored working directory to: ${process.cwd()}`);
@@ -3309,5 +3316,6 @@ describe('DAZN Android PPV → Web Handoff', () => {
     try {
       await browser.stopRecordingScreen().catch(() => {});
     } catch {}
+    closeMobileBrowser();
   });
 });
