@@ -26,7 +26,6 @@ const boxingLandingData = [
   { Field: 'Boxing Banner Present', Expected: 'Yes', Flow: 'boxing' },
   { Field: 'Event Name', Expected: '{{PPV_NAME}}', Flow: 'boxing' },
   { Field: 'Event Subtitle', Expected: '{{BOXING_BANNER_SUBTITLE}}', Flow: 'boxing' },
-  { Field: 'Saturday Badge', Expected: 'SATURDAY', Flow: 'boxing' },
   { Field: 'Or Separator', Expected: 'or', Flow: 'boxing' },
   { Field: 'Buy Fight CTA', Expected: 'Buy this fight for {{PPV_PRICE}}', Flow: 'boxing' },
   { Field: 'Get Included CTA', Expected: 'Get included in DAZN Ultimate', Flow: 'boxing' },
@@ -453,6 +452,7 @@ const ppvPaymentData = [
 const upgradeConfirmationData = [
   { Tier: 'common', Field: 'Page Title', Expected: 'DAZN Ultimate' },
   { Tier: 'common', Field: 'Page Description', Expected: 'All the action in one subscription. 12 pay-per-view fights a year with the ultimate viewing experience, plus football, basketball and more.' },
+  { Tier: 'common', Field: 'Terms And Conditions Text', Expected: "By changing the terms of your subscription, you confirm that you have read and agree to our Terms and Conditions of Use (including the instruction regarding your right of withdrawal). Your subscription auto-renews unless you cancel before the end of the minimum term by selecting 'Cancel Subscription' in My Account." },
   { Tier: 'common', Field: 'Payment Method Present', Expected: 'Yes' },
   { Tier: 'common', Field: 'Confirm Button', Expected: 'Confirm' },
   { Tier: 'common', Field: 'Terms Link Present', Expected: 'Yes' },

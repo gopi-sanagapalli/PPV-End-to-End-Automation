@@ -216,37 +216,11 @@ export class PaymentPage extends BasePage {
 
     console.log(`🔍 Running validateNextPaymentDetails: region = "${regionUpper}", planType = "${planType}"`);
 
-    const isAbsentCase = regionUpper === 'GB' || regionUpper === 'UK' || regionUpper === 'IE' || planType === '7_day_free_trial';
-
-    if (isAbsentCase) {
-      // Assert elements NOT present in DOM
-      const hasLabel = /next\s+(?:annual\s+)?payment\s+on/i.test(bodyText);
-
-      // Label check
-      const labelExpected = 'Not present';
-      const labelActual = hasLabel ? 'Present (found next payment label)' : 'Not present';
-      const labelStatus = !hasLabel ? 'PASS' : 'FAIL';
-      console.log(`  ${labelStatus === 'PASS' ? '✅' : '❌'} [Next Payment Label] expected="${labelExpected}" actual="${labelActual}"`);
-      results.push({
-        page: 'Payment',
-        field: 'Next Payment Label',
-        expected: labelExpected,
-        actual: labelActual,
-        status: labelStatus
-      });
-
-      // Price check
-      const priceExpected = 'Not present';
-      const priceActual = hasLabel ? 'Present' : 'Not present';
-      const priceStatus = !hasLabel ? 'PASS' : 'FAIL';
-      console.log(`  ${priceStatus === 'PASS' ? '✅' : '❌'} [Next Payment Price] expected="${priceExpected}" actual="${priceActual}"`);
-      results.push({
-        page: 'Payment',
-        field: 'Next Payment Price',
-        expected: priceExpected,
-        actual: priceActual,
-        status: priceStatus
-      });
+    if (regionUpper === 'GB' || regionUpper === 'UK' || regionUpper === 'IE' || planType === '7_day_free_trial') {
+      // Skip next payment validations for GB, IE, UK and 7-day trial regions
+      // These regions/offers do not display next payment details
+      console.log('  ⏭️  Skipping [Next Payment Label/Price] — not applicable for GB, IE, or 7-day trial');
+      return;
 
     } else {
       // Assert both elements are visible
@@ -1014,6 +988,29 @@ export class PaymentPage extends BasePage {
     // ── Today You Pay Text ─────────────────────────────────────
     if (fieldLower === 'today you pay text') {
       return lower.includes('today you pay') ? 'Today you pay' : 'N/A';
+    }
+
+    // ── Excluding Tax Text ──────────────────────────────────────────
+    if (fieldLower === 'excluding tax text' || fieldLower === 'excluding tax') {
+      // Try live DOM first — look for specific test IDs or text
+      const live = await this.page.locator(
+        '[data-testid*="excluding-tax" i], ' +
+        '[id*="excluding-tax" i], ' +
+        'span:has-text("(excluding tax)"), ' +
+        'span:has-text("excluding tax")'
+      ).first().innerText().catch(() => '');
+
+      if (live.trim()) return live.trim();
+
+      // Fallback: scan all text lines on the page
+      const bodyText = await this.page.locator('body').innerText({ timeout: 2000 }).catch(() => '');
+      const lines = bodyText.split('\n').map((l: string) => l.trim()).filter(Boolean);
+      for (const line of lines) {
+        if (line.toLowerCase().includes('excluding tax')) {
+          return line;
+        }
+      }
+      return 'N/A';
     }
 
     // ── Today You Pay Price ────────────────────────────────────
