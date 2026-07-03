@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { TestResult, PageResult, ReportConfig } from './report-types';
+import { TestResult, PageResult, ReportConfig } from './reportTypes';
 
 export class ReportGenerator {
   private testResult: TestResult;

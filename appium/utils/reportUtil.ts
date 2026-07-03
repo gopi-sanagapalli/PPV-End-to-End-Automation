@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import ReportGenerator from './report-generator';
-import { TestResult, ReportConfig } from './report-types';
+import ReportGenerator from './reportGenerator';
+import { TestResult, ReportConfig } from './reportTypes';
 
 /**
  * Report Utility - Generate HTML and PDF reports from test results
