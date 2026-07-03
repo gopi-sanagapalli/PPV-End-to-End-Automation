@@ -913,10 +913,30 @@ for (const stateKey of userStatesToRun) {
                 const hasPPVName = containerText.toLowerCase().includes(eventData.PPV_NAME.toLowerCase().split(' vs')[0].toLowerCase());
                 const hasBuyNow = await container.locator('a:has-text("Buy now"), button:has-text("Buy now"), a:has-text("Buy Now"), button:has-text("Buy Now")').first().isVisible({ timeout: 2000 }).catch(() => false);
                 const hasFightCard = await container.locator('a:has-text("Fight Card"), button:has-text("Fight Card"), a:has-text("Fight card"), button:has-text("Fight card")').first().isVisible({ timeout: 2000 }).catch(() => false);
+                // Event Date — match month+day from PPV_DATE in container text
+                const expectedDate = eventData.PPV_DATE || '';
+                const containerLower = containerText.toLowerCase();
+                const dateMonths = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+                const matchedMonth = dateMonths.find(m => expectedDate.toLowerCase().includes(m));
+                const dayMatch = expectedDate.match(/\b(\d{1,2})\b/);
+                const hasDate = !!(matchedMonth && dayMatch && containerLower.includes(matchedMonth) && containerLower.includes(dayMatch[1]));
+                const actualDate = hasDate ? expectedDate : 'Not found';
+
+                // Event Description — 2+ significant words from BANNER_DESCRIPTION in container text
+                const expectedDesc = eventData.BANNER_DESCRIPTION || '';
+                const descWords = expectedDesc.split(/[\s,.:;\-–]+/).map((w: string) => w.toLowerCase()).filter((w: string) => w.length > 3 && !['with', 'from', 'that', 'this', 'then', 'takes', 'their'].includes(w));
+                const descMatchCount = descWords.filter((w: string) => containerLower.includes(w)).length;
+                const hasDesc = descMatchCount >= 2;
+                const actualDesc = hasDesc ? expectedDesc : 'Not found';
+
                 results.push({ page: pageName, field: 'Banner - Event Title', expected: eventData.PPV_NAME, actual: hasPPVName ? eventData.PPV_NAME : 'N/A', status: hasPPVName ? 'PASS' : 'FAIL' });
+                results.push({ page: pageName, field: 'Banner - Event Date', expected: expectedDate, actual: actualDate, status: hasDate ? 'PASS' : 'FAIL' });
+                results.push({ page: pageName, field: 'Banner - Event Description', expected: expectedDesc, actual: actualDesc, status: hasDesc ? 'PASS' : 'FAIL' });
                 results.push({ page: pageName, field: 'Banner - Buy Now CTA', expected: 'Visible', actual: hasBuyNow ? 'Visible' : 'N/A', status: hasBuyNow ? 'PASS' : 'FAIL' });
                 results.push({ page: pageName, field: 'Banner - Fight Card CTA', expected: 'Visible', actual: hasFightCard ? 'Visible' : 'N/A', status: hasFightCard ? 'PASS' : 'FAIL' });
                 console.log(`  ${hasPPVName ? '✅' : '❌'} [Banner - Event Title] actual="${hasPPVName ? eventData.PPV_NAME : 'N/A'}"`);
+                console.log(`  ${hasDate ? '✅' : '❌'} [Banner - Event Date] actual="${actualDate}"`);
+                console.log(`  ${hasDesc ? '✅' : '❌'} [Banner - Event Description] actual="${actualDesc}"`);
                 console.log(`  ${hasBuyNow ? '✅' : '❌'} [Banner - Buy Now CTA] actual="${hasBuyNow ? 'Visible' : 'N/A'}"`);
                 console.log(`  ${hasFightCard ? '✅' : '❌'} [Banner - Fight Card CTA] actual="${hasFightCard ? 'Visible' : 'N/A'}"`);
               } catch (bannerErr: any) {

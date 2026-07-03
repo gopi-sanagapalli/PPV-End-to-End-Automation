@@ -277,11 +277,59 @@ export class LandingPage extends BasePage {
         const txt = ((await slide.textContent().catch(() => '')) || '').trim();
 
         if (txt && this.matchesPPVName(txt, ppvName)) {
-          console.log(`✅ [Banner] PPV found in slide ${i} — returning directly (no slideToLoop)`);
-          // Do NOT call slideToLoop/slideTo — DAZN's SPA intercepts these Swiper JS API calls
-          // and triggers a route change that closes the Playwright page context.
-          // clickBuyNow will navigate to this slide via safe DOM next-button clicks.
           eventData._ppvBannerSlideIndex = String(i);
+
+          // Check if already active
+          const alreadyActive = await slide.evaluate((node: HTMLElement) =>
+            node.classList.contains('swiper-slide-active')
+          ).catch(() => false);
+
+          if (alreadyActive) {
+            console.log(`✅ [Banner] PPV found in slide ${i} — already active`);
+            return carousel.locator(selectors.banner.activeSlide).locator(':visible').first();
+          }
+
+          // Activate target slide via pure DOM class injection — no clicks, no Swiper API.
+          // Both pagination bullet clicks AND next-button clicks trigger DAZN SPA routing
+          // on authenticated home page (URL changes → page closes). Only safe path is
+          // manipulating CSS classes + inline styles directly via evaluate().
+          console.log(`🎯 [Banner] Activating slide ${i} via DOM class injection (no SPA routing)...`);
+          await this.page.evaluate((targetIdx: number) => {
+            try {
+              const bannerEl = document.querySelector(
+                'main [class*="hero-banner" i], main [class*="heroBanner" i], main [class*="bannersContainer" i]'
+              ) as HTMLElement;
+              if (!bannerEl) return;
+              // Freeze swiper wrapper transition
+              const swiperWrapper = bannerEl.querySelector('.swiper-wrapper') as HTMLElement;
+              if (swiperWrapper) swiperWrapper.style.transitionDuration = '0ms';
+              // Get non-duplicate slides in order
+              const allSlides = Array.from(
+                bannerEl.querySelectorAll('.swiper-slide:not(.swiper-slide-duplicate)')
+              ) as HTMLElement[];
+              const target = allSlides[targetIdx];
+              if (!target) return;
+              // Remove active state from ALL slides (including loop duplicates)
+              bannerEl.querySelectorAll('.swiper-slide').forEach((el) => {
+                const s = el as HTMLElement;
+                s.classList.remove('swiper-slide-active', 'swiper-slide-next', 'swiper-slide-prev');
+                s.style.removeProperty('opacity');
+                s.style.removeProperty('pointer-events');
+              });
+              // Make target visible — class makes Swiper CSS apply opacity:1, inline styles
+              // force visibility even if Swiper CSS doesn't cover all cases
+              target.classList.add('swiper-slide-active');
+              target.style.opacity = '1';
+              target.style.pointerEvents = 'auto';
+            } catch {}
+          }, i).catch(() => {});
+          await this.page.waitForTimeout(300);
+          await stopAllAutoSlide();
+
+          // Return the specific slide element directly — more reliable than re-querying
+          // by selectors.banner.activeSlide (lazy locator could pick up wrong slide if
+          // Swiper's React reconciler restores classes between injection and evaluation).
+          console.log(`✅ [Banner] PPV slide ${i} activated via DOM — returning slide element`);
           return slide;
         }
       }
@@ -902,9 +950,8 @@ export class LandingPage extends BasePage {
     // Skip swiper slide activation for banner sources — findPPVInBanner already
     // ensures the correct slide is active with auto-slide stopped
     try {
-      // Banner sources also need swiper activation — use slideTo/slideToLoop (JS-only)
-      // instead of scrollIntoViewIfNeeded to avoid triggering SPA navigation.
-      const isSwiperSlide = await container.evaluate((node: HTMLElement) => {
+      const isBannerSource = src.includes('banner');
+      const isSwiperSlide = !isBannerSource && await container.evaluate((node: HTMLElement) => {
         return node.classList.contains('swiper-slide') || !!node.closest('.swiper-slide');
       }).catch(() => false);
 
@@ -954,52 +1001,46 @@ export class LandingPage extends BasePage {
           }
 
           if (!isActiveMatching) {
-            console.log('🔄 Active slide does not match — navigating via carousel next-button clicks (safe: avoids DAZN SPA trigger)...');
-            // For banner sources: MUST use the broad bannerCarousel() container, NOT swiperLocator.
-            // The chevron next buttons are siblings of .swiper inside the heroBanner wrapper —
-            // searching inside .swiper (swiperLocator) misses them entirely.
-            // A non-active slide's Buy Now link routes to the competition page, NOT PPV signup,
-            // so making the slide active via next-button clicks is essential.
-            const carouselEl = src.includes('banner')
-              ? this.bannerCarousel()
-              : (swiperCount > 0 ? swiperLocator : this.page.locator('[class*="heroBanner"], [class*="bannersContainer"], .swiper').first());
-            const nextBtnSel = [
-              selectors.banner.nextButton,
-              'button[data-test-id="CHEVRON_RIGHT_ICON"]',
-              'svg[data-test-id="CHEVRON_RIGHT_ICON"]',
-              'button[aria-label="Next slide"]',
-              '.swiper-button-next',
-              '[class*="swiper-button-next"]',
-            ].join(', ');
-            const nextBtnCarousel = carouselEl.locator(nextBtnSel).first();
+            console.log('🔄 Active slide does not match target index — triggering slide navigation...');
+            const handle = await container.elementHandle().catch(() => null);
+            if (handle) {
+              await this.page.evaluate((slideNode: any) => {
+                if (!slideNode) return;
+                const slideEl = slideNode.classList.contains('swiper-slide') ? slideNode : slideNode.closest('.swiper-slide');
+                if (!slideEl) return;
+                const swiperEl = slideEl.parentElement?.closest('.swiper, [class*="swiper"]');
+                const swiper = (swiperEl as any)?.swiper;
+                if (swiper) {
+                  swiper.autoplay?.stop();
+                  const slideIndexAttr = slideEl.getAttribute('data-swiper-slide-index');
+                  if (slideIndexAttr !== null && slideIndexAttr !== undefined) {
+                    swiper.slideToLoop(parseInt(slideIndexAttr, 10));
+                  } else {
+                    const slides = Array.from(swiperEl.querySelectorAll('.swiper-slide') || []);
+                    const idx = slides.indexOf(slideEl);
+                    if (idx !== -1) {
+                      swiper.slideTo(idx);
+                    }
+                  }
+                }
+              }, handle);
+              await this.page.waitForTimeout(1000);
 
-            for (let navClick = 0; navClick < 10; navClick++) {
-              // Check if active slide now matches the target
               if (await activeSlideLocator.isVisible().catch(() => false)) {
-                const nowActive = await activeSlideLocator.evaluate((node: HTMLElement) => {
-                  const attr = node.getAttribute('data-swiper-slide-index');
-                  if (attr !== null && attr !== undefined) return { type: 'loop', index: parseInt(attr, 10) };
+                const newActiveInfo = await activeSlideLocator.evaluate((node: HTMLElement) => {
+                  const slideIndexAttr = node.getAttribute('data-swiper-slide-index');
+                  if (slideIndexAttr !== null && slideIndexAttr !== undefined) {
+                    return { type: 'loop', index: parseInt(slideIndexAttr, 10) };
+                  }
                   const swiperEl = node.parentElement?.closest('.swiper, [class*="swiper"]');
                   const slides = Array.from(swiperEl?.querySelectorAll('.swiper-slide') || []);
-                  return { type: 'normal', index: slides.indexOf(node) };
+                  const idx = slides.indexOf(node);
+                  return { type: 'normal', index: idx };
                 }).catch(() => null);
-                if (nowActive && nowActive.type === slideIndex.type && nowActive.index === slideIndex.index) {
+                if (newActiveInfo && newActiveInfo.type === slideIndex.type && newActiveInfo.index === slideIndex.index) {
                   targetContainer = activeSlideLocator;
-                  console.log(`✅ [clickBuyNow] Carousel navigated to matching slide (click ${navClick})`);
-                  break;
+                  console.log('✅ Navigated to matching active slide');
                 }
-              }
-              // Click carousel next button
-              await carouselEl.hover({ force: true }).catch(() => {});
-              await this.page.waitForTimeout(200);
-              const nextVisible = await nextBtnCarousel.isVisible({ timeout: 1500 }).catch(() => false);
-              if (nextVisible) {
-                await nextBtnCarousel.click({ force: true }).catch(() => {});
-                console.log(`🔄 [clickBuyNow] Next button clicked (${navClick + 1})`);
-                await this.page.waitForTimeout(600);
-              } else {
-                console.log('⚠️ [clickBuyNow] Next button not visible — stopping carousel navigation');
-                break;
               }
             }
           }
