@@ -134,21 +134,24 @@ jobs:
             user_state: frozen
             plan: ultimate_upfront
 
-          # Active Standard — five valid PPV / Ultimate upgrade routes
+          # Active Standard — three valid routes per plan type:
+          #   standard_monthly  → PPV only  (no upgrade)
+          #   ultimate_apm      → upgrade + PPV (Annual Pay Monthly)
+          #   ultimate_upfront  → upgrade + PPV (Annual Pay Upfront)
           - user_state: active_standard_monthly
             plan: standard_monthly
             purchase_path: ppv_only
           - user_state: active_standard_monthly
-            plan: standard_monthly
-            purchase_path: ultimate_monthly
+            plan: ultimate_apm
+            purchase_path: ultimate_apm
           - user_state: active_standard_monthly
-            plan: standard_monthly
+            plan: ultimate_upfront
             purchase_path: ultimate_upfront
           - user_state: active_standard_apm
             plan: standard_apm
             purchase_path: ppv_only
           - user_state: active_standard_apm
-            plan: standard_apm
+            plan: ultimate_apm
             purchase_path: ultimate_apm
 
           # Active Ultimate — all four plans
