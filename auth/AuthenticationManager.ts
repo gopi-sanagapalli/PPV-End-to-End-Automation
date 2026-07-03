@@ -202,6 +202,7 @@ export class EmailLoginStrategy extends BaseLoginStrategy {
     await page.waitForURL(/emailDetails|signup|signin/i, { timeout: 10000 }).catch(() => { });
     await page.waitForLoadState('domcontentloaded').catch(() => { });
     console.log(`📍 [Email Auth] Landed on: ${page.url()}`);
+    await this.throwIfBlocked(page, 'signin page');
 
     const emailInput = page.locator(
       'input[type="email"], input[name="email"], input[placeholder*="email" i]'
@@ -225,6 +226,7 @@ export class EmailLoginStrategy extends BaseLoginStrategy {
         'button:has-text("Next"), button:has-text("Continue"), button[type="submit"]'
       ).first();
       await clickAndWaitForNav(page, nextBtn, 'Email → Next');
+      await this.throwIfBlocked(page, 'password page');
       await passwordInput.waitFor({ state: 'visible', timeout: 15000 }).catch(() => { });
     }
 
@@ -238,6 +240,7 @@ export class EmailLoginStrategy extends BaseLoginStrategy {
       ).first();
       await clickAndWaitForNav(page, signInBtn, 'Sign In');
     } else {
+      await this.throwIfBlocked(page, 'password field lookup');
       throw new Error('❌ [EmailLoginStrategy] Password input never appeared');
     }
 
@@ -254,6 +257,18 @@ export class EmailLoginStrategy extends BaseLoginStrategy {
     const verified = await this.verifyAuthenticatedSession(page);
     if (!verified) {
       console.warn('⚠️  [Email Auth] Could not confirm login success — continuing anyway');
+    }
+  }
+
+  private async throwIfBlocked(page: Page, label: string): Promise<void> {
+    if (page.isClosed()) return;
+
+    const bodyText = await page.locator('body').innerText({ timeout: 2000 }).catch(() => '');
+    if (/403 error|request blocked|request could not be satisfied|cloudfront/i.test(bodyText)) {
+      throw new Error(
+        `❌ [EmailLoginStrategy] DAZN blocked the ${label} with a CloudFront/403 response. ` +
+        `This is an environment/access issue, not a missing password-field selector. URL: ${page.url()}`
+      );
     }
   }
 }

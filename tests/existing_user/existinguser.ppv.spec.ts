@@ -69,6 +69,13 @@ const SWITCH_TO_ULTIMATE = (process.env.SWITCH || '').toLowerCase() === 'true';
 const LOGIN_FIRST = (process.env.LOGIN || process.env.LOGIN_FIRST || '').toLowerCase() === 'true';
 const ENV = (process.env.DAZN_ENV || 'stag').toLowerCase();
 const PAYMENT_METHOD = (process.env.PAYMENT_METHOD || 'credit_card').toLowerCase();
+const DEFAULT_VIEWPORT = process.env.CI || process.env.HEADLESS === 'true'
+  ? { width: 1920, height: 1080 }
+  : { width: 1366, height: 768 };
+const DESKTOP_VIEWPORT = {
+  width: Number(process.env.VIEWPORT_WIDTH || DEFAULT_VIEWPORT.width),
+  height: Number(process.env.VIEWPORT_HEIGHT || DEFAULT_VIEWPORT.height),
+};
 
 // ═══════════════════════════════════════════════════════════════
 // TEST DEFINITION — Dynamically defines tests for parallel runs
@@ -275,7 +282,7 @@ for (const stateKey of userStatesToRun) {
     } : undefined;
 
     const context = await browser.newContext({
-      viewport: { width: 1920, height: 1080 },
+      viewport: DESKTOP_VIEWPORT,
       colorScheme: 'dark',
       reducedMotion: 'no-preference',
       locale: 'en-IN',
