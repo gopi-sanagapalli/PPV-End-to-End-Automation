@@ -32,7 +32,7 @@ type WdElement = any;
 
 import { execSync } from 'child_process';
 import { writeHandoffUrl, clearHandoffUrl } from '../../utils/handoff';
-import { prepareAndroidApp } from '../../utils/androidSetup';
+import { prepareAndroidApp, waitForHomePage } from '../../utils/androidSetup';
 import { loadEventConfig as loadAppiumEvent, parsePPVDate } from '../../utils/eventLoader';
 import { navigateScheduleToPPVTile } from '../../utils/scheduleNavigator';
 
@@ -374,7 +374,8 @@ describe('DAZN Android PPV → Web Handoff', () => {
     clearHandoffUrl();
     require('fs').mkdirSync('./test-results', { recursive: true });
 
-    await prepareAndroidApp(browser);
+    const shouldWaitHome = SOURCE !== 'landing-page-banner';
+    await prepareAndroidApp(browser, { waitForHome: shouldWaitHome });
     console.log(`\n╔════════════════════════════════════════════════════╗`);
     console.log(`║  DAZN Android PPV Handoff                          ║`);
     console.log(`║  Event  : ${PPV_NAME.padEnd(40)}║`);
@@ -395,6 +396,8 @@ describe('DAZN Android PPV → Web Handoff', () => {
     console.log('✅ Startup handled by prepareAndroidApp; beginning PPV navigation');
     
     let buyTapped = false;
+    let bannerUrlCaptured = false;
+    let bannerCheckoutUrl = "";
 
     if (SOURCE === 'schedule') {
       console.log('📅 Navigating to Schedule page...');
@@ -983,10 +986,222 @@ describe('DAZN Android PPV → Web Handoff', () => {
       await driver.pause(2000);
       await driver.saveScreenshot('./test-results/dont_miss_after_tile_click.png');
       
-      // After clicking PPV tile, we should be on paywall screen with Copy button
-      // Skip looking for Buy button and go straight to URL capture (same as schedule/search flow)
-      console.log('  On paywall screen - will capture URL via Copy button');
       buyTapped = true;  // Skip Buy button step, proceed to URL capture
+    }
+
+    // ── landing-page-banner ───────────────────────────────────────────────
+    else if (SOURCE === 'landing-page-banner') {
+      console.log('🏠 Landing Page → Find PPV banner → Buy now');
+
+      console.log(`  Finding PPV banner for "${PPV_NAME}" on Landing page...`);
+      let ppvBannerFoundLpb = false;
+      if (await isVisible(driver, PPV_NAME, 3000)) {
+        ppvBannerFoundLpb = true;
+      } else {
+        console.log('  PPV banner not immediately visible. Swiping left on Landing page to find it...');
+        for (let i = 0; i < 8; i++) {
+          await swipeLeft(driver);
+          if (await isVisible(driver, PPV_NAME, 1500)) {
+            ppvBannerFoundLpb = true;
+            break;
+          }
+        }
+      }
+
+      if (!ppvBannerFoundLpb) {
+        console.log('  ⚠️ Swiping left exhausted. Trying vertical scroll down on Landing page...');
+        for (let i = 0; i < 5; i++) {
+          await scrollDown(driver);
+          if (await isVisible(driver, PPV_NAME, 1500)) {
+            ppvBannerFoundLpb = true;
+            break;
+          }
+        }
+      }
+
+      if (!ppvBannerFoundLpb) {
+        await driver.saveScreenshot('./test-results/android_landing_ppv_banner_not_found.png');
+        throw new Error(`❌ PPV banner "${PPV_NAME}" not found on Landing page. See test-results/android_landing_ppv_banner_not_found.png`);
+      }
+
+      console.log(`  ✅ Verified banner title: "${PPV_NAME}"`);
+      await driver.saveScreenshot('./test-results/android_landing_ppv_banner_found.png');
+
+      // Click "Buy now" button on the PPV banner
+      console.log('  Clicking "Buy now" on the PPV banner...');
+      let buyCTAFoundLpb = false;
+      for (const cta of ['Buy now', 'Buy Now', 'Buy this fight', 'Buy', 'Get PPV']) {
+        if (await tapByText(driver, cta, 6000)) {
+          console.log(`  ✅ Tapped "${cta}" on PPV banner`);
+          buyCTAFoundLpb = true;
+          break;
+        }
+      }
+      if (!buyCTAFoundLpb) {
+        // Scroll down slightly and try again
+        await scrollDown(driver);
+        await driver.pause(1000);
+        for (const cta of ['Buy now', 'Buy Now', 'Buy']) {
+          if (await tapByText(driver, cta, 3000)) {
+            console.log(`  ✅ Tapped "${cta}" after scroll`);
+            buyCTAFoundLpb = true;
+            break;
+          }
+        }
+      }
+      if (!buyCTAFoundLpb) {
+        await driver.saveScreenshot('./test-results/android_landing_buy_cta_not_found.png');
+        throw new Error(`❌ Could not tap Buy CTA on PPV banner on Landing page. See test-results/android_landing_buy_cta_not_found.png`);
+      }
+
+      // ── Immediate Copy click: paywall is a sliding overlay, must act fast ──
+      console.log('  ⚡ Paywall overlay displayed — clicking Copy button immediately...');
+      await driver.pause(800); // minimal wait for paywall to render
+      await driver.saveScreenshot('./test-results/android_landing_paywall.png');
+      const screenSizeLpb = getScreenSize();
+      try {
+        // Use the exact XPath provided for the Copy button
+        const copyBtnLpb = await driver.$(`//android.view.View[@resource-id="ItemContent"]/android.view.View/android.widget.Button`);
+        await copyBtnLpb.waitForDisplayed({ timeout: 3000 });
+        await copyBtnLpb.click();
+        console.log('  ✅ Clicked Copy button (XPath) on landing-page-banner paywall');
+      } catch (e: any) {
+        console.log(`  ⚠️ XPath Copy click failed: ${e.message}. Trying coordinate tap...`);
+        const copyX = Math.round(screenSizeLpb.width * 0.19);
+        const copyY = Math.round(screenSizeLpb.height * 0.89);
+        adbTap(copyX, copyY);
+        console.log(`  ✅ Tapped Copy button at (${copyX}, ${copyY}) on landing-page-banner paywall`);
+      }
+      await driver.pause(1500);
+      await driver.saveScreenshot('./test-results/android_landing_after_copy.png');
+
+      // Read URL from clipboard
+      try {
+        const base64Lpb = await driver.getClipboard();
+        bannerCheckoutUrl = Buffer.from(base64Lpb, 'base64').toString('utf8');
+        console.log(`  Clipboard (landing-page-banner): ${bannerCheckoutUrl.substring(0, 100)}...`);
+      } catch (e: any) {
+        console.log(`  Appium clipboard failed: ${e.message}. Trying ADB...`);
+        bannerCheckoutUrl = adb('shell am clipht get');
+        console.log(`  ADB clipboard (landing-page-banner): ${bannerCheckoutUrl.substring(0, 100)}...`);
+      }
+
+      if (bannerCheckoutUrl && (bannerCheckoutUrl.includes('dazn.com') || bannerCheckoutUrl.includes('amazonaws.com'))) {
+        console.log('  ✅ URL captured from clipboard (landing-page-banner)');
+        bannerUrlCaptured = true;
+      } else {
+        console.log('  ❌ Clipboard did not contain a valid DAZN URL. Will retry in shared block...');
+      }
+
+      buyTapped = true;
+    }
+
+    // ── home-page-banner ──────────────────────────────────────────────────
+    else if (SOURCE === 'home-page-banner') {
+      console.log('🏠 Home Page → Find PPV banner → Buy now');
+
+      // Step 3: Find PPV banner on Home page
+      console.log(`  Step 3: Finding PPV banner for "${PPV_NAME}" on Home page...`);
+      let ppvBannerFoundHpb = false;
+      if (await isVisible(driver, PPV_NAME, 3000)) {
+        ppvBannerFoundHpb = true;
+      } else {
+        console.log('  PPV banner not immediately visible. Swiping left on Home page to find it...');
+        for (let i = 0; i < 8; i++) {
+          await swipeLeft(driver);
+          if (await isVisible(driver, PPV_NAME, 1500)) {
+            ppvBannerFoundHpb = true;
+            break;
+          }
+        }
+      }
+
+      if (!ppvBannerFoundHpb) {
+        console.log('  ⚠️ Swiping left exhausted. Trying vertical scroll down on Home page...');
+        for (let i = 0; i < 5; i++) {
+          await scrollDown(driver);
+          if (await isVisible(driver, PPV_NAME, 1500)) {
+            ppvBannerFoundHpb = true;
+            break;
+          }
+        }
+      }
+
+      if (!ppvBannerFoundHpb) {
+        await driver.saveScreenshot('./test-results/android_home_ppv_banner_not_found.png');
+        throw new Error(`❌ PPV banner "${PPV_NAME}" not found on Home page. See test-results/android_home_ppv_banner_not_found.png`);
+      }
+
+      console.log(`  ✅ Verified banner title: "${PPV_NAME}"`);
+      await driver.saveScreenshot('./test-results/android_home_ppv_banner_found.png');
+
+      // Step 4: Click Buy now button on the PPV banner
+      console.log('  Step 4: Clicking "Buy now" on the PPV banner...');
+      let buyCTAFoundHpb = false;
+      for (const cta of ['Buy now', 'Buy Now', 'Buy this fight', 'Buy', 'Get PPV']) {
+        if (await tapByText(driver, cta, 6000)) {
+          console.log(`  ✅ Tapped "${cta}" on PPV banner`);
+          buyCTAFoundHpb = true;
+          break;
+        }
+      }
+      if (!buyCTAFoundHpb) {
+        // Scroll down slightly and try again
+        await scrollDown(driver);
+        await driver.pause(1000);
+        for (const cta of ['Buy now', 'Buy Now', 'Buy']) {
+          if (await tapByText(driver, cta, 3000)) {
+            console.log(`  ✅ Tapped "${cta}" after scroll`);
+            buyCTAFoundHpb = true;
+            break;
+          }
+        }
+      }
+      if (!buyCTAFoundHpb) {
+        await driver.saveScreenshot('./test-results/android_home_buy_cta_not_found.png');
+        throw new Error(`❌ Could not tap Buy CTA on PPV banner on Home page. See test-results/android_home_buy_cta_not_found.png`);
+      }
+
+      // ── Immediate Copy click: paywall is a sliding overlay, must act fast ──
+      console.log('  ⚡ Paywall overlay displayed — clicking Copy button immediately...');
+      await driver.pause(800); // minimal wait for paywall to render
+      await driver.saveScreenshot('./test-results/android_home_paywall.png');
+      const screenSizeHpb = getScreenSize();
+      try {
+        // Use the exact XPath provided for the Copy button
+        const copyBtnHpb = await driver.$(`//android.view.View[@resource-id="ItemContent"]/android.view.View/android.widget.Button`);
+        await copyBtnHpb.waitForDisplayed({ timeout: 3000 });
+        await copyBtnHpb.click();
+        console.log('  ✅ Clicked Copy button (XPath) on home-page-banner paywall');
+      } catch (e: any) {
+        console.log(`  ⚠️ XPath Copy click failed: ${e.message}. Trying coordinate tap...`);
+        const copyX = Math.round(screenSizeHpb.width * 0.19);
+        const copyY = Math.round(screenSizeHpb.height * 0.89);
+        adbTap(copyX, copyY);
+        console.log(`  ✅ Tapped Copy button at (${copyX}, ${copyY}) on home-page-banner paywall`);
+      }
+      await driver.pause(1500);
+      await driver.saveScreenshot('./test-results/android_home_after_copy.png');
+
+      // Read URL from clipboard
+      try {
+        const base64Hpb = await driver.getClipboard();
+        bannerCheckoutUrl = Buffer.from(base64Hpb, 'base64').toString('utf8');
+        console.log(`  Clipboard (home-page-banner): ${bannerCheckoutUrl.substring(0, 100)}...`);
+      } catch (e: any) {
+        console.log(`  Appium clipboard failed: ${e.message}. Trying ADB...`);
+        bannerCheckoutUrl = adb('shell am clipht get');
+        console.log(`  ADB clipboard (home-page-banner): ${bannerCheckoutUrl.substring(0, 100)}...`);
+      }
+
+      if (bannerCheckoutUrl && (bannerCheckoutUrl.includes('dazn.com') || bannerCheckoutUrl.includes('amazonaws.com'))) {
+        console.log('  ✅ URL captured from clipboard (home-page-banner)');
+        bannerUrlCaptured = true;
+      } else {
+        console.log('  ❌ Clipboard did not contain a valid DAZN URL. Will retry in shared block...');
+      }
+
+      buyTapped = true;
     }
 
     // ── fallback ──────────────────────────────────────────────────────────
@@ -1005,35 +1220,45 @@ describe('DAZN Android PPV → Web Handoff', () => {
       throw new Error(`❌ Could not tap Buy CTA. SOURCE="${SOURCE}". See test-results/android_buy_not_found.png`);
     }
 
-    console.log('\n⏳ Waiting for Chrome Custom Tab to open...');
-    await driver.pause(5000);  // Wait longer for Chrome to open
-    await driver.saveScreenshot('./test-results/android_after_buy_click.png');
-    
-    // Check if Chrome opened by looking for Chrome UI
-    console.log('  Checking if Chrome opened...');
-    const chromeSigns = ['Address', 'Search', 'dazn.com', 'https://'];
-    let chromeOpened = false;
-    
-    for (const sign of chromeSigns) {
-      if (await isVisible(driver, sign, 2000)) {
-        console.log(`  ✅ Chrome opened (found: ${sign})`);
-        chromeOpened = true;
-        break;
+    // For banner sources, URL is captured immediately inline above (no Chrome wait needed)
+    // For other sources, wait for Chrome Custom Tab to open
+    if (!bannerUrlCaptured) {
+      console.log('\n⏳ Waiting for Chrome Custom Tab to open...');
+      await driver.pause(5000);  // Wait longer for Chrome to open
+      await driver.saveScreenshot('./test-results/android_after_buy_click.png');
+
+      // Check if Chrome opened by looking for Chrome UI
+      console.log('  Checking if Chrome opened...');
+      const chromeSigns = ['Address', 'Search', 'dazn.com', 'https://'];
+      let chromeOpened = false;
+
+      for (const sign of chromeSigns) {
+        if (await isVisible(driver, sign, 2000)) {
+          console.log(`  ✅ Chrome opened (found: ${sign})`);
+          chromeOpened = true;
+          break;
+        }
       }
-    }
-    
-    if (!chromeOpened) {
-      console.log('  ⚠️ Chrome may not have opened. Checking current activity...');
-      const currentActivity = adb('shell dumpsys window | grep mCurrentFocus');
-      console.log(`  Current activity: ${currentActivity}`);
+
+      if (!chromeOpened) {
+        console.log('  ⚠️ Chrome may not have opened. Checking current activity...');
+        const currentActivity = adb('shell dumpsys window | grep mCurrentFocus');
+        console.log(`  Current activity: ${currentActivity}`);
+      }
     }
 
     // ── Step 3: Capture checkout URL from paywall screen ──────────────────
     console.log("📋 Capturing checkout URL from paywall...");
-    await driver.saveScreenshot("./test-results/android_paywall_screen.png");
-    
-    let checkoutUrl = "";
-    
+    if (!bannerUrlCaptured) {
+      await driver.saveScreenshot("./test-results/android_paywall_screen.png");
+    }
+
+    // Use pre-captured URL for banner flows, otherwise capture now
+    let checkoutUrl = bannerUrlCaptured ? bannerCheckoutUrl : "";
+
+    // For banner flows the URL was already captured inline — skip the copy/clipboard steps
+    if (!bannerUrlCaptured) {
+
     // Dump page source to help debug why "Copy" button is not found/clickable
     console.log("\n── Page Source (for debugging Copy button) ──────────────────");
     const pageSource = await driver.getPageSource();
@@ -1094,6 +1319,8 @@ describe('DAZN Android PPV → Web Handoff', () => {
       console.log(`  ADB Clipboard content: ${checkoutUrl.substring(0, 100)}...`);
     }
     
+    } // end !bannerUrlCaptured block
+
     if (checkoutUrl && (checkoutUrl.includes("dazn.com") || checkoutUrl.includes("amazonaws.com"))) {
       console.log("✅ URL captured from clipboard");
     } else {
