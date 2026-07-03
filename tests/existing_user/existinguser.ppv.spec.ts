@@ -511,37 +511,78 @@ for (const stateKey of userStatesToRun) {
 
       if (isMyAccount) assertCountryMatch(page, REGION);
 
-      console.log(`📧 Entering email: ${userEmail}`);
-      const emailInput = page.locator(
-        'input[type="email"], ' +
-        'input[name="email"], ' +
-        'input[placeholder*="email" i]'
-      ).first();
-      await emailInput.waitFor({ state: 'visible', timeout: 10000 });
-      await emailInput.fill(userEmail);
+      // Retry loop — DAZN may show "No key found!" error dialog (code 97-000--1)
+      // after clicking Continue on the email step (bot/CAPTCHA detection).
+      // Dismiss the dialog and retry up to 3 times before failing.
+      let preLoginPasswordFilled = false;
+      for (let signinAttempt = 1; signinAttempt <= 3 && !preLoginPasswordFilled; signinAttempt++) {
+        if (signinAttempt > 1) {
+          console.log(`🔄 [Pre-Login Signin] Retrying sign-in (attempt ${signinAttempt})...`);
+          await page.reload({ waitUntil: 'domcontentloaded' });
+          await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => { });
+          await handleCookies(page, 5000);
+          await page.waitForURL(/emailDetails|signup|signin/i, { timeout: 8000 }).catch(() => { });
+        }
 
-      const emailNextBtn = page.locator(
-        'button:has-text("Next"), ' +
-        'button:has-text("Continue"), ' +
-        'button[type="submit"]'
-      ).first();
-      await clickAndWaitForNav(page, emailNextBtn, 'Email Next');
+        console.log(`📧 Entering email: ${userEmail}`);
+        const emailInput = page.locator(
+          'input[type="email"], ' +
+          'input[name="email"], ' +
+          'input[placeholder*="email" i]'
+        ).first();
+        await emailInput.waitFor({ state: 'visible', timeout: 10000 });
+        await emailInput.fill(userEmail);
 
-      console.log('🔑 Entering password...');
-      const passwordInput = page.locator(
-        'input[type="password"], ' +
-        'input[name="password"]'
-      ).first();
-      await passwordInput.waitFor({ state: 'visible', timeout: 15000 });
-      await passwordInput.fill(userPassword);
+        const emailNextBtn = page.locator(
+          'button:has-text("Next"), ' +
+          'button:has-text("Continue"), ' +
+          'button[type="submit"]'
+        ).first();
+        await clickAndWaitForNav(page, emailNextBtn, `Email Next (attempt ${signinAttempt})`);
 
-      const signInBtn = page.locator(
-        'button:has-text("Sign in"), ' +
-        'button:has-text("Log in"), ' +
-        'button:has-text("Sign In"), ' +
-        'button[type="submit"]'
-      ).first();
-      await clickAndWaitForNav(page, signInBtn, 'Sign In');
+        // Check for DAZN "No key found!" error dialog (error code 97-000--1)
+        const errorDialogBtn = page.locator('[data-test-id="ERROR_DIALOG_BUTTON"]');
+        const errorDialogVisible = await errorDialogBtn.isVisible({ timeout: 3000 }).catch(() => false);
+        if (errorDialogVisible) {
+          console.log(`⚠️ [Pre-Login Signin] DAZN error dialog detected on attempt ${signinAttempt}. Dismissing...`);
+          await errorDialogBtn.click({ force: true }).catch(() => { });
+          await page.waitForLoadState('domcontentloaded', { timeout: 3000 }).catch(() => { });
+          continue;
+        }
+
+        // Also check body text for error patterns
+        const bodyTextCheck = await page.locator('body').innerText({ timeout: 2000 }).catch(() => '');
+        const hasBodyError = /no key found|error code:\s*\d|something went wrong|try refreshing/i.test(bodyTextCheck);
+        if (hasBodyError) {
+          console.log(`⚠️ [Pre-Login Signin] Error text detected in page body on attempt ${signinAttempt}. Retrying...`);
+          continue;
+        }
+
+        console.log('🔑 Entering password...');
+        const passwordInput = page.locator(
+          'input[type="password"], ' +
+          'input[name="password"]'
+        ).first();
+        const pwVisible = await passwordInput.isVisible({ timeout: 12000 }).catch(() => false);
+        if (!pwVisible) {
+          console.log(`⚠️ [Pre-Login Signin] Password field not visible on attempt ${signinAttempt}. Retrying...`);
+          continue;
+        }
+        await passwordInput.fill(userPassword);
+
+        const signInBtn = page.locator(
+          'button:has-text("Sign in"), ' +
+          'button:has-text("Log in"), ' +
+          'button:has-text("Sign In"), ' +
+          'button[type="submit"]'
+        ).first();
+        await clickAndWaitForNav(page, signInBtn, 'Sign In');
+        preLoginPasswordFilled = true;
+      }
+
+      if (!preLoginPasswordFilled) {
+        throw new Error('❌ [Pre-Login Signin] Failed to complete sign-in after 3 attempts. DAZN returned an error dialog on every attempt.');
+      }
 
       await page.waitForURL(/\/home/i, { timeout: 20000 }).catch(() => { });
       await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });

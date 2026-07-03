@@ -937,9 +937,16 @@ export class LandingPage extends BasePage {
     }
     await container.scrollIntoViewIfNeeded().catch(() => { });
     if (this.page.isClosed()) {
-      throw new Error(
-        `❌ [clickBuyNow] Page was closed after scroll — likely a session redirect or account-state issue (source: ${source || 'unknown'})`
-      );
+      // Give the page up to 2s to recover in case this is a transient
+      // navigation / onboarding redirect (e.g. DAZN ?step= wizard).
+      console.warn(`⚠️ [clickBuyNow] Page appears closed after scroll (source: ${source || 'unknown'}) — waiting to confirm...`);
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      if (this.page.isClosed()) {
+        throw new Error(
+          `❌ [clickBuyNow] Page was closed after scroll — likely a session redirect or account-state issue (source: ${source || 'unknown'})`
+        );
+      }
+      console.log('✅ [clickBuyNow] Page recovered after transient close state — continuing...');
     }
     await this.page.waitForTimeout(200);
 

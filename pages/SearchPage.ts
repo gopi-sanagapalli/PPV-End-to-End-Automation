@@ -374,9 +374,26 @@ export class SearchPage extends BasePage {
       if (yellowDotVisible) {
         console.log('✅ Yellow dot visible on search page — dev mode CONFIRMED ✨');
 
-        // Navigate back to the original URL to continue the flow
-        console.log(`🔄 Navigating back to original URL: ${originalUrl}`);
-        await this.page.goto(originalUrl, { waitUntil: 'domcontentloaded' });
+        // Strip DAZN onboarding ?step= query param before navigating back.
+        // ?step=0 triggers a wizard overlay that intercepts banner clicks and
+        // can cause the page context to be closed mid-flow.
+        let targetUrl = originalUrl;
+        try {
+          const urlObj = new URL(originalUrl);
+          if (urlObj.searchParams.has('step')) {
+            urlObj.searchParams.delete('step');
+            targetUrl = urlObj.toString().replace(/\?$/, '');
+            console.log(`🔧 Stripped ?step= from return URL: ${originalUrl} → ${targetUrl}`);
+          }
+        } catch {
+          // URL parsing failed — fall back to base path without query string
+          targetUrl = originalUrl.split('?')[0];
+          console.log(`🔧 Stripped query string from return URL: ${originalUrl} → ${targetUrl}`);
+        }
+
+        console.log(`🔄 Navigating back to original URL: ${targetUrl}`);
+        await this.page.goto(targetUrl, { waitUntil: 'domcontentloaded' });
+        await this.page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => { });
         await this.waitForConsentAndDismiss().catch(() => { });
       } else {
         console.log('❌ Yellow dot NOT visible — dev mode activation FAILED');
