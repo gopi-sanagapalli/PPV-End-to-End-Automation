@@ -504,10 +504,21 @@ for (const stateKey of userStatesToRun) {
       console.log('🍪 Waiting for cookie banner on signin page...');
       await handleCookies(page, 15000);
 
-      // Wait for the URL to settle (signin/emailDetails/signup)
+      // Wait for the URL to settle — first to any auth URL, then specifically to emailDetails
+      // (DAZN SPA appends &page=emailDetails once the email form is rendered).
+      // Without waiting for emailDetails, emailInput.waitFor() races the SPA init and
+      // can throw "Target page closed" if DAZN triggers a GEO/IP redirect mid-load.
       await page.waitForURL(/emailDetails|signup|signin/i, { timeout: 10000 }).catch(() => { });
+      if (!page.isClosed() && !page.url().includes('emailDetails')) {
+        console.log('⏳ [Signin] emailDetails not yet in URL — waiting for SPA to add it...');
+        await page.waitForURL(/emailDetails/, { timeout: 12000 }).catch(async () => {
+          if (!page.isClosed()) {
+            console.log(`⚠️ [Signin] emailDetails URL state not reached (current: ${page.url()}) — continuing anyway`);
+          }
+        });
+      }
       await page.waitForLoadState('domcontentloaded').catch(() => { });
-      console.log(`📍 Landed on: ${page.url()}`);
+      console.log(`📍 Landed on: ${page.isClosed() ? '(PAGE CLOSED)' : page.url()}`);
 
       if (isMyAccount) assertCountryMatch(page, REGION);
 
@@ -530,6 +541,10 @@ for (const stateKey of userStatesToRun) {
           'input[name="email"], ' +
           'input[placeholder*="email" i]'
         ).first();
+        // Guard: page may have closed during SPA init (e.g. DAZN GEO/IP region redirect)
+        if (page.isClosed()) {
+          throw new Error('❌ [Signin] Page was closed before email input appeared — DAZN likely triggered a region redirect. Aborting retry loop.');
+        }
         await emailInput.waitFor({ state: 'visible', timeout: 10000 });
         await emailInput.fill(userEmail);
 
