@@ -82,10 +82,10 @@ jobs:
           - frozen/ultimate_apm
           - frozen/ultimate_upfront
 
-          # Active Standard Monthly — ppv_only stays on standard_monthly plan;
-          # upgrade paths use the ultimate plan they are switching to
+          # Active Standard Monthly — standard_monthly = PPV only (no upgrade);
+          # ultimate_apm / ultimate_upfront = upgrade then PPV
           - active_standard_monthly/standard_monthly
-          - active_standard_monthly/ultimate_monthly
+          - active_standard_monthly/ultimate_apm
           - active_standard_monthly/ultimate_upfront
 
           # Active Standard APM — ppv_only stays on standard_apm; upgrade to ult_apm
