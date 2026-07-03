@@ -588,6 +588,22 @@ for (const stateKey of userStatesToRun) {
       await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });
       console.log(`✅ Signed in — on: ${page.url()}`);
 
+      // Strip DAZN onboarding ?step= from URL — the wizard overlay closes the
+      // Playwright page context when banner carousel scrollIntoViewIfNeeded() runs.
+      const postLoginUrl = page.url();
+      if (/[?&]step=\d+/.test(postLoginUrl)) {
+        try {
+          const cleanUrl = new URL(postLoginUrl);
+          cleanUrl.searchParams.delete('step');
+          const cleanUrlStr = cleanUrl.toString().replace(/\?$/, '');
+          console.log(`🔧 [Post-Login] Stripping ?step= from URL: ${postLoginUrl} → ${cleanUrlStr}`);
+          await page.goto(cleanUrlStr, { waitUntil: 'domcontentloaded' });
+          await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => { });
+        } catch (e: any) {
+          console.warn(`⚠️ [Post-Login] Failed to strip ?step= URL: ${e.message}`);
+        }
+      }
+
       console.log('🍪 Waiting for cookie banner on Home page...');
       await handleCookies(page, 15000);
       await stabilisePage(page);
@@ -753,8 +769,23 @@ for (const stateKey of userStatesToRun) {
             await page.goto(targetUrl, { waitUntil: 'domcontentloaded' });
             await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });
           } else {
-            // HomePage: we are already on /home, just wait for network idle to settle
-            await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => { });
+            // HomePage: we are already on /home — strip ?step= wizard param before proceeding,
+            // as the DAZN onboarding wizard overlay closes the page during banner scroll.
+            const homeUrl = page.url();
+            if (/[?&]step=\d+/.test(homeUrl)) {
+              try {
+                const cleanUrl = new URL(homeUrl);
+                cleanUrl.searchParams.delete('step');
+                const cleanUrlStr = cleanUrl.toString().replace(/\?$/, '');
+                console.log(`🔧 [Login First] Stripping ?step= from home URL: ${homeUrl} → ${cleanUrlStr}`);
+                await page.goto(cleanUrlStr, { waitUntil: 'domcontentloaded' });
+                await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => { });
+              } catch {
+                await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => { });
+              }
+            } else {
+              await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => { });
+            }
           }
         } else {
           await landing.navigate(baseUrl, SOURCE, eventData);
