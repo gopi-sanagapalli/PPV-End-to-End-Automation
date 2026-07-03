@@ -154,6 +154,25 @@ export function buildEventData(
 
   if (base.BASE_URL) {
     base.BASE_URL = base.BASE_URL.replace(/(www\.)?dazn\.com/, domain);
+  } else {
+    // Derive BASE_URL from region + environment when the event config omits it.
+    // Maps ISO 3166-1 alpha-2 region codes to DAZN locale path segments.
+    const regionLocaleMap: Record<string, string> = {
+      GB: 'en-GB', UK: 'en-GB',
+      US: 'en-US',
+      AU: 'en-AU',
+      AE: 'en-AE',
+      IN: 'en-IN',
+      CA: 'en-CA',
+      ES: 'es-ES',
+      IT: 'it-IT',
+      DE: 'de-DE',
+      FR: 'fr-FR',
+      JP: 'ja-JP',
+    };
+    const locale = regionLocaleMap[region.toUpperCase()] || `en-${region.toUpperCase()}`;
+    base.BASE_URL = `https://${domain}/${locale}`;
+    console.log(`💡 Derived BASE_URL: https://${domain}/${locale} (region="${region}", env="${env}")`);
   }
 
   base.TIER      = (tier || merged.TIER      || 'standard').toLowerCase();
