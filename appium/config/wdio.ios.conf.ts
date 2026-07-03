@@ -13,17 +13,24 @@
 //   IOS_DEVICE_MODE=real
 //   ─────────────────────
 //   - Real iPhone (iOS 26.5)
-//   - Pre-built WDA — Appium service NOT started by WDIO
-//   - Set IOS_UDID            (default: 00008140-00044D501EC2801C)
-//   - Set IOS_WDA_URL         (default: http://172.26.92.178:8100)
+//   - Set IOS_UDID            REQUIRED — your device UDID (e.g. 00008110-0006605E3A89401E)
 //   - Set IOS_PLATFORM_VER    (default: 26.5)
 //   - Set DAZN_BUNDLE_ID      (default: com.dazn.theApp)
-//   - Set IOS_XCODE_ORG_ID   (default: 579UJ5S27U)
+//   - Set IOS_XCODE_ORG_ID    (default: 579UJ5S27U)
+//   - Set IOS_WDA_URL         (optional) — if pre-built WDA running, e.g. http://localhost:8100
+//                              If not set, Appium builds WDA on first run (~2 min)
 //
 // PRE-REQUISITES (real device):
-//   - WDA pre-built and running on the device
-//   - DAZN app installed on the device
-//   - IOS_WDA_URL pointing to the WDA HTTP server
+//   1. iPhone trusted on this Mac (tap "Trust" on device)
+//   2. DAZN app installed on the device
+//   3. Appium running: npx appium (in a separate terminal)
+//   4. xcodeOrgId must match your Apple Developer team
+//
+// QUICK START (new device):
+//   IOS_DEVICE_MODE=real IOS_UDID=<your-udid> npx wdio run appium/config/wdio.ios.conf.ts
+//
+// QUICK START (pre-built WDA):
+//   IOS_DEVICE_MODE=real IOS_UDID=<udid> IOS_WDA_URL=http://localhost:8100 npx wdio run appium/config/wdio.ios.conf.ts
 // ─────────────────────────────────────────────────────────────────────────────
 const MODE = (process.env.IOS_DEVICE_MODE || 'simulator').toLowerCase();
 const IS_REAL = MODE === 'real';
@@ -39,7 +46,7 @@ const SIM_PLATFORM_VER   = process.env.IOS_PLATFORM_VER   || '18';
 // ── Real device defaults ──────────────────────────────────────────────────────
 const REAL_UDID          = process.env.IOS_UDID            || '00008140-00044D501EC2801C';
 const REAL_PLATFORM_VER  = process.env.IOS_PLATFORM_VER   || '26.5';
-const REAL_WDA_URL       = process.env.IOS_WDA_URL         || 'http://172.26.92.178:8100';
+const REAL_WDA_URL       = process.env.IOS_WDA_URL         || '';
 const REAL_XCODE_ORG_ID  = process.env.IOS_XCODE_ORG_ID   || '579UJ5S27U';
 const REAL_WDA_BUNDLE_ID = process.env.IOS_WDA_BUNDLE_ID  || 'com.dazn.test.WebDriverAgentRunner';
 
@@ -62,7 +69,11 @@ const simulatorCaps = {
   'appium:autoDismissAlerts': false,
 };
 
-const realDeviceCaps = {
+// Use pre-built WDA only when an explicit URL is provided.
+// If IOS_WDA_URL is not set, Appium will build WDA fresh (slower first run, needed for new devices).
+const USE_PREBUILT_WDA = !!REAL_WDA_URL && REAL_WDA_URL !== 'none';
+
+const realDeviceCaps: Record<string, unknown> = {
   platformName: 'iOS',
   'appium:deviceName': 'iPhone',
   'appium:platformVersion': REAL_PLATFORM_VER,
@@ -75,9 +86,6 @@ const realDeviceCaps = {
   'appium:xcodeOrgId': REAL_XCODE_ORG_ID,
   'appium:xcodeSigningId': 'Apple Development',
   'appium:updatedWDABundleId': REAL_WDA_BUNDLE_ID,
-  // Pre-built WDA — do not let Appium rebuild it each run
-  'appium:usePrebuiltWDA': true,
-  'appium:webDriverAgentUrl': REAL_WDA_URL,
   // Speed up element commands: default idle wait adds ~10s per lookup on real devices
   'appium:waitForIdleTimeout': 1,
   // Keep system dialogs accessible for explicit test handling (ATT, Continue/Open flows)
@@ -86,6 +94,9 @@ const realDeviceCaps = {
   'appium:includeSafariInWebviews': true,
   'appium:showXcodeLog': true,
   'appium:newCommandTimeout': 120,
+  // WDA — use pre-built if URL provided, otherwise Appium builds it (needed for new devices)
+  'appium:usePrebuiltWDA': USE_PREBUILT_WDA,
+  ...(USE_PREBUILT_WDA ? { 'appium:webDriverAgentUrl': REAL_WDA_URL } : {}),
 };
 
 export const config = {
