@@ -935,7 +935,12 @@ export class LandingPage extends BasePage {
     } else {
       await this.stopCarouselAutoSlide();
     }
-    await container.scrollIntoViewIfNeeded().catch(() => { });
+    // For banner sources: skip scrollIntoViewIfNeeded — calling it on a non-active
+    // swiper slide triggers a DAZN SPA navigation that closes the Playwright page context.
+    // Swiper slide activation below uses slideTo/slideToLoop (JS-only, no browser scroll).
+    if (!src.includes('banner')) {
+      await container.scrollIntoViewIfNeeded().catch(() => { });
+    }
     if (this.page.isClosed()) {
       // Give the page up to 2s to recover in case this is a transient
       // navigation / onboarding redirect (e.g. DAZN ?step= wizard).
@@ -956,8 +961,9 @@ export class LandingPage extends BasePage {
     // Skip swiper slide activation for banner sources — findPPVInBanner already
     // ensures the correct slide is active with auto-slide stopped
     try {
-      const isBannerSource = src.includes('banner');
-      const isSwiperSlide = !isBannerSource && await container.evaluate((node: HTMLElement) => {
+      // Banner sources also need swiper activation — use slideTo/slideToLoop (JS-only)
+      // instead of scrollIntoViewIfNeeded to avoid triggering SPA navigation.
+      const isSwiperSlide = await container.evaluate((node: HTMLElement) => {
         return node.classList.contains('swiper-slide') || !!node.closest('.swiper-slide');
       }).catch(() => false);
 
