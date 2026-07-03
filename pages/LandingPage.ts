@@ -297,7 +297,20 @@ export class LandingPage extends BasePage {
           await this.page.evaluate((targetIdx: number) => {
             try {
               const bannerEl = document.querySelector(
-                'main [class*="hero-banner" i], main [class*="heroBanner" i], main [class*="bannersContainer" i]'
+                [
+                  'main [class*="hero-banner" i]',
+                  'main [class*="heroBanner" i]',
+                  'main [class*="herobanner" i]',
+                  'main div.heroBannerSlider',
+                  'main [class*="bannersContainer" i]',
+                  'main [class*="hero-slider" i]',
+                  'main [class*="heroSlider" i]',
+                  'main [class*="hero" i] .swiper',
+                  'main [class*="banner" i] .swiper',
+                  '[class*="hero-banner" i]',
+                  '[class*="heroBanner" i]',
+                  '[class*="bannersContainer" i]',
+                ].join(', ')
               ) as HTMLElement;
               if (!bannerEl) return;
               // Freeze swiper wrapper transition
