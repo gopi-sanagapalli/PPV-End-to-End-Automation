@@ -1,15 +1,6 @@
 import { defineConfig } from '@playwright/test';
-import * as dotenv from 'dotenv';
-dotenv.config();
 
 const isHeadless = process.env.HEADLESS === 'true';
-const defaultViewport = process.env.CI || isHeadless
-  ? { width: 1920, height: 1080 }
-  : { width: 1366, height: 768 };
-const viewport = {
-  width: Number(process.env.VIEWPORT_WIDTH || defaultViewport.width),
-  height: Number(process.env.VIEWPORT_HEIGHT || defaultViewport.height),
-};
 
 export default defineConfig({
   testDir: './tests',
@@ -21,8 +12,8 @@ export default defineConfig({
   use: {
     headless: isHeadless,
 
-    // Keep desktop mode, but make local headed runs fit common laptop screens.
-    viewport,
+    // Keep CI/headless on the same desktop layout as local headed Chrome.
+    viewport: { width: 1920, height: 1080 },
     deviceScaleFactor: 1,
     isMobile: false,
     hasTouch: false,
@@ -32,7 +23,7 @@ export default defineConfig({
 
     launchOptions: {
       args: [
-        `--window-size=${viewport.width},${viewport.height}`,
+        '--window-size=1920,1080',
         '--disable-infobars',
         '--no-sandbox',
         '--disable-dev-shm-usage',

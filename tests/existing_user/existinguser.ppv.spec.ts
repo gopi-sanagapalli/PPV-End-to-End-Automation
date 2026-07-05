@@ -68,15 +68,12 @@ const SOURCE = process.env.SOURCE || 'my-account';
 const FLOW = 'myaccount';
 const SWITCH_TO_ULTIMATE = (process.env.SWITCH || '').toLowerCase() === 'true';
 const LOGIN_FIRST = (process.env.LOGIN || process.env.LOGIN_FIRST || '').toLowerCase() === 'true';
+const LOGIN_FIRST_INVALID_LANDING_SOURCES = new Set([
+  'landing-page-banner',
+  'landing-page-dont-miss-live',
+]);
 const ENV = (process.env.DAZN_ENV || 'stag').toLowerCase();
 const PAYMENT_METHOD = (process.env.PAYMENT_METHOD || 'credit_card').toLowerCase();
-const DEFAULT_VIEWPORT = process.env.CI || process.env.HEADLESS === 'true'
-  ? { width: 1920, height: 1080 }
-  : { width: 1366, height: 768 };
-const DESKTOP_VIEWPORT = {
-  width: Number(process.env.VIEWPORT_WIDTH || DEFAULT_VIEWPORT.width),
-  height: Number(process.env.VIEWPORT_HEIGHT || DEFAULT_VIEWPORT.height),
-};
 
 function throwLogged(error: Error): never {
   console.log(error.message);
@@ -115,6 +112,12 @@ for (const stateKey of userStatesToRun) {
     eventData['USER_STATE'] = stateKey;
     eventData.source = SOURCE;
     eventData.SOURCE = SOURCE;
+
+    if (LOGIN_FIRST && LOGIN_FIRST_INVALID_LANDING_SOURCES.has(SOURCE.toLowerCase())) {
+      throwLogged(new Error(
+        `❌ For an existing user who has logged in, landing flows are not valid: ${SOURCE}`
+      ));
+    }
 
     const sourcesPath = path.resolve(process.cwd(), 'config/surfacingpoint.json');
     if (fs.existsSync(sourcesPath)) {
@@ -294,7 +297,7 @@ for (const stateKey of userStatesToRun) {
     } : undefined;
 
     const context = await browser.newContext({
-      viewport: DESKTOP_VIEWPORT,
+      viewport: { width: 1920, height: 1080 },
       colorScheme: 'dark',
       reducedMotion: 'no-preference',
       locale: 'en-IN',
@@ -541,6 +544,25 @@ for (const stateKey of userStatesToRun) {
       SOURCE === 'myaccount' ||
       SOURCE === 'myaccount-subscription-status';
     let reachedEndPage = false;
+
+    const isContextualPpvSelectionPage = async (p: any): Promise<boolean> => {
+      const currentUrl = p.url().toLowerCase();
+      if (!currentUrl.includes('contextualppvid=')) return false;
+      if (currentUrl.includes('upselltierskipped=true') || currentUrl.includes('upselltierselected=true')) {
+        return false;
+      }
+
+      const currentBody = await p.locator('body')
+        .innerText({ timeout: 2000 })
+        .then((t: string) => t.toLowerCase())
+        .catch(() => '');
+
+      return currentUrl.includes('upselltiershown=true') ||
+        currentBody.includes('continue with pay-per-view') ||
+        currentBody.includes('just the fight') ||
+        currentBody.includes('to watch your pay-per-view') ||
+        currentBody.includes('the ultimate fan package');
+    };
 
     try {
       const requiresPreLogin = isMyAccount || LOGIN_FIRST;
@@ -2882,6 +2904,11 @@ for (const stateKey of userStatesToRun) {
           if (pageType === 'plan') {
             console.log(`👉 DAZN Plan page`);
             stuckCount = 0;
+
+            if (await isContextualPpvSelectionPage(page)) {
+              console.log('↩️  Still on contextual PPV selection page; re-detecting before DAZN Plan validation.');
+              continue;
+            }
 
             if (!planValidated) {
               try {
