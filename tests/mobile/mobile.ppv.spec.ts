@@ -56,6 +56,12 @@ const SWITCH_TO_ULTIMATE = (process.env.SWITCH || '').toLowerCase() === 'true';
 const ENV = (process.env.DAZN_ENV || 'stag').toLowerCase();
 const PAYMENT_METHOD = (process.env.PAYMENT_METHOD || 'credit_card').toLowerCase();
 
+test.afterEach(async ({}, testInfo) => {
+  if (testInfo.status !== testInfo.expectedStatus && testInfo.error?.message) {
+    console.log(`❌ Test failure:\n${testInfo.error.message}`);
+  }
+});
+
 // ── Screenshot helper for failed fields ─────────────────────────
 async function captureFailShot(page: Page, field: string): Promise<string | undefined> {
   try {
@@ -1290,11 +1296,15 @@ test.describe('Mobile → Web PPV Handoff', () => {
     console.log(`${'─'.repeat(55)}`);
 
     if (total === 0) {
-      throw new Error(`❌ Flow "${flowConfig.name}" had 0 validation checks`);
+      const errMsg = `❌ Flow "${flowConfig.name}" had 0 validation checks`;
+      console.log(errMsg);
+      throw new Error(errMsg);
     }
 
     if (!reachedEndPage) {
-      throw new Error(`❌ Flow "${flowConfig.name}" did not reach the expected end page`);
+      const errMsg = `❌ Flow "${flowConfig.name}" did not reach the expected end page`;
+      console.log(errMsg);
+      throw new Error(errMsg);
     }
   });
 });

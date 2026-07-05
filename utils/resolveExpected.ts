@@ -1,5 +1,8 @@
 import { getDynamicDateBadge, getDynamicDateTimeBadge } from './dateUtils';
 
+const DEFAULT_PPV_POPUP_DESCRIPTION = 'Catch the biggest moment of the year. Select a DAZN plan to pair with your pay-per-view.';
+const ACTIVE_STANDARD_PPV_POPUP_DESCRIPTION = 'Catch the biggest moment of the year. Select a DAZN plan to pair with your pay-per-view.';
+
 function replacePlaceholders(template: string, eventData: Record<string, string>): string {
   let result = template;
   for (let pass = 0; pass < 2; pass++) {
@@ -36,6 +39,12 @@ export function resolveExpected(
 
   const rawPage = rule.Page || rule.page || eventData.CURRENT_PAGE || eventData.current_page || '';
   const pageName = rawPage.trim().toLowerCase();
+  const currentUserState = String(eventData.USER_STATE || process.env.USER_STATE || '').trim().toLowerCase();
+  const isActiveStandardUser = [
+    'active_standard',
+    'active_standard_monthly',
+    'active_standard_apm',
+  ].includes(currentUserState);
 
   if (field === 'banner - fight card cta' && pageName.includes('landing')) {
     return 'N/A';
@@ -43,6 +52,21 @@ export function resolveExpected(
 
   if (field === 'upsell feature 1' && pageName === 'ppv') {
     return 'Minimum 12 pay-per-views a year included at no extra cost.';
+  }
+
+  if (isActiveStandardUser && pageName === 'choose how to buy') {
+    if (field === 'upsell feature 1') {
+      return 'Pay-per-views included at no extra cost. Minimum of 12 events per year.';
+    }
+    if (field === 'upsell feature 2') {
+      return 'HDR and Dolby 5.1 surround sound on select events.';
+    }
+    if (field === 'upsell feature 3') {
+      return "185+ fights a year from the world's best promotors";
+    }
+    if (field === 'upsell feature 4') {
+      return 'Every match from Lega Serie A, and highlights from LALIGA, Bundesliga and the Saudi Pro League.';
+    }
   }
 
   if (pageName === 'payment') {
@@ -102,6 +126,22 @@ export function resolveExpected(
 
   const currentSource = (eventData.SOURCE || eventData.source || '').trim().toLowerCase();
 
+  if (
+    field === 'biggest fights section' &&
+    currentSource === 'home-biggest-fights' &&
+    eventData.HOME_BIGGEST_FIGHTS_SECTION_HEADING
+  ) {
+    return String(eventData.HOME_BIGGEST_FIGHTS_SECTION_HEADING);
+  }
+
+  if (pageName === 'default signup') {
+    if (field === 'upsell price') {
+      raw = '{{UPSELL_PRICE}}/month';
+    } else if (field === 'upsell price length') {
+      raw = '/month';
+    }
+  }
+
 
   // Landing banner uses its own display date
   if (
@@ -115,6 +155,10 @@ export function resolveExpected(
 
   // Page-specific date expectations
   if (field === 'ppv date and time text') {
+    if (pageName === 'home of boxing' && currentSource === 'home-boxing-upcoming') {
+      return replacePlaceholders(String(raw ?? ''), eventData);
+    }
+
     switch ((pageName || "").toLowerCase()) {
       case 'boxing':
         if (eventData.BOXING_BANNER_DATE) return String(eventData.BOXING_BANNER_DATE);
@@ -252,6 +296,19 @@ export function resolveExpected(
   const isNonFreeMonthOffer = currentOfferType !== '1_month_free';
   const isAnnualFreeMonth = (eventData.ANNUAL_FREE_BADGE || eventData.ANNUAL_BADGE || '').toLowerCase().includes('1 month free') || (eventData.ANNUAL_FREE_BADGE || eventData.ANNUAL_BADGE || '').toLowerCase().includes('1 month');
 
+  if (
+    field === 'flex future date' &&
+    (pageName === 'dazn plan' || pageName === 'plan' || pageName === '')
+  ) {
+    const isMonthlyTrial =
+      currentOfferType === '7_day_trial' &&
+      (currentRatePlan === 'monthly' || currentRatePlan === '' || currentRatePlan.includes('flex'));
+
+    if (!isMonthlyTrial) {
+      return 'N/A| |';
+    }
+  }
+
   if (isNonFreeMonthOffer && !isSubscriptionOnly) {
     // DAZN Plan page: no "1 MONTH FREE" badge, no promotional features/price text
     if (pageName === 'dazn plan' || pageName === 'plan' || pageName === '') {
@@ -366,6 +423,24 @@ export function resolveExpected(
     const lpDate = eventData.LANDING_PAGE_PPV_DATE || '';
     if (pDate && lpDate) {
       raw = `${pDate}|${lpDate}`;
+    }
+  }
+
+  if (field === 'popup description' || field === 'popup - event description') {
+    // For home-page-popup, the popup shows BANNER_DESCRIPTION (from the Excel template)
+    // so skip this override and let the template resolve naturally
+    const currentSrc = (eventData.SOURCE || eventData.source || '').trim().toLowerCase();
+    if (currentSrc !== 'home-page-popup') {
+      const userState = String(eventData.USER_STATE || process.env.USER_STATE || '').trim().toLowerCase();
+      const activeStandardStates = new Set([
+        'active_standard',
+        'active_standard_monthly',
+        'active_standard_apm',
+      ]);
+
+      raw = activeStandardStates.has(userState)
+        ? eventData.PPV_DESCRIPTION_ACTIVE_STANDARD || ACTIVE_STANDARD_PPV_POPUP_DESCRIPTION
+        : eventData.PPV_DESCRIPTION || DEFAULT_PPV_POPUP_DESCRIPTION;
     }
   }
 
@@ -585,9 +660,12 @@ export function resolveExpected(
 
       // Override PPV_DATE specifically for landing/boxing/home pages
       // BUT NOT for banner fields — banners show the full PPV_DATE (e.g. 'Sat 27th Jun at 16:30')
+      // AND NOT for home-page-popup — the auto-popup shows the full PPV_DATE in the badge
       const pageNameLower = pageName.toLowerCase();
       const isBannerField = field.startsWith('banner');
-      if (k.toUpperCase() === 'PPV_DATE' && !isBannerField && (pageNameLower === 'landing' || pageNameLower === 'boxing' || pageNameLower.includes('home') || pageNameLower.includes('popup'))) {
+      const resolveSource = (eventData.SOURCE || eventData.source || '').trim().toLowerCase();
+      const isHomePagePopup = resolveSource === 'home-page-popup';
+      if (k.toUpperCase() === 'PPV_DATE' && !isBannerField && !isHomePagePopup && (pageNameLower === 'landing' || pageNameLower === 'boxing' || pageNameLower.includes('home') || pageNameLower.includes('popup'))) {
         if (eventData.LANDING_PAGE_PPV_DATE) {
           return String(eventData.LANDING_PAGE_PPV_DATE);
         }

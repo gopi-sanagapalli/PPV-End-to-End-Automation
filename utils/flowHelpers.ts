@@ -105,6 +105,23 @@ export async function detectPageType(
     return 'standalone-ppv';
   }
 
+  // page=PlanDetails can appear before the SPA appends upsellTierShown=true.
+  // If contextual PPV-only copy is already rendered, this is still the PPV
+  // selection page and must not be validated as a DAZN Plan page.
+  if (
+    urlLower.includes('contextualppvid=') &&
+    (urlLower.includes('page=plandetails') || urlLower.includes('page=tierplans')) &&
+    !urlLower.includes('upselltierselected=true') &&
+    (
+      body.includes('continue with pay-per-view') ||
+      body.includes('just the fight') ||
+      body.includes('to watch your pay-per-view') ||
+      body.includes('the ultimate fan package')
+    )
+  ) {
+    return 'ppv';
+  }
+
   if (urlLower.includes('page=plandetails')) return 'plan';
   if (urlLower.includes('page=tierplans')) return 'plan';
 

@@ -37,6 +37,11 @@ export function compare(
 
   const a = norm(actual);
   const e = norm(expected);
+  const isCloseLength = (extra = 40, multiplier = 3) =>
+    actual.length <= Math.max(expected.length + extra, expected.length * multiplier);
+
+  if (a === e) return true;
+  if (a.replace(/\.$/, '') === e.replace(/\.$/, '')) return true;
 
   // ── Price duplication check ─────────────────────────────────────
   const priceRegex = /\d+(?:\.\d{2})?/;
@@ -51,28 +56,8 @@ export function compare(
     }
   }
 
-  // ── Matchups Substring Match (e.g. "Beauty and The Beast: Fury vs. Hall" <-> "Fury vs. Hall") ──
-  if (a.includes('vs') && e.includes('vs')) {
-    const eParts = e.split('vs');
-    if (eParts.length >= 2) {
-      const leftWords = eParts[0].trim().split(/\s+/).map(w => w.replace(/[^a-z0-9]/gi, '')).filter(w => w.length > 0);
-      const rightWords = eParts[1].trim().split(/\s+/).map(w => w.replace(/[^a-z0-9]/gi, '')).filter(w => w.length > 0);
-      const leftFighter = leftWords[leftWords.length - 1];
-      const rightFighter = rightWords[0];
-      if (leftFighter && rightFighter && leftFighter.length >= 2 && rightFighter.length >= 2) {
-        if (a.includes(leftFighter) && a.includes(rightFighter)) {
-          return true;
-        }
-      }
-    }
-  }
-
-  if ((a.includes(e) || e.includes(a)) && (a.includes('vs') || e.includes('vs'))) {
-    return true;
-  }
-
   // ── Yes/No ─────────────────────────────────────────────────────
-  if (e === 'yes') return a === 'yes' || actual === 'Yes' || a.includes('buy') || a.includes('continue');
+  if (e === 'yes') return ['yes', 'visible', 'present', 'checked', 'selected'].includes(a) || actual === 'Yes';
   if (e === 'no')  return a === 'no'  || actual === 'No';
 
   // ── Gold ───────────────────────────────────────────────────────
@@ -85,14 +70,8 @@ export function compare(
   }
 
   // ── Type overrides ─────────────────────────────────────────────
-  if (type === 'contains')   return a.includes(e);
+  if (type === 'contains') return a === e;
   if (type === 'startsWith') return a.startsWith(e);
-
-  // ── Exact match ────────────────────────────────────────────────
-  if (a === e) return true;
-
-  // ── Trailing period flexibility ────────────────────────────────
-  if (a.replace(/\.$/, '') === e.replace(/\.$/, '')) return true;
 
   // ── Price comparison ───────────────────────────────────────────
   const normPrice = (s: string) =>
@@ -170,8 +149,8 @@ export function compare(
   // Date-only flexibility: only use when NEITHER string contains a time component.
   // If the actual has time info (e.g. "Sun 26th Jul at 00:30") but expected doesn't
   // (e.g. "26 Jul"), this should NOT pass — the expected should include the time.
-  const actualHasTime = /\b\d{1,2}:\d{2}\b/.test(actual);
-  const expectedHasTime = /\b\d{1,2}:\d{2}\b/.test(expected);
+  const actualHasTime = /\b\d{1,2}:\d{2}\s*(?:am|pm)?\.?\b/i.test(actual);
+  const expectedHasTime = /\b\d{1,2}:\d{2}\s*(?:am|pm)?\.?\b/i.test(expected);
   if (
     aParts.month && eParts.month &&
     aParts.day   && eParts.day   &&
@@ -228,7 +207,7 @@ export function compare(
 
     const aClean = normalizeDayAndStripDate(actual);
     const eClean = normalizeDayAndStripDate(expected);
-    if (aClean === eClean || aClean.includes(eClean) || eClean.includes(aClean)) {
+    if ((aClean === eClean || aClean.includes(eClean) || eClean.includes(aClean)) && isCloseLength(25, 2)) {
       return true;
     }
   }
@@ -243,7 +222,10 @@ export function compare(
     const stripTime = (s: string) => s.replace(/\b\d{1,2}:\d{2}\s*(?:am|pm)?\.?\b/gi, '').replace(/[•·]/g, ' ').replace(/\s+/g, ' ').trim();
     const aNoTime = stripTime(actual);
     const eNoTime = stripTime(expected);
-    if (norm(aNoTime) === norm(eNoTime) || norm(aNoTime).includes(norm(eNoTime)) || norm(eNoTime).includes(norm(aNoTime))) {
+    if (
+      (norm(aNoTime) === norm(eNoTime) || norm(aNoTime).includes(norm(eNoTime)) || norm(eNoTime).includes(norm(aNoTime))) &&
+      isCloseLength(25, 2)
+    ) {
       return true;
     }
   }

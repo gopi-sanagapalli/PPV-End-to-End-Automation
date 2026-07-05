@@ -303,11 +303,11 @@ export const getOTPPageData = () => {
 export const getHomeOfBoxingData = (flowName: string) => {
   const data = readSheet('Home of Boxing');
   const normalize = (val: any) => val?.toString().trim().toLowerCase();
-  const queryFlow = flowName === 'home-boxing-upcoming' ? 'home-boxing-tile' : flowName;
+  const queryFlow = flowName;
   const flowData = data.filter(
     (d: any) => normalize(d.Flow) === normalize(queryFlow)
   );
-  console.log(`🥊 Home of Boxing Flow: ${flowName} (mapped to ${queryFlow})`);
+  console.log(`🥊 Home of Boxing Flow: ${flowName}`);
   console.log(`📊 Home of Boxing rows: ${flowData.length}`);
   return flowData;
 };

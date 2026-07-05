@@ -14,6 +14,7 @@ import { PPVUpsellSuccessPage } from '../../pages/PPVUpsellSuccessPage';
 import { PPVUpsellPaymentPage } from '../../pages/PPVUpsellPaymentPage';
 import { RailsInterceptor } from '../../utils/railsInterceptor';
 import { GloryPage } from '../../pages/GloryPage';
+import { SignupPage } from '../../pages/SignupPage';
 
 
 import {
@@ -76,6 +77,17 @@ const DESKTOP_VIEWPORT = {
   width: Number(process.env.VIEWPORT_WIDTH || DEFAULT_VIEWPORT.width),
   height: Number(process.env.VIEWPORT_HEIGHT || DEFAULT_VIEWPORT.height),
 };
+
+function throwLogged(error: Error): never {
+  console.log(error.message);
+  throw error;
+}
+
+test.afterEach(async ({}, testInfo) => {
+  if (testInfo.status !== testInfo.expectedStatus && testInfo.error?.message) {
+    console.log(`❌ Test failure:\n${testInfo.error.message}`);
+  }
+});
 
 // ═══════════════════════════════════════════════════════════════
 // TEST DEFINITION — Dynamically defines tests for parallel runs
@@ -480,6 +492,25 @@ for (const stateKey of userStatesToRun) {
       }
 
       if (urlLower.includes('upselltierskipped=true')) return 'plan';
+
+      // Signed-in boxing banner can briefly expose page=PlanDetails before the
+      // SPA appends upsellTierShown=true. During that window the body is already
+      // the PPV selection screen, so avoid validating it with DAZN Plan rules.
+      if (
+        urlLower.includes('contextualppvid=') &&
+        (urlLower.includes('page=plandetails') || urlLower.includes('page=tierplans')) &&
+        !urlLower.includes('upselltierselected=true')
+      ) {
+        if (
+          lower.includes('continue with pay-per-view') ||
+          lower.includes('just the fight') ||
+          lower.includes('to watch your pay-per-view') ||
+          lower.includes('the ultimate fan package')
+        ) {
+          return 'ppv';
+        }
+      }
+
       if (urlLower.includes('upselltierselected=true') &&
         urlLower.includes('plandetails')) return 'plan';
       if (urlLower.includes('page=plandetails')) return 'plan';
@@ -525,6 +556,8 @@ for (const stateKey of userStatesToRun) {
 
         await handleCookies(page, 15000);
         await stabilisePage(page);
+        await page.keyboard.press('Escape').catch(() => { });
+        await page.waitForTimeout(200);
 
         const isLandingPageSource = SOURCE.toLowerCase().includes('landing-page');
 
@@ -542,7 +575,41 @@ for (const stateKey of userStatesToRun) {
 
         const isGlory = SOURCE.toLowerCase() === 'glory';
 
-        if (isGlory) {
+        // ══════════════════════════════════════════════════════════════
+        // HOME PAGE POPUP FLOW
+        // ══════════════════════════════════════════════════════════════
+        if (SOURCE === 'home-page-popup') {
+          console.log('\n╔═══════════════════════════════════════════════════════╗');
+          console.log('║  HOME PAGE POPUP FLOW — Existing User                  ║');
+          console.log('╚═══════════════════════════════════════════════════════╝\n');
+
+          // ── Navigate to welcome page and click Log In ──
+          const landingForPopup = new LandingPage(page);
+          await page.goto(`${baseUrl}/welcome`, { waitUntil: 'domcontentloaded' });
+          await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+          await handleCookies(page, 15000);
+          await landingForPopup.clickLogIn();
+
+          // ── Login with existing user credentials ──
+          const signupForPopup = new SignupPage(page);
+          await page.waitForURL(/emailDetails|signup|signin/i, { timeout: 10000 }).catch(() => {});
+          await page.waitForLoadState('domcontentloaded').catch(() => {});
+          console.log(`📍 [Home Page Popup] Landed on: ${page.url()}`);
+
+          await signupForPopup.enterEmail(userEmail);
+          await signupForPopup.clickContinue();
+          await signupForPopup.enterPasswordAndSignIn(userPassword);
+
+          // Wait for home page redirect
+          await page.waitForURL(/\/home/i, { timeout: 20000 }).catch(() => {});
+
+          // ── Popup detection + validation + Buy Now (via HomePage POM) ──
+          const homePageForPopup = new HomePage(page, baseUrl);
+          await homePageForPopup.waitForHomePagePopup(
+            { email: userEmail, password: userPassword },
+            baseUrl, results, eventData
+          );
+        } else if (isGlory) {
           const gloryPage = new GloryPage(page);
           await gloryPage.navigate();
           await setupPage(page, 8000);
@@ -680,14 +747,32 @@ for (const stateKey of userStatesToRun) {
               console.log(`🧭 [Login First] Navigating signed-in user to landing page source: ${SOURCE}`);
               await landing.navigate(baseUrl, SOURCE, eventData);
             } else if (isHomeSport) {
-              const targetSport = (eventData?.SPORT || 'Boxing').trim();
+              // Resolve sport from SOURCE name (source dictates the sport page)
+              let targetSport = '';
+              const srcLower = SOURCE.toLowerCase();
+              if (srcLower.includes('kickboxing')) targetSport = 'Kickboxing';
+              else if (srcLower.includes('misfits')) targetSport = 'Misfits Boxing';
+              else if (srcLower.includes('wrestling')) targetSport = 'Wrestling';
+              else if (srcLower.includes('boxing')) targetSport = 'Boxing';
+              if (!targetSport) targetSport = (eventData?.SPORT || 'Boxing').trim();
+
+              // Validate: source sport must match event SPORT
+              const evSport = (eventData?.SPORT || '').trim();
+              if (evSport && targetSport.toLowerCase() !== evSport.toLowerCase()) {
+                throwLogged(new Error(
+                  `❌ Source "${SOURCE}" is for "${targetSport}" events, ` +
+                  `but this PPV event's SPORT is "${evSport}". ` +
+                  `Use a "${evSport.toLowerCase()}" source instead.`
+                ));
+              }
+
               const sportIdMap: Record<string, string> = {
                 kickboxing: 'Sport:5rocwbb1fbfub9yh4yrff8khj',
                 wrestling: 'Sport:50dsk39gxuwwbkss8k2e24mca',
               };
               const sportId = sportIdMap[targetSport.toLowerCase()] || 'Sport:2x2oqzx60orpoeugkd754ga17';
               const targetUrl = `${baseNoSlash}/sport/${sportId}`;
-              console.log(`🧭 [Login First] Navigating directly to sport page: ${targetUrl}`);
+              console.log(`🧭 [Login First] Navigating directly to ${targetSport} sport page: ${targetUrl}`);
               await page.goto(targetUrl, { waitUntil: 'domcontentloaded' });
               await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });
             } else if (isBoxingSource) {
@@ -727,11 +812,19 @@ for (const stateKey of userStatesToRun) {
           }
           await setupPage(page, 8000);
           assertCountryMatch(page, REGION);
+          if (LOGIN_FIRST) {
+            await page.keyboard.press('Escape').catch(() => { });
+            await page.waitForTimeout(200);
+          }
 
           if (devModeEnabled) {
             console.log('\n🎭 Dev mode flow detected — enabling dev mode on landing page...');
             const searchPage = new SearchPage(page);
             await searchPage.enableDevMode();
+            if (LOGIN_FIRST) {
+              await page.keyboard.press('Escape').catch(() => { });
+              await page.waitForTimeout(200);
+            }
           }
 
           // Validate entry page
@@ -752,6 +845,8 @@ for (const stateKey of userStatesToRun) {
             pageName = 'Home of Boxing';
             flowParam = SOURCE.includes('banner')
               ? 'home-boxing-banner'
+              : SOURCE === 'home-boxing-upcoming'
+                ? 'home-boxing-upcoming'
               : 'home-boxing-tile';
           } else if (isBoxingSourceInner) {
             sheetName = 'Boxing page';
@@ -801,7 +896,7 @@ for (const stateKey of userStatesToRun) {
           }
 
           if (!container) {
-            throw new Error(`❌ PPV container not found on landing page via ${SOURCE}`);
+            throwLogged(new Error(`❌ PPV container not found on landing page via ${SOURCE}`));
           }
 
           const isBoxingSubscriptionSource =
@@ -882,6 +977,7 @@ for (const stateKey of userStatesToRun) {
           await landing.clickBuyNow(container, clickBuyNowSource);
         }
 
+        if (SOURCE !== 'home-page-popup') {
         // Handle generic popup validations and click-through
         // For home-biggest-fights: clickBuyNow only clicks the tile, handlePopupModal validates + clicks Buy Now
         // For dont-miss/tile sources: avoid double-clicking modal
@@ -906,6 +1002,7 @@ for (const stateKey of userStatesToRun) {
           ).catch(() => { });
         });
         console.log(`📍 Landed after Buy Now: ${page.url()}`);
+        }
 
         // ── STRICT VALIDATION FOR ULTIMATE USER PRE-LOGGED IN ──
         if (userStateKey === 'active_ultimate' && requiresPreLogin) {
@@ -1210,10 +1307,10 @@ for (const stateKey of userStatesToRun) {
         if (userStateKey === 'freemium' || userStateKey === 'frozen') {
           eventData.DAZN_TIER = 'DAZN Free';
           eventData['DAZN_TIER'] = 'DAZN Free';
-        } else if (userStateKey === 'active_standard') {
+        } else if (userStateKey.startsWith('active_standard')) {
           eventData.DAZN_TIER = 'DAZN Standard';
           eventData['DAZN_TIER'] = 'DAZN Standard';
-        } else if (userStateKey === 'active_ultimate') {
+        } else if (userStateKey.startsWith('active_ultimate')) {
           eventData.DAZN_TIER = 'DAZN Ultimate';
           eventData['DAZN_TIER'] = 'DAZN Ultimate';
         }
@@ -1228,7 +1325,11 @@ for (const stateKey of userStatesToRun) {
           freemium: { subscription: 'DAZN Free', status: 'Upgrade now', label: 'freemium' },
           frozen: { subscription: 'DAZN Free', status: 'Resubscribe', label: 'frozen' },
           active_standard: { subscription: 'DAZN Standard', status: 'Manage subscription', label: 'active standard' },
-          active_ultimate: { subscription: 'DAZN Ultimate', status: 'Manage subscription', label: 'active ultimate' }
+          active_standard_monthly: { subscription: 'DAZN Standard', status: 'Manage subscription', label: 'active standard monthly' },
+          active_standard_apm: { subscription: 'DAZN Standard', status: 'Manage subscription', label: 'active standard APM' },
+          active_ultimate: { subscription: 'DAZN Ultimate', status: 'Manage subscription', label: 'active ultimate' },
+          active_ultimate_apm: { subscription: 'DAZN Ultimate', status: 'Manage subscription', label: 'active ultimate APM' },
+          active_ultimate_upfront: { subscription: 'DAZN Ultimate', status: 'Manage subscription', label: 'active ultimate upfront' }
         };
 
         const expectedConfig = expectedUserStates[userStateKey];
@@ -2515,20 +2616,9 @@ for (const stateKey of userStatesToRun) {
             console.log('👉 Default Signup page');
             stuckCount = 0;
 
-            if (!ppvValidated) {
-              try {
-                const ppvData = getPPVDataByVariant(variant);
-                console.log(`📊 PPV rows (Default Signup): ${ppvData.length}`);
-                const ppvFlow = isMyAccount ? 'myaccount' : (isReturning ? 'returning' : undefined);
-                await validateVariant(page, variant, ppvData, results, eventData, 'Default Signup', ppvFlow);
-              } catch (e: any) {
-                console.warn('⚠️ Default Signup validation error:', e.message);
-              }
-              ppvValidated = true;
-              defaultSignupPPVValidated = true;
-            }
-
-            // ── Default Signup Event Matching Check ──
+            // Default signup can be configured either with a contextual PPV card
+            // or as a generic tier-plan page. PPV-specific validations only make
+            // sense when the expected PPV is actually present.
             const ppvName = eventData.PPV_NAME || '';
             const nameClean = ppvName.replace(/[:\-–]/g, ' ');
             let matched = false;
@@ -2546,9 +2636,22 @@ for (const stateKey of userStatesToRun) {
               matched = await page.locator(`text=${ppvName}`).first().isVisible().catch(() => false);
             }
             if (!matched) {
-              throw new Error(`❌ [DefaultSignup] PPV on page does not match the expected event: "${ppvName}"`);
+              throw new Error(`❌ [DefaultSignup] PPV is not configured in default signup for expected event: "${ppvName}"`);
             }
             console.log(`✅ [DefaultSignup] Verified PPV on page matches: "${ppvName}"`);
+
+            if (!ppvValidated) {
+              try {
+                const ppvData = getPPVDataByVariant(variant);
+                console.log(`📊 PPV rows (Default Signup): ${ppvData.length}`);
+                const ppvFlow = isMyAccount ? 'myaccount' : (isReturning ? 'returning' : undefined);
+                await validateVariant(page, variant, ppvData, results, eventData, 'Default Signup', ppvFlow);
+              } catch (e: any) {
+                console.warn('⚠️ Default Signup validation error:', e.message);
+              }
+              ppvValidated = true;
+              defaultSignupPPVValidated = true;
+            }
 
             // Select Ultimate card first if tier is ultimate
             if (tier === 'ultimate') {
@@ -3402,11 +3505,15 @@ for (const stateKey of userStatesToRun) {
       console.log(`${'─'.repeat(55)}`);
 
       if (total === 0) {
-        throw new Error(`❌ Flow "${SOURCE} (${stateKey})" had 0 validation checks`);
+        const errMsg = `❌ Flow "${SOURCE} (${stateKey})" had 0 validation checks`;
+        console.log(errMsg);
+        throw new Error(errMsg);
       }
 
       if (!reachedEndPage) {
-        throw new Error(`❌ Flow "${SOURCE} (${stateKey})" did not reach the expected end page: "payment" or "confirmation"`);
+        const errMsg = `❌ Flow "${SOURCE} (${stateKey})" did not reach the expected end page: "payment" or "confirmation"`;
+        console.log(errMsg);
+        throw new Error(errMsg);
       }
 
       if (failed > 0) {
@@ -3414,9 +3521,9 @@ for (const stateKey of userStatesToRun) {
           .filter(r => r.status === 'FAIL')
           .map(r => `  - [${r.page}] ${r.field}: expected "${r.expected}", actual "${r.actual}"`)
           .join('\n');
-        throw new Error(
-          `❌ Flow "${SOURCE} (${stateKey})" completed navigation but had ${failed} validation failure(s):\n${failMsgs}`
-        );
+        const errMsg = `❌ Flow "${SOURCE} (${stateKey})" completed navigation but had ${failed} validation failure(s):\n${failMsgs}`;
+        console.log(errMsg);
+        throw new Error(errMsg);
       }
 
     } catch (error) {

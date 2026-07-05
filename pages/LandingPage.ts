@@ -25,6 +25,20 @@ export class LandingPage extends BasePage {
   }
 
   // ─────────────────────────────
+  // CLICK LOG IN ON WELCOME PAGE
+  // ─────────────────────────────
+  async clickLogIn(): Promise<void> {
+    const logInBtn = this.page.locator(
+      'button:has-text("Log in"), a:has-text("Log in"), ' +
+      'button:has-text("Log In"), a:has-text("Log In")'
+    ).first();
+    await logInBtn.waitFor({ state: 'visible', timeout: 10000 });
+    console.log('🖱️ Clicking Log In on welcome page...');
+    await logInBtn.click({ force: true });
+    await this.page.waitForLoadState('domcontentloaded').catch(() => {});
+  }
+
+  // ─────────────────────────────
   // DISMISS CONSENT
   // ─────────────────────────────
   async dismissConsentIfPresent(): Promise<void> {

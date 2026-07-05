@@ -112,5 +112,9 @@
   "glory": {
     "source": "glory",
     "endPage": "payment"
+  },
+  "home-page-popup": {
+    "source": "home-page-popup",
+    "endPage": "payment"
   }
 }

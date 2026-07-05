@@ -65,6 +65,17 @@ const SWITCH_TO_ULTIMATE = (process.env.SWITCH || '').toLowerCase() === 'true';
 const ENV = (process.env.DAZN_ENV || 'stag').toLowerCase();
 const PAYMENT_METHOD = (process.env.PAYMENT_METHOD || 'credit_card').toLowerCase();
 
+function throwLogged(error: Error): never {
+  console.log(error.message);
+  throw error;
+}
+
+test.afterEach(async ({ }, testInfo) => {
+  if (testInfo.status !== testInfo.expectedStatus && testInfo.error?.message) {
+    console.log(`❌ Test failure:\n${testInfo.error.message}`);
+  }
+});
+
 // ═══════════════════════════════════════════════════════════════
 // RUN A SINGLE FLOW
 // ═══════════════════════════════════════════════════════════════
@@ -110,11 +121,11 @@ async function waitForPostPlanTransition(page: Page): Promise<void> {
 
   if (!nextState) {
     const body = await page.locator('body').innerText().catch(() => '');
-    throw new Error(
+    throwLogged(new Error(
       `❌ Plan CTA did not transition within 30 seconds.\n` +
       `URL: ${page.url()}\n` +
       `Page text: ${body.slice(0, 3000)}`
-    );
+    ));
   }
 
   console.log(`✅ Post-plan transition detected: ${nextState} | URL: ${page.url()}`);
@@ -302,7 +313,45 @@ async function runFlow(
 
     const isGlory = source.toLowerCase() === 'glory';
 
-    if (isGlory) {
+    // ══════════════════════════════════════════════════════════════
+    // HOME PAGE POPUP FLOW
+    // ══════════════════════════════════════════════════════════════
+    if (source === 'home-page-popup') {
+      console.log('\n╔═══════════════════════════════════════════════════════╗');
+      console.log('║  HOME PAGE POPUP FLOW — New User                      ║');
+      console.log('╚═══════════════════════════════════════════════════════╝\n');
+
+      // ── Navigate to welcome page and click Log In ──
+      const landingForPopup = new LandingPage(page);
+      await page.goto(`${baseUrl}/welcome`, { waitUntil: 'domcontentloaded' });
+      await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });
+      await handleCookies(page, 15000);
+      await landingForPopup.clickLogIn();
+
+      // ── Sign up with new user ──
+      const signupForPopup = new SignupPage(page);
+      await page.waitForURL(/emailDetails|signup|signin/i, { timeout: 10000 }).catch(() => { });
+      await page.waitForLoadState('domcontentloaded').catch(() => { });
+      console.log(`📍 [Home Page Popup] Landed on: ${page.url()}`);
+
+      await signupForPopup.enterEmail(user.email);
+      await signupForPopup.clickContinue();
+
+      // Fill personal details if shown
+      const nextStep = await signupForPopup.waitForNextStep();
+      if (nextStep === 'personalDetails') {
+        await signupForPopup.fillPersonalDetails(user);
+        await signupForPopup.clickPersonalDetailsContinue();
+        console.log('✅ [Home Page Popup] Personal details filled');
+      }
+
+      // ── Popup detection + validation + Buy Now (via HomePage POM) ──
+      const homePageForPopup = new HomePage(page, baseUrl);
+      await homePageForPopup.waitForHomePagePopup(
+        { email: user.email, password: user.password },
+        baseUrl, results, eventData
+      );
+    } else if (isGlory) {
       const gloryPage = new GloryPage(page);
       await gloryPage.navigate();
       await setupPage(page, 8000);
@@ -463,7 +512,7 @@ async function runFlow(
         }
 
         if (!container) {
-          throw new Error(`❌ PPV container not found via ${source}`);
+          throwLogged(new Error(`❌ PPV container not found via ${source}`));
         }
       }
 
@@ -528,7 +577,11 @@ async function runFlow(
                 console.log(`ℹ️ No spreadsheet rules for homepage source "${source}" — skipping validation`);
               }
             } else {
-              const queryFlow = source.includes('banner') ? 'home-boxing-banner' : 'home-boxing-tile';
+              const queryFlow = source.includes('banner')
+                ? 'home-boxing-banner'
+                : source === 'home-boxing-upcoming'
+                  ? 'home-boxing-upcoming'
+                  : 'home-boxing-tile';
               const homeOfBoxingData = getHomeOfBoxingData(queryFlow);
               if (homeOfBoxingData && homeOfBoxingData.length > 0) {
                 await validateVariant(page, 'home-boxing', homeOfBoxingData, results, eventData, 'Home of Boxing', queryFlow);
@@ -554,25 +607,27 @@ async function runFlow(
       }
     }
 
-    // Handle generic popup validations and click-through
-    if ((!isHomeSport || source === 'home-page-dont-miss') && source !== 'glory') {
-      await handlePopupModal(page, results, eventData, source, true);
-    }
+    if (source !== 'home-page-popup') {
+      // Handle generic popup validations and click-through
+      if ((!isHomeSport || source === 'home-page-dont-miss') && source !== 'glory') {
+        await handlePopupModal(page, results, eventData, source, true);
+      }
 
-    await page.waitForURL(
-      (url: URL) =>
-        url.toString().includes('PlanDetails') ||
-        url.toString().includes('TierPlans') ||
-        url.toString().includes('signup'),
-      { timeout: 10000 }
-    ).catch(async () => {
       await page.waitForURL(
-        (url: URL) => !url.toString().includes('/welcome'),
-        { timeout: 5000 }
-      ).catch(() => { });
-    });
+        (url: URL) =>
+          url.toString().includes('PlanDetails') ||
+          url.toString().includes('TierPlans') ||
+          url.toString().includes('signup'),
+        { timeout: 10000 }
+      ).catch(async () => {
+        await page.waitForURL(
+          (url: URL) => !url.toString().includes('/welcome'),
+          { timeout: 5000 }
+        ).catch(() => { });
+      });
 
-    await page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => { });
+      await page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => { });
+    }
 
     // ── Step 3: Detect variant ───────────────────────────────
     console.log('landed on:', page.url());
@@ -2058,11 +2113,15 @@ for (const planKey of plansToRun) {
       console.log(`${'─'.repeat(55)}`);
 
       if (total === 0) {
-        throw new Error(`❌ Flow "${flowConfig.name}" had 0 validation checks`);
+        const errMsg = `❌ Flow "${flowConfig.name}" had 0 validation checks`;
+        console.log(errMsg);
+        throw new Error(errMsg);
       }
 
       if (!reachedEndPage) {
-        throw new Error(`❌ Flow "${flowConfig.name}" did not reach the expected end page: "${flowConfig.endPage || 'payment'}"`);
+        const errMsg = `❌ Flow "${flowConfig.name}" did not reach the expected end page: "${flowConfig.endPage || 'payment'}"`;
+        console.log(errMsg);
+        throw new Error(errMsg);
       }
 
       if (failed > 0) {
@@ -2071,9 +2130,9 @@ for (const planKey of plansToRun) {
           .map(r => `  - [${r.page}] ${r.field}: expected "${r.expected}", actual "${r.actual}"`)
           .join('\n');
 
-        throw new Error(
-          `❌ Flow "${flowConfig.name}" completed navigation but had ${failed} validation failure(s):\n${failMsgs}`
-        );
+        const errMsg = `❌ Flow "${flowConfig.name}" completed navigation but had ${failed} validation failure(s):\n${failMsgs}`;
+        console.log(errMsg);
+        throw new Error(errMsg);
       }
     } catch (error) {
       console.error('❌ Test error:', error);

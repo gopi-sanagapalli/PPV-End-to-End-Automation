@@ -315,6 +315,7 @@ export const validateVariant = async (
       'page title',
       'pagetitle',
       'currency',
+      'biggest fights section',
     ]);
     const fieldLowerForFallback = field.toLowerCase().replace(/\s+/g, ' ').trim();
     const requiresExactActual = strictActualFields.has(fieldLowerForFallback);
