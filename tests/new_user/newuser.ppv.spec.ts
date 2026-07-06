@@ -64,6 +64,12 @@ const PPV_TYPE = (process.env.PPV_TYPE || 'normal').toLowerCase();
 const SWITCH_TO_ULTIMATE = (process.env.SWITCH || '').toLowerCase() === 'true';
 const ENV = (process.env.DAZN_ENV || 'stag').toLowerCase();
 const PAYMENT_METHOD = (process.env.PAYMENT_METHOD || 'credit_card').toLowerCase();
+const HOME_SPORT_DROPDOWN_SOURCES = new Set([
+  'home-boxing-banner',
+  'home-boxing-tile',
+  'home-boxing-upcoming',
+  'home-kickboxing-tile',
+]);
 
 function throwLogged(error: Error): never {
   console.log(error.message);
@@ -306,7 +312,7 @@ async function runFlow(
   try {
     // ── Step 1: Navigate to landing page ─────────────────────
     const isHomePageSource = source.startsWith('home-page-') || source === 'home-biggest-fights';
-    const isHomeSport = (source.startsWith('home-') && !isHomePageSource) || source === 'home-kickboxing-tile';
+    const isHomeSport = HOME_SPORT_DROPDOWN_SOURCES.has(source.toLowerCase());
     const isBoxingSource = source.startsWith('boxing');
     const isSearch = source.toLowerCase().includes('search');
     const isSchedule = source.toLowerCase().includes('schedule');

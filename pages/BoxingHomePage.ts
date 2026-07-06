@@ -23,6 +23,54 @@ export class BoxingHomePage extends HomePage {
     return 'prod';
   }
 
+  async navigateToSportViaAllSports(source?: string, eventData?: Record<string, string>): Promise<void> {
+    await this.dismissConsentIfPresent();
+
+    let targetSport = '';
+    const srcLower = (source || '').toLowerCase();
+    if (srcLower.includes('kickboxing')) {
+      targetSport = 'Kickboxing';
+    } else if (srcLower.includes('misfits')) {
+      targetSport = 'Misfits Boxing';
+    } else if (srcLower.includes('wrestling')) {
+      targetSport = 'Wrestling';
+    } else if (srcLower.includes('boxing')) {
+      targetSport = 'Boxing';
+    }
+    if (!targetSport) {
+      targetSport = (eventData?.SPORT || 'Boxing').trim();
+    }
+
+    const eventSport = (eventData?.SPORT || '').trim();
+    if (eventSport && targetSport.toLowerCase() !== eventSport.toLowerCase()) {
+      throw new Error(
+        `❌ [BoxingHomePage] Source "${source}" is for "${targetSport}" events, ` +
+        `but this PPV event's SPORT is "${eventSport}". ` +
+        `Use a "${eventSport.toLowerCase()}" source instead (e.g. "home-${eventSport.toLowerCase()}-tile").`
+      );
+    }
+
+    console.log(`🧭 Navigating to "${targetSport}" landing page via All Sports dropdown...`);
+    const dropdownClicked = await this.clickAllSportsDropdown();
+    if (dropdownClicked) {
+      const sportSelected = await this.selectSportFromDropdown(targetSport);
+      if (!sportSelected) {
+        console.log(`⚠️ Could not select "${targetSport}" from dropdown — trying direct navigation fallback`);
+        await this.navigateToSportDirectFallback(targetSport);
+      }
+    } else {
+      console.log(`⚠️ Could not open sports dropdown — trying direct navigation fallback`);
+      await this.navigateToSportDirectFallback(targetSport);
+    }
+
+    await this.waitForSportPageContent(targetSport);
+    const validated = await this.validateSportCompetitionPage(targetSport);
+    if (!validated) {
+      console.log(`⚠️ "Best of ${targetSport}" section not found — but continuing`);
+    }
+    console.log(`✅ ${targetSport} competition page ready: ${this.page.url()}`);
+  }
+
 
   // ─────────────────────────────
   // NAVIGATE: Welcome → Explore → Home → Tab/Dropdown → Sport competition page

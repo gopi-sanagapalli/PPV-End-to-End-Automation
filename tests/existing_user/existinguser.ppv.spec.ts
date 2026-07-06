@@ -68,6 +68,12 @@ const SOURCE = process.env.SOURCE || 'my-account';
 const FLOW = 'myaccount';
 const SWITCH_TO_ULTIMATE = (process.env.SWITCH || '').toLowerCase() === 'true';
 const LOGIN_FIRST = (process.env.LOGIN || process.env.LOGIN_FIRST || '').toLowerCase() === 'true';
+const HOME_SPORT_DROPDOWN_SOURCES = new Set([
+  'home-boxing-banner',
+  'home-boxing-tile',
+  'home-boxing-upcoming',
+  'home-kickboxing-tile',
+]);
 const LOGIN_FIRST_INVALID_LANDING_SOURCES = new Set([
   'landing-page-banner',
   'landing-page-dont-miss-live',
@@ -499,10 +505,17 @@ for (const stateKey of userStatesToRun) {
       // Signed-in boxing banner can briefly expose page=PlanDetails before the
       // SPA appends upsellTierShown=true. During that window the body is already
       // the PPV selection screen, so avoid validating it with DAZN Plan rules.
+      const isBoxingPpvEntrySource =
+        SOURCE.toLowerCase().startsWith('boxing-page') ||
+        SOURCE.toLowerCase().startsWith('boxing-bundle') ||
+        SOURCE.toLowerCase() === 'boxing-upcoming-fights';
       if (
         urlLower.includes('contextualppvid=') &&
         (urlLower.includes('page=plandetails') || urlLower.includes('page=tierplans')) &&
-        !urlLower.includes('upselltierselected=true')
+        (
+          !urlLower.includes('upselltierselected=true') ||
+          isBoxingPpvEntrySource
+        )
       ) {
         if (
           lower.includes('continue with pay-per-view') ||
@@ -736,7 +749,7 @@ for (const stateKey of userStatesToRun) {
           const isHomePageSource = SOURCE.startsWith('home-page-') ||
             SOURCE === 'home-biggest-fights' ||
             SOURCE === 'subscribe-without-pay-per-view';
-          const isHomeSport = (SOURCE.startsWith('home-') && !isHomePageSource) || SOURCE === 'home-kickboxing-tile';
+          const isHomeSport = HOME_SPORT_DROPDOWN_SOURCES.has(SOURCE.toLowerCase());
           const isBoxingSource = SOURCE.startsWith('boxing-page') || SOURCE.startsWith('boxing');
 
           const landing = isHomePageSource
@@ -769,34 +782,8 @@ for (const stateKey of userStatesToRun) {
               console.log(`🧭 [Login First] Navigating signed-in user to landing page source: ${SOURCE}`);
               await landing.navigate(baseUrl, SOURCE, eventData);
             } else if (isHomeSport) {
-              // Resolve sport from SOURCE name (source dictates the sport page)
-              let targetSport = '';
-              const srcLower = SOURCE.toLowerCase();
-              if (srcLower.includes('kickboxing')) targetSport = 'Kickboxing';
-              else if (srcLower.includes('misfits')) targetSport = 'Misfits Boxing';
-              else if (srcLower.includes('wrestling')) targetSport = 'Wrestling';
-              else if (srcLower.includes('boxing')) targetSport = 'Boxing';
-              if (!targetSport) targetSport = (eventData?.SPORT || 'Boxing').trim();
-
-              // Validate: source sport must match event SPORT
-              const evSport = (eventData?.SPORT || '').trim();
-              if (evSport && targetSport.toLowerCase() !== evSport.toLowerCase()) {
-                throwLogged(new Error(
-                  `❌ Source "${SOURCE}" is for "${targetSport}" events, ` +
-                  `but this PPV event's SPORT is "${evSport}". ` +
-                  `Use a "${evSport.toLowerCase()}" source instead.`
-                ));
-              }
-
-              const sportIdMap: Record<string, string> = {
-                kickboxing: 'Sport:5rocwbb1fbfub9yh4yrff8khj',
-                wrestling: 'Sport:50dsk39gxuwwbkss8k2e24mca',
-              };
-              const sportId = sportIdMap[targetSport.toLowerCase()] || 'Sport:2x2oqzx60orpoeugkd754ga17';
-              const targetUrl = `${baseNoSlash}/sport/${sportId}`;
-              console.log(`🧭 [Login First] Navigating directly to ${targetSport} sport page: ${targetUrl}`);
-              await page.goto(targetUrl, { waitUntil: 'domcontentloaded' });
-              await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });
+              console.log(`🧭 [Login First] Navigating via All Sports dropdown for source: ${SOURCE}`);
+              await (landing as BoxingHomePage).navigateToSportViaAllSports(SOURCE, eventData);
             } else if (isBoxingSource) {
               const targetUrl = `${baseNoSlash}/p/boxing`;
               console.log(`🧭 [Login First] Navigating directly to Boxing page: ${targetUrl}`);
@@ -852,7 +839,7 @@ for (const stateKey of userStatesToRun) {
           // Validate entry page
           const isBoxingSourceInner = SOURCE.startsWith('boxing-page') || SOURCE.startsWith('boxing');
           const isHomePageSourceInner = SOURCE.startsWith('home-page-') || SOURCE === 'home-biggest-fights';
-          const isHomeSportInner = SOURCE.startsWith('home-') && !isHomePageSourceInner;
+          const isHomeSportInner = HOME_SPORT_DROPDOWN_SOURCES.has(SOURCE.toLowerCase());
 
           let sheetName = 'Landing page';
           let pageName = 'Landing';
@@ -1243,26 +1230,13 @@ for (const stateKey of userStatesToRun) {
         // MY ACCOUNT FLOW — already signed in via PRE-LOGIN FLOW above
         // ══════════════════════════════════════════════════════════════
       } else {
-        // After sign-in, user may still be on signup continuation page
-        // (e.g. /signup?signin=true&page=personalDetails). Navigate to
-        // home page first to avoid dismissPopup clicking something
-        // destructive that closes the page context.
-        const postLoginUrl = page.url().toLowerCase();
-        if (postLoginUrl.includes('/signup') || postLoginUrl.includes('/signin') || postLoginUrl.includes('/content/')) {
-          console.log(`⚠️  Post-login URL is still on signup page: ${page.url()}`);
-          console.log('🏠 Navigating to home page before proceeding...');
-          await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => { });
-          await page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => { });
-          console.log(`✅ Navigated to: ${page.url()}`);
-        }
-
-        // Settle the Home page and wait for any marketing popups to trigger
-        await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => { });
-        await stabilisePage(page);
-
+        // My Account source should not pass through Home after sign-in. Going
+        // through Home can open header controls such as All Sports and change
+        // the starting page for the flow.
         const homePage = new HomePage(page, baseUrl);
-        await homePage.dismissPopup();
-        await homePage.dismissPopup(); // Double check to dismiss late popups
+        await homePage.navigateToMyAccount();
+        await handleCookies(page, 8000);
+        await stabilisePage(page);
 
         if (devModeEnabled) {
           const reason = devModeForced ? '(forced via DEV_MODE_ON=on)' : '(auto: ultimate tier in GB/US)';
@@ -1271,9 +1245,6 @@ for (const stateKey of userStatesToRun) {
           await searchPage.enableDevMode();
           console.log('✅ dev mode enabled — continuing with ultimate flow');
         }
-
-        await homePage.navigateToMyAccount();
-        await handleCookies(page, 8000);
       }
 
       let isReturning = false;

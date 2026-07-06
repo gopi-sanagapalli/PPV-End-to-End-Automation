@@ -1,7 +1,7 @@
 import { getDynamicDateBadge, getDynamicDateTimeBadge } from './dateUtils';
 
 const DEFAULT_PPV_POPUP_DESCRIPTION = 'Catch the biggest moment of the year. Select a DAZN plan to pair with your pay-per-view.';
-const ACTIVE_STANDARD_PPV_POPUP_DESCRIPTION = 'Catch the biggest moment of the year. Select a DAZN plan to pair with your pay-per-view.';
+const ACTIVE_STANDARD_PPV_POPUP_DESCRIPTION = 'Catch the biggest moment of the year. Add this pay-per-view to your DAZN plan.';
 
 function replacePlaceholders(template: string, eventData: Record<string, string>): string {
   let result = template;
@@ -427,8 +427,8 @@ export function resolveExpected(
   }
 
   if (field === 'popup description' || field === 'popup - event description') {
-    // For home-page-popup, the popup shows BANNER_DESCRIPTION (from the Excel template)
-    // so skip this override and let the template resolve naturally
+    // home-page-popup has separate Home Popup fields that resolve from HOME_POPUP_*.
+    // Let those template rows resolve naturally.
     const currentSrc = (eventData.SOURCE || eventData.source || '').trim().toLowerCase();
     if (currentSrc !== 'home-page-popup') {
       const userState = String(eventData.USER_STATE || process.env.USER_STATE || '').trim().toLowerCase();

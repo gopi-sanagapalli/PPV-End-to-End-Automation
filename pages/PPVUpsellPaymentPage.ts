@@ -27,8 +27,8 @@ export class PPVUpsellPaymentPage extends BasePage {
     const lower = body.toLowerCase();
     // Generic: saved card present + one time payment indicator
     return (lower.includes('one time payment') || lower.includes('pay now')) &&
-           (lower.includes('visa') || lower.includes('mastercard') || lower.includes('amex') ||
-            lower.includes('****') || lower.includes('saved'));
+      (lower.includes('visa') || lower.includes('mastercard') || lower.includes('amex') ||
+        lower.includes('****') || lower.includes('saved'));
   }
 
   // ─────────────────────────────
@@ -46,19 +46,20 @@ export class PPVUpsellPaymentPage extends BasePage {
     console.log(`🔍 Validating ${pageName} page...`);
 
     // ── Wait for page to be ready ──
-    const readyIndicator = this.page.locator(
+    // Wait specifically for the Pay Now button — it is the last element to render
+    // on the saved card payment page, so its visibility confirms the page is fully loaded.
+    const payNowBtn = this.page.locator(
       'button:has-text("Pay Now"), button:has-text("Pay now"), ' +
       'button:has-text("Pay €"), button:has-text("Pay £"), ' +
-      'button[type="submit"]:has-text("Pay"), ' +
-      'text=/Today you pay|payment method|one time payment/i'
+      'button[type="submit"]:has-text("Pay")'
     ).first();
 
-    console.log('⏳ Waiting for saved card payment page elements to render...');
-    await readyIndicator.waitFor({ state: 'visible', timeout: 15000 }).catch(() => {
-      console.warn('⚠️ Saved card payment page indicators not visible after 15s');
+    console.log('⏳ Waiting for Pay Now button to be visible (page fully loaded)...');
+    await payNowBtn.waitFor({ state: 'visible', timeout: 20000 }).catch(() => {
+      console.warn('⚠️ Pay Now button not visible after 20s — page may not be fully loaded');
     });
-    await this.page.waitForLoadState('networkidle', { timeout: 3000 }).catch(() => {});
-    await this.page.waitForTimeout(1000); // Small settle delay
+    await this.page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => { });
+    await this.page.waitForTimeout(500); // Small settle delay
 
     const bodyText = await this.page.locator('body').innerText({ timeout: 5000 }).catch(() => '');
     const bodyLower = bodyText.toLowerCase();
@@ -87,7 +88,7 @@ export class PPVUpsellPaymentPage extends BasePage {
         ).first();
         actual = (await skipEl.isVisible({ timeout: 2000 }).catch(() => false)) ? 'Yes' : 'No';
 
-      // ── PPV Name (heading) ──
+        // ── PPV Name (heading) ──
       } else if (key === 'ppv name' || key === 'page title') {
         const headings = await this.page.locator('h1, h2, h3, h4').allTextContents().catch(() => []);
         const ppvNameFull = (eventData?.PPV_NAME || '').toLowerCase();
@@ -106,7 +107,7 @@ export class PPVUpsellPaymentPage extends BasePage {
 
         actual = foundHeading?.trim() || headings.find(h => !h.toLowerCase().includes('dazn'))?.trim() || headings[0]?.trim() || 'N/A';
 
-      // ── PPV Description ──
+        // ── PPV Description ──
       } else if (key === 'ppv description') {
         // Return actual description text; fall back to 'Yes'/'No' if expected is Yes/No
         const paras = await this.page.locator('p, [class*="description" i], [class*="subtitle" i]')
@@ -119,12 +120,12 @@ export class PPVUpsellPaymentPage extends BasePage {
           actual = desc ? desc.trim() : 'N/A';
         }
 
-      // ── PPV Image Present ──
+        // ── PPV Image Present ──
       } else if (key === 'ppv image present' || key.includes('ppv image') || key.includes('image present')) {
         const imgs = this.page.locator('img');
         actual = (await imgs.count().catch(() => 0)) > 0 ? 'Yes' : 'No';
 
-      // ── PPV Date and Time ──
+        // ── PPV Date and Time ──
       } else if (key === 'ppv date and time' || key.includes('date badge') || key.includes('event date')) {
         const datePatterns = [
           /\b(Sat|Sun|Mon|Tue|Wed|Thu|Fri)\w*\s+\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\s+at\s+\d{1,2}:\d{2}/i,
@@ -137,7 +138,7 @@ export class PPVUpsellPaymentPage extends BasePage {
           if (match) { actual = match[0].trim(); break; }
         }
 
-      // ── Order Summary PPV Name (PPV name in the price/summary section) ──
+        // ── Order Summary PPV Name (PPV name in the price/summary section) ──
       } else if (key === 'order summary ppv name') {
         // The PPV name appears next to the price in the order summary row
         const ppvName = eventData.PPV_NAME || '';
@@ -156,32 +157,32 @@ export class PPVUpsellPaymentPage extends BasePage {
         });
         actual = matchEl ? matchEl.trim() : 'N/A';
 
-      // ── Today You Pay Text ──
+        // ── Today You Pay Text ──
       } else if (key === 'today you pay text') {
         actual = bodyLower.includes('today you pay') ? 'Today you pay' : 'N/A';
 
-      // ── Today You Pay Price ──
+        // ── Today You Pay Price ──
       } else if (key === 'today you pay price' || key.includes('today you pay') || key.includes('total price')) {
         const todayMatch = bodyText.match(/today you pay[^£$€AED]*(?:AED\s?|[£$€])\d+\.\d{2}/i);
         actual = todayMatch ? todayMatch[0].match(/(?:AED\s?|[£$€])\d+\.\d{2}/)?.[0] || 'N/A' : 'N/A';
 
-      // ── PPV Price / Event Price (in the order summary line) ──
+        // ── PPV Price / Event Price (in the order summary line) ──
       } else if (key === 'ppv price' || key === 'event price') {
         const priceMatch = bodyText.match(/(?:AED\s?|[£$€])\d+\.\d{2}/);
         actual = priceMatch ? priceMatch[0] : 'N/A';
 
-      // ── Payment Type (One time payment) ──
+        // ── Payment Type (One time payment) ──
       } else if (key.includes('payment type')) {
         actual = bodyLower.includes('one time payment') ? 'One time payment' : 'N/A';
 
-      // ── Payment Method Present ──
+        // ── Payment Method Present ──
       } else if (key === 'payment method present') {
         const hasMethod = bodyLower.includes('payment method') ||
           bodyLower.includes('visa') || bodyLower.includes('mastercard') ||
           bodyLower.includes('amex') || bodyLower.includes('****');
         actual = hasMethod ? 'Yes' : 'No';
 
-      // ── Pay Now Button ──
+        // ── Pay Now Button ──
       } else if (key === 'pay now button') {
         const payBtn = this.page.locator(
           'button:has-text("Pay Now"), button:has-text("Pay now"), ' +
@@ -190,7 +191,7 @@ export class PPVUpsellPaymentPage extends BasePage {
         ).first();
         actual = (await payBtn.isVisible({ timeout: 2000 }).catch(() => false)) ? 'Yes' : 'No';
 
-      // ── Secure Checkout ──
+        // ── Secure Checkout ──
       } else if (key === 'secure checkout') {
         const hasSecure = bodyLower.includes('secure checkout') ||
           bodyLower.includes('secure payment') ||
@@ -199,14 +200,14 @@ export class PPVUpsellPaymentPage extends BasePage {
             .first().isVisible({ timeout: 1500 }).catch(() => false);
         actual = hasSecure ? 'Yes' : 'No';
 
-      // ── More Payment Methods ──
+        // ── More Payment Methods ──
       } else if (key === 'more payment methods' || key.includes('more payment')) {
         const hasMore = bodyLower.includes('more payment methods') ||
           await this.page.locator('text=/more payment/i').first()
             .isVisible({ timeout: 1500 }).catch(() => false);
         actual = hasMore ? 'Yes' : 'No';
 
-      // ── Legal Text Present ──
+        // ── Legal Text Present ──
       } else if (key === 'legal text present') {
         // Legal text typically contains terms like "By completing", "agree", "purchase"
         const legalPatterns = [
@@ -216,7 +217,7 @@ export class PPVUpsellPaymentPage extends BasePage {
         const hasLegal = legalPatterns.some(p => bodyLower.includes(p));
         actual = hasLegal ? 'Yes' : 'No';
 
-      // ── Terms Link Present ──
+        // ── Terms Link Present ──
       } else if (key === 'terms link present') {
         const termsLink = this.page.locator(
           'a:has-text("Terms"), a:has-text("terms of use"), a:has-text("Terms and Conditions"), ' +
@@ -224,7 +225,7 @@ export class PPVUpsellPaymentPage extends BasePage {
         ).first();
         actual = (await termsLink.isVisible({ timeout: 1500 }).catch(() => false)) ? 'Yes' : 'No';
 
-      // ── Privacy Policy Link Present ──
+        // ── Privacy Policy Link Present ──
       } else if (key === 'privacy policy link present') {
         const privacyLink = this.page.locator(
           'a:has-text("Privacy"), a:has-text("privacy policy"), ' +
@@ -232,17 +233,17 @@ export class PPVUpsellPaymentPage extends BasePage {
         ).first();
         actual = (await privacyLink.isVisible({ timeout: 1500 }).catch(() => false)) ? 'Yes' : 'No';
 
-      // ── Payment Instruction / Payment Text ──
+        // ── Payment Instruction / Payment Text ──
       } else if (key.includes('payment instruction') || key.includes('payment text')) {
         actual = bodyLower.includes('please choose from the payment options') ? expected : 'N/A';
 
-      // ── Saved Card / Card on File ──
+        // ── Saved Card / Card on File ──
       } else if (key.includes('saved card') || key.includes('card on file')) {
         const hasCard = bodyLower.includes('visa') || bodyLower.includes('mastercard') ||
-                        bodyLower.includes('amex') || bodyLower.includes('****');
+          bodyLower.includes('amex') || bodyLower.includes('****');
         actual = hasCard ? expected : 'N/A';
 
-      // ── Redeem Promo Code ──
+        // ── Redeem Promo Code ──
       } else if (key.includes('redeem promo') || key.includes('promo code')) {
         actual = bodyLower.includes('redeem promo code') ? 'Redeem promo code' : 'N/A';
       }
@@ -263,7 +264,7 @@ export class PPVUpsellPaymentPage extends BasePage {
     console.log('💳 Selecting saved payment card...');
 
     // Wait for the payment method section to load
-    await this.page.waitForSelector('text=/payment method/i', { timeout: 10000 }).catch(() => {});
+    await this.page.waitForSelector('text=/payment method/i', { timeout: 10000 }).catch(() => { });
 
     // Strategy 1: Find the row/container that has card brand text + last-4 digits
     // The screenshot shows: "VISA - **** 1111 / Exp 03/30" inside a clickable row
@@ -326,7 +327,7 @@ export class PPVUpsellPaymentPage extends BasePage {
               }
               // Check if parent itself is clickable
               if (parent.tagName === 'LABEL' || parent.getAttribute('role') === 'radio' ||
-                  parent.getAttribute('role') === 'option' || parent.style.cursor === 'pointer') {
+                parent.getAttribute('role') === 'option' || parent.style.cursor === 'pointer') {
                 parent.click();
                 return true;
               }
@@ -388,9 +389,9 @@ export class PPVUpsellPaymentPage extends BasePage {
 
           // Accept if maxlength is 3-4 (CVV), or name/placeholder matches, or it's a tel/password type
           const isCVVLike = (maxLen && parseInt(maxLen) <= 4) ||
-                            placeholder.toLowerCase().match(/cvv|cvc|security|code/) ||
-                            name.toLowerCase().match(/cvv|cvc|security/) ||
-                            sel.includes('password');
+            placeholder.toLowerCase().match(/cvv|cvc|security|code/) ||
+            name.toLowerCase().match(/cvv|cvc|security/) ||
+            sel.includes('password');
 
           // Also accept any input[type="tel"] that appeared AFTER card selection
           // (card number inputs are in VGS iframes, not on this page)
@@ -481,8 +482,8 @@ export class PPVUpsellPaymentPage extends BasePage {
     }
 
     if (!this.page.isClosed()) {
-      await this.page.waitForLoadState('domcontentloaded').catch(() => {});
-      await this.page.waitForTimeout(3000).catch(() => {});
+      await this.page.waitForLoadState('domcontentloaded').catch(() => { });
+      await this.page.waitForTimeout(3000).catch(() => { });
       console.log(`✅ Navigated to: ${this.page.url()}`);
     }
   }
