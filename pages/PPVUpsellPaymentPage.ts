@@ -46,19 +46,20 @@ export class PPVUpsellPaymentPage extends BasePage {
     console.log(`🔍 Validating ${pageName} page...`);
 
     // ── Wait for page to be ready ──
-    const readyIndicator = this.page.locator(
+    // Wait specifically for the Pay Now button — it is the last element to render
+    // on the saved card payment page, so its visibility confirms the page is fully loaded.
+    const payNowBtn = this.page.locator(
       'button:has-text("Pay Now"), button:has-text("Pay now"), ' +
       'button:has-text("Pay €"), button:has-text("Pay £"), ' +
-      'button[type="submit"]:has-text("Pay"), ' +
-      'text=/Today you pay|payment method|one time payment/i'
+      'button[type="submit"]:has-text("Pay")'
     ).first();
 
-    console.log('⏳ Waiting for saved card payment page elements to render...');
-    await readyIndicator.waitFor({ state: 'visible', timeout: 15000 }).catch(() => {
-      console.warn('⚠️ Saved card payment page indicators not visible after 15s');
+    console.log('⏳ Waiting for Pay Now button to be visible (page fully loaded)...');
+    await payNowBtn.waitFor({ state: 'visible', timeout: 20000 }).catch(() => {
+      console.warn('⚠️ Pay Now button not visible after 20s — page may not be fully loaded');
     });
-    await this.page.waitForLoadState('networkidle', { timeout: 3000 }).catch(() => {});
-    await this.page.waitForTimeout(1000); // Small settle delay
+    await this.page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
+    await this.page.waitForTimeout(500); // Small settle delay
 
     const bodyText = await this.page.locator('body').innerText({ timeout: 5000 }).catch(() => '');
     const bodyLower = bodyText.toLowerCase();

@@ -1230,91 +1230,169 @@ export async function getActualValue(
     }
     case 'popup - event date': {
       // For home-page-popup flow, the popup shows the full PPV_DATE (e.g. "Sun 26th Jul at 00:30")
-      // not the abbreviated LANDING_PAGE_PPV_DATE (e.g. "25 July")
+      // not the abbreviated LANDING_PAGE_PPV_DATE (e.g. "25 July").
+      // As the event approaches, the displayed format changes dynamically:
+      //   Far out  : "25 Jul"  /  "Jul 25"
+      //   Getting closer: "25 Jul 9:30PM"  /  "Sat 25 Jul"
+      //   Day-of  : "Tonight at 9:30PM"  /  "Today at 9:30PM"
+      // We match on the core date components (month + day) extracted from the expected
+      // value, accepting any surrounding text (weekday, time, ordinal suffix, etc.).
       const popupSource = (eventData?.SOURCE || eventData?.source || '').toLowerCase();
       const expectedDate = popupSource === 'home-page-popup'
         ? (eventData?.PPV_DATE || eventData?.LANDING_PAGE_PPV_DATE || '')
         : (eventData?.LANDING_PAGE_PPV_DATE || eventData?.PPV_DATE || '');
 
+      // Full month name → 3-letter abbreviation map
+      const monthAbbr: Record<string, string> = {
+        january: 'jan', february: 'feb', march: 'mar', april: 'apr',
+        may: 'may', june: 'jun', july: 'jul', august: 'aug',
+        september: 'sep', october: 'oct', november: 'nov', december: 'dec',
+      };
+      const allMonthKeys = [
+        'jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec',
+        'january', 'february', 'march', 'april', 'june', 'july', 'august',
+        'september', 'october', 'november', 'december',
+      ];
+
       const checkOption = (option: string, text: string): boolean => {
         const optionLower = option.toLowerCase();
         const textLower = text.toLowerCase();
 
-        const months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec', 'june', 'july'];
-        const matchedMonth = months.find(m => optionLower.includes(m));
+        // ── Extract month from expected ──────────────────────────────
+        const matchedMonthKey = allMonthKeys.find(m => optionLower.includes(m));
+        const monthAbbrev = matchedMonthKey
+          ? (monthAbbr[matchedMonthKey] || matchedMonthKey.slice(0, 3))
+          : null;
 
-        let day = '';
-        if (matchedMonth) {
-          const dateWords = optionLower.replace(/:/g, ' ').split(/\s+/);
-          const dayMatch = dateWords.find(w => /^\d{1,2}(st|nd|rd|th)?$/.test(w));
-          if (dayMatch) {
-            day = dayMatch.replace(/[a-z]/g, '');
-          }
+        // Full month name from abbreviation (e.g. "jul" → also check "july")
+        const monthFull = matchedMonthKey && matchedMonthKey.length <= 3
+          ? Object.keys(monthAbbr).find(k => monthAbbr[k] === matchedMonthKey) || null
+          : matchedMonthKey || null;
+
+        // ── Extract day number from expected (strip ordinal suffix) ──
+        const tokenised = optionLower.replace(/:/g, ' ').split(/\s+/);
+        const dayToken = tokenised.find(w => /^\d{1,2}(?:st|nd|rd|th)?$/.test(w));
+        const day = dayToken ? dayToken.replace(/[a-z]/g, '') : '';
+
+        // ── Match: month + day (any order, word-boundary for day) ──
+        if (monthAbbrev && day) {
+          const dayRegex = new RegExp(`(?<![\\d])${day}(?![\\d])`); // word-boundary for digits
+          const hasMonth = textLower.includes(monthAbbrev) || (monthFull ? textLower.includes(monthFull) : false);
+          const hasDay = dayRegex.test(textLower);
+          if (hasMonth && hasDay) return true;
         }
 
-        if (matchedMonth && day) {
-          return textLower.includes(matchedMonth) && textLower.includes(day);
+        // ── Match: month only (no day in expected) ──────────────────
+        if (monthAbbrev && !day) {
+          if (textLower.includes(monthAbbrev) || (monthFull ? textLower.includes(monthFull) : false)) return true;
         }
 
+        // ── Match: weekday (+ optional time) ────────────────────────
         const weekdays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
         const matchedWeekday = weekdays.find(w => optionLower.includes(w));
-
         const timeMatch = optionLower.match(/\b\d{1,2}:\d{2}\b/);
         const time = timeMatch ? timeMatch[0] : '';
 
         if (matchedWeekday) {
-          const hasTime = time ? (textLower.includes(time) || textLower.includes(time.replace(':', '')) || (time === '22:30' && (textLower.includes('10:30') && textLower.includes('pm')))) : true;
           const weekdayAbbr = matchedWeekday.substring(0, 3);
           const hasWeekday = textLower.includes(matchedWeekday) || textLower.includes(weekdayAbbr);
-
-          if (hasWeekday && hasTime) {
-            return true;
-          }
+          const hasTime = time
+            ? (textLower.includes(time) ||
+               textLower.includes(time.replace(':', '')) ||
+               (time === '22:30' && textLower.includes('10:30') && textLower.includes('pm')))
+            : true;
+          if (hasWeekday && hasTime) return true;
         }
 
-        // Handle DAZN relative-time labels: "This evening", "Tonight", "Today", "Tomorrow"
+        // ── Match: relative labels (Tonight, Today, Tomorrow, This evening) ──
+        // Only trigger if the EXPECTED option itself contains a relative label
+        // (prevents background tiles with "TODAY" from false-matching "25 Jul" etc.)
         const relativeLabels = ['this evening', 'tonight', 'today', 'tomorrow'];
-        const matchedRelative = relativeLabels.find(r => textLower.includes(r));
-        if (matchedRelative) {
-          const hasTime = time ? (textLower.includes(time) || textLower.includes(time.replace(':', ''))) : true;
-          if (hasTime) {
-            return true;
-          }
+        const matchedRelative = relativeLabels.find(r => optionLower.includes(r));
+        if (matchedRelative && textLower.includes(matchedRelative)) {
+          const hasTime = time
+            ? (textLower.includes(time) || textLower.includes(time.replace(':', '')))
+            : true;
+          if (hasTime) return true;
         }
 
-        if (optionLower.length > 5 && textLower.includes(optionLower)) {
-          return true;
-        }
+        // ── Literal substring fallback ───────────────────────────────
+        if (optionLower.length > 5 && textLower.includes(optionLower)) return true;
 
         return false;
       };
 
       const isMatch = (text: string): boolean => {
-        const options = expectedDate.split('|').map(o => o.trim());
+        const options = expectedDate.split('|').map(o => o.trim()).filter(Boolean);
         return options.some(opt => checkOption(opt, text));
       };
 
+      // Pass 1: modal nodes in DOM snapshot
       let found = snapFind(n => n.isInModal && isMatch(n.text), true);
 
+      // Pass 2: non-modal nodes (outside header/nav)
       if (found === 'N/A') {
         found = snapFind(n => {
           if (n.isInModal) return false;
-          const inHeader = n.classes.toLowerCase().includes('header') || n.classes.toLowerCase().includes('nav') || n.classes.toLowerCase().includes('menu');
-          if (inHeader) return false;
+          const cls = n.classes.toLowerCase();
+          if (cls.includes('header') || cls.includes('nav') || cls.includes('menu')) return false;
           return isMatch(n.text);
         });
       }
 
-      // Third pass: search ALL nodes regardless of isInModal
-      // (home page popups may not be detected as modals by the DOM snapshot)
+      // Pass 3: ALL snapshot nodes (popup may not be flagged as modal).
+      // Only consider short nodes (≤80 chars) to avoid matching background card
+      // composite strings like "TODAY 4:30PMEWC - Valorant - Day 5Valorant".
       if (found === 'N/A') {
         for (const n of snap) {
-          const inHeader = n.classes.toLowerCase().includes('header') || n.classes.toLowerCase().includes('nav') || n.classes.toLowerCase().includes('menu');
-          if (inHeader) continue;
+          const cls = n.classes.toLowerCase();
+          if (cls.includes('header') || cls.includes('nav') || cls.includes('menu')) continue;
+          if (n.text.length > 80) continue; // skip long composite card texts
           if (isMatch(n.text)) { found = n.text; break; }
         }
       }
-      // Return actual DOM text for popup event date
+
+      // Pass 4: live DOM fallback — Playwright directly queries the modal.
+      // Uses innerText (not textContent) to exclude <script>/<style> node content.
+      if (found === 'N/A') {
+        // Prefer strict dialog selectors first to avoid broad containers (e.g. a wrapper
+        // div with class "overlay" that matches the entire page and returns nav bar text).
+        const modalSels = ['[role="dialog"]', '[aria-modal="true"]', '[class*="modal" i]', '[class*="popup" i]', '[class*="overlay" i]'];
+        for (const sel of modalSels) {
+          const modal = page.locator(sel).first();
+          if (!await modal.isVisible({ timeout: 1000 }).catch(() => false)) continue;
+
+          // (a) Split modal innerText into lines and find the short line that matches.
+          //     Do NOT use slice(0,80) — that returns the nav-bar header, not the date.
+          const fullModalText = clean(await modal.innerText().catch(() => '') || '');
+          if (fullModalText) {
+            const lines = fullModalText.split(/\n|\r/).map(l => l.trim()).filter(l => l.length > 0);
+            for (const line of lines) {
+              if (line.length <= 80 && isMatch(line)) { found = line; break; }
+            }
+          }
+
+          if (found === 'N/A') {
+            // (b) Walk only visible rendered elements (not script/style/noscript)
+            const visibleEls = modal.locator('span, p, div, h1, h2, h3, h4, h5, h6, time, label, button, a, strong, em, small');
+            const count = await visibleEls.count().catch(() => 0);
+            for (let i = 0; i < count; i++) {
+              const el = visibleEls.nth(i);
+              // Check aria-label first (date badges often expose full date here)
+              const ariaLabel = await el.getAttribute('aria-label').catch(() => null);
+              if (ariaLabel && isMatch(ariaLabel)) { found = ariaLabel; break; }
+              // Only check short visible elements (badges/pills, not full card containers)
+              if (!await el.isVisible().catch(() => false)) continue;
+              const t = clean(await el.innerText().catch(() => '') || '');
+              if (t && t.length < 80 && isMatch(t)) { found = t; break; }
+            }
+          }
+          break; // processed first visible modal, stop
+        }
+      }
+
+
+
       return found !== 'N/A' ? found : 'Not found';
     }
     case 'popup - promoter': {

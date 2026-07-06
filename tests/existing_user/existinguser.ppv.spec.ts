@@ -80,7 +80,7 @@ function throwLogged(error: Error): never {
   throw error;
 }
 
-test.afterEach(async ({}, testInfo) => {
+test.afterEach(async ({ }, testInfo) => {
   if (testInfo.status !== testInfo.expectedStatus && testInfo.error?.message) {
     console.log(`❌ Test failure:\n${testInfo.error.message}`);
   }
@@ -421,7 +421,18 @@ for (const stateKey of userStatesToRun) {
         if (bodyCheck.includes('choose a plan')) return 'plan';
         return 'ppv'; // Default fallback if contextualppvid present
       }
-
+      if (urlLower.includes('upselltiershown=true')) {
+        if (process.env.DEFAULT_SIGNUP === 'true') {
+          const bodyText = await p.locator('body')
+            .innerText({ timeout: 2000 })
+            .then((t: string) => t.toLowerCase())
+            .catch(() => '');
+          if (bodyText.includes('subscribe without a pay-per-view')) {
+            return 'default-signup';
+          }
+        }
+        return 'ppv';
+      }
       // Email/signup checks (highest priority URL checks, must be before tier checks)
       if (urlLower.includes('page=personaldetails')) return 'email';
       if (urlLower.includes('emaildetails')) return 'email';
@@ -442,18 +453,6 @@ for (const stateKey of userStatesToRun) {
         if (emailCount > 0) return 'email';
       } catch { }
 
-      if (urlLower.includes('upselltiershown=true')) {
-        if (process.env.DEFAULT_SIGNUP === 'true') {
-          const bodyText = await p.locator('body')
-            .innerText({ timeout: 2000 })
-            .then((t: string) => t.toLowerCase())
-            .catch(() => '');
-          if (bodyText.includes('subscribe without a pay-per-view')) {
-            return 'default-signup';
-          }
-        }
-        return 'ppv';
-      }
 
       const lower = await p.locator('body')
         .innerText({ timeout: 2000 })
@@ -504,12 +503,19 @@ for (const stateKey of userStatesToRun) {
         (urlLower.includes('page=plandetails') || urlLower.includes('page=tierplans')) &&
         !urlLower.includes('upselltierselected=true')
       ) {
+        // Body is already lowercased in `lower` — check for PPV page indicators
         if (
           lower.includes('continue with pay-per-view') ||
           lower.includes('just the fight') ||
           lower.includes('to watch your pay-per-view') ||
-          lower.includes('the ultimate fan package')
+          lower.includes('the ultimate fan package') ||
+          lower.includes('subscribe without a pay-per-view') ||
+          lower.includes('choose how to buy')
         ) {
+          return 'ppv';
+        }
+        // If upsellTierShown is in URL, it's definitely the PPV page
+        if (urlLower.includes('upselltiershown=true')) {
           return 'ppv';
         }
       }
@@ -547,21 +553,26 @@ for (const stateKey of userStatesToRun) {
 
     const isContextualPpvSelectionPage = async (p: any): Promise<boolean> => {
       const currentUrl = p.url().toLowerCase();
-      if (!currentUrl.includes('contextualppvid=')) return false;
+      // If already past the PPV selection (tier selected or skipped), it's a plan page
       if (currentUrl.includes('upselltierskipped=true') || currentUrl.includes('upselltierselected=true')) {
         return false;
       }
+      // upsellTierShown=true always means PPV selection page
+      if (currentUrl.includes('upselltiershown=true')) return true;
+      // For contextualPpvId flows, check body content
+      if (!currentUrl.includes('contextualppvid=')) return false;
 
       const currentBody = await p.locator('body')
         .innerText({ timeout: 2000 })
         .then((t: string) => t.toLowerCase())
         .catch(() => '');
 
-      return currentUrl.includes('upselltiershown=true') ||
-        currentBody.includes('continue with pay-per-view') ||
+      return currentBody.includes('continue with pay-per-view') ||
         currentBody.includes('just the fight') ||
         currentBody.includes('to watch your pay-per-view') ||
-        currentBody.includes('the ultimate fan package');
+        currentBody.includes('the ultimate fan package') ||
+        currentBody.includes('subscribe without a pay-per-view') ||
+        currentBody.includes('choose how to buy');
     };
 
     try {
@@ -574,6 +585,30 @@ for (const stateKey of userStatesToRun) {
         const authManager = new AuthenticationManager(page, context, baseUrl);
         await authManager.authenticate(eventData);
 
+        // ── Wait for /home redirect and strip DAZN onboarding ?step= wizard param ──
+        // AuthenticationManager only waits for !signin/!signup — the page may still
+        // be mid-redirect to /home. We must wait for /home before proceeding so that
+        // LOGIN_FIRST flows start from a fully settled home page.
+        await page.waitForURL(/\/home/i, { timeout: 20000 }).catch(() => {
+          console.log(`⚠️ [Pre-Login] /home URL not reached after auth — current: ${page.url()}`);
+        });
+
+        // Strip DAZN onboarding ?step= from URL — the wizard overlay closes the
+        // Playwright page context when banner carousel scrollIntoViewIfNeeded() runs.
+        const postAuthUrl = page.url();
+        if (/[?&]step=\d+/.test(postAuthUrl)) {
+          try {
+            const cleanUrl = new URL(postAuthUrl);
+            cleanUrl.searchParams.delete('step');
+            const cleanUrlStr = cleanUrl.toString().replace(/\?$/, '');
+            console.log(`🔧 [Pre-Login] Stripping ?step= from URL: ${postAuthUrl} → ${cleanUrlStr}`);
+            await page.goto(cleanUrlStr, { waitUntil: 'domcontentloaded' });
+            await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => { });
+          } catch (e: any) {
+            console.warn(`⚠️ [Pre-Login] Failed to strip ?step= URL: ${e.message}`);
+          }
+        }
+
         if (isMyAccount) assertCountryMatch(page, REGION);
 
         await handleCookies(page, 15000);
@@ -584,7 +619,9 @@ for (const stateKey of userStatesToRun) {
         const isLandingPageSource = SOURCE.toLowerCase().includes('landing-page');
 
         if (isLandingPageSource) {
-          console.log(`ℹ️ [Login First] Existing-user landing page source enabled: ${SOURCE}`);
+          // Landing page sources with LOGIN_FIRST are not valid for existing users
+          // (they navigate to /welcome which redirects logged-in users to /home)
+          throw new Error(`❌ existing user landing page scenarios not required for LOGIN_FIRST: ${SOURCE}`);
         }
       }
 
@@ -608,14 +645,14 @@ for (const stateKey of userStatesToRun) {
           // ── Navigate to welcome page and click Log In ──
           const landingForPopup = new LandingPage(page);
           await page.goto(`${baseUrl}/welcome`, { waitUntil: 'domcontentloaded' });
-          await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+          await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });
           await handleCookies(page, 15000);
           await landingForPopup.clickLogIn();
 
           // ── Login with existing user credentials ──
           const signupForPopup = new SignupPage(page);
-          await page.waitForURL(/emailDetails|signup|signin/i, { timeout: 10000 }).catch(() => {});
-          await page.waitForLoadState('domcontentloaded').catch(() => {});
+          await page.waitForURL(/emailDetails|signup|signin/i, { timeout: 10000 }).catch(() => { });
+          await page.waitForLoadState('domcontentloaded').catch(() => { });
           console.log(`📍 [Home Page Popup] Landed on: ${page.url()}`);
 
           await signupForPopup.enterEmail(userEmail);
@@ -623,7 +660,7 @@ for (const stateKey of userStatesToRun) {
           await signupForPopup.enterPasswordAndSignIn(userPassword);
 
           // Wait for home page redirect
-          await page.waitForURL(/\/home/i, { timeout: 20000 }).catch(() => {});
+          await page.waitForURL(/\/home/i, { timeout: 20000 }).catch(() => { });
 
           // ── Popup detection + validation + Buy Now (via HomePage POM) ──
           const homePageForPopup = new HomePage(page, baseUrl);
@@ -869,7 +906,7 @@ for (const stateKey of userStatesToRun) {
               ? 'home-boxing-banner'
               : SOURCE === 'home-boxing-upcoming'
                 ? 'home-boxing-upcoming'
-              : 'home-boxing-tile';
+                : 'home-boxing-tile';
           } else if (isBoxingSourceInner) {
             sheetName = 'Boxing page';
             pageName = 'Boxing';
@@ -1000,30 +1037,30 @@ for (const stateKey of userStatesToRun) {
         }
 
         if (SOURCE !== 'home-page-popup') {
-        // Handle generic popup validations and click-through
-        // For home-biggest-fights: clickBuyNow only clicks the tile, handlePopupModal validates + clicks Buy Now
-        // For dont-miss/tile sources: avoid double-clicking modal
-        const clickPopup = SOURCE === 'home-biggest-fights' || (!SOURCE.includes('dont-miss') && !SOURCE.includes('tile'));
-        if (SOURCE.toLowerCase() !== 'glory') {
-          await handlePopupModal(page, results, eventData, SOURCE, clickPopup);
-        }
+          // Handle generic popup validations and click-through
+          // For home-biggest-fights: clickBuyNow only clicks the tile, handlePopupModal validates + clicks Buy Now
+          // For dont-miss/tile sources: avoid double-clicking modal
+          const clickPopup = SOURCE === 'home-biggest-fights' || (!SOURCE.includes('dont-miss') && !SOURCE.includes('tile'));
+          if (SOURCE.toLowerCase() !== 'glory') {
+            await handlePopupModal(page, results, eventData, SOURCE, clickPopup);
+          }
 
-        await page.waitForLoadState('domcontentloaded').catch(() => { });
-        await page.waitForURL(
-          (url: URL) =>
-            url.toString().includes('PlanDetails') ||
-            url.toString().includes('TierPlans') ||
-            url.toString().includes('signup') ||
-            url.toString().includes('checkout') ||
-            url.toString().includes('payment'),
-          { timeout: 10000 }
-        ).catch(async () => {
+          await page.waitForLoadState('domcontentloaded').catch(() => { });
           await page.waitForURL(
-            (url: URL) => !url.toString().includes('/welcome'),
-            { timeout: 5000 }
-          ).catch(() => { });
-        });
-        console.log(`📍 Landed after Buy Now: ${page.url()}`);
+            (url: URL) =>
+              url.toString().includes('PlanDetails') ||
+              url.toString().includes('TierPlans') ||
+              url.toString().includes('signup') ||
+              url.toString().includes('checkout') ||
+              url.toString().includes('payment'),
+            { timeout: 10000 }
+          ).catch(async () => {
+            await page.waitForURL(
+              (url: URL) => !url.toString().includes('/welcome'),
+              { timeout: 5000 }
+            ).catch(() => { });
+          });
+          console.log(`📍 Landed after Buy Now: ${page.url()}`);
         }
 
         // ── STRICT VALIDATION FOR ULTIMATE USER PRE-LOGGED IN ──
@@ -2905,9 +2942,17 @@ for (const stateKey of userStatesToRun) {
             console.log(`👉 DAZN Plan page`);
             stuckCount = 0;
 
-            if (await isContextualPpvSelectionPage(page)) {
-              console.log('↩️  Still on contextual PPV selection page; re-detecting before DAZN Plan validation.');
-              continue;
+            // Guard: isContextualPpvSelectionPage can return true on stale body text.
+            // Limit retries to prevent an infinite continue loop consuming all 20 steps.
+            if (!planValidated && await isContextualPpvSelectionPage(page)) {
+              stuckCount++;
+              console.log(`↩️  Still on contextual PPV selection page; re-detecting (retry ${stuckCount}/3)...`);
+              if (stuckCount < 3) {
+                await page.waitForTimeout(1000);
+                continue;
+              }
+              console.log('⚠️  Contextual PPV page guard exceeded retries — proceeding with plan validation');
+              stuckCount = 0;
             }
 
             if (!planValidated) {

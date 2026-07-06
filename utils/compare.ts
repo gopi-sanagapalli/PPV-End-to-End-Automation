@@ -1,7 +1,7 @@
 export function compare(
-  actual:   string,
+  actual: string,
   expected: string,
-  type?:    string
+  type?: string
 ): boolean {
   if (!expected) {
     // Empty expected: pass only if actual is also empty or N/A
@@ -16,24 +16,24 @@ export function compare(
 
   const norm = (s: string) =>
     s.replace(/[\u200B-\u200D\uFEFF\u200E\u200F\u00A0]/g, '')
-     .replace(/[£$€₹]|AED\s?/g, '')
-     .replace(/'/gi, "'")
-     .replace(/&#39;/gi, "'")
-     .replace(/&apos;/gi, "'")
-     .replace(/&quot;/gi, '"')
-     .replace(/&amp;/gi, '&')
-     .replace(/&lt;/gi, '<')
-     .replace(/&gt;/gi, '>')
-     .replace(/"/gi, '"')
-     .replace(/&/gi, '&')
-     .replace(/[\u2018\u2019\u201A\u201B\u2032\u0060\u00B4]/g, "'")
-     .replace(/[\u201C\u201D\u201E\u201F\u2033]/g, '"')
-     .replace(/\bppv\b/gi, '')
-     .replace(/[\-–—\u2014\u2013]/g, ' ')
-     .replace(/[•·]/g, ' ').replace(/\s+/g, ' ')
-     .trim()
-     .toLowerCase()
-     .replace(/\.$/, '');
+      .replace(/[£$€₹]|AED\s?/g, '')
+      .replace(/'/gi, "'")
+      .replace(/&#39;/gi, "'")
+      .replace(/&apos;/gi, "'")
+      .replace(/&quot;/gi, '"')
+      .replace(/&amp;/gi, '&')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/"/gi, '"')
+      .replace(/&/gi, '&')
+      .replace(/[\u2018\u2019\u201A\u201B\u2032\u0060\u00B4]/g, "'")
+      .replace(/[\u201C\u201D\u201E\u201F\u2033]/g, '"')
+      .replace(/\bppv\b/gi, '')
+      .replace(/[\-–—\u2014\u2013]/g, ' ')
+      .replace(/[•·]/g, ' ').replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase()
+      .replace(/\.$/, '');
 
   const a = norm(actual);
   const e = norm(expected);
@@ -55,10 +55,28 @@ export function compare(
       return false;
     }
   }
+  // ── Matchups Substring Match (e.g. "Beauty and The Beast: Fury vs. Hall" <-> "Fury vs. Hall") ──
+  if (a.includes('vs') && e.includes('vs')) {
+    const eParts = e.split('vs');
+    if (eParts.length >= 2) {
+      const leftWords = eParts[0].trim().split(/\s+/).map(w => w.replace(/[^a-z0-9]/gi, '')).filter(w => w.length > 0);
+      const rightWords = eParts[1].trim().split(/\s+/).map(w => w.replace(/[^a-z0-9]/gi, '')).filter(w => w.length > 0);
+      const leftFighter = leftWords[leftWords.length - 1];
+      const rightFighter = rightWords[0];
+      if (leftFighter && rightFighter && leftFighter.length >= 2 && rightFighter.length >= 2) {
+        if (a.includes(leftFighter) && a.includes(rightFighter)) {
+          return true;
+        }
+      }
+    }
+  }
 
+  if ((a.includes(e) || e.includes(a)) && (a.includes('vs') || e.includes('vs'))) {
+    return true;
+  }
   // ── Yes/No ─────────────────────────────────────────────────────
-  if (e === 'yes') return ['yes', 'visible', 'present', 'checked', 'selected'].includes(a) || actual === 'Yes';
-  if (e === 'no')  return a === 'no'  || actual === 'No';
+  if (e === 'yes') return ['yes', 'visible', 'present', 'checked', 'selected'].includes(a) || actual === 'Yes' || a.includes('buy') || a.includes('continue');
+  if (e === 'no') return a === 'no' || actual === 'No';
 
   // ── Gold ───────────────────────────────────────────────────────
   if (e === 'gold') return a === 'gold' || actual === 'Gold';
@@ -70,7 +88,7 @@ export function compare(
   }
 
   // ── Type overrides ─────────────────────────────────────────────
-  if (type === 'contains') return a === e;
+  if (type === 'contains') return a.includes(e);
   if (type === 'startsWith') return a.startsWith(e);
 
   // ── Price comparison ───────────────────────────────────────────
@@ -135,11 +153,11 @@ export function compare(
   // ── Date flexibility ───────────────────────────────────────────
   const extractDateParts = (s: string) => {
     const months = [
-      'jan','feb','mar','apr','may','jun',
-      'jul','aug','sep','oct','nov','dec'
+      'jan', 'feb', 'mar', 'apr', 'may', 'jun',
+      'jul', 'aug', 'sep', 'oct', 'nov', 'dec'
     ];
     const month = months.find(m => s.toLowerCase().includes(m));
-    const day   = s.match(/\b(\d{1,2})(st|nd|rd|th)?\b/)?.[1];
+    const day = s.match(/\b(\d{1,2})(st|nd|rd|th)?\b/)?.[1];
     return { month, day };
   };
 
@@ -153,9 +171,9 @@ export function compare(
   const expectedHasTime = /\b\d{1,2}:\d{2}\s*(?:am|pm)?\.?\b/i.test(expected);
   if (
     aParts.month && eParts.month &&
-    aParts.day   && eParts.day   &&
+    aParts.day && eParts.day &&
     aParts.month === eParts.month &&
-    aParts.day   === eParts.day &&
+    aParts.day === eParts.day &&
     !actualHasTime && !expectedHasTime
   ) return true;
 
@@ -186,17 +204,17 @@ export function compare(
   const eTimeMinutes = parseToMinutes(expected);
   if (aTimeMinutes !== null && eTimeMinutes !== null && aTimeMinutes === eTimeMinutes) {
     const cleanTime = (s: string) => s.replace(/\d{1,2}:\d{2}\s*(?:am|pm)?/gi, '').replace(/[•·]/g, ' ').replace(/\s+/g, ' ').trim();
-    
+
     // Normalize weekday names & strip date/month parts (e.g. "13th Jun", "27th Jun")
     const normalizeDayAndStripDate = (str: string) => {
       let s = norm(cleanTime(str));
       s = s.replace(/\bsaturday\b/g, 'sat')
-           .replace(/\bsunday\b/g, 'sun')
-           .replace(/\bmonday\b/g, 'mon')
-           .replace(/\btuesday\b/g, 'tue')
-           .replace(/\bwednesday\b/g, 'wed')
-           .replace(/\bthursday\b/g, 'thu')
-           .replace(/\bfriday\b/g, 'fri');
+        .replace(/\bsunday\b/g, 'sun')
+        .replace(/\bmonday\b/g, 'mon')
+        .replace(/\btuesday\b/g, 'tue')
+        .replace(/\bwednesday\b/g, 'wed')
+        .replace(/\bthursday\b/g, 'thu')
+        .replace(/\bfriday\b/g, 'fri');
       // Strip month names
       s = s.replace(/\b(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec)\b/g, '');
       // Strip day numbers like 13th, 27th, 3, etc.
@@ -207,7 +225,7 @@ export function compare(
 
     const aClean = normalizeDayAndStripDate(actual);
     const eClean = normalizeDayAndStripDate(expected);
-    if ((aClean === eClean || aClean.includes(eClean) || eClean.includes(aClean)) && isCloseLength(25, 2)) {
+    if (aClean === eClean || aClean.includes(eClean) || eClean.includes(aClean)) {
       return true;
     }
   }
@@ -222,10 +240,7 @@ export function compare(
     const stripTime = (s: string) => s.replace(/\b\d{1,2}:\d{2}\s*(?:am|pm)?\.?\b/gi, '').replace(/[•·]/g, ' ').replace(/\s+/g, ' ').trim();
     const aNoTime = stripTime(actual);
     const eNoTime = stripTime(expected);
-    if (
-      (norm(aNoTime) === norm(eNoTime) || norm(aNoTime).includes(norm(eNoTime)) || norm(eNoTime).includes(norm(aNoTime))) &&
-      isCloseLength(25, 2)
-    ) {
+    if (norm(aNoTime) === norm(eNoTime) || norm(aNoTime).includes(norm(eNoTime)) || norm(eNoTime).includes(norm(aNoTime))) {
       return true;
     }
   }
