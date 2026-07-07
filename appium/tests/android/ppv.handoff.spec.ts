@@ -474,356 +474,6 @@ describe('DAZN Android PPV → Web Handoff', () => {
   it('navigates to PPV buy button, opens Chrome, captures checkout URL', async () => {
     const driver = browser;
 
-    const fs = require('fs');
-    const path = require('path');
-    const { buildEventData } = require('../../../utils/buildEventData');
-    const { configureExcelPathForEvent } = require('../../../utils/excelReader');
-
-    const REGION = process.env.DAZN_REGION || 'GB';
-    const EVENT_CONFIG = process.env.PPV_CONFIG || 'aj_joshua_prenga.json';
-    const PLAN = process.env.PLAN || 'standard_monthly';
-    const PPV_TYPE = (process.env.PPV_TYPE || 'normal').toLowerCase();
-    const SWITCH_TO_ULTIMATE = (process.env.SWITCH || '').toLowerCase() === 'true';
-    const ENV = (process.env.DAZN_ENV || 'stag').toLowerCase();
-    const PAYMENT_METHOD = (process.env.PAYMENT_METHOD || 'credit_card').toLowerCase();
-
-    // Load and merge event and plan configuration
-    const { loadEventConfig } = require('../../../utils/testHelpers');
-    const json = loadEventConfig(EVENT_CONFIG, PLAN);
-
-    const plansPath = path.resolve(process.cwd(), 'config/DaznPlan.json');
-    const plans = JSON.parse(fs.readFileSync(plansPath, 'utf-8'));
-    const planData = plans[PLAN];
-    if (!planData) {
-      throw new Error(`❌ Plan "${PLAN}" not found in DaznPlan.json`);
-    }
-
-    const planTier = (planData.TIER || 'standard').toLowerCase();
-    const isUltimate = planTier === 'ultimate';
-    const ratePlan = (planData.RATE_PLAN || 'monthly').toLowerCase();
-
-    const results: any[] = [];
-    configureExcelPathForEvent(json.eventKey || '');
-
-    const eventData = buildEventData(json, REGION, planTier, ratePlan.replace(/-/g, ' '), SOURCE);
-    
-    // Load and merge mobile-specific overrides if they exist under appium/config/events/
-    try {
-      const mobileConfigPath = path.resolve(__dirname, '../../config/events', EVENT_CONFIG);
-      if (fs.existsSync(mobileConfigPath)) {
-        const mobileJson = JSON.parse(fs.readFileSync(mobileConfigPath, 'utf8'));
-        const mobileRegional = mobileJson.regions?.[REGION] || {};
-        Object.assign(eventData, mobileRegional);
-        console.log(`📱 Loaded mobile-specific overrides from ${mobileConfigPath}`);
-      }
-    } catch (e: any) {
-      console.warn(`⚠️ Failed to load mobile overrides: ${e.message}`);
-    }
-
-    eventData.source = SOURCE;
-    eventData.SOURCE = SOURCE;
-    eventData.MOBILE_WEB_HANDOFF = 'true';
-    eventData['MOBILE_WEB_HANDOFF'] = 'true';
-
-    // Compute date variables
-    const futureDate = new Date();
-    futureDate.setDate(futureDate.getDate() + 7);
-    const fDay = futureDate.getDate();
-    const fMonth = futureDate.toLocaleString('en-GB', { month: 'long' });
-    const fYear = futureDate.getFullYear();
-    eventData.FLEX_FUTURE_DATE_SHORT = `${fDay} ${fMonth} ${fYear}`;
-
-    const offerType = eventData.OFFER_TYPE || '1_month_free';
-    const isNoOffer = offerType === 'no_offer' || offerType === 'none';
-
-    if (planTier === 'ultimate') {
-      eventData.PLAN_CTA_BUTTON = eventData.PLAN_CTA_BUTTON_ULTIMATE || 'Continue with DAZN Ultimate';
-      eventData.DAZN_TIER = 'DAZN Ultimate';
-    } else {
-      if (isNoOffer) {
-        eventData.PLAN_CTA_BUTTON = eventData.PLAN_CTA_BUTTON_STANDARD || 'Continue with DAZN Standard';
-      } else {
-        eventData.PLAN_CTA_BUTTON = eventData.PLAN_CTA_BUTTON_STANDARD || 'Continue with 7-day Free Trial';
-      }
-    }
-
-    if (offerType === '7_day_trial' && planTier === 'standard' && ratePlan === 'monthly') {
-      eventData.PLAN_CTA_BUTTON = eventData.PLAN_CTA_BUTTON_STANDARD || 'Continue with 7-day Free Trial';
-      eventData.DAZN_TIER = 'DAZN Standard';
-    } else if (ratePlan === 'annual pay monthly' || ratePlan === 'annual pay upfront' || ratePlan.includes('annual')) {
-      eventData.PLAN_CTA_BUTTON = eventData.PLAN_CTA_BUTTON_STANDARD || 'Continue with DAZN Standard';
-      eventData.DAZN_TIER = 'DAZN Standard';
-    }
-
-    const PLAN_TARGET = (process.env.PLAN || PLAN || '').toLowerCase().replace(/[- ]/g, '_');
-    const WANT_ULTIMATE = SWITCH_TO_ULTIMATE || PLAN_TARGET === 'ultimate_apm' || PLAN_TARGET === 'ultimate_apu' || planTier === 'ultimate';
-    const WANT_ULTIMATE_APU = PLAN_TARGET === 'ultimate_apu' || (planTier === 'ultimate' && ratePlan === 'annual pay upfront');
-    const purchaseOption = WANT_ULTIMATE ? 'ultimate' : 'ppv';
-
-    let paywallValidated = false;
-
-    async function validateMobilePaywall() {
-      if (paywallValidated) {
-        console.log('⏭️ Mobile Paywall already validated. Skipping duplicate validation.');
-        return;
-      }
-      console.log('\n🔍 [Mobile Paywall] Running validations on native paywall screen...');
-      eventData.CURRENT_PAGE = 'Mobile Paywall';
-      
-      // Wait up to 10 seconds for a key paywall element to be displayed first to ensure page is loaded!
-      let isLoaded = false;
-      for (let i = 0; i < 20; i++) {
-        const pageSource = await driver.getPageSource().catch(() => '');
-        if (pageSource.toLowerCase().includes('copy') || pageSource.toLowerCase().includes('how to watch')) {
-          isLoaded = true;
-          break;
-        }
-        await driver.pause(500);
-      }
-      
-      if (!isLoaded) {
-        console.warn('⚠️ Mobile paywall page did not load fully within timeout.');
-      }
-
-      paywallValidated = true;
-      await driver.pause(1000);
-      
-      const textsSet = new Set<string>();
-      const fetchCurrentTexts = async () => {
-        try {
-          const textEls = await driver.$$('//android.widget.TextView | //android.widget.Button | //android.widget.EditText');
-          for (const el of textEls) {
-            const txt = await el.getText().catch(() => '');
-            if (txt && txt.trim()) {
-              textsSet.add(txt.trim());
-            }
-          }
-        } catch (e: any) {
-          console.log(`⚠️ Failed to fetch TextView/Button/EditText elements: ${e.message}`);
-        }
-      };
-
-      // First pass text query
-      await fetchCurrentTexts();
-
-      // Scroll down slightly (swipe up) to ensure bottom elements (Copy button, Instruction text) are visible and loaded
-      console.log("  Scrolling down (swiping up) on paywall to capture off-screen elements...");
-      try {
-        const screenSize = getScreenSize();
-        adbSwipe(Math.round(screenSize.width / 2), 
-                 Math.round(screenSize.height * 0.85), 
-                 Math.round(screenSize.width / 2), 
-                 Math.round(screenSize.height * 0.65));
-        await driver.pause(1200);
-      } catch (e: any) {
-        console.log(`⚠️ Scroll down failed: ${e.message}`);
-      }
-
-      // Second pass text query after scroll
-      await fetchCurrentTexts();
-
-      const texts = Array.from(textsSet);
-      console.log(`📋 Total unique texts gathered:`, texts);
-
-      let pageSource = '';
-      try {
-        pageSource = await driver.getPageSource();
-      } catch {}
-
-      // Find date element explicitly by looking for month + digit pattern
-      let mobileDateText = 'Not found';
-      const monthRegex = /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/i;
-      const foundDate = texts.find(t => monthRegex.test(t) && /\d/.test(t));
-      if (foundDate) {
-        mobileDateText = foundDate;
-        console.log(`💡 Detected mobile paywall date element: "${mobileDateText}"`);
-      }
-
-      const { getMobilePaywallData } = require('../../../utils/excelReader');
-      const { resolveExpected: resolveExp } = require('../../../utils/resolveExpected');
-      const { compare } = require('../../../utils/compare');
-
-      try {
-        const paywallRows = getMobilePaywallData();
-        console.log(`📊 Mobile Paywall sheet rows: ${paywallRows.length}`);
-
-        for (const row of paywallRows) {
-          const fieldName = (row['Field'] || '').trim();
-          if (!fieldName) continue;
-
-          let expectedValue = '';
-          try {
-            expectedValue = resolveExp(row, eventData);
-          } catch {
-            expectedValue = String(row['Expected'] || '');
-          }
-
-          if (!expectedValue || expectedValue.toUpperCase() === 'N/A') {
-            console.log(`  ⏭️ Skipping [${fieldName}] (N/A)`);
-            continue;
-          }
-
-          let actualValue = 'Not found';
-          let isMatch = false;
-
-          const isDateField = fieldName.toLowerCase().includes('date') || fieldName.toLowerCase().includes('time');
-
-          if (isDateField && mobileDateText !== 'Not found') {
-            actualValue = mobileDateText;
-            
-            // Timezone-aware date matching using parseConfigDate
-            let matches = false;
-            try {
-              const { parseConfigDate } = require('../../../utils/dateUtils');
-              const expD = parseConfigDate(expectedValue, new Date());
-              const actD = parseConfigDate(actualValue, new Date());
-              const diffHours = Math.abs(expD.getTime() - actD.getTime()) / (1000 * 60 * 60);
-              if (diffHours < 12) {
-                matches = true;
-              }
-            } catch {}
-
-            if (matches || compare(actualValue, expectedValue)) {
-              isMatch = true;
-            }
-          } else {
-            const matched = texts.find(t => compare(t, expectedValue) || t.toLowerCase().includes(expectedValue.replace(/[\u200b\u200c\u200d\ufeff]/g, '').trim().toLowerCase()));
-
-            if (matched) {
-              actualValue = matched;
-              isMatch = true;
-            } else if (compare(pageSource, expectedValue)) {
-              actualValue = expectedValue;
-              isMatch = true;
-            }
-          }
-
-          const status = isMatch ? 'PASS' : 'FAIL';
-          console.log(`  ${status === 'PASS' ? '✅' : '❌'} [${fieldName}] expected="${expectedValue}" actual="${actualValue}"`);
-          results.push({
-            page: 'Mobile Paywall',
-            field: fieldName,
-            expected: expectedValue,
-            actual: actualValue,
-            status
-          });
-        }
-      } catch (err: any) {
-        console.warn('⚠️ Mobile paywall validation sheet error:', err.message);
-      }
-    }
-
-    async function validateMobileBannerOrTile(surface: 'PPV Banner' | 'PPV Tile') {
-      console.log(`\n🔍 [${surface}] Running validations...`);
-      await driver.pause(2000);
-
-      const textsSet = new Set<string>();
-      try {
-        const textEls = await driver.$$('//android.widget.TextView | //android.widget.Button | //android.widget.EditText | //android.view.View[@text] | //android.view.View[@content-desc]');
-        for (const el of textEls) {
-          const txt = await el.getText().catch(() => '');
-          if (txt && txt.trim()) {
-            textsSet.add(txt.trim());
-          }
-          const desc = await el.getAttribute('content-desc').catch(() => '');
-          if (desc && desc.trim()) {
-            textsSet.add(desc.trim());
-          }
-        }
-      } catch (e: any) {
-        console.log(`⚠️ Failed to fetch elements: ${e.message}`);
-      }
-
-      const texts = Array.from(textsSet);
-      console.log(`📱 Gathered texts for ${surface}:`, texts);
-
-      let pageSource = '';
-      try {
-        pageSource = await driver.getPageSource();
-      } catch {}
-
-      const checkField = (fieldName: string, expectedValue: string) => {
-        if (!expectedValue || expectedValue.toUpperCase() === 'N/A') {
-          console.log(`  ⏭️ Skipping [${fieldName}] (N/A)`);
-          return;
-        }
-
-        let actualValue = 'Not found';
-        let status: 'PASS' | 'FAIL' = 'FAIL';
-
-        const isDateField = fieldName.toLowerCase().includes('date') || fieldName.toLowerCase().includes('time');
-
-        if (isDateField) {
-          const monthRegex = /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/i;
-          const matchedDate = texts.find(t => monthRegex.test(t) && /\d/.test(t));
-          if (matchedDate) {
-            actualValue = matchedDate;
-            let matches = false;
-            try {
-              const { parseConfigDate } = require('../../../utils/dateUtils');
-              const expD = parseConfigDate(expectedValue, new Date());
-              const actD = parseConfigDate(actualValue, new Date());
-              const diffHours = Math.abs(expD.getTime() - actD.getTime()) / (1000 * 60 * 60);
-              if (diffHours < 12) {
-                matches = true;
-              }
-            } catch {}
-
-            const { compare } = require('../../../utils/compare');
-            if (matches || compare(actualValue, expectedValue)) {
-              status = 'PASS';
-            }
-          }
-        }
-
-        if (status === 'FAIL') {
-          const { compare } = require('../../../utils/compare');
-          const matched = texts.find(t => compare(t, expectedValue) || t.toLowerCase().includes(expectedValue.replace(/[\u200b\u200c\u200d\ufeff]/g, '').trim().toLowerCase()));
-
-          if (matched) {
-            actualValue = matched;
-            status = 'PASS';
-          } else if (compare(pageSource, expectedValue)) {
-            actualValue = expectedValue;
-            status = 'PASS';
-          }
-        }
-
-        console.log(`  ${status === 'PASS' ? '✅' : '❌'} [${fieldName}] expected="${expectedValue}" actual="${actualValue}"`);
-        results.push({
-          page: surface,
-          field: fieldName,
-          expected: expectedValue,
-          actual: actualValue,
-          status
-        });
-      };
-
-      // Check Presence
-      const titleExpected = eventData.MOBILE_BANNER_TITLE || eventData.PPV_DISPLAY_NAME || eventData.PPV_NAME;
-      const cleanStr = (s: string) => (s || '').replace(/[\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
-      const isPresent = texts.some(t => cleanStr(t).includes(cleanStr(titleExpected)) || cleanStr(titleExpected).includes(cleanStr(t)));
-      const presenceField = surface === 'PPV Banner' ? 'Banner Present' : 'Tile Present';
-      
-      console.log(`  ${isPresent ? '✅' : '❌'} [${presenceField}] expected="Present" actual="${isPresent ? 'Present' : 'Not present'}"`);
-      results.push({
-        page: surface,
-        field: presenceField,
-        expected: 'Present',
-        actual: isPresent ? 'Present' : 'Not present',
-        status: isPresent ? 'PASS' : 'FAIL'
-      });
-
-      if (isPresent) {
-        checkField('Title', titleExpected);
-        checkField('Date and Time', eventData.MOBILE_BANNER_DATE_TIME || eventData.MOBILE_BANNER_DATE || eventData.PPV_DATE);
-        
-        if (surface === 'PPV Banner') {
-          checkField('Description', eventData.MOBILE_BANNER_DESCRIPTION || eventData.BANNER_DESCRIPTION);
-        }
-      }
-    }
-
     console.log('🎥 Starting screen recording on Android device...');
     await driver.startRecordingScreen({
       timeLimit: 300, // 5 minutes (300 seconds)
@@ -1073,11 +723,6 @@ describe('DAZN Android PPV → Web Handoff', () => {
       
       if (ppvTile) {
         console.log(`✅ Found PPV tile - tapping it...`);
-        try {
-          await validateMobileBannerOrTile('PPV Tile');
-        } catch (err: any) {
-          console.warn('⚠️ Mobile banner/tile validation failed:', err.message);
-        }
         await ppvTile.click();
         await driver.pause(4000);
         await driver.saveScreenshot('./test-results/android_search_after_tile_click.png');
@@ -1302,12 +947,6 @@ describe('DAZN Android PPV → Web Handoff', () => {
         }
       }
 
-      try {
-        await validateMobileBannerOrTile('PPV Tile');
-      } catch (err: any) {
-        console.warn('⚠️ Mobile banner/tile validation failed:', err.message);
-      }
-
       // Primary: use exact XPath index [2] to target the PPV's own Buy now button
       // (index [1] is the banner above; [2] is the one under the PPV tile)
       try {
@@ -1349,14 +988,6 @@ describe('DAZN Android PPV → Web Handoff', () => {
     else if (SOURCE === 'boxing-page-banner') {
       await navigateToBoxingPage(driver);
       await driver.pause(1500);
-      const ppvBannerFoundBpb = await findPPVBanner(driver);
-      if (ppvBannerFoundBpb) {
-        try {
-          await validateMobileBannerOrTile('PPV Banner');
-        } catch (err: any) {
-          console.warn('⚠️ Mobile banner/tile validation failed:', err.message);
-        }
-      }
       for (const cta of ['Buy this fight', 'Buy now', 'Buy Now', 'Buy']) {
         if (await tapByText(driver, cta, 7000)) { buyTapped = true; console.log(`✅ Tapped "${cta}"`); break; }
       }
@@ -1435,12 +1066,6 @@ describe('DAZN Android PPV → Web Handoff', () => {
       console.log(`  ✅ Found PPV banner: "${PPV_NAME}"`);
       await driver.saveScreenshot('./test-results/android_ppv_banner_found.png');
 
-      try {
-        await validateMobileBannerOrTile('PPV Banner');
-      } catch (err: any) {
-        console.warn('⚠️ Mobile banner/tile validation failed:', err.message);
-      }
-
       // Step 3: Click "Buy now" button on the PPV banner
       console.log('  Step 3: Clicking "Buy now" on the PPV banner...');
       let buyCTAFoundHbb = false;
@@ -1513,12 +1138,6 @@ describe('DAZN Android PPV → Web Handoff', () => {
       console.log(`  ✅ Verified banner title: "${PPV_NAME}"`);
       await driver.saveScreenshot('./test-results/android_landing_ppv_banner_found.png');
 
-      try {
-        await validateMobileBannerOrTile('PPV Banner');
-      } catch (err: any) {
-        console.warn('⚠️ Mobile banner/tile validation failed:', err.message);
-      }
-
       // Click "Buy now" button on the PPV banner
       console.log('  Clicking "Buy now" on the PPV banner...');
       let buyCTAFoundLpb = false;
@@ -1550,11 +1169,6 @@ describe('DAZN Android PPV → Web Handoff', () => {
       console.log('  ⚡ Paywall overlay displayed — clicking Copy button immediately...');
       await driver.pause(800); // minimal wait for paywall to render
       await driver.saveScreenshot('./test-results/android_landing_paywall.png');
-      try {
-        await validateMobilePaywall();
-      } catch (err: any) {
-        console.warn('⚠️ Mobile paywall validation failed:', err.message);
-      }
       const screenSizeLpb = getScreenSize();
       try {
         // Use the exact XPath provided for the Copy button
@@ -1632,12 +1246,6 @@ describe('DAZN Android PPV → Web Handoff', () => {
       console.log(`  ✅ Verified banner title: "${PPV_NAME}"`);
       await driver.saveScreenshot('./test-results/android_home_ppv_banner_found.png');
 
-      try {
-        await validateMobileBannerOrTile('PPV Banner');
-      } catch (err: any) {
-        console.warn('⚠️ Mobile banner/tile validation failed:', err.message);
-      }
-
       // Step 4: Click Buy now button on the PPV banner
       console.log('  Step 4: Clicking "Buy now" on the PPV banner...');
       let buyCTAFoundHpb = false;
@@ -1669,11 +1277,6 @@ describe('DAZN Android PPV → Web Handoff', () => {
       console.log('  ⚡ Paywall overlay displayed — clicking Copy button immediately...');
       await driver.pause(800); // minimal wait for paywall to render
       await driver.saveScreenshot('./test-results/android_home_paywall.png');
-      try {
-        await validateMobilePaywall();
-      } catch (err: any) {
-        console.warn('⚠️ Mobile paywall validation failed:', err.message);
-      }
       const screenSizeHpb = getScreenSize();
       try {
         // Use the exact XPath provided for the Copy button
@@ -1715,11 +1318,6 @@ describe('DAZN Android PPV → Web Handoff', () => {
     // ── home-boxing-tile ──────────────────────────────────────────────────
     else if (SOURCE === 'home-boxing-tile') {
       await scrollToText(driver, PPV_NAME);
-      try {
-        await validateMobileBannerOrTile('PPV Tile');
-      } catch (err: any) {
-        console.warn('⚠️ Mobile banner/tile validation failed:', err.message);
-      }
       await tapByText(driver, PPV_NAME, 8000);
       await driver.pause(2000);
       for (const cta of ['Buy now', 'Buy Now', 'Buy']) {
@@ -1735,21 +1333,33 @@ describe('DAZN Android PPV → Web Handoff', () => {
       console.log('  Step 1: Scrolling to find "Don\'t Miss" section...');
       let dontMissFound = false;
       
-      for (let i = 0; i < 15; i++) {
-        if (await isVisible(driver, 'Don\'t Miss', 2000) || 
-            await isVisible(driver, 'Dont Miss', 2000) ||
-            await isVisible(driver, 'Don’t Miss', 2000)) {
-          console.log(`  ✅ Found "Don't Miss" section (scroll ${i + 1})`);
+      // Try native scrollToText first
+      for (const title of ["Don't Miss", "Dont Miss", "Don’t Miss"]) {
+        if (await scrollToText(driver, title)) {
+          console.log(`  ✅ Found & Scrolled to "${title}" section using native scroll`);
           dontMissFound = true;
           break;
         }
-        
-        // Try scrolling down to find the section
-        adbSwipe(Math.round(getScreenSize().width / 2), 
-                 Math.round(getScreenSize().height * 0.65), 
-                 Math.round(getScreenSize().width / 2), 
-                 Math.round(getScreenSize().height * 0.35));
-        await driver.pause(800);
+      }
+      
+      if (!dontMissFound) {
+        console.log('  Native scroll did not find it, falling back to manual scrolling...');
+        for (let i = 0; i < 15; i++) {
+          if (await isVisible(driver, 'Don\'t Miss', 1000) || 
+              await isVisible(driver, 'Dont Miss', 1000) ||
+              await isVisible(driver, 'Don’t Miss', 1000)) {
+            console.log(`  ✅ Found "Don't Miss" section (scroll ${i + 1})`);
+            dontMissFound = true;
+            break;
+          }
+          
+          // Try scrolling down to find the section
+          adbSwipe(Math.round(getScreenSize().width / 2), 
+                   Math.round(getScreenSize().height * 0.65), 
+                   Math.round(getScreenSize().width / 2), 
+                   Math.round(getScreenSize().height * 0.35));
+          await driver.pause(800);
+        }
       }
       
       if (!dontMissFound) {
@@ -1986,11 +1596,6 @@ describe('DAZN Android PPV → Web Handoff', () => {
       
       // Step 3: Tap the PPV tile (will navigate to paywall screen)
       console.log(`  Step 3: Tapping "${PPV_NAME}" tile...`);
-      try {
-        await validateMobileBannerOrTile('PPV Tile');
-      } catch (err: any) {
-        console.warn('⚠️ Mobile banner/tile validation failed:', err.message);
-      }
       await driver.pause(1000);
       await tapByText(driver, PPV_NAME, 5000);
       await driver.pause(2000);
@@ -2039,12 +1644,6 @@ describe('DAZN Android PPV → Web Handoff', () => {
 
       console.log(`  ✅ Verified banner title: "${PPV_NAME}"`);
       await driver.saveScreenshot('./test-results/android_landing_ppv_banner_found.png');
-
-      try {
-        await validateMobileBannerOrTile('PPV Banner');
-      } catch (err: any) {
-        console.warn('⚠️ Mobile banner/tile validation failed:', err.message);
-      }
 
       // Click "Buy now" button on the PPV banner
       console.log('  Clicking "Buy now" on the PPV banner...');
@@ -2154,12 +1753,6 @@ describe('DAZN Android PPV → Web Handoff', () => {
       console.log(`  ✅ Verified banner title: "${PPV_NAME}"`);
       await driver.saveScreenshot('./test-results/android_home_ppv_banner_found.png');
 
-      try {
-        await validateMobileBannerOrTile('PPV Banner');
-      } catch (err: any) {
-        console.warn('⚠️ Mobile banner/tile validation failed:', err.message);
-      }
-
       // Step 4: Click Buy now button on the PPV banner
       console.log('  Step 4: Clicking "Buy now" on the PPV banner...');
       let buyCTAFoundHpb = false;
@@ -2239,11 +1832,6 @@ describe('DAZN Android PPV → Web Handoff', () => {
     console.log("📋 Capturing checkout URL from paywall...");
     if (!bannerUrlCaptured) {
       await driver.saveScreenshot("./test-results/android_paywall_screen.png");
-      try {
-        await validateMobilePaywall();
-      } catch (err: any) {
-        console.warn('⚠️ Mobile paywall validation failed:', err.message);
-      }
     }
 
     // Use pre-captured URL for banner flows, otherwise capture now
@@ -2376,8 +1964,6 @@ describe('DAZN Android PPV → Web Handoff', () => {
         getUpsellFirstSuccessData,
         getUpsellSecondSuccessData,
         getUpsellPaymentData,
-        getChooseHowToBuyData,
-        getUpgradeConfirmationData,
       } = require('../../../utils/excelReader');
 
       const { detectVariant } = require('../../../flows/detectVariant');
@@ -2406,6 +1992,14 @@ describe('DAZN Android PPV → Web Handoff', () => {
       } = require('../../../utils/testHelpers');
 
 
+      const REGION = process.env.DAZN_REGION || 'GB';
+      const EVENT_CONFIG = process.env.PPV_CONFIG || 'aj_joshua_prenga.json';
+      const PLAN = process.env.PLAN || 'standard_monthly';
+      const PPV_TYPE = (process.env.PPV_TYPE || 'normal').toLowerCase();
+      const SWITCH_TO_ULTIMATE = (process.env.SWITCH || '').toLowerCase() === 'true';
+      const ENV = (process.env.DAZN_ENV || 'stag').toLowerCase();
+      const PAYMENT_METHOD = (process.env.PAYMENT_METHOD || 'credit_card').toLowerCase();
+
       // Screenshot helper for failed fields
       async function captureFailShot(page: any, field: string): Promise<string | undefined> {
         try {
@@ -2422,6 +2016,19 @@ describe('DAZN Android PPV → Web Handoff', () => {
 
       // Replace platform=android with platform=web
       let webCheckoutUrl = checkoutUrl.replace('platform=android', 'platform=web');
+
+      const json = loadEventConfig(EVENT_CONFIG);
+
+      const plansPath = path.resolve(process.cwd(), 'config/DaznPlan.json');
+      const plans = JSON.parse(fs.readFileSync(plansPath, 'utf-8'));
+      const planData = plans[PLAN];
+      if (!planData) {
+        throw new Error(`❌ Plan "${PLAN}" not found in DaznPlan.json`);
+      }
+
+      const planTier = (planData.TIER || 'standard').toLowerCase();
+      const isUltimate = planTier === 'ultimate';
+      const ratePlan = (planData.RATE_PLAN || 'monthly').toLowerCase();
 
       const planName = ratePlan === 'monthly'
         ? 'Flex Monthly'
@@ -2443,6 +2050,38 @@ describe('DAZN Android PPV → Web Handoff', () => {
       console.log(`║  RUNNING LOCAL PLAYWRIGHT WEB CHECKOUT: ${flowConfig.name}`);
       console.log(`║  Source: ${flowConfig.source} | Tier: ${flowConfig.tier} | Plan: ${flowConfig.ratePlan}`);
       console.log(`╚═══════════════════════════════════════════════════════╝\n`);
+
+      const results: any[] = [];
+      configureExcelPathForEvent(json.eventKey || '');
+
+      const eventData = buildEventData(json, REGION, planTier, ratePlan.replace(/-/g, ' '), SOURCE);
+      eventData.source = SOURCE;
+      eventData.SOURCE = SOURCE;
+      eventData.MOBILE_WEB_HANDOFF = 'true';
+      eventData['MOBILE_WEB_HANDOFF'] = 'true';
+
+      // Compute date variables
+      const futureDate = new Date();
+      futureDate.setDate(futureDate.getDate() + 7);
+      const fDay = futureDate.getDate();
+      const fMonth = futureDate.toLocaleString('en-GB', { month: 'long' });
+      const fYear = futureDate.getFullYear();
+      eventData.FLEX_FUTURE_DATE_SHORT = `${fDay} ${fMonth} ${fYear}`;
+
+      const offerType = eventData.OFFER_TYPE || '1_month_free';
+      const isNoOffer = offerType === 'no_offer' || offerType === 'none';
+
+      if (planTier === 'ultimate') {
+        eventData.PLAN_CTA_BUTTON = eventData.PLAN_CTA_BUTTON_ULTIMATE || 'Continue with DAZN Ultimate';
+        eventData.DAZN_TIER = 'DAZN Ultimate';
+      } else {
+        if (isNoOffer) {
+          eventData.PLAN_CTA_BUTTON = eventData.PLAN_CTA_BUTTON_STANDARD || 'Continue with DAZN Standard';
+        } else {
+          eventData.PLAN_CTA_BUTTON = eventData.PLAN_CTA_BUTTON_STANDARD || 'Continue with 7-day Free Trial';
+        }
+        eventData.DAZN_TIER = 'DAZN Standard';
+      }
 
       const activeOfferPresent = eventData.ACTIVE_OFFER_PRESENT === 'true';
       if (activeOfferPresent && ratePlan === 'monthly') {
@@ -3218,479 +2857,6 @@ describe('DAZN Android PPV → Web Handoff', () => {
             await page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => { });
             continue;
           }
-        }
-
-        // ── Choose How To Buy Page (existing active subscriber) ────────────────
-        if (pageType === 'choose-how-to-buy') {
-          console.log('\n══════════════════════════════════════════════');
-          console.log('🛒 Active Standard — Choose How To Buy');
-          console.log('══════════════════════════════════════════════');
-          stuckCount = 0;
-
-          await page.locator('h1, h2, h3, body').filter({ hasText: /choose how to/i }).first().waitFor({ state: 'visible', timeout: 12000 }).catch(() => {
-            console.warn('⚠️ Heading "choose how to" not found or visible within 12s.');
-          });
-
-          await page.locator('[class*="addon" i], [class*="purchase" i], input[type="radio"]').first().waitFor({ state: 'visible', timeout: 8000 }).catch(() => { });
-
-          try {
-            const chooseBuyData = getChooseHowToBuyData();
-            console.log(`📊 Choose How To Buy rows: ${chooseBuyData.length}`);
-
-            // ── Inline choosebuy validator ──────────────────────────────────────────
-            await page.evaluate(() => { window.scrollTo(0, document.body.scrollHeight); }).catch(() => {});
-            await page.waitForTimeout(800);
-            await page.evaluate(() => { window.scrollTo(0, 0); }).catch(() => {});
-            await page.waitForTimeout(400);
-
-            const bodyText = await page.locator('body').innerText({ timeout: 5000 }).catch(() => '');
-            const bodyLines = (bodyText as string).split('\n').map((l: string) => l.trim()).filter(Boolean);
-            const { resolveExpected: resolveExp } = require('../../../utils/resolveExpected');
-
-            for (const row of chooseBuyData) {
-              const cbField = (row['Field'] || '').trim();
-              if (!cbField) continue;
-              const cbRatePlan = (row['Rate Plan'] || '').trim().toLowerCase();
-              if (cbRatePlan && cbRatePlan !== 'all' && cbRatePlan !== ratePlan) continue;
-
-              let cbExpected = '';
-              try { cbExpected = resolveExp(row, eventData); } catch { cbExpected = String(row['Expected'] || ''); }
-              if (!cbExpected || cbExpected.trim().toUpperCase() === 'N/A') continue;
-
-              const cbKey = cbField.toLowerCase().trim();
-              let cbActual = 'N/A';
-
-              try {
-                switch (cbKey) {
-                  case 'page title': {
-                    const raw = (await page.locator('h1').first().innerText({ timeout: 3000 }).catch(() => '')).trim();
-                    cbActual = raw.replace(/[\u200b\u200c\u200d\ufeff]/g, '').trim() || 'N/A';
-                    break;
-                  }
-                  case 'header ppv name': {
-                    try {
-                      const headingEl = page.locator(
-                        'h1, h2, h3, [class*="title" i], [class*="heading" i], [class*="event-name" i]'
-                      ).filter({ hasText: new RegExp((eventData.PPV_NAME || '').split(' ')[0], 'i') }).first();
-                      if (await headingEl.isVisible({ timeout: 2000 }).catch(() => false)) {
-                        cbActual = (await headingEl.innerText({ timeout: 1000 }).catch(() => '')).trim();
-                      }
-                    } catch { }
-                    if (cbActual === 'N/A') {
-                      const firstWord = (eventData.PPV_NAME || '').split(' ')[0].toLowerCase();
-                      cbActual = bodyLines.find((l: string) =>
-                        l.toLowerCase().includes(firstWord) && l.length < 120 &&
-                        !l.toLowerCase().includes('choose how to buy') &&
-                        !l.toLowerCase().includes('subscription') &&
-                        !l.toLowerCase().includes('buy ')
-                      ) || 'N/A';
-                    }
-                    break;
-                  }
-                  case 'header sub text': {
-                    cbActual = bodyLines.find((l: string) =>
-                      l.toLowerCase().includes('or get it included') && l.length < 150
-                    ) || bodyLines.find((l: string) =>
-                      l.toLowerCase().includes('included in a dazn') && l.length < 150
-                    ) || 'N/A';
-                    break;
-                  }
-                  case 'ppv option present': {
-                    const ppvKeyword = (eventData.PPV_NAME || '').split(' vs')[0].split(' ')[0];
-                    const ppvCard = page.locator('label, [class*="card" i], [class*="option" i]')
-                      .filter({ hasText: new RegExp(ppvKeyword, 'i') }).first();
-                    cbActual = (await ppvCard.isVisible({ timeout: 3000 }).catch(() => false)) ? 'Yes' : 'No';
-                    if (cbActual === 'No') {
-                      const anyRadio = page.locator('input[type="radio"]').first();
-                      cbActual = (await anyRadio.isVisible({ timeout: 2000 }).catch(() => false)) ? 'Yes' : 'No';
-                    }
-                    break;
-                  }
-                  case 'ppv option selected': {
-                    const firstRadio = page.locator('input[type="radio"]').first();
-                    const checked = await firstRadio.isChecked({ timeout: 2000 }).catch(() => false);
-                    cbActual = checked ? 'Yes' : 'No';
-                    break;
-                  }
-                  case 'ppv image present': {
-                    cbActual = 'No';
-                    const imgSelectors = [
-                      'img[src]', 'img[srcset]', 'picture',
-                      '[class*="image" i]', '[class*="poster" i]',
-                      '[class*="thumbnail" i]', '[class*="photo" i]', 'figure',
-                    ];
-                    for (const sel of imgSelectors) {
-                      if (await page.locator(sel).first().isVisible({ timeout: 1000 }).catch(() => false)) {
-                        cbActual = 'Yes'; break;
-                      }
-                    }
-                    if (cbActual === 'No') {
-                      const hasImg = await page.evaluate(() => {
-                        const imgs = Array.from(document.querySelectorAll('img'));
-                        return imgs.some((img: HTMLImageElement) =>
-                          img.offsetWidth > 0 && img.offsetHeight > 0
-                        );
-                      }).catch(() => false);
-                      cbActual = hasImg ? 'Yes' : 'No';
-                    }
-                    break;
-                  }
-                  case 'ppv date and time': {
-                    try {
-                      const dateEl = page.locator(
-                        '[class*="date" i], [class*="time" i], [class*="schedule" i], time, [data-test*="date" i]'
-                      ).first();
-                      if (await dateEl.isVisible({ timeout: 2000 }).catch(() => false)) {
-                        const dateText = (await dateEl.innerText({ timeout: 1000 }).catch(() => '')).trim();
-                        if (dateText && /\d/.test(dateText)) cbActual = dateText;
-                      }
-                    } catch { }
-                    if (cbActual === 'N/A') {
-                      const dateLine = bodyLines.find((l: string) =>
-                        /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/i.test(l) &&
-                        /\d{1,2}/.test(l) && l.length < 80 &&
-                        !l.toLowerCase().includes('feature') && !l.toLowerCase().includes('fight') &&
-                        !l.toLowerCase().includes('promoter')
-                      );
-                      cbActual = dateLine || 'N/A';
-                    }
-                    break;
-                  }
-                  case 'ppv option price': {
-                    const expectedPrice = String(eventData.PPV_PRICE || cbExpected || '').trim();
-                    if (expectedPrice) {
-                      const standaloneExpected = bodyLines.find((l: string) => {
-                        const lowerLine = l.toLowerCase();
-                        return l.includes(expectedPrice) &&
-                          !lowerLine.includes('ultimate') &&
-                          !lowerLine.includes('/month') &&
-                          !lowerLine.includes('per month') &&
-                          !lowerLine.includes('for 12 months') &&
-                          !lowerLine.includes('annual');
-                      });
-                      if (standaloneExpected) {
-                        cbActual = expectedPrice;
-                        break;
-                      }
-                    }
-                    for (const line of bodyLines) {
-                      const m = line.match(/[$£€]\d+[\.,]\d{2}/);
-                      const lowerLine = line.toLowerCase();
-                      if (m &&
-                        !lowerLine.includes('ultimate') &&
-                        !lowerLine.includes('month') &&
-                        !lowerLine.includes('annual')) {
-                        cbActual = m[0]; break;
-                      }
-                    }
-                    if (cbActual === 'N/A') {
-                      const priceLine = bodyLines.find((l: string) => {
-                        const lowerLine = l.toLowerCase();
-                        return /[$£€]\d+[\.,]\d{2}/.test(l) &&
-                          !lowerLine.includes('ultimate') &&
-                          !lowerLine.includes('/month') &&
-                          !lowerLine.includes('per month') &&
-                          !lowerLine.includes('for 12 months') &&
-                          !lowerLine.includes('annual');
-                      });
-                      if (priceLine) { const m2 = priceLine.match(/[$£€]\d+[\.,]\d{2}/); if (m2) cbActual = m2[0]; }
-                    }
-                    break;
-                  }
-                  case 'dazn ultimate option present': {
-                    const ultEl = page.locator('label, [class*="card" i], [class*="option" i], [class*="upsell" i]').filter({ hasText: /dazn ultimate/i }).first();
-                    cbActual = (await ultEl.isVisible({ timeout: 3000 }).catch(() => false)) ? 'Yes' : 'No';
-                    break;
-                  }
-                  case 'upsell plan name': {
-                    cbActual = bodyLines.find((l: string) => l.trim().toLowerCase() === 'dazn ultimate') || 'N/A';
-                    break;
-                  }
-                  case 'dazn ultimate price text': {
-                    const ultHeadIdx = bodyLines.findIndex((l: string) => l.trim().toLowerCase() === 'dazn ultimate');
-                    if (ultHeadIdx >= 0) {
-                      const fromLine = bodyLines.slice(ultHeadIdx, ultHeadIdx + 8).find((l: string) => l.trim().toLowerCase() === 'from');
-                      cbActual = fromLine ? fromLine.trim() : 'N/A';
-                    }
-                    break;
-                  }
-                  case 'dazn ultimate price': {
-                    const ppvPrice = (eventData.PPV_PRICE || '').trim();
-                    const cleanBodyLines = bodyLines.map((l: string) => l.replace(/[\u200b\u200c\u200d\ufeff]/g, '').trim());
-                    const ultHeadIdx = cleanBodyLines.findIndex((l: string) =>
-                      l.toLowerCase().includes('dazn ultimate') && l.length < 30
-                    );
-                    if (ultHeadIdx >= 0) {
-                      for (const l of cleanBodyLines.slice(ultHeadIdx + 1, ultHeadIdx + 10)) {
-                        const m = l.match(/[$£€]\d+[\.,]\d{2}/);
-                        if (m) { cbActual = m[0]; break; }
-                      }
-                    }
-                    if (cbActual === 'N/A') {
-                      const anyUltIdx = cleanBodyLines.findIndex((l: string) => l.toLowerCase().includes('ultimate'));
-                      if (anyUltIdx >= 0) {
-                        for (const l of cleanBodyLines.slice(anyUltIdx, anyUltIdx + 15)) {
-                          const m = l.match(/[$£€]\d+[\.,]\d{2}/);
-                          if (m) { cbActual = m[0]; break; }
-                        }
-                      }
-                    }
-                    if (cbActual !== 'N/A') break;
-                    try {
-                      const ultPrice = await page.evaluate((ppvPriceVal: string) => {
-                        const priceRegex = /[$£€]\d+[.,]\d{2}/;
-                        const allEls = Array.from(document.querySelectorAll('*'));
-                        for (const el of allEls) {
-                          const text = (el as HTMLElement).innerText || '';
-                          if (!text || text.length > 200) continue;
-                          const m = text.match(priceRegex);
-                          if (!m) continue;
-                          if (m[0] === ppvPriceVal) continue;
-                          const parent = el.closest('[class*="upsell" i], [class*="ultimate" i], label');
-                          if (parent) return m[0];
-                        }
-                        return null;
-                      }, ppvPrice).catch(() => null);
-                      if (ultPrice) { cbActual = ultPrice; break; }
-                    } catch { }
-                    try {
-                      const ultCardSelectors = [
-                        '[class*="upsell" i]',
-                        '[class*="ultimate" i]',
-                        'label:has-text("DAZN Ultimate")',
-                        '[class*="card" i]:has-text("DAZN Ultimate")',
-                        'section:has-text("DAZN Ultimate")',
-                        'div:has-text("DAZN Ultimate"):has-text("/month")',
-                        'div:has-text("DAZN Ultimate")',
-                      ];
-                      for (const sel of ultCardSelectors) {
-                        try {
-                          const ultCards = page.locator(sel);
-                          const count = await ultCards.count().catch(() => 0);
-                          for (let ci = 0; ci < count; ci++) {
-                            const ultCard = ultCards.nth(ci);
-                            if (!await ultCard.isVisible({ timeout: 1000 }).catch(() => false)) continue;
-                            const cardText = await ultCard.innerText({ timeout: 2000 }).catch(() => '');
-                            if (cardText.length > 2000) continue;
-                            const cardLines = cardText.split('\n').map((l: string) => l.trim()).filter(Boolean);
-                            for (const l of cardLines) {
-                              const m = l.match(/[$£€]\d+[\.,]\d{2}/);
-                              if (m && m[0] !== ppvPrice) { cbActual = m[0]; break; }
-                            }
-                            if (cbActual !== 'N/A') break;
-                          }
-                        } catch { }
-                        if (cbActual !== 'N/A') break;
-                      }
-                    } catch { }
-                    if (cbActual === 'N/A') {
-                      const ultHeadIdx2 = bodyLines.findIndex((l: string) => l.trim().toLowerCase() === 'dazn ultimate');
-                      if (ultHeadIdx2 >= 0) {
-                        for (const l of bodyLines.slice(ultHeadIdx2 + 1, ultHeadIdx2 + 15)) {
-                          const m = l.match(/[$£€]\d+[\.,]\d{2}/);
-                          if (m && m[0] !== ppvPrice) { cbActual = m[0]; break; }
-                        }
-                      }
-                    }
-                    break;
-                  }
-                  case 'dazn ultimate price length': {
-                    const monthLine = bodyLines.find((l: string) => /\/\s*month/i.test(l));
-                    if (monthLine) {
-                      const m = monthLine.match(/\/\s*month/i);
-                      cbActual = m ? m[0].replace(/\/\s*month/i, '/ month') : monthLine.trim();
-                    }
-                    break;
-                  }
-                  case 'dazn ultimate billing text': {
-                    cbActual = bodyLines.find((l: string) => l.toLowerCase().includes('annual') && l.toLowerCase().includes('renew') && l.length < 100) || 'N/A';
-                    break;
-                  }
-                  case 'ppv included tag': {
-                    const tagEl = page.locator('[class*="tag" i], [class*="badge" i], [class*="label" i], span, div').filter({ hasText: /^included$/i }).first();
-                    cbActual = (await tagEl.isVisible({ timeout: 2000 }).catch(() => false)) ? 'Yes' : 'No';
-                    if (cbActual === 'No') {
-                      const ultHeadIdx3 = bodyLines.findIndex((l: string) => l.trim().toLowerCase() === 'dazn ultimate');
-                      if (ultHeadIdx3 >= 0) {
-                        const includedLine = bodyLines.slice(ultHeadIdx3, ultHeadIdx3 + 12).find((l: string) => l.trim().toLowerCase() === 'included');
-                        cbActual = includedLine ? 'Yes' : 'No';
-                      }
-                    }
-                    break;
-                  }
-                  case 'cta button': {
-                    const btnSelectors = ['button[type="submit"]', '[class*="button" i]', '[class*="cta" i]', 'button'];
-                    for (const sel of btnSelectors) {
-                      const btn = page.locator(sel).first();
-                      if (await btn.isVisible({ timeout: 1000 }).catch(() => false)) {
-                        const btnText = await btn.innerText().catch(() => '');
-                        if (btnText && btnText.length < 50) { cbActual = btnText.trim(); break; }
-                      }
-                    }
-                    if (cbActual === 'N/A') {
-                      cbActual = bodyLines.find((l: string) => l.toLowerCase().includes('continue with') && l.length < 60) || 'N/A';
-                    }
-                    break;
-                  }
-                }
-              } catch (fieldErr: any) {
-                console.warn(`  ⚠️ Error extracting choose-how-to-buy [${cbField}]: ${fieldErr.message}`);
-              }
-
-              const actualNorm = cbActual.toLowerCase().replace(/\s+/g, ' ').trim();
-              const expectedNorm = cbExpected.toLowerCase().replace(/\s+/g, ' ').trim();
-              const status = (actualNorm === expectedNorm ||
-                actualNorm.includes(expectedNorm) ||
-                expectedNorm.includes(actualNorm)) ? 'PASS' : 'FAIL';
-
-              console.log(`  ${status === 'PASS' ? '✅' : '❌'} [${cbField}]  expected="${cbExpected}"  actual="${cbActual}"`);
-              const _shotCB = status === 'FAIL' ? await captureFailShot(page, cbField) : undefined;
-              results.push({ page: 'Choose How To Buy', field: cbField, expected: cbExpected, actual: cbActual, status, screenshot: _shotCB });
-            }
-          } catch (e: any) {
-            console.warn('⚠️ Choose How To Buy validation error:', e.message);
-          }
-
-          if (purchaseOption === 'ultimate') {
-            console.log('\n💎 Selecting DAZN Ultimate...');
-            const ultimateCard = page.locator(
-              '[class*="upsell" i], [class*="ultimate" i], label:has-text("DAZN Ultimate")'
-            ).first();
-            if (await ultimateCard.isVisible({ timeout: 3000 }).catch(() => false)) {
-              await safeScrollToElement(page, ultimateCard);
-              await ultimateCard.click({ force: true }).catch(() => { });
-              console.log('✅ Selected DAZN Ultimate');
-            }
-            const ultimateCta = page.locator(
-              'button:has-text("Continue with DAZN Ultimate"), button:has-text("Continue")'
-            ).first();
-            await ultimateCta.waitFor({ state: 'visible', timeout: 8000 }).catch(() => { });
-            await safeScrollToElement(page, ultimateCta);
-            await ultimateCta.click({ force: true });
-            console.log('✅ Clicked Continue with DAZN Ultimate');
-
-            await page.waitForSelector(
-              'text=/choose your plan|annual|pay monthly|pay upfront/i',
-              { state: 'visible', timeout: 15000 }
-            ).catch(() => { });
-            await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => { });
-          } else {
-            console.log('\n💵 Selecting standalone PPV option...');
-            const ppvCard = page.locator(
-              '[class*="option" i]:not(:has-text("Ultimate")), label:not(:has-text("Ultimate"))'
-            ).first();
-            if (await ppvCard.isVisible({ timeout: 3000 }).catch(() => false)) {
-              await safeScrollToElement(page, ppvCard);
-              await ppvCard.click({ force: true }).catch(() => { });
-              console.log('✅ Selected standalone PPV');
-            }
-            const firstRadio = page.locator('input[type="radio"]').first();
-            if (await firstRadio.isVisible({ timeout: 2000 }).catch(() => false)) {
-              await safeScrollToElement(page, firstRadio);
-              await firstRadio.click({ force: true }).catch(() => { });
-              console.log('✅ Selected first radio button');
-            }
-            const ctaBtn = page.locator(
-              'button:has-text("Continue with pay-per-view"), button:has-text("Continue")'
-            ).first();
-            await ctaBtn.waitFor({ state: 'visible', timeout: 8000 }).catch(() => { });
-            await safeScrollToElement(page, ctaBtn);
-            await ctaBtn.click({ force: true });
-            console.log('✅ Clicked Continue with pay-per-view');
-          }
-
-          await page.waitForLoadState('domcontentloaded').catch(() => { });
-          continue;
-        }
-
-        // ── Upgrade Confirmation Page ──────────────────────────────────
-        if (pageType === 'confirmation') {
-          console.log('✅ Upgrade Confirmation page');
-          stuckCount = 0;
-          reachedEndPage = true;
-
-          try {
-            const confirmData = getUpgradeConfirmationData(ratePlan);
-            console.log(`📊 Confirmation rows: ${confirmData.length}`);
-
-            await page.waitForSelector('button:has-text("Confirm"), h1, h2', { state: 'visible', timeout: 8000 }).catch(() => {});
-            await page.waitForTimeout(1000);
-
-            for (const row of confirmData) {
-              const cfField = (row['Field'] || '').trim();
-              if (!cfField) continue;
-              const cfKey = cfField.toLowerCase().trim();
-              const { resolveExpected: resolveExp2 } = require('../../../utils/resolveExpected');
-              let cfExpected = '';
-              try { cfExpected = resolveExp2(row, eventData); } catch { cfExpected = String(row['Expected'] || ''); }
-              if (!cfExpected || cfExpected.trim().toUpperCase() === 'N/A') continue;
-
-              let cfActual = 'N/A';
-              try {
-                const cfBodyText = await page.locator('body').innerText({ timeout: 3000 }).catch(() => '');
-                const cfLines = cfBodyText.split('\n').map((l: string) => l.replace(/[\u200b\u200c\u200d\ufeff]/g, '').trim()).filter(Boolean);
-
-                switch (cfKey) {
-                  case 'page title': {
-                    const allHeadingTexts = await page.locator('h1, h2, h3, h4, [class*="title" i], [class*="heading" i], [class*="plan-name" i], [class*="product" i]').allInnerTexts().catch(() => [] as string[]);
-                    cfActual = allHeadingTexts.map(t => t.trim()).find(t => t.toLowerCase() === 'dazn ultimate') || 'N/A';
-                    if (cfActual === 'N/A') {
-                      cfActual = cfLines.find(l => l.trim().toLowerCase() === 'dazn ultimate') || 'N/A';
-                    }
-                    break;
-                  }
-                  case 'confirm button': {
-                    const confirmBtn = page.locator('button:has-text("Confirm")').first();
-                    cfActual = (await confirmBtn.innerText().catch(() => '')).trim() || 'N/A';
-                    break;
-                  }
-                  case 'legal text line 1':
-                  case 'legal text line 2': {
-                    const words = cfExpected.toLowerCase().split(/\s+/).slice(0, 4).join(' ');
-                    const matchedLine = cfLines.find(l => l.toLowerCase().includes(words));
-                    if (matchedLine) {
-                      cfActual = matchedLine;
-                    }
-                    break;
-                  }
-                  case 'rate plan price': {
-                    for (const l of cfLines) {
-                      const m = l.match(/[$£€]\d+[\.,]\d{2}/);
-                      if (m) { cfActual = m[0]; break; }
-                    }
-                    break;
-                  }
-                }
-              } catch (cfErr: any) {
-                console.warn(`  ⚠️ Error extracting confirmation [${cfField}]: ${cfErr.message}`);
-              }
-
-              const actualNorm = cfActual.toLowerCase().replace(/\s+/g, ' ').trim();
-              const expectedNorm = cfExpected.toLowerCase().replace(/\s+/g, ' ').trim();
-              const status = (actualNorm === expectedNorm ||
-                actualNorm.includes(expectedNorm) ||
-                expectedNorm.includes(actualNorm)) ? 'PASS' : 'FAIL';
-
-              console.log(`  ${status === 'PASS' ? '✅' : '❌'} [${cfField}]  expected="${cfExpected}"  actual="${cfActual}"`);
-              const _shotCf = status === 'FAIL' ? await captureFailShot(page, cfField) : undefined;
-              results.push({ page: 'Upgrade Confirmation', field: cfField, expected: cfExpected, actual: cfActual, status, screenshot: _shotCf });
-            }
-          } catch (e: any) {
-            console.warn('⚠️  Upgrade Confirmation page validation error:', e.message);
-          }
-
-          if (ENV === 'stag') {
-            console.log('💳 DAZN_ENV is stag — clicking Confirm to proceed to payment');
-            const confirmBtn = page.locator('button:has-text("Confirm")').first();
-            await safeScrollToElement(page, confirmBtn);
-            await confirmBtn.click({ force: true });
-            await page.waitForLoadState('domcontentloaded').catch(() => {});
-            reachedEndPage = false; // continue the loop to Payment
-            continue;
-          } else {
-            console.log(`ℹ️ DAZN_ENV is "${ENV}" — ending the flow on upgrade confirmation page for production.`);
-          }
-          break;
         }
 
         // ── Default Signup Page ──────────────────────────────────

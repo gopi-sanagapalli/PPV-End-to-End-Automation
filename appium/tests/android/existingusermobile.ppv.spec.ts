@@ -1184,32 +1184,25 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
 
       async function validateMobileBannerOrTile(surface: 'PPV Banner' | 'PPV Tile') {
         console.log(`\n🔍 [${surface}] Running validations...`);
-        await driver.pause(2000);
 
         const textsSet = new Set<string>();
+        let pageSource = '';
+
         try {
-          const textEls = await driver.$$('//android.widget.TextView | //android.widget.Button | //android.widget.EditText | //android.view.View[@text] | //android.view.View[@content-desc]');
-          for (const el of textEls) {
-            const txt = await el.getText().catch(() => '');
-            if (txt && txt.trim()) {
-              textsSet.add(txt.trim());
-            }
-            const desc = await el.getAttribute('content-desc').catch(() => '');
-            if (desc && desc.trim()) {
-              textsSet.add(desc.trim());
-            }
+          // Fast local extraction from page source to prevent the carousel from sliding away
+          pageSource = await driver.getPageSource();
+          const regex = /(?:text|content-desc)="([^"]+)"/g;
+          let match;
+          while ((match = regex.exec(pageSource)) !== null) {
+            const val = match[1].trim();
+            if (val) textsSet.add(val);
           }
         } catch (e: any) {
-          console.log(`⚠️ Failed to fetch elements: ${e.message}`);
+          console.log(`⚠️ Failed to fetch page source: ${e.message}`);
         }
 
         const texts = Array.from(textsSet);
         console.log(`📱 Gathered texts for ${surface}:`, texts);
-
-        let pageSource = '';
-        try {
-          pageSource = await driver.getPageSource();
-        } catch {}
 
         const checkField = (fieldName: string, expectedValue: string) => {
           if (!expectedValue || expectedValue.toUpperCase() === 'N/A') {
@@ -1840,19 +1833,55 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
           console.warn('⚠️ Mobile banner/tile validation failed:', err.message);
         }
 
-        try {
-          const buyNowEl = await driver.$(`(//android.widget.TextView[@text="Buy now"])[2]`);
-          await buyNowEl.waitForDisplayed({ timeout: 5000 });
-          await buyNowEl.click();
-          console.log('  ✅ Tapped "Buy now" (PPV tile button)');
-          buyTapped = true;
-        } catch (e: any) {
-          console.log(`  ⚠️ Indexed Buy now tap failed: ${e.message} — trying fallback selectors`);
+        // 1. Try to find the Buy Now button geographically tied to the PPV title
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            console.log(`  🔍 Looking for Buy Now button belonging to "${PPV_NAME}" (attempt ${attempt + 1})...`);
+            const ppvEls = await driver.$$(`//*[contains(@text, "${PPV_NAME}")]`);
+            let ppvLoc = null;
+            for (const el of ppvEls) {
+              if (await el.isDisplayed().catch(() => false)) {
+                ppvLoc = await el.getLocation();
+                break;
+              }
+            }
+
+            if (ppvLoc) {
+              const buyBtns = await driver.$$(`//android.widget.TextView[@text="Buy now" or @text="Buy Now" or @text="Buy" or @text="Get PPV"]`);
+              let targetBtn = null;
+              let minDiff = Infinity;
+              
+              for (const btn of buyBtns) {
+                if (await btn.isDisplayed().catch(() => false)) {
+                  const btnLoc = await btn.getLocation();
+                  const diffY = btnLoc.y - ppvLoc.y;
+                  if (diffY >= -150 && diffY < minDiff && diffY < 1200) {
+                    minDiff = diffY;
+                    targetBtn = btn;
+                  }
+                }
+              }
+              
+              if (targetBtn) {
+                await targetBtn.click();
+                console.log('  ✅ Tapped "Buy now" specific to the PPV card');
+                buyTapped = true;
+                break;
+              }
+            }
+          } catch (e: any) {
+            console.log(`  ⚠️ PPV-specific Buy now check error: ${e.message}`);
+          }
+          
+          if (!buyTapped) {
+            adbSwipe(cx, Math.round(screenScroll.height * 0.65), cx, Math.round(screenScroll.height * 0.45));
+            await driver.pause(1500);
+          }
         }
 
+        // Fallback to pure tapByText if geographical pairing failed
         if (!buyTapped) {
-          adbSwipe(cx, Math.round(screenScroll.height * 0.65), cx, Math.round(screenScroll.height * 0.45));
-          await driver.pause(1000);
+          console.log(`  ⚠️ Falling back to pure tapByText...`);
           for (const cta of ['Buy now', 'Buy Now', 'Buy', 'Get PPV']) {
             if (await tapByText(driver, cta, 3000)) {
               console.log(`  ✅ Tapped "${cta}"`);
@@ -2809,6 +2838,7 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
         let reachedEndPage = false;
         let ppvValidated = false;
         let planValidated = false;
+        let chooseBuyValidated = false;
         let planClickCount = 0;
         let emailProcessedCount = 0;
         let stuckCount = 0;
@@ -3439,7 +3469,7 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
           }
 
           // ── Choose How To Buy Page (existing active subscriber) ────────────────
-          if (pageType === 'choose-how-to-buy') {
+          if (pageType === 'choose-how-to-buy' && !chooseBuyValidated) {
             console.log('\n══════════════════════════════════════════════');
             console.log('🛒 Active Standard — Choose How To Buy');
             console.log('══════════════════════════════════════════════');
@@ -3889,6 +3919,7 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
             } catch (e: any) {
               console.warn('⚠️ Choose How To Buy validation error:', e.message);
             }
+            chooseBuyValidated = true;
 
             if (purchaseOption === 'ultimate') {
               console.log('\n💎 Selecting DAZN Ultimate...');
