@@ -503,11 +503,11 @@ for (const stateKey of userStatesToRun) {
     // ══════════════════════════════════════════════════════════════
     if (requiresPreLogin) {
       // Stagger concurrent CI signin requests to avoid DAZN rate-limiting.
-      // With max-parallel=8 all jobs navigate to /signin simultaneously from
-      // the same IP, which triggers DAZN's bot detection. Spreading them out
-      // over 20 s prevents this without slowing individual test execution.
+      // Matrix jobs can navigate to /signin from the same CI runner IP at once,
+      // which triggers DAZN bot/rate-limit handling. Let CI tune the spread.
       if (process.env.CI) {
-        const staggerMs = Math.floor(Math.random() * 20000);
+        const maxStaggerMs = Number(process.env.SIGNIN_STAGGER_MAX_MS || '20000');
+        const staggerMs = Math.floor(Math.random() * Math.max(0, maxStaggerMs));
         console.log(`⏳ [CI] Staggering signin by ${(staggerMs / 1000).toFixed(1)}s to avoid rate limit...`);
         await new Promise(r => setTimeout(r, staggerMs));
       }
