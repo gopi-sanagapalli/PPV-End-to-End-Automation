@@ -2320,28 +2320,6 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
         buyTapped = true;
       }
 
-      // ── home-boxing-tile ──────────────────────────────────────────────────
-      else if (SOURCE === 'home-boxing-tile') {
-        const ppvTileFound = await scrollToText(driver, PPV_NAME) || await isVisible(driver, PPV_NAME, 2000);
-        if (!ppvTileFound) {
-          const shot = await saveAndroidScreenshot(driver, './test-results/android_home_boxing_tile_not_found.png');
-          recordAndroidPPVAvailability(false, shot, 'Home of Boxing');
-          await generateAndroidAvailabilityFailureReport(`PPV tile "${PPV_NAME}" not found on Home Boxing rail`);
-          throw new Error(`❌ "${PPV_NAME}" not found on Home Boxing rail. See test-results/android_home_boxing_tile_not_found.png`);
-        }
-        recordAndroidPPVAvailability(true, undefined, 'Home of Boxing');
-        try {
-          await validateMobileBannerOrTile('PPV Tile');
-        } catch (err: any) {
-          console.warn('⚠️ Mobile banner/tile validation failed:', err.message);
-        }
-        await tapByText(driver, PPV_NAME, 8000);
-        await driver.pause(2000);
-        for (const cta of ['Buy now', 'Buy Now', 'Buy']) {
-          if (await tapByText(driver, cta, 6000)) { buyTapped = true; break; }
-        }
-      }
-
       // ── fallback ──────────────────────────────────────────────────────────
       else {
         console.log(`⚠️  Unknown SOURCE "${SOURCE}" — generic Home screen fallback`);
