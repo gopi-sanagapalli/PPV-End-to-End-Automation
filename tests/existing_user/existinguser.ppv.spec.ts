@@ -74,16 +74,17 @@ const HOME_SPORT_DROPDOWN_SOURCES = new Set([
   'home-boxing-upcoming',
   'home-kickboxing-tile',
 ]);
-const LOGIN_FIRST_INVALID_LANDING_SOURCES = new Set([
-  'landing-page-banner',
-  'landing-page-dont-miss-live',
-]);
+const LOGIN_FIRST_INVALID_LANDING_SOURCES = new Set<string>([]);
 const ENV = (process.env.DAZN_ENV || 'stag').toLowerCase();
 const PAYMENT_METHOD = (process.env.PAYMENT_METHOD || 'credit_card').toLowerCase();
 
 function throwLogged(error: Error): never {
   console.log(error.message);
   throw error;
+}
+
+function isActiveUltimateState(userStateKey: string): boolean {
+  return userStateKey.toLowerCase().startsWith('active_ultimate');
 }
 
 test.afterEach(async ({}, testInfo) => {
@@ -192,11 +193,13 @@ for (const stateKey of userStatesToRun) {
       isUltimateUpgrade || tier === 'ultimate'
         ? 'ultimate'
         : 'standard';
+    const isUltimateLoginFirstUser = LOGIN_FIRST && isActiveUltimateState(userStateKey);
 
     // Bypass phone number for every effective Ultimate journey in GB/US,
     // including Active Standard → Ultimate upgrades.
     const devModeEnabled =
       devModeForced ||
+      isUltimateLoginFirstUser ||
       (effectiveTier === 'ultimate' && isUSorGB) ||
       (SOURCE === 'landing-page-dont-miss-live-switch');
 
@@ -320,6 +323,37 @@ for (const stateKey of userStatesToRun) {
     const page = await context.newPage();
     const results: any[] = [];
     let capturedVideoPath: string | null = null;
+
+    const finishRun = async (displayTier = tier, userStatusOverride?: string) => {
+      reachedEndPage = true;
+      capturedVideoPath = (await page.video()?.path().catch(() => null)) ?? null;
+      await context.close().catch(() => { });
+      const { excelPath, videoPath } = await writeResults(results, capturedVideoPath);
+
+      displayResultsTable(results, displayTier, {
+        event: eventData.PPV_NAME,
+        region: REGION,
+        excelPath,
+        videoPath,
+      });
+
+      const { folderPath } = await generateReports(results, {
+        event: eventData.PPV_NAME,
+        region: REGION,
+        source: SOURCE,
+        ratePlan,
+        tier,
+        env: process.env.DAZN_ENV || 'prod',
+        flowName: `${SOURCE} → ${tier} → ${ratePlan}`,
+        endTime: new Date(),
+        excelPath,
+        videoPath,
+        userStatus: userStatusOverride || (isMyAccount ? (process.env.USER_STATE || 'Freemium') : 'New User'),
+        userType: 'existing-user',
+        paymentMethod: PAYMENT_METHOD === 'gpay' ? 'Google Pay' : 'Credit Card',
+      });
+      if (folderPath) console.log(`\n📂 Report folder: ${folderPath}`);
+    };
 
     // ── detectPageType ────────────────────────────────────────────
     const detectPageType = async (
@@ -599,6 +633,12 @@ for (const stateKey of userStatesToRun) {
         if (isLandingPageSource) {
           console.log(`ℹ️ [Login First] Existing-user landing page source enabled: ${SOURCE}`);
         }
+
+        if (LOGIN_FIRST && isActiveUltimateState(userStateKey) && !isMyAccount) {
+          console.log('\n💎 [Login First Ultimate] Validating My Account purchased status before source click...');
+          const myAccountPage = new MyAccountPage(page);
+          await myAccountPage.navigateAndValidatePurchasedPPVStatus(baseUrl, results, eventData);
+        }
       }
 
       if (!isMyAccount) {
@@ -684,8 +724,14 @@ for (const stateKey of userStatesToRun) {
           try {
             await schedule.selectSport(sport);
             const eventCard = await schedule.findEvent(eventData.PPV_NAME);
-            await schedule.clickEvent(eventCard);
-            scheduleEventClicked = true;
+            if (LOGIN_FIRST && isActiveUltimateState(userStateKey)) {
+              await schedule.clickEntitledEventAndValidate(eventCard, results, eventData);
+              await finishRun('ultimate', userStateKey);
+              return;
+            } else {
+              await schedule.clickEvent(eventCard);
+              scheduleEventClicked = true;
+            }
           } catch (schedErr: any) {
             console.error(`❌ Schedule flow failed: ${schedErr.message}`);
             let shotPath: string | undefined;
@@ -727,6 +773,12 @@ for (const stateKey of userStatesToRun) {
           if (devModeEnabled) {
             console.log('\n🎭 Dev mode flow detected — enabling dev mode on search page...');
             await searchPage.enableDevMode();
+          }
+
+          if (LOGIN_FIRST && isActiveUltimateState(userStateKey)) {
+            await searchPage.searchAndClickEntitledPPV(eventData.PPV_NAME, results, eventData);
+            await finishRun('ultimate', userStateKey);
+            return;
           }
 
           await searchPage.searchAndClick(eventData.PPV_NAME);
@@ -782,6 +834,12 @@ for (const stateKey of userStatesToRun) {
               console.log(`🧭 [Login First] Navigating signed-in user to landing page source: ${SOURCE}`);
               await landing.navigate(baseUrl, SOURCE, eventData);
             } else if (isHomeSport) {
+              const homeTargetUrl = `${baseNoSlash}/home`;
+              if (!page.url().toLowerCase().includes('/home')) {
+                console.log(`🧭 [Login First] Returning to Home before All Sports navigation: ${homeTargetUrl}`);
+                await page.goto(homeTargetUrl, { waitUntil: 'domcontentloaded' });
+                await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });
+              }
               console.log(`🧭 [Login First] Navigating via All Sports dropdown for source: ${SOURCE}`);
               await (landing as BoxingHomePage).navigateToSportViaAllSports(SOURCE, eventData);
             } else if (isBoxingSource) {
@@ -793,7 +851,12 @@ for (const stateKey of userStatesToRun) {
               // HomePage: we are already on /home. Strip the DAZN onboarding
               // step param before touching banner carousel DOM.
               const homeUrl = page.url();
-              if (/[?&]step=\d+/.test(homeUrl)) {
+              if (!homeUrl.toLowerCase().includes('/home')) {
+                const homeTargetUrl = `${baseNoSlash}/home`;
+                console.log(`🧭 [Login First] Returning to Home for source ${SOURCE}: ${homeTargetUrl}`);
+                await page.goto(homeTargetUrl, { waitUntil: 'domcontentloaded' });
+                await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });
+              } else if (/[?&]step=\d+/.test(homeUrl)) {
                 try {
                   const cleanUrl = new URL(homeUrl);
                   cleanUrl.searchParams.delete('step');
@@ -913,6 +976,45 @@ for (const stateKey of userStatesToRun) {
             SOURCE === 'boxing-standard-subscription' ||
             SOURCE === 'boxing-join-the-club';
 
+          const isUltimateLoginFirstEntitlement =
+            LOGIN_FIRST &&
+            isActiveUltimateState(userStateKey) &&
+            !isBoxingSubscriptionSource;
+
+          if (isUltimateLoginFirstEntitlement && SOURCE.toLowerCase().includes('banner')) {
+            await landing.validateUltimatePurchasedBannerAndFightCard(
+              container,
+              SOURCE,
+              results,
+              eventData,
+              pageName,
+              flowParam
+            );
+            await finishRun('ultimate', userStateKey);
+            return;
+          }
+
+          const ultimateTileSource = (() => {
+            const src = SOURCE.toLowerCase();
+            return src.includes('tile') ||
+              src.includes('dont-miss') ||
+              src.includes('upcoming') ||
+              src.includes('biggest-fights');
+          })();
+
+          if (isUltimateLoginFirstEntitlement && ultimateTileSource) {
+            await landing.clickUltimateTileAndValidateNavigation(
+              container,
+              SOURCE,
+              results,
+              eventData,
+              pageName,
+              flowParam
+            );
+            await finishRun('ultimate', userStateKey);
+            return;
+          }
+
           if (isBoxingSubscriptionSource) {
             console.log(`ℹ️ [${SOURCE}] Subscription source — skipping boxing banner/landing validation.`);
           } else if (SOURCE === 'home-biggest-fights') {
@@ -1014,7 +1116,7 @@ for (const stateKey of userStatesToRun) {
         }
 
         // ── STRICT VALIDATION FOR ULTIMATE USER PRE-LOGGED IN ──
-        if (userStateKey === 'active_ultimate' && requiresPreLogin) {
+        if (isActiveUltimateState(userStateKey) && requiresPreLogin) {
           console.log('⏳ [Ultimate User] Waiting for redirection to fixture page...');
           await page.waitForURL(
             (url: URL) =>
@@ -1514,7 +1616,7 @@ for (const stateKey of userStatesToRun) {
           return; // ← Exit early — no purchase flow needed
         }
 
-        if (tier === 'ultimate' && userStateKey === 'active_ultimate') {
+        if (tier === 'ultimate' && isActiveUltimateState(userStateKey)) {
           console.log('\n💎 Ultimate tier — checking PPV status...');
 
           await myAccountPage.scrollToPPVSection();
@@ -2119,7 +2221,7 @@ for (const stateKey of userStatesToRun) {
               await clickAndWaitForNav(page, continueBtn, 'Email Continue');
             }
 
-            if (signedIn && userStateKey === 'active_ultimate') {
+            if (signedIn && isActiveUltimateState(userStateKey)) {
               console.log('⏳ [Ultimate User Login] Waiting for post-login redirection to fixture page...');
               await page.waitForURL(
                 (url: URL) =>

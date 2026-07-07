@@ -1,10 +1,88 @@
 import { Page, Locator, expect } from '@playwright/test';
 import { BasePage } from './BasePage';
 import { dismissMarketingPopup } from '../utils/helpers';
+import { validateVariant } from '../flows/validateVariant';
+import { readSheet } from '../utils/excelReader';
 
 export class SearchPage extends BasePage {
   constructor(page: Page) {
     super(page);
+  }
+
+  private isFixtureOrPreviewUrl(url: string): boolean {
+    const lower = url.toLowerCase();
+    const isTarget =
+      lower.includes('preview') ||
+      lower.includes('fixture') ||
+      lower.includes('event') ||
+      lower.includes('stream') ||
+      lower.includes('player');
+    const isPurchaseRoute =
+      lower.includes('plandetails') ||
+      lower.includes('tierplans') ||
+      lower.includes('signup') ||
+      lower.includes('signin') ||
+      lower.includes('payment') ||
+      lower.includes('checkout');
+    return isTarget && !isPurchaseRoute;
+  }
+
+  private async clickVisibleEntitledTile(eventName: string): Promise<void> {
+    const cleanName = eventName.replace(/[:\-–]/g, ' ').replace(/\s+/g, ' ').trim();
+    const firstMeaningfulWord = cleanName.split(/\s+/).find(w => w.length > 2) || cleanName;
+    const regex = new RegExp(firstMeaningfulWord.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+    const candidates = this.page
+      .locator('article, a[class*="tile" i], div[class*="tile" i], div[class*="card" i], li, [class*="result" i]')
+      .filter({ hasText: regex });
+    const count = await candidates.count().catch(() => 0);
+
+    for (let i = 0; i < count; i++) {
+      const tile = candidates.nth(i);
+      if (!await tile.isVisible().catch(() => false)) continue;
+      const text = ((await tile.textContent().catch(() => '')) || '').toLowerCase();
+      if (
+        text.includes('press conference') ||
+        text.includes('weigh-in') ||
+        text.includes('weigh in') ||
+        text.includes('highlights') ||
+        text.includes('replay') ||
+        text.includes('preview')
+      ) {
+        continue;
+      }
+
+      console.log(`🖱️ [Search] Clicking entitled PPV tile: "${text.replace(/\s+/g, ' ').trim().substring(0, 100)}"`);
+      await tile.scrollIntoViewIfNeeded().catch(() => { });
+      await tile.click({ force: true, timeout: 5000 });
+      await this.page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => { });
+      return;
+    }
+
+    throw new Error(`❌ [Search] Could not find visible entitled tile for "${eventName}"`);
+  }
+
+  async searchAndClickEntitledPPV(
+    eventName: string,
+    results: any[],
+    eventData: Record<string, string>
+  ): Promise<void> {
+    await this.searchForEvent(eventName);
+    await this.clickVisibleEntitledTile(eventName);
+    await this.page.waitForURL((url: URL) => this.isFixtureOrPreviewUrl(url.href), { timeout: 15000 }).catch(() => { });
+    await this.page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => { });
+
+    const rows = readSheet('Search page').filter((row: any) =>
+      String(row.Flow || '').trim().toLowerCase() === 'ultimate-login-first'
+    );
+    await validateVariant(this.page, 'search', rows, results, eventData, 'Search', 'ultimate-login-first');
+
+    const navResult = results
+      .slice()
+      .reverse()
+      .find((r: any) => r.page === 'Search' && r.field === 'Ultimate Navigation Target');
+    if (navResult?.status === 'FAIL') {
+      throw new Error(`❌ [Search] Ultimate navigation target validation failed. URL: ${this.page.url()}`);
+    }
   }
 
   // ── NAVIGATE ──────────────────────────────────────────────────

@@ -1077,6 +1077,19 @@ export async function getActualValue(
       const text = snapFind(n => n.text.toLowerCase().includes('best of boxing') || n.text.toLowerCase().includes('upcoming fights') || n.text.toLowerCase().includes('boxing'));
       return text !== 'N/A' ? 'Present' : 'Not found';
     }
+    case 'ultimate navigation target': {
+      const lowerUrl = page.url().toLowerCase();
+      if (lowerUrl.includes('preview')) return 'Preview Page';
+      if (
+        lowerUrl.includes('fixture') ||
+        lowerUrl.includes('event') ||
+        lowerUrl.includes('stream') ||
+        lowerUrl.includes('player')
+      ) {
+        return 'Fixture Page';
+      }
+      return 'Unknown Page';
+    }
     case 'banner - event title': {
       const expectedTitle = eventData?.PPV_NAME || '';
       const nameParts = expectedTitle.split(/[:\-–]/).map(p => p.trim()).filter(p => p.length > 3);
@@ -1154,8 +1167,85 @@ export async function getActualValue(
       const found = snapExists(n => (n.tag === 'button' || n.tag === 'a') && n.text.toLowerCase().includes('buy now'));
       return found === 'Yes' ? 'Visible' : 'Not visible';
     }
+    case 'banner - purchased tag': {
+      const found = snapExists(n =>
+        n.text.toLowerCase().includes('purchased') &&
+        n.text.length < 40
+      );
+      return found === 'Yes' ? 'Visible' : 'Not visible';
+    }
     case 'banner - fight card cta': {
       const found = snapExists(n => (n.tag === 'button' || n.tag === 'a') && n.text.toLowerCase().includes('fight card'));
+      return found === 'Yes' ? 'Visible' : 'Not visible';
+    }
+    case 'banner - set reminder cta':
+    case 'banner - set remainder cta': {
+      const found = snapExists(n => {
+        const text = n.text.toLowerCase();
+        return (n.tag === 'button' || n.tag === 'a') &&
+          (text.includes('set reminder') || text.includes('set remainder'));
+      });
+      return found === 'Yes' ? 'Visible' : 'Not visible';
+    }
+    case 'fight card modal - event title': {
+      const expectedTitle = eventData?.PPV_NAME || '';
+      const words = expectedTitle
+        .toLowerCase()
+        .replace(/\bv(?:s)?\.?\b/g, ' vs ')
+        .replace(/[^a-z0-9]+/g, ' ')
+        .split(/\s+/)
+        .filter(w => w.length > 2 && !['the', 'and', 'for', 'with', 'from'].includes(w));
+      const found = snapFind(n => {
+        if (!n.isInModal) return false;
+        const text = n.text.toLowerCase().replace(/\bv(?:s)?\.?\b/g, ' vs ');
+        return words.every(w => text.includes(w)) && n.text.length < 120;
+      }, true);
+      return found !== 'N/A' ? found : 'Not found';
+    }
+    case 'fight card modal - event date': {
+      let found = snapFind(n => n.isInModal && isDateText(n.text) && n.text.length < 80, true);
+      if (found === 'N/A') {
+        found = snapFind(n => {
+          if (!n.isInModal) return false;
+          const text = n.text;
+          return /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2}\b/i.test(text) ||
+            /\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/i.test(text) ||
+            (/\b(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*\b/i.test(text) && /\d{1,2}:\d{2}/.test(text));
+        }, true);
+      }
+      if (found !== 'N/A') {
+        const monthDay = found.match(/\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2}\b/i);
+        if (monthDay) return monthDay[0].trim();
+        const dayMonth = found.match(/\b\d{1,2}(?:st|nd|rd|th)?\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/i);
+        if (dayMonth) return dayMonth[0].trim();
+        return found;
+      }
+      return 'Not found';
+    }
+    case 'fight card modal - promoter': {
+      const expectedPromoter = eventData?.PPV_PROMOTER || '';
+      const promoterWords = expectedPromoter.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+      const found = snapFind(n => {
+        if (!n.isInModal) return false;
+        const text = n.text.toLowerCase();
+        return promoterWords.length > 0 &&
+          promoterWords.every(w => text.includes(w)) &&
+          n.text.length < 80;
+      }, true);
+      return found !== 'N/A' ? found : 'Not found';
+    }
+    case 'fight card modal - close button': {
+      let found = snapExists(n => n.isInModal && (
+        n.classes.toLowerCase().includes('close') ||
+        n.text === 'X' ||
+        n.text.toLowerCase() === 'close'
+      ));
+      if (found === 'No') {
+        const closeBtn = page.locator(
+          '[role="dialog"] button, [aria-modal="true"] button, [class*="modal" i] button, [class*="popup" i] button'
+        ).filter({ hasText: /^(x|close)$/i }).first();
+        found = await closeBtn.isVisible({ timeout: 1000 }).catch(() => false) ? 'Yes' : 'No';
+      }
       return found === 'Yes' ? 'Visible' : 'Not visible';
     }
     case 'popup - event title': {

@@ -1,9 +1,39 @@
 import { Page, Locator } from '@playwright/test';
 import { handleCookies } from '../utils/helpers';
+import { validateVariant } from '../flows/validateVariant';
+import { getMyAccountData } from '../utils/excelReader';
 
 
 export class MyAccountPage {
   constructor(private page: Page) { }
+
+  async navigateAndValidatePurchasedPPVStatus(
+    baseUrl: string,
+    results: any[],
+    eventData: Record<string, string>
+  ): Promise<void> {
+    console.log('\n🏠 [My Account] Validating purchased PPV status via Excel...');
+    const myAccountUrl = `${baseUrl.replace(/\/$/, '')}/myaccount`;
+    await this.page.goto(myAccountUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });
+    await handleCookies(this.page, 8000);
+    await this.scrollToPPVSection();
+
+    const rows = getMyAccountData().filter((row: any) =>
+      String(row.Field || '').trim().toLowerCase() === 'ppv status'
+    );
+    await validateVariant(this.page, 'myaccount', rows, results, eventData, 'My Account', 'myaccount');
+
+    const statusResult = results
+      .slice()
+      .reverse()
+      .find((r: any) => r.page === 'My Account' && r.field === 'PPV Status');
+    if (statusResult?.status === 'FAIL') {
+      throw new Error(
+        `❌ [My Account] PPV Status validation failed. expected="${statusResult.expected}" actual="${statusResult.actual}"`
+      );
+    }
+  }
 
   async hasPPV(ppvName: string): Promise<boolean> {
     const row = await this.searchPPVInCurrentDOM(ppvName);
