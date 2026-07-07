@@ -213,6 +213,42 @@ export class PPVPage {
       return renewMatch ? renewMatch[0].trim() : 'N/A';
     }
 
+    if (fieldLower === 'ppv price') {
+      const expectedPrice = eventData.PPV_PRICE || '';
+      const pricePattern = /(?:AED\s?|[\$£€₹]\s?)\d+(?:[\.,]\d{2})?/;
+      const lines = bodyText.split('\n').map(l => l.trim()).filter(Boolean);
+
+      if (expectedPrice) {
+        const standaloneExpected = lines.find(line => {
+          const lowerLine = line.toLowerCase();
+          return line.includes(expectedPrice) &&
+            !lowerLine.includes('ultimate') &&
+            !lowerLine.includes('/month') &&
+            !lowerLine.includes('per month') &&
+            !lowerLine.includes('for 12 months') &&
+            !lowerLine.includes('annual');
+        });
+        if (standaloneExpected) return expectedPrice;
+      }
+
+      for (const line of lines) {
+        const lowerLine = line.toLowerCase();
+        const match = line.match(pricePattern);
+        if (
+          match &&
+          !lowerLine.includes('ultimate') &&
+          !lowerLine.includes('/month') &&
+          !lowerLine.includes('per month') &&
+          !lowerLine.includes('for 12 months') &&
+          !lowerLine.includes('annual')
+        ) {
+          return match[0].trim();
+        }
+      }
+
+      return expectedPrice || 'N/A';
+    }
+
     if (fieldLower.startsWith('upsell feature')) {
       const featureNum = parseInt(field.replace(/\D/g, '')) || 1;
       return this.extractFeature(bodyText, 'upsell', featureNum);

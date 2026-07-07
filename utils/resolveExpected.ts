@@ -606,12 +606,19 @@ export function resolveExpected(
         }
       }
 
+      let searchKey = k;
+      if (searchKey.toUpperCase() === 'PPV_DATE' && (pageName.toLowerCase().includes('mobile') || pageName.toLowerCase().includes('paywall'))) {
+        if (eventData.MOBILE_PPV_DATE) {
+          searchKey = 'MOBILE_PPV_DATE';
+        }
+      }
+
       const value =
-        eventData[k] ??
-        eventData[k.toUpperCase()] ??
-        eventData[k.toLowerCase()] ??
-        eventData[k.replace(/\s+/g, '_').toUpperCase()] ??
-        eventData[k.replace(/\s+/g, '_')];
+        eventData[searchKey] ??
+        eventData[searchKey.toUpperCase()] ??
+        eventData[searchKey.toLowerCase()] ??
+        eventData[searchKey.replace(/\s+/g, '_').toUpperCase()] ??
+        eventData[searchKey.replace(/\s+/g, '_')];
 
       if (value === undefined) {
         if (pass === 0) return match;
@@ -694,6 +701,9 @@ export function resolveExpected(
     'ppv2 upsell tile date',
   ];
   if (dateOnlyFields.includes(field)) {
+    if (pageName.toLowerCase().includes('mobile') || pageName.toLowerCase().includes('paywall')) {
+      return template;
+    }
     return getDynamicDateBadge(template);
   }
 
@@ -706,6 +716,9 @@ export function resolveExpected(
     'event date and time',
   ];
   if (dateTimeFields.includes(field)) {
+    if (pageName.toLowerCase().includes('mobile') || pageName.toLowerCase().includes('paywall')) {
+      return template;
+    }
     return getDynamicDateTimeBadge(template);
   }
 
