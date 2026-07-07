@@ -79,7 +79,7 @@ test.describe.configure({ mode: 'parallel' });
 
 for (const stateKey of userStatesToRun) {
   test(`PPV flow via existing user - ${stateKey}`, async ({ browser }) => {
-    test.setTimeout(300_000);
+    test.setTimeout(Number(process.env.TEST_TIMEOUT_MS || '300000'));
     process.env.USER_STATE = stateKey;
     let defaultSignupPPVValidated = false;
 
@@ -375,31 +375,53 @@ for (const stateKey of userStatesToRun) {
   };
 
   const reloadSignin = async (p: any, signinUrl: string, reason: string) => {
-    if (!p || p.isClosed()) return;
+    if (!p) return p;
+    const existingContext = p.isClosed() ? context : p.context();
+    if (p.isClosed()) {
+      console.log(`⚠️ [Signin] ${reason}. Page is already closed. Opening a fresh signin page...`);
+      const freshPage = await existingContext.newPage();
+      attachSigninDiagnostics(freshPage, `${reason.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-fresh`);
+      signinNonceBootstrapErrorSeen = false;
+      await freshPage.goto(signinUrl, { waitUntil: 'domcontentloaded' }).catch(() => {});
+      await freshPage.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+      await captureSigninDiagnostic(freshPage, 'after-signin-fresh-page');
+      return freshPage;
+    }
+
     console.log(`⚠️ [Signin] ${reason}. Current URL: ${p.url()}. Reloading signin once...`);
     await captureSigninDiagnostic(p, reason.toLowerCase().replace(/[^a-z0-9]+/g, '-'));
     signinNonceBootstrapErrorSeen = false;
     await p.goto(signinUrl, { waitUntil: 'domcontentloaded' }).catch(() => {});
+    if (p.isClosed()) {
+      console.log(`⚠️ [Signin] Page closed during signin reload. Opening a fresh signin page...`);
+      const freshPage = await existingContext.newPage();
+      attachSigninDiagnostics(freshPage, `${reason.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-fresh-after-close`);
+      await freshPage.goto(signinUrl, { waitUntil: 'domcontentloaded' }).catch(() => {});
+      await freshPage.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+      await captureSigninDiagnostic(freshPage, 'after-signin-fresh-page');
+      return freshPage;
+    }
     await p.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
     await captureSigninDiagnostic(p, 'after-signin-reload');
+    return p;
   };
 
   const recoverSigninLoaderIfNeeded = async (p: any, signinUrl: string) => {
-    if (!p || p.isClosed()) return;
+    if (!p || p.isClosed()) return p;
     const shellReady = await waitForSigninShell(p, 15000);
-    if (shellReady || p.isClosed()) return;
+    if (shellReady || p.isClosed()) return p;
 
-    await reloadSignin(p, signinUrl, 'Auth shell did not render email/cookie UI');
+    return await reloadSignin(p, signinUrl, 'Auth shell did not render email/cookie UI');
   };
 
   const recoverSigninBootstrapErrorIfNeeded = async (p: any, signinUrl: string) => {
-    if (!signinNonceBootstrapErrorSeen || !p || p.isClosed()) return;
+    if (!signinNonceBootstrapErrorSeen || !p || p.isClosed()) return p;
     if (await hasSigninEmailInput(p)) {
       signinNonceBootstrapErrorSeen = false;
-      return;
+      return p;
     }
 
-    await reloadSignin(p, signinUrl, 'Signin bootstrap nonce error before email UI');
+    return await reloadSignin(p, signinUrl, 'Signin bootstrap nonce error before email UI');
   };
 
   const handleCookiesBounded = async (p: any, timeout: number) => {
@@ -649,12 +671,12 @@ for (const stateKey of userStatesToRun) {
       // Wait for page to fully settle (including late-loading cookie banner scripts)
       await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });
       await captureSigninDiagnostic(page, 'after-signin-goto');
-      await recoverSigninLoaderIfNeeded(page, signinUrl);
+      page = await recoverSigninLoaderIfNeeded(page, signinUrl);
 
       // Block until cookie banner appears and dismiss it before touching the form
       console.log('🍪 Waiting for cookie banner on signin page...');
       await handleCookiesBounded(page, 15000);
-      await recoverSigninBootstrapErrorIfNeeded(page, signinUrl);
+      page = await recoverSigninBootstrapErrorIfNeeded(page, signinUrl);
       await captureSigninDiagnostic(page, 'after-cookie-handling');
 
       // Wait for the URL to settle — first to any auth URL, then specifically to emailDetails
@@ -711,9 +733,9 @@ for (const stateKey of userStatesToRun) {
           attachSigninDiagnostics(page, `recovery-attempt-${signinAttempt + 1}`);
           await page.goto(signinUrl, { waitUntil: 'domcontentloaded' });
           await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
-          await recoverSigninLoaderIfNeeded(page, signinUrl);
+          page = await recoverSigninLoaderIfNeeded(page, signinUrl);
           await handleCookiesBounded(page, 10000);
-          await recoverSigninBootstrapErrorIfNeeded(page, signinUrl);
+          page = await recoverSigninBootstrapErrorIfNeeded(page, signinUrl);
           await page.waitForURL(/emailDetails|signup|signin/i, { timeout: 10000 }).catch(() => {});
           await captureSigninDiagnostic(page, `after-recovery-attempt-${signinAttempt + 1}`);
           signinPageRecovered = true;

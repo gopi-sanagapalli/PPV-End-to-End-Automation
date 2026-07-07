@@ -177,6 +177,7 @@ jobs:
       DAZN_REGION: GB
       DAZN_ENV: prod
       LOGIN_FIRST: 'true'
+      TEST_TIMEOUT_MS: '600000'
       SOURCE: ${{ matrix.source }}
       PROFILE: ${{ matrix.profile }}
       PPV_CONFIG: ${{ inputs.PPV_CONFIG }}
