@@ -295,8 +295,9 @@ for (const stateKey of userStatesToRun) {
     p.on('pageerror', (error: Error) => console.log(`🧪 [Signin Diagnostics] Page error (${label}): ${error.message}`));
     p.on('console', (msg: any) => {
       const type = msg.type();
-      if (type === 'error' || type === 'warning') {
-        console.log(`🧪 [Signin Diagnostics] Console ${type} (${label}): ${msg.text()}`);
+      const text = msg.text();
+      if (type === 'error' || (type === 'warning' && !/No value for string|preloaded using link preload|DEPRECATION NOTICE/i.test(text))) {
+        console.log(`🧪 [Signin Diagnostics] Console ${type} (${label}): ${text}`);
       }
     });
     p.on('requestfailed', (request: any) => {
@@ -340,6 +341,44 @@ for (const stateKey of userStatesToRun) {
     } catch (error: any) {
       console.log(`🧪 [Signin Diagnostics] Failed to capture "${name}": ${error?.message || error}`);
     }
+  };
+
+  const waitForSigninShell = async (p: any, timeout = 15000) => {
+    if (!p || p.isClosed()) return false;
+    const emailInput = p.locator(
+      'input[type="email"], ' +
+      'input[name="email"], ' +
+      'input[placeholder*="email" i]'
+    ).first();
+    const cookieAcceptBtn = p.locator('#onetrust-accept-btn-handler').first();
+
+    return Promise.race([
+      emailInput.waitFor({ state: 'visible', timeout }).then(() => true).catch(() => false),
+      cookieAcceptBtn.waitFor({ state: 'visible', timeout }).then(() => true).catch(() => false),
+      p.waitForURL(/emailDetails|signup/i, { timeout }).then(() => true).catch(() => false),
+    ]);
+  };
+
+  const recoverSigninLoaderIfNeeded = async (p: any, signinUrl: string) => {
+    if (!p || p.isClosed()) return;
+    const shellReady = await waitForSigninShell(p, 15000);
+    if (shellReady || p.isClosed()) return;
+
+    console.log(`⚠️ [Signin] Auth shell did not render email/cookie UI. Current URL: ${p.url()}. Reloading signin once...`);
+    await captureSigninDiagnostic(p, 'signin-shell-stuck-before-reload');
+    await p.goto(signinUrl, { waitUntil: 'domcontentloaded' }).catch(() => {});
+    await p.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+    await captureSigninDiagnostic(p, 'after-signin-reload');
+  };
+
+  const handleCookiesBounded = async (p: any, timeout: number) => {
+    await Promise.race([
+      handleCookies(p, timeout),
+      new Promise<void>(resolve => setTimeout(() => {
+        console.log(`⚠️ [Signin] Cookie handling exceeded ${timeout}ms — continuing`);
+        resolve();
+      }, timeout + 3000)),
+    ]);
   };
 
   attachSigninDiagnostics(page, 'initial');
@@ -579,10 +618,11 @@ for (const stateKey of userStatesToRun) {
       // Wait for page to fully settle (including late-loading cookie banner scripts)
       await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });
       await captureSigninDiagnostic(page, 'after-signin-goto');
+      await recoverSigninLoaderIfNeeded(page, signinUrl);
 
       // Block until cookie banner appears and dismiss it before touching the form
       console.log('🍪 Waiting for cookie banner on signin page...');
-      await handleCookies(page, 15000);
+      await handleCookiesBounded(page, 15000);
       await captureSigninDiagnostic(page, 'after-cookie-handling');
 
       // Wait for the URL to settle — first to any auth URL, then specifically to emailDetails
@@ -639,7 +679,8 @@ for (const stateKey of userStatesToRun) {
           attachSigninDiagnostics(page, `recovery-attempt-${signinAttempt + 1}`);
           await page.goto(signinUrl, { waitUntil: 'domcontentloaded' });
           await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
-          await handleCookies(page, 10000);
+          await recoverSigninLoaderIfNeeded(page, signinUrl);
+          await handleCookiesBounded(page, 10000);
           await page.waitForURL(/emailDetails|signup|signin/i, { timeout: 10000 }).catch(() => {});
           await captureSigninDiagnostic(page, `after-recovery-attempt-${signinAttempt + 1}`);
           signinPageRecovered = true;
