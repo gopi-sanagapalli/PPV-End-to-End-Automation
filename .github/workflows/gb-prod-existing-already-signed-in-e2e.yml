@@ -42,7 +42,7 @@ jobs:
 
     strategy:
       fail-fast: false
-      max-parallel: 3
+      max-parallel: 8
       matrix:
         source:
           - home-page-banner
@@ -177,7 +177,6 @@ jobs:
       DAZN_REGION: GB
       DAZN_ENV: prod
       LOGIN_FIRST: 'true'
-      SIGNIN_STAGGER_MAX_MS: '120000'
       SOURCE: ${{ matrix.source }}
       PROFILE: ${{ matrix.profile }}
       PPV_CONFIG: ${{ inputs.PPV_CONFIG }}
