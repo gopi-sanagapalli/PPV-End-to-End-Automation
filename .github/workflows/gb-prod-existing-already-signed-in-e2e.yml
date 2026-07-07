@@ -38,7 +38,7 @@ jobs:
       - macOS
       - ARM64
 
-    timeout-minutes: 10
+    timeout-minutes: 20
 
     strategy:
       fail-fast: false
@@ -177,6 +177,7 @@ jobs:
       DAZN_REGION: GB
       DAZN_ENV: prod
       LOGIN_FIRST: 'true'
+      TEST_TIMEOUT_MS: '600000'
       SOURCE: ${{ matrix.source }}
       PROFILE: ${{ matrix.profile }}
       PPV_CONFIG: ${{ inputs.PPV_CONFIG }}
@@ -192,6 +193,40 @@ jobs:
           echo "Runner: $RUNNER_NAME"
           echo "OS: $RUNNER_OS"
           hostname
+          echo "Commit: $(git rev-parse HEAD)"
+
+      - name: Verify runner VPN and DAZN signin reachability
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=============================="
+          echo "Runner network preflight"
+          echo "Runner : $RUNNER_NAME"
+          echo "Host   : $(hostname)"
+          echo "Region : $DAZN_REGION"
+          echo "=============================="
+
+          if command -v scutil >/dev/null 2>&1; then
+            echo "DNS:"
+            scutil --dns | grep -E 'nameserver\[[0-9]+\]' | head -5 || true
+          fi
+
+          echo "Default route:"
+          route -n get default 2>/dev/null | grep -E 'gateway|interface' || true
+
+          echo "Public IP check:"
+          IPINFO="$(curl -fsSL --max-time 15 https://ipinfo.io/json || true)"
+          echo "$IPINFO"
+
+          COUNTRY="$(printf '%s' "$IPINFO" | sed -n 's/.*"country"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+          if [ "$COUNTRY" != "$DAZN_REGION" ]; then
+            echo "❌ Runner public IP country is '$COUNTRY', expected '$DAZN_REGION'. Check the VPN on this runner before running DAZN PROD."
+            exit 1
+          fi
+
+          echo "DAZN signin HTTP check:"
+          curl -fsSIL --max-time 30 "https://www.dazn.com/en-GB/signin" | sed -n '1,12p'
 
       - name: Verify Node
         run: |
@@ -223,7 +258,7 @@ jobs:
           echo "=============================="
 
       - name: Run PROD PPV Flow
-        run: npx playwright test tests/existing_user/existinguser.ppv.spec.ts --project=chromium
+        run: npx playwright test tests/existing_user/existinguser.ppv.spec.ts --project=chromium --timeout=600000
 
       - name: Archive reports on runner disk
         if: always()

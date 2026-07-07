@@ -79,7 +79,7 @@ test.describe.configure({ mode: 'parallel' });
 
 for (const stateKey of userStatesToRun) {
   test(`PPV flow via existing user - ${stateKey}`, async ({ browser }) => {
-    test.setTimeout(300_000);
+    test.setTimeout(Number(process.env.TEST_TIMEOUT_MS || '300000'));
     process.env.USER_STATE = stateKey;
     let defaultSignupPPVValidated = false;
 
@@ -261,7 +261,6 @@ for (const stateKey of userStatesToRun) {
     viewport: { width: 1920, height: 1080 },
     colorScheme: 'dark',
     reducedMotion: 'no-preference',
-    locale: 'en-IN',
     ...(recordVideo ? { recordVideo } : {}),
   });
 
@@ -270,11 +269,173 @@ for (const stateKey of userStatesToRun) {
     try {
       localStorage.setItem('randomABPoint', Math.random().toString());
     } catch { }
+
+    // Intercept window.close() — DAZN calls this on non-UK IPs or when
+    // it rate-limits multiple concurrent signin requests from the same IP.
+    // Blocking it keeps the page alive so the test can proceed normally.
+    try {
+      window.close = function () {
+        console.log('🛡️ [BLOCKED] window.close() intercepted — page close prevented');
+      };
+    } catch { }
   });
 
-  const page = await context.newPage();
+  let page = await context.newPage();
   const results: any[] = [];
   let capturedVideoPath: string | null = null;
+  const signinDiagnosticsDir = path.resolve(process.cwd(), 'test-results', 'signin-diagnostics');
+  const diagnosticPages = new WeakSet<any>();
+  let signinNonceBootstrapErrorSeen = false;
+
+  const attachSigninDiagnostics = (p: any, label: string) => {
+    if (!p || diagnosticPages.has(p)) return;
+    diagnosticPages.add(p);
+
+    p.on('close', () => console.log(`🧪 [Signin Diagnostics] Page closed (${label})`));
+    p.on('crash', () => console.log(`🧪 [Signin Diagnostics] Page crashed (${label})`));
+    p.on('pageerror', (error: Error) => {
+      console.log(`🧪 [Signin Diagnostics] Page error (${label}): ${error.message}`);
+      if (/reading 'nonce'|reading "nonce"|nonce/i.test(error.message)) {
+        signinNonceBootstrapErrorSeen = true;
+      }
+    });
+    p.on('console', (msg: any) => {
+      const type = msg.type();
+      const text = msg.text();
+      if (type === 'error' || (type === 'warning' && !/No value for string|preloaded using link preload|DEPRECATION NOTICE/i.test(text))) {
+        console.log(`🧪 [Signin Diagnostics] Console ${type} (${label}): ${text}`);
+      }
+    });
+    p.on('requestfailed', (request: any) => {
+      const url = request.url();
+      if (/dazn|auth|signin|signup|oneid|indazn/i.test(url)) {
+        console.log(`🧪 [Signin Diagnostics] Request failed (${label}): ${request.method()} ${url} :: ${request.failure()?.errorText || 'unknown'}`);
+      }
+    });
+    p.on('response', (response: any) => {
+      const status = response.status();
+      const url = response.url();
+      if (status >= 400 && /dazn|auth|signin|signup|oneid|indazn/i.test(url)) {
+        console.log(`🧪 [Signin Diagnostics] HTTP ${status} (${label}): ${url}`);
+      }
+    });
+  };
+
+  const captureSigninDiagnostic = async (p: any, name: string) => {
+    try {
+      if (!p || p.isClosed()) {
+        console.log(`🧪 [Signin Diagnostics] Cannot capture "${name}" because page is closed`);
+        return;
+      }
+      fs.mkdirSync(signinDiagnosticsDir, { recursive: true });
+      const safeName = `${SOURCE}_${userStateKey}_${requestedPlan || ratePlan}_${name}`.replace(/[^a-z0-9_.-]+/gi, '_');
+      const screenshotPath = path.join(signinDiagnosticsDir, `${safeName}.png`);
+      await p.screenshot({ path: screenshotPath, fullPage: true }).catch(() => null);
+      const bodyText = await p.locator('body').innerText({ timeout: 2000 }).catch(() => '');
+      const textPath = path.join(signinDiagnosticsDir, `${safeName}.txt`);
+      fs.writeFileSync(
+        textPath,
+        [
+          `url=${p.url()}`,
+          `title=${await p.title().catch(() => '')}`,
+          '',
+          bodyText.slice(0, 5000),
+        ].join('\n'),
+        'utf-8'
+      );
+      console.log(`🧪 [Signin Diagnostics] Captured ${name}: ${screenshotPath}`);
+    } catch (error: any) {
+      console.log(`🧪 [Signin Diagnostics] Failed to capture "${name}": ${error?.message || error}`);
+    }
+  };
+
+  const waitForSigninShell = async (p: any, timeout = 15000) => {
+    if (!p || p.isClosed()) return false;
+    const emailInput = p.locator(
+      'input[type="email"], ' +
+      'input[name="email"], ' +
+      'input[placeholder*="email" i]'
+    ).first();
+    const cookieAcceptBtn = p.locator('#onetrust-accept-btn-handler').first();
+
+    return Promise.race([
+      emailInput.waitFor({ state: 'visible', timeout }).then(() => true).catch(() => false),
+      cookieAcceptBtn.waitFor({ state: 'visible', timeout }).then(() => true).catch(() => false),
+      p.waitForURL(/emailDetails/i, { timeout }).then(() => true).catch(() => false),
+    ]);
+  };
+
+  const hasSigninEmailInput = async (p: any) => {
+    if (!p || p.isClosed()) return false;
+    return p.locator(
+      'input[type="email"], ' +
+      'input[name="email"], ' +
+      'input[placeholder*="email" i]'
+    ).first().isVisible({ timeout: 1000 }).catch(() => false);
+  };
+
+  const reloadSignin = async (p: any, signinUrl: string, reason: string) => {
+    if (!p) return p;
+    const existingContext = p.isClosed() ? context : p.context();
+    if (p.isClosed()) {
+      console.log(`⚠️ [Signin] ${reason}. Page is already closed. Opening a fresh signin page...`);
+      const freshPage = await existingContext.newPage();
+      attachSigninDiagnostics(freshPage, `${reason.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-fresh`);
+      signinNonceBootstrapErrorSeen = false;
+      await freshPage.goto(signinUrl, { waitUntil: 'domcontentloaded' }).catch(() => {});
+      await freshPage.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+      await captureSigninDiagnostic(freshPage, 'after-signin-fresh-page');
+      return freshPage;
+    }
+
+    console.log(`⚠️ [Signin] ${reason}. Current URL: ${p.url()}. Reloading signin once...`);
+    await captureSigninDiagnostic(p, reason.toLowerCase().replace(/[^a-z0-9]+/g, '-'));
+    signinNonceBootstrapErrorSeen = false;
+    await p.goto(signinUrl, { waitUntil: 'domcontentloaded' }).catch(() => {});
+    if (p.isClosed()) {
+      console.log(`⚠️ [Signin] Page closed during signin reload. Opening a fresh signin page...`);
+      const freshPage = await existingContext.newPage();
+      attachSigninDiagnostics(freshPage, `${reason.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-fresh-after-close`);
+      await freshPage.goto(signinUrl, { waitUntil: 'domcontentloaded' }).catch(() => {});
+      await freshPage.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+      await captureSigninDiagnostic(freshPage, 'after-signin-fresh-page');
+      return freshPage;
+    }
+    await p.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+    await captureSigninDiagnostic(p, 'after-signin-reload');
+    return p;
+  };
+
+  const recoverSigninLoaderIfNeeded = async (p: any, signinUrl: string) => {
+    if (!p || p.isClosed()) return p;
+    const shellReady = await waitForSigninShell(p, 15000);
+    if (shellReady || p.isClosed()) return p;
+
+    return await reloadSignin(p, signinUrl, 'Auth shell did not render email/cookie UI');
+  };
+
+  const recoverSigninBootstrapErrorIfNeeded = async (p: any, signinUrl: string) => {
+    if (!signinNonceBootstrapErrorSeen || !p || p.isClosed()) return p;
+    if (await hasSigninEmailInput(p)) {
+      signinNonceBootstrapErrorSeen = false;
+      return p;
+    }
+
+    return await reloadSignin(p, signinUrl, 'Signin bootstrap nonce error before email UI');
+  };
+
+  const handleCookiesBounded = async (p: any, timeout: number) => {
+    await Promise.race([
+      handleCookies(p, timeout),
+      new Promise<void>(resolve => setTimeout(() => {
+        console.log(`⚠️ [Signin] Cookie handling exceeded ${timeout}ms — continuing`);
+        resolve();
+      }, timeout + 3000)),
+    ]);
+  };
+
+  attachSigninDiagnostics(page, 'initial');
+  context.on('page', (p: any) => attachSigninDiagnostics(p, 'context-new-page'));
 
   // ── detectPageType ────────────────────────────────────────────
   const detectPageType = async (
@@ -494,15 +655,29 @@ for (const stateKey of userStatesToRun) {
     // PRE-LOGIN FLOW (My Account OR LOGIN=true)
     // ══════════════════════════════════════════════════════════════
     if (requiresPreLogin) {
+      // Stagger concurrent CI signin requests to avoid DAZN rate-limiting.
+      // Matrix jobs can navigate to /signin from the same CI runner IP at once,
+      // which triggers DAZN bot/rate-limit handling. Let CI tune the spread.
+      if (process.env.CI) {
+        const maxStaggerMs = Number(process.env.SIGNIN_STAGGER_MAX_MS || '20000');
+        const staggerMs = Math.floor(Math.random() * Math.max(0, maxStaggerMs));
+        console.log(`⏳ [CI] Staggering signin by ${(staggerMs / 1000).toFixed(1)}s to avoid rate limit...`);
+        await new Promise(r => setTimeout(r, staggerMs));
+      }
+
       const signinUrl = `${baseUrl}/signin`;
       console.log(`\n🔐 Navigating to: ${signinUrl}`);
       await page.goto(signinUrl, { waitUntil: 'domcontentloaded' });
       // Wait for page to fully settle (including late-loading cookie banner scripts)
       await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });
+      await captureSigninDiagnostic(page, 'after-signin-goto');
+      page = await recoverSigninLoaderIfNeeded(page, signinUrl);
 
       // Block until cookie banner appears and dismiss it before touching the form
       console.log('🍪 Waiting for cookie banner on signin page...');
-      await handleCookies(page, 15000);
+      await handleCookiesBounded(page, 15000);
+      page = await recoverSigninBootstrapErrorIfNeeded(page, signinUrl);
+      await captureSigninDiagnostic(page, 'after-cookie-handling');
 
       // Wait for the URL to settle — first to any auth URL, then specifically to emailDetails
       // (DAZN SPA appends &page=emailDetails once the email form is rendered).
@@ -518,6 +693,7 @@ for (const stateKey of userStatesToRun) {
         });
       }
       await page.waitForLoadState('domcontentloaded').catch(() => { });
+      await captureSigninDiagnostic(page, 'after-url-settle');
       console.log(`📍 Landed on: ${page.isClosed() ? '(PAGE CLOSED)' : page.url()}`);
 
       if (isMyAccount) assertCountryMatch(page, REGION);
@@ -526,8 +702,11 @@ for (const stateKey of userStatesToRun) {
       // after clicking Continue on the email step (bot/CAPTCHA detection).
       // Dismiss the dialog and retry up to 3 times before failing.
       let preLoginPasswordFilled = false;
+      let signinPageRecovered = false;
       for (let signinAttempt = 1; signinAttempt <= 3 && !preLoginPasswordFilled; signinAttempt++) {
-        if (signinAttempt > 1) {
+        const wasRecovered = signinPageRecovered;
+        signinPageRecovered = false;
+        if (signinAttempt > 1 && !wasRecovered) {
           console.log(`🔄 [Pre-Login Signin] Retrying sign-in (attempt ${signinAttempt})...`);
           await page.reload({ waitUntil: 'domcontentloaded' });
           await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => { });
@@ -541,9 +720,26 @@ for (const stateKey of userStatesToRun) {
           'input[name="email"], ' +
           'input[placeholder*="email" i]'
         ).first();
-        // Guard: page may have closed during SPA init (e.g. DAZN GEO/IP region redirect)
+        // Guard: page may have closed during SPA init (e.g. DAZN GEO/IP/rate-limit redirect).
+        // Recover: wait for the rate-limit window to reset, open a fresh page and retry.
         if (page.isClosed()) {
-          throw new Error('❌ [Signin] Page was closed before email input appeared — DAZN likely triggered a region redirect. Aborting retry loop.');
+          if (signinAttempt >= 3) {
+            throw new Error('❌ [Signin] Page was closed before email input appeared — DAZN region redirect or rate limit. All 3 retries exhausted.');
+          }
+          const recoveryMs = signinAttempt * 25000 + Math.floor(Math.random() * 10000);
+          console.log(`⚠️ [Signin] Page closed on attempt ${signinAttempt}. Waiting ${(recoveryMs / 1000).toFixed(1)}s then reopening...`);
+          await new Promise(r => setTimeout(r, recoveryMs));
+          page = await context.newPage();
+          attachSigninDiagnostics(page, `recovery-attempt-${signinAttempt + 1}`);
+          await page.goto(signinUrl, { waitUntil: 'domcontentloaded' });
+          await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+          page = await recoverSigninLoaderIfNeeded(page, signinUrl);
+          await handleCookiesBounded(page, 10000);
+          page = await recoverSigninBootstrapErrorIfNeeded(page, signinUrl);
+          await page.waitForURL(/emailDetails|signup|signin/i, { timeout: 10000 }).catch(() => {});
+          await captureSigninDiagnostic(page, `after-recovery-attempt-${signinAttempt + 1}`);
+          signinPageRecovered = true;
+          continue;
         }
         await emailInput.waitFor({ state: 'visible', timeout: 10000 });
         await emailInput.fill(userEmail);

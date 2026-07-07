@@ -1,5 +1,5 @@
 {
-  "eventKey": "aj_joshua_prenga",
+  "eventKey": "ppv_t_joshua_prenga_test",
   "PPV_NAME": "Joshua vs. Prenga",
   "PPV_DISPLAY_NAME": "Joshua vs. Prenga",
   "SPORT": "Boxing",
@@ -40,6 +40,7 @@
   "regions": {
     "GB": {
       "LANDING_PAGE_PPV_DATE": "25 July",
+
       "PPV_PRICE": "£19.99",
       "TODAY_YOU_PAY_PRICE": "£19.99",
       "UPSELL_PRICE_LENGTH": "/month for 12 months",
@@ -52,6 +53,12 @@
     },
     "US": {
       "LANDING_PAGE_PPV_DATE": "25 July",
+      "PPV_DATE": "Sat 25th Jul at 16:30",
+      "PPV_TIME": "16:30",
+      "BOXING_BANNER_DATE": "SAT 25TH JUL",
+      "LANDING_BANNER_DATE": "SAT 25TH JUL AT 16:30",
+      "BOXING_BANNER_SUBTITLE": "Main Event • Riyadh, Saudi Arabia • 16:30",
+      "PPV_PAGE_DATE": "Sat 25th Jul at 16:30",
       "PPV_PRICE": "$59.99",
       "TODAY_YOU_PAY_PRICE": "$59.99",
       "UPSELL_PRICE": "",
@@ -66,6 +73,12 @@
     },
     "AU": {
       "LANDING_PAGE_PPV_DATE": "26 July",
+      "PPV_DATE": "Sun 26th Jul at 06:30",
+      "PPV_TIME": "06:30",
+      "BOXING_BANNER_DATE": "SUN 26TH JUL",
+      "LANDING_BANNER_DATE": "SUN 26TH JUL AT 06:30",
+      "BOXING_BANNER_SUBTITLE": "Main Event • Riyadh, Saudi Arabia • 06:30",
+      "PPV_PAGE_DATE": "Sun 26th Jul at 06:30",
       "PPV_PRICE": "$49.99",
       "TODAY_YOU_PAY_PRICE": "$49.99",
       "UPSELL_PRICE": "$39.99",
@@ -79,7 +92,13 @@
       "offers": []
     },
     "AE": {
-      "LANDING_PAGE_PPV_DATE": "25 July",
+      "LANDING_PAGE_PPV_DATE": "26 July",
+      "PPV_DATE": "Sun 26th Jul at 00:30",
+      "PPV_TIME": "00:30",
+      "BOXING_BANNER_DATE": "SUN 26TH JUL",
+      "LANDING_BANNER_DATE": "SUN 26TH JUL AT 00:30",
+      "BOXING_BANNER_SUBTITLE": "Main Event • Riyadh, Saudi Arabia • 00:30",
+      "PPV_PAGE_DATE": "Sun 26th Jul at 00:30",
       "PPV_PRICE": "AED 72.99",
       "TODAY_YOU_PAY_PRICE": "AED 72.99",
       "UPSELL_PRICE": "AED 72.99",
@@ -90,6 +109,24 @@
       "BUNDLE_PRICE": "AED 131.39",
       "BUNDLE_TODAY_YOU_PAY_STANDARD": "AED 131.39",
       "BUNDLE_PPV2_DATE": "Sat 27th Jun at 20:30",
+      "offers": []
+    },
+    "BR": {
+      "LANDING_PAGE_PPV_DATE": "25 July",
+      "PPV_DATE": "Sáb 25 de Jul às 17:30",
+      "PPV_TIME": "17:30",
+      "BOXING_BANNER_DATE": "SÁB 25 DE JUL",
+      "LANDING_BANNER_DATE": "SÁB 25 DE JUL ÀS 17:30",
+      "BOXING_BANNER_SUBTITLE": "Main Event • Riyadh, Saudi Arabia • 17:30",
+      "PPV_PAGE_DATE": "Sáb 25 de Jul às 17:30",
+      "PPV_PRICE": "R$ 59.99",
+      "TODAY_YOU_PAY_PRICE": "R$ 59.99",
+      "UPSELL_PRICE_LENGTH": "/mês por 12 meses",
+      "PPV1_UPSELL_TILE_DATE": "",
+      "BUNDLE_ORIGINAL_PRICE": "R$ 119.98",
+      "BUNDLE_PRICE": "R$ 107.99",
+      "BUNDLE_TODAY_YOU_PAY_STANDARD": "R$ 107.99",
+      "BUNDLE_PPV2_DATE": "Sáb 27 de Jun às 13:30",
       "offers": []
     }
   },

@@ -37,3 +37,5 @@ _work/
 _diag/
 
 playwright-report/
+.DS_Store
+node_modules/

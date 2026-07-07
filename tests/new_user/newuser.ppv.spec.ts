@@ -124,7 +124,7 @@ async function runFlow(
   flowConfig: any,
   region: string,
   validateLanding: boolean
-): Promise<{ results: any[]; reachedEndPage: boolean; skipped?: boolean; videoPath?: string | null }> {
+): Promise<{ results: any[]; reachedEndPage: boolean; skipped?: boolean }> {
   const { name, source, tier, ratePlan: rawRatePlan, enableDevMode: devModeEnabled } = flowConfig;
   const ratePlan = (rawRatePlan || '').replace(/-/g, ' ').toLowerCase();
   if ((SOURCE === 'boxing-banner-ultimate' || SOURCE === 'boxing-ultimate-subscription' || SOURCE === 'boxing-join-the-club') && tier !== 'ultimate') {
@@ -240,7 +240,6 @@ async function runFlow(
     hasTouch: false,
     colorScheme: 'dark',
     reducedMotion: 'no-preference',
-    locale: 'en-IN',
     permissions: ['clipboard-read', 'clipboard-write', 'geolocation'],
     recordVideo: {
       dir: 'test-results/videos/',
@@ -287,7 +286,6 @@ async function runFlow(
   });
 
   let reachedEndPage = false;
-  let capturedVideoPath: string | null = null;
 
   try {
     // ── Step 1: Navigate to landing page ─────────────────────
@@ -357,7 +355,30 @@ async function runFlow(
       await searchPage.navigate(baseUrl);
       await setupPage(page, 8000);
       assertCountryMatch(page, region);
-      await searchPage.searchAndClick(eventData.PPV_NAME);
+      let searchQuery = eventData.PPV_NAME;
+      if (eventData.PPV_NAME && eventData.PPV_NAME.includes(':')) {
+        searchQuery = eventData.PPV_NAME.split(':').pop()?.trim() || eventData.PPV_NAME;
+      }
+
+      let searchSuccess = false;
+      try {
+        await searchPage.searchForEvent(searchQuery);
+        await searchPage.clickPPVTile(eventData.PPV_NAME);
+        searchSuccess = true;
+      } catch (err: any) {
+        console.log(`⚠️ Search for "${searchQuery}" failed: ${err.message}. Trying fallback search...`);
+      }
+
+      if (!searchSuccess) {
+        if (eventData.PPV_PROMOTER && eventData.PPV_PROMOTER !== 'N/A') {
+          console.log(`🔄 Searching with promoter fallback: "${eventData.PPV_PROMOTER}"`);
+          await searchPage.searchForEvent(eventData.PPV_PROMOTER);
+          await searchPage.clickPPVTile(eventData.PPV_NAME);
+          searchSuccess = true;
+        } else {
+          throw new Error(`❌ PPV event "${eventData.PPV_NAME}" not found via search`);
+        }
+      }
 
       console.log('\n📋 Validating Search page...');
       try {
@@ -1899,15 +1920,13 @@ async function runFlow(
     }
   } finally {
     try {
-      // Capture path BEFORE closing context (path is known now; file is finalized by close())
-      capturedVideoPath = (await page.video()?.path()) ?? null;
-      if (capturedVideoPath) console.log(`🎥 Video: ${capturedVideoPath}`);
+      const videoPath = await page.video()?.path();
+      if (videoPath) console.log(`🎥 Video: ${videoPath}`);
     } catch { }
-    // Closing the context finalizes and flushes the video file to disk
     await context.close().catch(() => { });
   }
 
-  return { results, reachedEndPage, videoPath: capturedVideoPath };
+  return { results, reachedEndPage };
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1978,7 +1997,7 @@ for (const planKey of plansToRun) {
 
       const currentJson = loadEventConfig(EVENT_CONFIG, planKey);
 
-      const { results, reachedEndPage, skipped, videoPath: capturedVideo } = await runFlow(
+      const { results, reachedEndPage, skipped } = await runFlow(
         browser, currentJson, flowConfig, REGION, true
       );
 
@@ -1996,10 +2015,8 @@ for (const planKey of plansToRun) {
         r.ratePlan = flowConfig.ratePlan;
       });
 
-      // Write results to Excel — pass the captured video path directly so we
-      // don't rely on directory scanning (which can pick the wrong file when
-      // multiple parallel workers are recording simultaneously).
-      const { excelPath, videoPath } = await writeResults(results, capturedVideo);
+      // Write results to Excel
+      const { excelPath, videoPath } = await writeResults(results);
 
       // Display detailed per-page results
       displayResultsTable(results, 'ppv', {

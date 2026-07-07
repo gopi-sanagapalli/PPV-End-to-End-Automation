@@ -46,7 +46,7 @@ jobs:
       - self-hosted
       - macOS
       - ${{ inputs.RUNNER_TYPE }}
-    timeout-minutes: 10
+    timeout-minutes: 20
 
     strategy:
       fail-fast: false
