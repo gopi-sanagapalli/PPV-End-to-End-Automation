@@ -131,7 +131,27 @@ jobs:
         run: npx playwright --version
 
       - name: Run PROD PPV Flow
-        run: npx playwright test tests/new_user/newuser.ppv.spec.ts --project=chromium
+        shell: bash
+        run: |
+          set +e
+
+          echo "===== Environment ====="
+          echo "Runner: $RUNNER_NAME"
+          echo "Workspace: $GITHUB_WORKSPACE"
+          pwd
+
+          npx playwright test tests/new_user/newuser.ppv.spec.ts --project=chromium
+
+          EXIT_CODE=$?
+
+          echo ""
+          echo "=================================="
+          echo "PLAYWRIGHT EXIT CODE = $EXIT_CODE"
+          echo "=================================="
+
+          ps -ef | grep -E "node|chrome|playwright" || true
+
+          exit $EXIT_CODE
 
       - name: Archive reports on runner disk
         if: always()
