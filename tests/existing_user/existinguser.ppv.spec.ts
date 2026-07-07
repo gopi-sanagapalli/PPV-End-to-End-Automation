@@ -261,7 +261,6 @@ for (const stateKey of userStatesToRun) {
     viewport: { width: 1920, height: 1080 },
     colorScheme: 'dark',
     reducedMotion: 'no-preference',
-    locale: 'en-IN',
     ...(recordVideo ? { recordVideo } : {}),
   });
 

@@ -124,8 +124,6 @@ test.describe('Mobile → Web PPV Handoff', () => {
     const eventData = buildEventData(json, REGION, planTier, ratePlan.replace(/-/g, ' '), SOURCE);
     eventData.source = SOURCE;
     eventData.SOURCE = SOURCE;
-    eventData.MOBILE_WEB_HANDOFF = 'true';
-    eventData['MOBILE_WEB_HANDOFF'] = 'true';
 
     // Compute date variables
     const futureDate = new Date();
@@ -212,8 +210,6 @@ test.describe('Mobile → Web PPV Handoff', () => {
       userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1',
       colorScheme: 'dark',
       reducedMotion: 'no-preference',
-      timezoneId: 'Asia/Kolkata',
-      locale: 'en-IN',
       permissions: ['clipboard-read', 'clipboard-write', 'geolocation'],
       recordVideo: {
         dir: 'test-results/videos/',
@@ -683,9 +679,6 @@ test.describe('Mobile → Web PPV Handoff', () => {
             }
           } catch (paymentErr: any) {
             console.error(`❌ Payment filling failed: ${paymentErr.message}`);
-            try {
-              await page.screenshot({ path: `test-results/payment_fill_error_${Date.now()}.png`, fullPage: true });
-            } catch { }
             const _shotPay = await captureFailShot(page, 'Payment Completed').catch(() => undefined);
             results.push({
               page: 'Payment Success',
@@ -725,17 +718,11 @@ test.describe('Mobile → Web PPV Handoff', () => {
         if (matchedError) {
           const errorSnippet = bodyTextForError.split('\n').filter((l: string) => errorPatterns.some(p => p.test(l))).join(' | ').substring(0, 200);
           console.log(`❌ [Signup Error] Detected error popup on page: "${errorSnippet}"`);
-          try {
-            await page.screenshot({ path: 'test-results/signup_error_popup.png', fullPage: true });
-          } catch { }
           throw new Error(`❌ Signup error popup detected: "${errorSnippet}".`);
         }
 
         if (emailProcessedCount > 2) {
           console.log('⚠️  Email/personal details loop detected — breaking');
-          try {
-            await page.screenshot({ path: 'test-results/personal_details_error.png', fullPage: true });
-          } catch { }
           const anyBtn = page.locator('button[type="submit"], button:has-text("Continue")').first();
           if (await anyBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
             const beforeUrl = page.url();
