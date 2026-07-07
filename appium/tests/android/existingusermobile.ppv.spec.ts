@@ -3445,11 +3445,41 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
             console.log('══════════════════════════════════════════════');
             stuckCount = 0;
 
-            await page.locator('h1, h2, h3, body').filter({ hasText: /choose how to/i }).first().waitFor({ state: 'visible', timeout: 12000 }).catch(() => {
-              console.warn('⚠️ Heading "choose how to" not found or visible within 12s.');
+            // ── Page readiness: wait for the actual page content to render ──
+            console.log('⏳ Waiting for Choose How To Buy page to fully render...');
+            await page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => {});
+            await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
+
+            // Wait for the h1 heading with "choose how to" text
+            try {
+              await page.waitForFunction(
+                () => {
+                  const h1 = document.querySelector('h1');
+                  return h1 && /choose how to/i.test(h1.innerText);
+                },
+                { timeout: 15000 }
+              );
+              console.log('✅ Page heading "Choose how to buy" detected');
+            } catch {
+              console.warn('⚠️ h1 "Choose how to buy" not found after 15s — checking page content...');
+              // Log what's actually on the page for debugging
+              const currentH1 = await page.locator('h1').first().innerText({ timeout: 3000 }).catch(() => 'N/A');
+              const currentUrl = page.url();
+              console.log(`  📍 Current URL: ${currentUrl}`);
+              console.log(`  📍 Current h1: "${currentH1}"`);
+            }
+
+            // Also wait for radio buttons (PPV vs Ultimate options)
+            await page.waitForSelector(
+              'input[type="radio"], [role="radio"], label:has-text("DAZN Ultimate"), label:has-text("pay-per-view")',
+              { state: 'visible', timeout: 8000 }
+            ).catch(() => {
+              console.warn('⚠️ Radio buttons / option cards not visible after 8s');
             });
 
-            await page.locator('[class*="addon" i], [class*="purchase" i], input[type="radio"]').first().waitFor({ state: 'visible', timeout: 8000 }).catch(() => { });
+            // Extra settle time for React hydration
+            await page.waitForTimeout(1500);
+
 
             try {
               const chooseBuyData = getChooseHowToBuyData();
@@ -3458,9 +3488,9 @@ async function acceptAppCookies(driver: WdBrowser): Promise<void> {
               // ── Inline choosebuy validator ──────────────────────────────────────────
               // Scroll through page to trigger lazy-loaded sections (mobile 375px)
               await page.evaluate(() => { window.scrollTo(0, document.body.scrollHeight); }).catch(() => {});
-              await page.waitForTimeout(800);
+              await page.waitForTimeout(1000);
               await page.evaluate(() => { window.scrollTo(0, 0); }).catch(() => {});
-              await page.waitForTimeout(400);
+              await page.waitForTimeout(800);
 
               // innerText respects CSS display/visibility and inserts visual newlines between
               // block elements — essential for splitting into meaningful lines on a React SPA.
