@@ -269,6 +269,15 @@ for (const stateKey of userStatesToRun) {
     try {
       localStorage.setItem('randomABPoint', Math.random().toString());
     } catch { }
+
+    // Intercept window.close() — DAZN calls this on non-UK IPs or when
+    // it rate-limits multiple concurrent signin requests from the same IP.
+    // Blocking it keeps the page alive so the test can proceed normally.
+    try {
+      window.close = function () {
+        console.log('🛡️ [BLOCKED] window.close() intercepted — page close prevented');
+      };
+    } catch { }
   });
 
   const page = await context.newPage();
@@ -493,6 +502,16 @@ for (const stateKey of userStatesToRun) {
     // PRE-LOGIN FLOW (My Account OR LOGIN=true)
     // ══════════════════════════════════════════════════════════════
     if (requiresPreLogin) {
+      // Stagger concurrent CI signin requests to avoid DAZN rate-limiting.
+      // With max-parallel=8 all jobs navigate to /signin simultaneously from
+      // the same IP, which triggers DAZN's bot detection. Spreading them out
+      // over 20 s prevents this without slowing individual test execution.
+      if (process.env.CI) {
+        const staggerMs = Math.floor(Math.random() * 20000);
+        console.log(`⏳ [CI] Staggering signin by ${(staggerMs / 1000).toFixed(1)}s to avoid rate limit...`);
+        await new Promise(r => setTimeout(r, staggerMs));
+      }
+
       const signinUrl = `${baseUrl}/signin`;
       console.log(`\n🔐 Navigating to: ${signinUrl}`);
       await page.goto(signinUrl, { waitUntil: 'domcontentloaded' });
