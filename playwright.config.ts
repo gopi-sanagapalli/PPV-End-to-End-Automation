@@ -2,6 +2,14 @@ import { defineConfig } from '@playwright/test';
 
 const isHeadless = process.env.HEADLESS === 'true';
 
+const REGION = (process.env.DAZN_REGION || 'GB').toUpperCase();
+const regionLocaleMap: Record<string, { locale: string; timezoneId: string }> = {
+  GB: { locale: 'en-GB', timezoneId: 'Europe/London' },
+  US: { locale: 'en-US', timezoneId: 'America/New_York' },
+};
+const { locale: regionLocale, timezoneId: regionTimezone } =
+  regionLocaleMap[REGION] ?? { locale: 'en-GB', timezoneId: 'Europe/London' };
+
 export default defineConfig({
   testDir: './tests',
   timeout: 300_000,
@@ -18,8 +26,8 @@ export default defineConfig({
     isMobile: false,
     hasTouch: false,
 
-    timezoneId: 'Asia/Kolkata',
-    locale: 'en-IN',
+    timezoneId: regionTimezone,
+    locale: regionLocale,
 
     launchOptions: {
       args: [
