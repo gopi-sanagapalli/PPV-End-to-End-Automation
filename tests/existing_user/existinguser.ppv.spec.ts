@@ -280,7 +280,7 @@ for (const stateKey of userStatesToRun) {
     } catch { }
   });
 
-  const page = await context.newPage();
+  let page = await context.newPage();
   const results: any[] = [];
   let capturedVideoPath: string | null = null;
 
@@ -544,8 +544,11 @@ for (const stateKey of userStatesToRun) {
       // after clicking Continue on the email step (bot/CAPTCHA detection).
       // Dismiss the dialog and retry up to 3 times before failing.
       let preLoginPasswordFilled = false;
+      let signinPageRecovered = false;
       for (let signinAttempt = 1; signinAttempt <= 3 && !preLoginPasswordFilled; signinAttempt++) {
-        if (signinAttempt > 1) {
+        const wasRecovered = signinPageRecovered;
+        signinPageRecovered = false;
+        if (signinAttempt > 1 && !wasRecovered) {
           console.log(`🔄 [Pre-Login Signin] Retrying sign-in (attempt ${signinAttempt})...`);
           await page.reload({ waitUntil: 'domcontentloaded' });
           await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => { });
@@ -559,9 +562,22 @@ for (const stateKey of userStatesToRun) {
           'input[name="email"], ' +
           'input[placeholder*="email" i]'
         ).first();
-        // Guard: page may have closed during SPA init (e.g. DAZN GEO/IP region redirect)
+        // Guard: page may have closed during SPA init (e.g. DAZN GEO/IP/rate-limit redirect).
+        // Recover: wait for the rate-limit window to reset, open a fresh page and retry.
         if (page.isClosed()) {
-          throw new Error('❌ [Signin] Page was closed before email input appeared — DAZN likely triggered a region redirect. Aborting retry loop.');
+          if (signinAttempt >= 3) {
+            throw new Error('❌ [Signin] Page was closed before email input appeared — DAZN region redirect or rate limit. All 3 retries exhausted.');
+          }
+          const recoveryMs = signinAttempt * 25000 + Math.floor(Math.random() * 10000);
+          console.log(`⚠️ [Signin] Page closed on attempt ${signinAttempt}. Waiting ${(recoveryMs / 1000).toFixed(1)}s then reopening...`);
+          await new Promise(r => setTimeout(r, recoveryMs));
+          page = await context.newPage();
+          await page.goto(signinUrl, { waitUntil: 'domcontentloaded' });
+          await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+          await handleCookies(page, 10000);
+          await page.waitForURL(/emailDetails|signup|signin/i, { timeout: 10000 }).catch(() => {});
+          signinPageRecovered = true;
+          continue;
         }
         await emailInput.waitFor({ state: 'visible', timeout: 10000 });
         await emailInput.fill(userEmail);
