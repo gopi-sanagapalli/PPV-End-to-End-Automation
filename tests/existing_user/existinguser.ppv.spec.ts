@@ -283,6 +283,67 @@ for (const stateKey of userStatesToRun) {
   let page = await context.newPage();
   const results: any[] = [];
   let capturedVideoPath: string | null = null;
+  const signinDiagnosticsDir = path.resolve(process.cwd(), 'test-results', 'signin-diagnostics');
+  const diagnosticPages = new WeakSet<any>();
+
+  const attachSigninDiagnostics = (p: any, label: string) => {
+    if (!p || diagnosticPages.has(p)) return;
+    diagnosticPages.add(p);
+
+    p.on('close', () => console.log(`🧪 [Signin Diagnostics] Page closed (${label})`));
+    p.on('crash', () => console.log(`🧪 [Signin Diagnostics] Page crashed (${label})`));
+    p.on('pageerror', (error: Error) => console.log(`🧪 [Signin Diagnostics] Page error (${label}): ${error.message}`));
+    p.on('console', (msg: any) => {
+      const type = msg.type();
+      if (type === 'error' || type === 'warning') {
+        console.log(`🧪 [Signin Diagnostics] Console ${type} (${label}): ${msg.text()}`);
+      }
+    });
+    p.on('requestfailed', (request: any) => {
+      const url = request.url();
+      if (/dazn|auth|signin|signup|oneid|indazn/i.test(url)) {
+        console.log(`🧪 [Signin Diagnostics] Request failed (${label}): ${request.method()} ${url} :: ${request.failure()?.errorText || 'unknown'}`);
+      }
+    });
+    p.on('response', (response: any) => {
+      const status = response.status();
+      const url = response.url();
+      if (status >= 400 && /dazn|auth|signin|signup|oneid|indazn/i.test(url)) {
+        console.log(`🧪 [Signin Diagnostics] HTTP ${status} (${label}): ${url}`);
+      }
+    });
+  };
+
+  const captureSigninDiagnostic = async (p: any, name: string) => {
+    try {
+      if (!p || p.isClosed()) {
+        console.log(`🧪 [Signin Diagnostics] Cannot capture "${name}" because page is closed`);
+        return;
+      }
+      fs.mkdirSync(signinDiagnosticsDir, { recursive: true });
+      const safeName = `${SOURCE}_${userStateKey}_${requestedPlan || ratePlan}_${name}`.replace(/[^a-z0-9_.-]+/gi, '_');
+      const screenshotPath = path.join(signinDiagnosticsDir, `${safeName}.png`);
+      await p.screenshot({ path: screenshotPath, fullPage: true }).catch(() => null);
+      const bodyText = await p.locator('body').innerText({ timeout: 2000 }).catch(() => '');
+      const textPath = path.join(signinDiagnosticsDir, `${safeName}.txt`);
+      fs.writeFileSync(
+        textPath,
+        [
+          `url=${p.url()}`,
+          `title=${await p.title().catch(() => '')}`,
+          '',
+          bodyText.slice(0, 5000),
+        ].join('\n'),
+        'utf-8'
+      );
+      console.log(`🧪 [Signin Diagnostics] Captured ${name}: ${screenshotPath}`);
+    } catch (error: any) {
+      console.log(`🧪 [Signin Diagnostics] Failed to capture "${name}": ${error?.message || error}`);
+    }
+  };
+
+  attachSigninDiagnostics(page, 'initial');
+  context.on('page', (p: any) => attachSigninDiagnostics(p, 'context-new-page'));
 
   // ── detectPageType ────────────────────────────────────────────
   const detectPageType = async (
@@ -517,10 +578,12 @@ for (const stateKey of userStatesToRun) {
       await page.goto(signinUrl, { waitUntil: 'domcontentloaded' });
       // Wait for page to fully settle (including late-loading cookie banner scripts)
       await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });
+      await captureSigninDiagnostic(page, 'after-signin-goto');
 
       // Block until cookie banner appears and dismiss it before touching the form
       console.log('🍪 Waiting for cookie banner on signin page...');
       await handleCookies(page, 15000);
+      await captureSigninDiagnostic(page, 'after-cookie-handling');
 
       // Wait for the URL to settle — first to any auth URL, then specifically to emailDetails
       // (DAZN SPA appends &page=emailDetails once the email form is rendered).
@@ -536,6 +599,7 @@ for (const stateKey of userStatesToRun) {
         });
       }
       await page.waitForLoadState('domcontentloaded').catch(() => { });
+      await captureSigninDiagnostic(page, 'after-url-settle');
       console.log(`📍 Landed on: ${page.isClosed() ? '(PAGE CLOSED)' : page.url()}`);
 
       if (isMyAccount) assertCountryMatch(page, REGION);
@@ -572,10 +636,12 @@ for (const stateKey of userStatesToRun) {
           console.log(`⚠️ [Signin] Page closed on attempt ${signinAttempt}. Waiting ${(recoveryMs / 1000).toFixed(1)}s then reopening...`);
           await new Promise(r => setTimeout(r, recoveryMs));
           page = await context.newPage();
+          attachSigninDiagnostics(page, `recovery-attempt-${signinAttempt + 1}`);
           await page.goto(signinUrl, { waitUntil: 'domcontentloaded' });
           await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
           await handleCookies(page, 10000);
           await page.waitForURL(/emailDetails|signup|signin/i, { timeout: 10000 }).catch(() => {});
+          await captureSigninDiagnostic(page, `after-recovery-attempt-${signinAttempt + 1}`);
           signinPageRecovered = true;
           continue;
         }
