@@ -77,6 +77,7 @@ const HOME_SPORT_DROPDOWN_SOURCES = new Set([
 const LOGIN_FIRST_INVALID_LANDING_SOURCES = new Set<string>([]);
 const ENV = (process.env.DAZN_ENV || 'stag').toLowerCase();
 const PAYMENT_METHOD = (process.env.PAYMENT_METHOD || 'credit_card').toLowerCase();
+const isHeadless = process.env.HEADLESS === 'true';
 
 function throwLogged(error: Error): never {
   console.log(error.message);
@@ -306,7 +307,7 @@ for (const stateKey of userStatesToRun) {
     } : undefined;
 
     const context = await browser.newContext({
-      viewport: { width: 1920, height: 1080 },
+      viewport: isHeadless ? { width: 1920, height: 1080 } : null,
       colorScheme: 'dark',
       reducedMotion: 'no-preference',
       locale: 'en-IN',

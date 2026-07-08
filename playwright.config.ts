@@ -23,8 +23,10 @@ export default defineConfig({
   use: {
     headless: isHeadless,
 
-    // Keep CI/headless on the same desktop layout as local headed Chrome.
-    viewport: { width: 1920, height: 1080 },
+    // Headless (CI): fix at 1920×1080 for consistent layout.
+    // Headed (laptop/desktop): null = use actual maximised window size so the
+    // browser is never larger than the physical screen.
+    viewport: isHeadless ? { width: 1920, height: 1080 } : null,
     deviceScaleFactor: 1,
     isMobile: false,
     hasTouch: false,
@@ -34,7 +36,9 @@ export default defineConfig({
 
     launchOptions: {
       args: [
-        '--window-size=1920,1080',
+        // Headless: set a virtual 1920×1080 display. Headed: maximise to the
+        // real screen size so it is never clipped on smaller laptop displays.
+        ...(isHeadless ? ['--window-size=1920,1080'] : ['--start-maximized']),
         '--disable-infobars',
         '--no-sandbox',
         '--disable-dev-shm-usage',
@@ -50,7 +54,9 @@ export default defineConfig({
 
     video: {
       mode: 'retain-on-failure',
-      size: { width: 1920, height: 1080 },
+      // In headless/CI mode pin recordings to 1920×1080.
+      // In headed mode omit size so Playwright inherits the window dimensions.
+      ...(isHeadless ? { size: { width: 1920, height: 1080 } } : {}),
     },
 
     screenshot: 'only-on-failure',
