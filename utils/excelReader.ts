@@ -376,3 +376,12 @@ export const getUpsellPaymentData = () => {
     return [];
   }
 };
+
+// =========================
+// MOBILE NATIVE PAYWALL PAGE DATA
+// =========================
+export const getMobilePaywallData = () => {
+  const data = readSheet('paywall');
+  console.log(`📊 Mobile Paywall rows: ${data.length}`);
+  return data;
+};
