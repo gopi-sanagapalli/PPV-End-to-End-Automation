@@ -61,7 +61,7 @@ export default defineConfig({
     {
       name: 'chromium',
       use: {
-        channel: 'chrome',
+        browserName: 'chromium',
       },
     },
   ],
