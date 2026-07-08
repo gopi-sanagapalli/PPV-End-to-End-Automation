@@ -239,4 +239,36 @@ export class SignupPage extends BasePage {
     await this.page.waitForLoadState('domcontentloaded').catch(() => {});
     console.log('✅ Personal details Continue clicked');
   }
+
+  // ─────────────────────────────
+  // ENTER PASSWORD AND SIGN IN (existing user login)
+  // ─────────────────────────────
+  async enterPasswordAndSignIn(password: string): Promise<void> {
+    const passwordInput = this.page.locator(
+      'input[type="password"], input[name="password"]'
+    ).first();
+
+    // waitFor actually waits for the element (unlike isVisible which checks immediately)
+    try {
+      await passwordInput.waitFor({ state: 'visible', timeout: 10000 });
+    } catch {
+      console.log('ℹ️ Password field not shown — may be a new user or already signed in');
+      return;
+    }
+
+    console.log('🔑 Entering password...');
+    await passwordInput.click({ force: true });
+    await passwordInput.fill(password);
+    await passwordInput.dispatchEvent('input');
+    await passwordInput.dispatchEvent('change');
+
+    const signInBtn = this.page.locator(
+      'button:has-text("Sign in"), button:has-text("Log in"), ' +
+      'button:has-text("Sign In"), button[type="submit"]'
+    ).first();
+    await signInBtn.waitFor({ state: 'visible', timeout: 5000 });
+    await signInBtn.click({ force: true });
+    await this.page.waitForLoadState('domcontentloaded').catch(() => {});
+    console.log('✅ Sign in clicked');
+  }
 } 

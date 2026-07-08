@@ -303,7 +303,7 @@ export const getOTPPageData = () => {
 export const getHomeOfBoxingData = (flowName: string) => {
   const data = readSheet('Home of Boxing');
   const normalize = (val: any) => val?.toString().trim().toLowerCase();
-  const queryFlow = flowName === 'home-boxing-upcoming' ? 'home-boxing-tile' : flowName;
+  const queryFlow = flowName;
   const flowData = data.filter(
     (d: any) => normalize(d.Flow) === normalize(queryFlow)
   );
@@ -375,4 +375,13 @@ export const getUpsellPaymentData = () => {
     console.log('ℹ️ No Upsell Payment page sheet');
     return [];
   }
+};
+
+// =========================
+// MOBILE NATIVE PAYWALL PAGE DATA
+// =========================
+export const getMobilePaywallData = () => {
+  const data = readSheet('paywall');
+  console.log(`📊 Mobile Paywall rows: ${data.length}`);
+  return data;
 };

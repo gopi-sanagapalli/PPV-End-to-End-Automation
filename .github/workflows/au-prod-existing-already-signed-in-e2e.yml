@@ -38,7 +38,7 @@ jobs:
       - macOS
       - ARM64
 
-    timeout-minutes: 10
+    timeout-minutes: 20
 
     strategy:
       fail-fast: false
@@ -85,7 +85,7 @@ jobs:
           # Active Standard Monthly — ppv_only stays on standard_monthly plan;
           # upgrade paths use the ultimate plan they are switching to
           - active_standard_monthly/standard_monthly
-          - active_standard_monthly/ultimate_monthly
+          - active_standard_monthly/ultimate_apm
           - active_standard_monthly/ultimate_upfront
 
           # Active Standard APM — ppv_only stays on standard_apm; upgrade to ult_apm

@@ -64,10 +64,34 @@ export async function detectPageType(
   if (urlLower.includes('upgradetier') && !urlLower.includes('isupgradetierflow')) return 'confirmation';
 
   // Choose How To Buy page (active existing user addon purchase)
-  if (urlLower.includes('/addon/purchase')) return 'choose-how-to-buy';
+  if (urlLower.includes('/addon/purchase')) {
+    if (urlLower.includes('redirecturl=') || urlLower.includes('/auth/login') || urlLower.includes('/login')) {
+      // Don't detect as choose-how-to-buy. Let it fall through to email / login check.
+    } else if (
+      urlLower.includes('/payment') ||
+      urlLower.includes('/checkout') ||
+      urlLower.includes('/pay') ||
+      urlLower.includes('paymentdetails') ||
+      body.includes('today you pay') ||
+      body.includes('pay now') ||
+      body.includes('payment method')
+    ) {
+      return 'payment';
+    } else {
+      return 'choose-how-to-buy';
+    }
+  }
 
   // Payment page
-  if (urlLower.includes('paymentdetails') || urlLower.includes('page=payment')) return 'payment';
+  if (
+    urlLower.includes('paymentdetails') ||
+    urlLower.includes('page=payment') ||
+    urlLower.includes('/addon/purchase/payment') ||
+    urlLower.includes('/addon/purchase/checkout') ||
+    urlLower.includes('/addon/purchase/pay')
+  ) {
+    return 'payment';
+  }
 
   // Personal details / Email page — MUST be before upsellTierSelected check
   if (urlLower.includes('page=personaldetails')) return 'email';
@@ -103,6 +127,23 @@ export async function detectPageType(
     (await p.locator('input[type="checkbox"], button[class*="ni7RX"]').count().catch(() => 0)) > 0
   )) {
     return 'standalone-ppv';
+  }
+
+  // page=PlanDetails can appear before the SPA appends upsellTierShown=true.
+  // If contextual PPV-only copy is already rendered, this is still the PPV
+  // selection page and must not be validated as a DAZN Plan page.
+  if (
+    urlLower.includes('contextualppvid=') &&
+    (urlLower.includes('page=plandetails') || urlLower.includes('page=tierplans')) &&
+    !urlLower.includes('upselltierselected=true') &&
+    (
+      body.includes('continue with pay-per-view') ||
+      body.includes('just the fight') ||
+      body.includes('to watch your pay-per-view') ||
+      body.includes('the ultimate fan package')
+    )
+  ) {
+    return 'ppv';
   }
 
   if (urlLower.includes('page=plandetails')) return 'plan';
@@ -185,4 +226,63 @@ export async function detectPageType(
   if (body.includes('pick a plan to go with')) return 'plan';
 
   return 'unknown';
+}
+
+// ─────────────────────────────────────────────────────────────────
+// HANDLE NO-PPV CLICK — for "Subscribe without a pay-per-view" flow
+// Called when surfacingpoint.json has noPpvClick: true
+// ─────────────────────────────────────────────────────────────────
+export async function handleNoPpvClick(
+  page: any,
+  eventData: Record<string, any>
+): Promise<void> {
+  console.log('🔗 [handleNoPpvClick] Looking for "Subscribe without a pay-per-view" link...');
+
+  const noPpvSelectors = [
+    'a:has-text("Subscribe without a pay-per-view")',
+    'button:has-text("Subscribe without a pay-per-view")',
+    'a:has-text("Subscribe without pay-per-view")',
+    'a:has-text("Continue without pay-per-view")',
+    'a:has-text("Continue without a pay-per-view")',
+    '[class*="ctaWithoutPPV" i]',
+  ];
+
+  let noPpvLink: any = null;
+  for (const sel of noPpvSelectors) {
+    const el = page.locator(sel).first();
+    if (await el.isVisible({ timeout: 3000 }).catch(() => false)) {
+      noPpvLink = el;
+      console.log(`✅ [handleNoPpvClick] Found link via: ${sel}`);
+      break;
+    }
+  }
+
+  if (!noPpvLink) {
+    throw new Error(
+      '❌ [handleNoPpvClick] "Subscribe without a pay-per-view" link not found on page'
+    );
+  }
+
+  const beforeUrl = page.url();
+  await noPpvLink.click({ force: true });
+  console.log('✅ [handleNoPpvClick] Clicked "Subscribe without a pay-per-view"');
+
+  await page.waitForURL(
+    (url: URL) =>
+      url.toString().includes('noPpv=true') ||
+      url.toString().includes('tierplans') ||
+      url.toString().includes('plandetails') ||
+      url.toString() !== beforeUrl,
+    { timeout: 10000 }
+  ).catch(() => {
+    console.log(
+      `⚠️ [handleNoPpvClick] URL did not change as expected. Current: ${page.url()}`
+    );
+  });
+
+  await page.waitForLoadState('domcontentloaded').catch(() => {});
+  console.log(`✅ [handleNoPpvClick] Navigated to: ${page.url()}`);
+
+  process.env.SUBSCRIBE_WITHOUT_PPV = 'true';
+  eventData.SUBSCRIBE_WITHOUT_PPV = 'true';
 }

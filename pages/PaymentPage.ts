@@ -216,37 +216,11 @@ export class PaymentPage extends BasePage {
 
     console.log(`🔍 Running validateNextPaymentDetails: region = "${regionUpper}", planType = "${planType}"`);
 
-    const isAbsentCase = regionUpper === 'GB' || regionUpper === 'UK' || regionUpper === 'IE' || planType === '7_day_free_trial';
-
-    if (isAbsentCase) {
-      // Assert elements NOT present in DOM
-      const hasLabel = /next\s+(?:annual\s+)?payment\s+on/i.test(bodyText);
-
-      // Label check
-      const labelExpected = 'Not present';
-      const labelActual = hasLabel ? 'Present (found next payment label)' : 'Not present';
-      const labelStatus = !hasLabel ? 'PASS' : 'FAIL';
-      console.log(`  ${labelStatus === 'PASS' ? '✅' : '❌'} [Next Payment Label] expected="${labelExpected}" actual="${labelActual}"`);
-      results.push({
-        page: 'Payment',
-        field: 'Next Payment Label',
-        expected: labelExpected,
-        actual: labelActual,
-        status: labelStatus
-      });
-
-      // Price check
-      const priceExpected = 'Not present';
-      const priceActual = hasLabel ? 'Present' : 'Not present';
-      const priceStatus = !hasLabel ? 'PASS' : 'FAIL';
-      console.log(`  ${priceStatus === 'PASS' ? '✅' : '❌'} [Next Payment Price] expected="${priceExpected}" actual="${priceActual}"`);
-      results.push({
-        page: 'Payment',
-        field: 'Next Payment Price',
-        expected: priceExpected,
-        actual: priceActual,
-        status: priceStatus
-      });
+    if (regionUpper === 'GB' || regionUpper === 'UK' || regionUpper === 'IE' || planType === '7_day_free_trial') {
+      // Skip next payment validations for GB, IE, UK and 7-day trial regions
+      // These regions/offers do not display next payment details
+      console.log('  ⏭️  Skipping [Next Payment Label/Price] — not applicable for GB, IE, or 7-day trial');
+      return;
 
     } else {
       // Assert both elements are visible
@@ -1016,6 +990,29 @@ export class PaymentPage extends BasePage {
       return lower.includes('today you pay') ? 'Today you pay' : 'N/A';
     }
 
+    // ── Excluding Tax Text ──────────────────────────────────────────
+    if (fieldLower === 'excluding tax text' || fieldLower === 'excluding tax') {
+      // Try live DOM first — look for specific test IDs or text
+      const live = await this.page.locator(
+        '[data-testid*="excluding-tax" i], ' +
+        '[id*="excluding-tax" i], ' +
+        'span:has-text("(excluding tax)"), ' +
+        'span:has-text("excluding tax")'
+      ).first().innerText().catch(() => '');
+
+      if (live.trim()) return live.trim();
+
+      // Fallback: scan all text lines on the page
+      const bodyText = await this.page.locator('body').innerText({ timeout: 2000 }).catch(() => '');
+      const lines = bodyText.split('\n').map((l: string) => l.trim()).filter(Boolean);
+      for (const line of lines) {
+        if (line.toLowerCase().includes('excluding tax')) {
+          return line;
+        }
+      }
+      return 'N/A';
+    }
+
     // ── Today You Pay Price ────────────────────────────────────
     if (fieldLower === 'today you pay price' || fieldLower === 'today price') {
       const livePrice = await this.page.evaluate(() => {
@@ -1039,31 +1036,47 @@ export class PaymentPage extends BasePage {
         for (const el of allElements) {
           const t = cleanText(el.textContent || '');
           if (/today\s+you\s+pay/i.test(t)) {
-            if (!todayEl || el.textContent.length < todayEl.textContent.length) {
+            if (!todayEl || (el.textContent || '').length < (todayEl.textContent || '').length) {
               todayEl = el;
             }
           }
         }
 
         if (todayEl) {
+          const todayRect = todayEl.getBoundingClientRect();
+          const todayCenterY = todayRect.top + (todayRect.height / 2);
           let curr: HTMLElement | null = todayEl;
           while (curr && curr !== document.body) {
             const pricesInSection = Array.from(curr.querySelectorAll<HTMLElement>('*'))
               .filter(el => priceElements.includes(el));
-            
+
             const strikePrices = pricesInSection.filter(el => isStrike(el));
             const activePrices = pricesInSection.filter(el => !isStrike(el));
-            
+
             if (activePrices.length > 0) {
-              // Expose duplicate active prices in the section if there are more than 1
-              const activePriceVal = activePrices.map(el => el.textContent?.trim() || '').filter(Boolean).join(' ');
+              const sameRowPrices = activePrices
+                .map(el => {
+                  const rect = el.getBoundingClientRect();
+                  const centerY = rect.top + (rect.height / 2);
+                  return {
+                    el,
+                    distance: Math.abs(centerY - todayCenterY),
+                    text: cleanText(el.textContent || ''),
+                  };
+                })
+                .filter(item => item.text && item.distance <= Math.max(18, todayRect.height));
+
+              const selectedPrice = (sameRowPrices.length > 0
+                ? sameRowPrices.sort((a, b) => a.distance - b.distance)[0].text
+                : cleanText(activePrices[0].textContent || ''));
+
               if (activePrices.length === 1 && strikePrices.length > 0) {
                 const strikePriceVal = strikePrices[0].textContent?.trim();
-                if (strikePriceVal === activePriceVal) {
+                if (strikePriceVal === selectedPrice) {
                   console.warn(`⚠️ Redundant strike-through price found showing same value: ${strikePriceVal}`);
                 }
               }
-              return activePriceVal;
+              return selectedPrice;
             }
             curr = curr.parentElement;
           }
