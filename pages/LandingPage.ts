@@ -193,7 +193,9 @@ export class LandingPage extends BasePage {
   // FIND BANNER CAROUSEL CONTAINER (resilient selector)
   // ─────────────────────────────
   protected bannerCarousel(): import('@playwright/test').Locator {
-    // Use specific selectors to find the hero banner carousel, excluding general rail swipers
+    // Use specific selectors to find the hero banner carousel, excluding general rail swipers.
+    // Broadest fallbacks (main .swiper-container, main .swiper) are last so that specific
+    // named selectors take priority; .first() returns the topmost DOM match.
     return this.page.locator([
       'main [class*="hero-banner" i]',
       'main [class*="heroBanner" i]',
@@ -207,6 +209,14 @@ export class LandingPage extends BasePage {
       '[class*="hero-banner" i]',
       '[class*="heroBanner" i]',
       '[class*="bannersContainer" i]',
+      'main [class*="carousel" i]',
+      'main [class*="Carousel" i]',
+      'main [data-testid*="banner" i]',
+      'main [data-testid*="carousel" i]',
+      'main [data-test-id*="banner" i]',
+      'main [data-test-id*="carousel" i]',
+      'main .swiper-container',
+      'main .swiper',
     ].join(', ')).first();
   }
 
@@ -352,12 +362,8 @@ export class LandingPage extends BasePage {
     await stopAllAutoSlide();
     console.log(`⏱️ [Banner T+${Date.now() - tBanner}ms] stopAutoSlide done`);
 
-    // Check if carousel exists (wait for it to become visible)
-    // 20s allows for slower load under parallel runner load (4 tests sharing one machine)
-    const carousel = this.bannerCarousel();
-    console.log(`⏱️ [Banner T+${Date.now() - tBanner}ms] waiting for carousel...`);
-    if (!await carousel.waitFor({ state: 'visible', timeout: 20000 }).then(() => true).catch(() => false)) {
-      // Dump page structure so we can diagnose what DAZN actually rendered on this runner
+    // Helper to dump page structure for diagnostics
+    const dumpPageDiag = async (label: string) => {
       const pageDiag = await this.page.evaluate(() => {
         const main = document.querySelector('main');
         const body = document.body;
@@ -368,7 +374,7 @@ export class LandingPage extends BasePage {
             `<${c.tagName.toLowerCase()} class="${classes(c)}">`
           ).join(' | ') : '';
         const swipers = Array.from(document.querySelectorAll('[class*="swiper" i], [class*="banner" i], [class*="hero" i]'))
-          .slice(0, 10).map(el => `${el.tagName.toLowerCase()}.${classes(el)}`);
+          .slice(0, 15).map(el => `${el.tagName.toLowerCase()}.${classes(el)}`);
         const h1 = document.querySelector('h1')?.textContent?.trim().substring(0, 80) || '';
         return {
           url: window.location.href,
@@ -380,7 +386,28 @@ export class LandingPage extends BasePage {
           swipers,
         };
       }).catch(() => null);
-      console.log('🔍 [Banner] PAGE DIAGNOSTIC:', JSON.stringify(pageDiag, null, 2));
+      console.log(`🔍 [Banner] PAGE DIAGNOSTIC (${label}):`, JSON.stringify(pageDiag, null, 2));
+    };
+
+    // Check if carousel exists (wait for it to become visible).
+    // If not found after 20s, reload the page once and retry — handles transient load failures
+    // on slow shared runners as well as cases where the page rendered a different structure first.
+    let carousel = this.bannerCarousel();
+    let carouselFound = await carousel.waitFor({ state: 'visible', timeout: 20000 }).then(() => true).catch(() => false);
+
+    if (!carouselFound) {
+      await dumpPageDiag('attempt 1 — reloading page');
+      console.log('🔄 [Banner] Carousel not found — reloading page and retrying...');
+      await this.page.reload({ waitUntil: 'domcontentloaded' });
+      await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+      await this.dismissConsentIfPresent().catch(() => {});
+      await stopAllAutoSlide();
+      carousel = this.bannerCarousel();
+      carouselFound = await carousel.waitFor({ state: 'visible', timeout: 20000 }).then(() => true).catch(() => false);
+    }
+
+    if (!carouselFound) {
+      await dumpPageDiag('attempt 2 — giving up');
       console.log('⚠️  [Banner] No banner carousel found on page');
       return null;
     }
@@ -1318,12 +1345,27 @@ export class LandingPage extends BasePage {
       const handle = await buyNowBtn.elementHandle().catch(() => null);
       if (handle) {
         await this.page.evaluate((el: any) => el.click(), handle);
-      } else {
-        // Last resort: for constrained sources, do NOT search entire page
-        if (src.includes('banner') || src.includes('tile') || src.includes('dont-miss')) {
-          throw new Error(`❌ [${src}] elementHandle failed — cannot click Buy Now. Will not search entire page.`);
+      } else if (src.includes('banner') || src.includes('tile') || src.includes('dont-miss')) {
+        // elementHandle went stale (carousel rotated) — re-click scoped to active slide only
+        console.log('🔄 elementHandle stale — clicking Buy Now in active banner slide via evaluate');
+        const clicked = await this.page.evaluate(() => {
+          const activeSlide = document.querySelector(
+            '.swiper-slide-active:not(.swiper-slide-duplicate), [class*="swiper-slide-active"]:not([class*="duplicate"])'
+          );
+          const root = activeSlide || document.querySelector('main') || document.body;
+          const candidates = root.querySelectorAll('a, button');
+          for (const btn of candidates) {
+            if (/buy now/i.test(btn.textContent || '')) {
+              (btn as HTMLElement).click();
+              return true;
+            }
+          }
+          return false;
+        }).catch(() => false);
+        if (!clicked) {
+          throw new Error(`❌ [${src}] elementHandle stale and active-slide fallback found no Buy Now button.`);
         }
-        console.log('⚠️  elementHandle failed — trying page.evaluate click');
+      } else {
         await this.page.evaluate(() => {
           const btns = document.querySelectorAll('a, button');
           for (const btn of btns) {
