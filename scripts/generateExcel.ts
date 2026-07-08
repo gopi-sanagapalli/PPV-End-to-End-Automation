@@ -24,6 +24,7 @@ const landingData = [
 
 const boxingLandingData = [
   { Field: 'Boxing Banner Present', Expected: 'Yes', Flow: 'boxing' },
+  { Field: 'Boxing Banner Date', Expected: '{{BOXING_BANNER_DATE}}', Flow: 'boxing' },
   { Field: 'Event Name', Expected: '{{PPV_NAME}}', Flow: 'boxing' },
   { Field: 'Event Subtitle', Expected: '{{BOXING_BANNER_SUBTITLE}}', Flow: 'boxing' },
   { Field: 'Or Separator', Expected: 'or', Flow: 'boxing' },

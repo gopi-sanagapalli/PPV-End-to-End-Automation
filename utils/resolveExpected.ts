@@ -188,6 +188,11 @@ export function resolveExpected(
     return String(eventData.BOXING_BANNER_SUBTITLE);
   }
 
+  // Boxing banner date (tag chip above event title on /boxing page)
+  if (field === 'boxing banner date' && eventData.BOXING_BANNER_DATE) {
+    return String(eventData.BOXING_BANNER_DATE);
+  }
+
 
   if (field === 'banner - event description' && eventData.BANNER_DESCRIPTION) {
     return String(eventData.BANNER_DESCRIPTION);

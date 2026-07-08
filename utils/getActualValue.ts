@@ -4660,6 +4660,11 @@ export async function getActualValue(
       return badgeFromDom || 'N/A';
     }
 
+    case 'boxing banner date': {
+      const liveText = await page.locator('[data-target="banner-tag"] span, [class*="BoxedHeroBanners-module__tag___"]').first().innerText().catch(() => '');
+      return liveText.trim() || 'N/A';
+    }
+
     case 'event subtitle': {
       const found = snapFind(n =>
         n.tag === 'p' &&
