@@ -383,6 +383,21 @@ async function runFlow(
 
       const sport = json.SPORT || 'Boxing';
       let scheduleEventClicked = false;
+
+      // ── Phase 1: Validate TILE fields BEFORE clicking event (popup not open yet) ──
+      try {
+        const scheduleData = readSheet('Schedule page');
+        const tileFields = scheduleData.filter((r: any) =>
+          !String(r.Field || '').toLowerCase().startsWith('popup')
+        );
+        if (tileFields.length) {
+          console.log('\n📋 Validating Schedule tile fields (before popup opens)...');
+          await validateVariant(page, 'schedule', tileFields, results, eventData, 'Schedule');
+        }
+      } catch (err: any) {
+        console.warn(`⚠️  Schedule tile validation error: ${err.message}`);
+      }
+
       try {
         await schedule.selectSport(sport);
         const eventCard = await schedule.findEvent(eventData.PPV_NAME);
@@ -400,13 +415,8 @@ async function runFlow(
       }
 
       if (scheduleEventClicked) {
-        console.log('\n📋 Validating Schedule page...');
-        try {
-          const scheduleData = readSheet('Schedule page');
-          await validateVariant(page, 'schedule', scheduleData, results, eventData, 'Schedule');
-        } catch (err: any) {
-          console.warn(`⚠️  Schedule page validation error: ${err.message}`);
-        }
+        // ── Phase 2: Validate POPUP fields via handlePopupModal (popup now open) ──
+        await handlePopupModal(page, results, eventData, source, false);
 
         await schedule.clickBuyNow();
       }
