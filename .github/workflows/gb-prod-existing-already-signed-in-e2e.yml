@@ -41,7 +41,7 @@ jobs:
       - macOS
       - ARM64
 
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     strategy:
       fail-fast: false
@@ -195,6 +195,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: lts/*
+          cache: npm
 
       - name: Show Runner
         run: |
@@ -242,9 +243,7 @@ jobs:
           npm -v
 
       - name: Install dependencies
-        run: |
-          rm -rf node_modules
-          npm ci
+        run: npm ci
 
       - name: Verify Playwright
         run: npx playwright --version
