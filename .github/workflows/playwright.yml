@@ -101,6 +101,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install Playwright Chromium browser
+        run: npx playwright install chromium
+
       - name: Run new-user web PPV flow
         run: npx playwright test tests/new_user/newuser.ppv.spec.ts --project=chromium
 
