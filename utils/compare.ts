@@ -213,24 +213,37 @@ export function compare(
     }
   }
 
-  // ── Time timezone flexibility ──────────────────────────────────
-  // If both strings have a time format, but they might differ due to timezone,
-  // compare their text contents with the time part stripped.
-  // Reuse actualHasTime / expectedHasTime computed above.
+  // ── Time timezone / format flexibility ──────────────────────────────────
+  // Both strings have time: only apply stripped-date comparison when the times
+  // are ≤ 30 minutes apart. This covers same-event times rendered in different
+  // formats (e.g. "20:00" vs "8:00PM", "00:30" vs "12:30AM").
+  //
+  // If times differ by MORE than 30 minutes it is a genuine mismatch
+  // (e.g. expected="25 Jul at 20:00", actual="25 JUL 6:00PM" = 120 min apart)
+  // and must FAIL so the Excel expected value gets corrected.
   if (actualHasTime && expectedHasTime) {
-    const stripTime = (s: string) => s.replace(/\b\d{1,2}:\d{2}\s*(?:am|pm)?\.?\b/gi, '').replace(/[•·]/g, ' ').replace(/\s+/g, ' ').trim();
-    const aNoTime = stripTime(actual);
-    const eNoTime = stripTime(expected);
+    const timeDiff = (aTimeMinutes !== null && eTimeMinutes !== null)
+      ? Math.abs(aTimeMinutes - eTimeMinutes)
+      : null;
 
-    // When both strings become empty after stripping time (e.g. "00:30" vs "1:30AM"),
-    // they only contain a time with no surrounding context. In this case fall through
-    // to the normal parseToMinutes comparison above rather than matching on empty strings.
-    if (aNoTime || eNoTime) {
-      if (
-        (norm(aNoTime) === norm(eNoTime) || norm(aNoTime).includes(norm(eNoTime)) || norm(eNoTime).includes(norm(aNoTime))) &&
-        isCloseLength(25, 2)
-      ) {
-        return true;
+    if (timeDiff !== null && timeDiff <= 30) {
+      // Strip time AND the word "at" (connector word) to get clean date portion
+      const stripTime = (s: string) => s
+        .replace(/\b\d{1,2}:\d{2}\s*(?:am|pm)?\.?\b/gi, '')
+        .replace(/\bat\b/gi, '')
+        .replace(/[•·]/g, ' ')
+        .replace(/\s+/g, ' ').trim();
+      const aNoTime = stripTime(actual);
+      const eNoTime = stripTime(expected);
+
+      // Both strings become empty only if they contained nothing but time — fall through.
+      if (aNoTime || eNoTime) {
+        if (
+          (norm(aNoTime) === norm(eNoTime) || norm(aNoTime).includes(norm(eNoTime)) || norm(eNoTime).includes(norm(aNoTime))) &&
+          isCloseLength(25, 2)
+        ) {
+          return true;
+        }
       }
     }
   }
