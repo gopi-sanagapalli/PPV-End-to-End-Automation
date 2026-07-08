@@ -24,7 +24,7 @@ export async function handleCookies(page: Page, timeout: number = 8000): Promise
   // and only proceed if the banner reappeared (e.g. on a new page/redirect)
   if (_dismissedContexts.has(context)) {
     const isVisibleNow = await page.locator('#onetrust-accept-btn-handler')
-      .isVisible()
+      .isVisible({ timeout: 2000 })
       .catch(() => false);
     if (!isVisibleNow) return;
     console.log('🍪 Cookie banner reappeared after initial dismissal — dismissing again...');
@@ -83,7 +83,7 @@ export async function handleCookies(page: Page, timeout: number = 8000): Promise
 
   for (const selector of fallbackSelectors) {
     const btn = page.locator(selector).first();
-    const btnVisible = await btn.isVisible().catch(() => false);
+    const btnVisible = await btn.isVisible({ timeout: 2000 }).catch(() => false);
     if (btnVisible) {
       try {
         await btn.click({ timeout: 3000 });
