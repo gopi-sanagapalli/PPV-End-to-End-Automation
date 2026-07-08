@@ -349,6 +349,30 @@ export class LandingPage extends BasePage {
     // 20s allows for slower load under parallel runner load (4 tests sharing one machine)
     const carousel = this.bannerCarousel();
     if (!await carousel.waitFor({ state: 'visible', timeout: 20000 }).then(() => true).catch(() => false)) {
+      // Dump page structure so we can diagnose what DAZN actually rendered on this runner
+      const pageDiag = await this.page.evaluate(() => {
+        const main = document.querySelector('main');
+        const body = document.body;
+        const classes = (el: Element | null) =>
+          el ? Array.from(el.classList).join(' ') : '';
+        const children = (el: Element | null) =>
+          el ? Array.from(el.children).slice(0, 8).map(c =>
+            `<${c.tagName.toLowerCase()} class="${classes(c)}">`
+          ).join(' | ') : '';
+        const swipers = Array.from(document.querySelectorAll('[class*="swiper" i], [class*="banner" i], [class*="hero" i]'))
+          .slice(0, 10).map(el => `${el.tagName.toLowerCase()}.${classes(el)}`);
+        const h1 = document.querySelector('h1')?.textContent?.trim().substring(0, 80) || '';
+        return {
+          url: window.location.href,
+          title: document.title.substring(0, 80),
+          h1,
+          mainClass: classes(main),
+          mainChildren: children(main),
+          bodyChildren: children(body),
+          swipers,
+        };
+      }).catch(() => null);
+      console.log('🔍 [Banner] PAGE DIAGNOSTIC:', JSON.stringify(pageDiag, null, 2));
       console.log('⚠️  [Banner] No banner carousel found on page');
       return null;
     }
