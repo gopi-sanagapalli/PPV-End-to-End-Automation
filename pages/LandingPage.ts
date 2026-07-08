@@ -151,14 +151,19 @@ export class LandingPage extends BasePage {
   // ─────────────────────────────
   async navigate(baseUrl: string, source?: string): Promise<void> {
     const url = `${baseUrl}/welcome`;
-    console.log(`🌍 Navigating to: ${url}`);
+    const t0 = Date.now();
+    console.log(`🌍 [T+0ms] Navigating to: ${url}`);
     await this.page.goto(url, { waitUntil: 'domcontentloaded' });
+    console.log(`⏱️ [T+${Date.now() - t0}ms] goto done`);
     await this.page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => { });
+    console.log(`⏱️ [T+${Date.now() - t0}ms] networkidle done`);
     await this.dismissConsentIfPresent();
+    console.log(`⏱️ [T+${Date.now() - t0}ms] consent done`);
 
     // Wait for the page structure (main content or banner or explore button) to render
     const pageLoadedIndicator = this.page.locator('main [class*="banner"], main .swiper, a:has-text("Buy now"), button:has-text("Buy now"), button:has-text("Explore"), a:has-text("Explore")').first();
     await pageLoadedIndicator.waitFor({ state: 'visible', timeout: 8000 }).catch(() => { });
+    console.log(`⏱️ [T+${Date.now() - t0}ms] pageLoaded done`);
 
     console.log(`✅ Landed on: ${this.page.url()}`);
   }
@@ -302,7 +307,8 @@ export class LandingPage extends BasePage {
   // ─────────────────────────────
   async findPPVInBanner(eventData: Record<string, string>): Promise<any> {
     const ppvName = eventData.PPV_NAME || '';
-    console.log(`🔍 [Banner] Finding PPV: ${ppvName}`);
+    const tBanner = Date.now();
+    console.log(`🔍 [T+0ms] [Banner] Finding PPV: ${ppvName}`);
 
     // Helper to aggressively stop all swipers on the page via JS + CSS injection
     const stopAllAutoSlide = async () => {
@@ -354,6 +360,7 @@ export class LandingPage extends BasePage {
 
     // Stop auto-slide immediately
     await stopAllAutoSlide();
+    console.log(`⏱️ [Banner T+${Date.now() - tBanner}ms] stopAutoSlide done`);
 
     // Helper to dump page structure for diagnostics
     const dumpPageDiag = async (label: string) => {
