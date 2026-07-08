@@ -422,6 +422,13 @@ export function resolveExpected(
     }
   }
 
+  // ── PPV_POPUP_DATE: dedicated field for popup modal date chip ───────────────
+  // Resolves {{PPV_POPUP_DATE}} → eventData.PPV_POPUP_DATE (set per event/region)
+  if (raw.includes('PPV_POPUP_DATE')) {
+    const popupDate = eventData.PPV_POPUP_DATE || '';
+    if (popupDate) return popupDate;
+  }
+
   if (field === 'popup date') {
     const pDate = eventData.PPV_DATE || '';
     const lpDate = eventData.LANDING_PAGE_PPV_DATE || '';

@@ -313,6 +313,32 @@ export const getHomeOfBoxingData = (flowName: string) => {
 };
 
 // =========================
+// SEARCH PAGE POPUP DATA
+// Returns popup- fields from the Search page sheet
+// =========================
+export const getSearchPagePopupData = () => {
+  const data = readSheet('Search page');
+  const popupData = data.filter(
+    (r: any) => String(r.Field || '').trim().toLowerCase().startsWith('popup')
+  );
+  console.log(`🔍 Search page popup rows: ${popupData.length}`);
+  return popupData;
+};
+
+// =========================
+// SCHEDULE PAGE POPUP DATA
+// Returns popup- fields from the Schedule page sheet
+// =========================
+export const getSchedulePagePopupData = () => {
+  const data = readSheet('Schedule page');
+  const popupData = data.filter(
+    (r: any) => String(r.Field || '').trim().toLowerCase().startsWith('popup')
+  );
+  console.log(`📅 Schedule page popup rows: ${popupData.length}`);
+  return popupData;
+};
+
+// =========================
 // HOME PAGE DATA BY FLOW
 // =========================
 export const getHomePageData = (flowName: string) => {
