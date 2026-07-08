@@ -87,7 +87,7 @@ jobs:
           npm ci
 
       - name: Install Playwright browsers
-        run: PLAYWRIGHT_NODE_SKIP_SUDO=true npx playwright install chromium chrome
+        run: npx playwright install --with-deps chromium chrome
 
       - name: Verify Playwright
         run: npx playwright --version
