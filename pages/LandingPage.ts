@@ -505,12 +505,15 @@ export class LandingPage extends BasePage {
               ) as HTMLElement[];
               const target = allSlides[targetIdx];
               if (!target) return;
-              // Remove active state from ALL slides (including loop duplicates)
+              // Remove active state from ALL slides (including loop duplicates).
+              // Explicitly set opacity:0 to prevent overlapping — removeProperty() was
+              // causing all slides to show simultaneously because DAZN's Swiper CSS
+              // relies on inline opacity overrides, not just class-driven transitions.
               bannerEl.querySelectorAll('.swiper-slide').forEach((el) => {
                 const s = el as HTMLElement;
                 s.classList.remove('swiper-slide-active', 'swiper-slide-next', 'swiper-slide-prev');
-                s.style.removeProperty('opacity');
-                s.style.removeProperty('pointer-events');
+                s.style.opacity = '0';
+                s.style.pointerEvents = 'none';
               });
               // Make target visible — class makes Swiper CSS apply opacity:1, inline styles
               // force visibility even if Swiper CSS doesn't cover all cases

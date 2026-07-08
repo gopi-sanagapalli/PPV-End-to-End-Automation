@@ -1300,36 +1300,60 @@ export async function getActualValue(
       const titleRegex = new RegExp(expectedTitle.split(/\s+/).join('.*'), 'i');
       const regexParts = nameParts.map(part => new RegExp(part.split(/\s+/).join('.*'), 'i'));
 
-      // Search the actual banner DOM container first, then fallback to snapshot
-      const bannerSels = [
-        'main [class*="banner"]',
-        'main [class*="hero"]',
-        '.swiper-slide-active',
-        '[class*="swiper-slide-active"]',
-      ];
-      for (const sel of bannerSels) {
-        const bannerEl = page.locator(sel).first();
-        const isVisible = await bannerEl.isVisible({ timeout: 500 }).catch(() => false);
-        if (!isVisible) continue;
-        const bannerText = clean(await bannerEl.innerText({ timeout: T }).catch(() => '') || '');
-        if (titleRegex.test(bannerText) || regexParts.some(rx => rx.test(bannerText))) {
-          // Try to find the heading element within the banner first
-          const headingSels = ['h1', 'h2', 'h3', 'h4'];
-          for (const hSel of headingSels) {
-            const headings = bannerEl.locator(hSel);
-            const hCount = await headings.count().catch(() => 0);
-            for (let hi = 0; hi < hCount; hi++) {
-              const hText = clean(await headings.nth(hi).innerText({ timeout: T }).catch(() => '') || '');
-              if (hText && (titleRegex.test(hText) || regexParts.some(rx => rx.test(hText)))) {
-                return hText;
-              }
+      // Helper: extract title heading from a scoped container element
+      const extractTitleFromContainer = async (containerEl: any): Promise<string | null> => {
+        // Try headings first (most precise)
+        const headingSels = ['h1', 'h2', 'h3', 'h4', '[class*="title" i]', '[class*="heading" i]'];
+        for (const hSel of headingSels) {
+          const headings = containerEl.locator(hSel);
+          const hCount = await headings.count().catch(() => 0);
+          for (let hi = 0; hi < hCount; hi++) {
+            const hText = clean(await headings.nth(hi).innerText({ timeout: T }).catch(() => '') || '');
+            if (hText && (titleRegex.test(hText) || regexParts.some(rx => rx.test(hText)))) {
+              return hText;
             }
           }
-          // Fallback: split by newline and find the title line
-          const lines = bannerText.split('\n').map(l => l.trim()).filter(Boolean);
-          const titleLine = lines.find(l => titleRegex.test(l) || regexParts.some(rx => rx.test(l)));
-          return titleLine || lines[0] || bannerText.substring(0, 80);
         }
+        // Fallback: split container text by newline, find matching line
+        const containerText = clean(await containerEl.innerText({ timeout: T }).catch(() => '') || '');
+        if (titleRegex.test(containerText) || regexParts.some(rx => rx.test(containerText))) {
+          const lines = containerText.split('\n').map((l: string) => l.trim()).filter(Boolean);
+          const titleLine = lines.find((l: string) => titleRegex.test(l) || regexParts.some(rx => rx.test(l)));
+          // Only return the line if it's short enough to be a title (not the whole banner text)
+          if (titleLine && titleLine.length < 120) return titleLine;
+        }
+        return null;
+      };
+
+      // Strategy 1: Use scoped PPV container (most precise — avoids reading all slides)
+      const scopedContainer = await getScopedLandingPPVContainer(page, eventData);
+      if (scopedContainer) {
+        const result = await extractTitleFromContainer(scopedContainer);
+        if (result) return result;
+      }
+
+      // Strategy 2: Try the active slide directly (next most scoped)
+      const activeSlide = page.locator('.swiper-slide-active, [class*="swiper-slide-active"]').first();
+      if (await activeSlide.isVisible({ timeout: 500 }).catch(() => false)) {
+        const result = await extractTitleFromContainer(activeSlide);
+        if (result) return result;
+      }
+
+      // Strategy 3: Broad banner container fallback — scope to active slide within it
+      const broadSels = ['main [class*="banner"]', 'main [class*="hero"]'];
+      for (const sel of broadSels) {
+        const bannerEl = page.locator(sel).first();
+        const isVis = await bannerEl.isVisible({ timeout: 500 }).catch(() => false);
+        if (!isVis) continue;
+        // Prefer the active slide within the container
+        const activeWithin = bannerEl.locator('.swiper-slide-active, [class*="swiper-slide-active"]').first();
+        if (await activeWithin.count().catch(() => 0) > 0) {
+          const result = await extractTitleFromContainer(activeWithin);
+          if (result) return result;
+        }
+        // Last resort: search headings in the whole container but only return short title matches
+        const result = await extractTitleFromContainer(bannerEl);
+        if (result) return result;
       }
 
       // Fallback to snapshot only searching banner-related nodes
