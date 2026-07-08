@@ -346,8 +346,9 @@ export class LandingPage extends BasePage {
     await stopAllAutoSlide();
 
     // Check if carousel exists (wait for it to become visible)
+    // 20s allows for slower load under parallel runner load (4 tests sharing one machine)
     const carousel = this.bannerCarousel();
-    if (!await carousel.waitFor({ state: 'visible', timeout: 8000 }).then(() => true).catch(() => false)) {
+    if (!await carousel.waitFor({ state: 'visible', timeout: 20000 }).then(() => true).catch(() => false)) {
       console.log('⚠️  [Banner] No banner carousel found on page');
       return null;
     }
