@@ -23,6 +23,54 @@ export class BoxingHomePage extends HomePage {
     return 'prod';
   }
 
+  async navigateToSportViaAllSports(source?: string, eventData?: Record<string, string>): Promise<void> {
+    await this.dismissConsentIfPresent();
+
+    let targetSport = '';
+    const srcLower = (source || '').toLowerCase();
+    if (srcLower.includes('kickboxing')) {
+      targetSport = 'Kickboxing';
+    } else if (srcLower.includes('misfits')) {
+      targetSport = 'Misfits Boxing';
+    } else if (srcLower.includes('wrestling')) {
+      targetSport = 'Wrestling';
+    } else if (srcLower.includes('boxing')) {
+      targetSport = 'Boxing';
+    }
+    if (!targetSport) {
+      targetSport = (eventData?.SPORT || 'Boxing').trim();
+    }
+
+    const eventSport = (eventData?.SPORT || '').trim();
+    if (eventSport && targetSport.toLowerCase() !== eventSport.toLowerCase()) {
+      throw new Error(
+        `❌ [BoxingHomePage] Source "${source}" is for "${targetSport}" events, ` +
+        `but this PPV event's SPORT is "${eventSport}". ` +
+        `Use a "${eventSport.toLowerCase()}" source instead (e.g. "home-${eventSport.toLowerCase()}-tile").`
+      );
+    }
+
+    console.log(`🧭 Navigating to "${targetSport}" landing page via All Sports dropdown...`);
+    const dropdownClicked = await this.clickAllSportsDropdown();
+    if (dropdownClicked) {
+      const sportSelected = await this.selectSportFromDropdown(targetSport);
+      if (!sportSelected) {
+        console.log(`⚠️ Could not select "${targetSport}" from dropdown — trying direct navigation fallback`);
+        await this.navigateToSportDirectFallback(targetSport);
+      }
+    } else {
+      console.log(`⚠️ Could not open sports dropdown — trying direct navigation fallback`);
+      await this.navigateToSportDirectFallback(targetSport);
+    }
+
+    await this.waitForSportPageContent(targetSport);
+    const validated = await this.validateSportCompetitionPage(targetSport);
+    if (!validated) {
+      console.log(`⚠️ "Best of ${targetSport}" section not found — but continuing`);
+    }
+    console.log(`✅ ${targetSport} competition page ready: ${this.page.url()}`);
+  }
+
 
   // ─────────────────────────────
   // NAVIGATE: Welcome → Explore → Home → Tab/Dropdown → Sport competition page
@@ -41,18 +89,36 @@ export class BoxingHomePage extends HomePage {
     console.log('🍪 Waiting for cookie banner on Home page...');
     await this.dismissConsentIfPresent();
 
-    console.log(`✅ Home page loaded: ${this.page.url()}`);
-
-    let targetSport = (eventData?.SPORT || '').trim();
-    if (!targetSport && source) {
-      if (source.toLowerCase().includes('kickboxing')) {
-        targetSport = 'Kickboxing';
-      } else if (source.toLowerCase().includes('boxing')) {
-        targetSport = 'Boxing';
-      }
+    // ── Resolve target sport from SOURCE name (source dictates sport page) ──
+    // The source name (e.g. "home-kickboxing-tile") determines which sport
+    // page to navigate to. If the event's SPORT doesn't match, we fail early
+    // with a clear error message.
+    let targetSport = '';
+    const srcLower = (source || '').toLowerCase();
+    if (srcLower.includes('kickboxing')) {
+      targetSport = 'Kickboxing';
+    } else if (srcLower.includes('misfits')) {
+      targetSport = 'Misfits Boxing';
+    } else if (srcLower.includes('wrestling')) {
+      targetSport = 'Wrestling';
+    } else if (srcLower.includes('boxing')) {
+      targetSport = 'Boxing';
     }
-    if (!targetSport) targetSport = 'Boxing';
-    console.log(`🏅 Target sport resolved for navigation: "${targetSport}" (from source: "${source || ''}")`);
+    // Fallback to event config SPORT if source doesn't specify
+    if (!targetSport) {
+      targetSport = (eventData?.SPORT || 'Boxing').trim();
+    }
+
+    // Validate: source-derived sport must match event SPORT
+    const eventSport = (eventData?.SPORT || '').trim();
+    if (eventSport && targetSport.toLowerCase() !== eventSport.toLowerCase()) {
+      throw new Error(
+        `❌ [BoxingHomePage] Source "${source}" is for "${targetSport}" events, ` +
+        `but this PPV event's SPORT is "${eventSport}". ` +
+        `Use a "${eventSport.toLowerCase()}" source instead (e.g. "home-${eventSport.toLowerCase()}-tile").`
+      );
+    }
+    console.log(`🏅 Target sport resolved for navigation: "${targetSport}" (from source: "${source || ''}", event SPORT: "${eventSport}")`);
 
     console.log(`🧭 Navigating to "${targetSport}" landing page via All Sports dropdown...`);
     const dropdownClicked = await this.clickAllSportsDropdown();
@@ -439,10 +505,13 @@ export class BoxingHomePage extends HomePage {
                 const hasBuyNow = text.toLowerCase().includes('buy now') || text.toLowerCase().includes('buy');
                 if (matchesCard(text) && hasBuyNow) {
                   const box = await el.boundingBox().catch(() => null);
-                  // box.y is viewport-relative in Playwright. After scrolling to page-y=700,
-                  // any element above that scroll position (e.g. the hero banner at page-y~0-400)
-                  // will have a negative viewport-y and must be excluded.
-                  if (box && box.width > 50 && box.width < 700 && box.height > 50 && box.height < 500 && box.y > 0) {
+                  const scrollY = await this.page.evaluate(() => window.scrollY).catch(() => 0);
+                  const absoluteTop = box ? box.y + scrollY : 0;
+                  // Use absolute page position instead of viewport y. The target
+                  // schedule card can be slightly above the viewport after the
+                  // initial schedule scroll, while hero/banner matches are much
+                  // higher on the page and should still be excluded.
+                  if (box && box.width > 50 && box.width < 1800 && box.height > 50 && box.height < 700 && absoluteTop > 450) {
                     const score = this.scorePPVMatch(text, ppvName);
                     if (score > bestCardScore) {
                       bestCardScore = score;
@@ -460,10 +529,9 @@ export class BoxingHomePage extends HomePage {
             const box = await ppvCard.boundingBox().catch(() => null);
             if (box) {
               console.log(`📜 [Home Sport Upcoming] Scrolling PPV card to viewport (y=${Math.round(box.y)})...`);
-              await ppvCard.scrollIntoViewIfNeeded().catch(() => { });
-              await this.page.evaluate((y) => {
-                window.scrollBy(0, y - 250);
-              }, box.y).catch(() => { });
+              await ppvCard.evaluate((el: HTMLElement) => {
+                el.scrollIntoView({ block: 'center', inline: 'center' });
+              }).catch(() => { });
               await this.page.waitForTimeout(1000);
             }
             break;
@@ -787,6 +855,13 @@ export class BoxingHomePage extends HomePage {
         throw new Error('❌ [Home Sport Upcoming] PPV card container is null');
       }
 
+      await container.scrollIntoViewIfNeeded().catch(() => { });
+      await this.page.waitForTimeout(300);
+      await container.evaluate((el: HTMLElement) => {
+        el.scrollIntoView({ block: 'center', inline: 'center' });
+      }).catch(() => { });
+      await this.page.waitForTimeout(300);
+
       const buyNowBtn = container.locator('button:has-text("Buy now"), a:has-text("Buy now"), button:has-text("Buy Now")').first();
       await buyNowBtn.waitFor({ state: 'visible', timeout: 10000 });
 
@@ -796,19 +871,44 @@ export class BoxingHomePage extends HomePage {
 
       await this.page.waitForURL(
         (url: URL) => url.toString() !== beforeUrl,
-        { timeout: 20000 }
+        { timeout: 8000 }
       ).catch(() => { });
 
       await this.page.waitForLoadState('domcontentloaded').catch(() => { });
-      await this.page.waitForTimeout(2000);
+      await this.page.waitForTimeout(800);
       console.log(`✅ [Home Sport Upcoming] Navigated to: ${this.page.url()}`);
 
       const currentUrl = this.page.url();
-      if (currentUrl.includes('/sport/') || currentUrl.includes('Sport:')) {
+      const currentUrlLower = currentUrl.toLowerCase();
+      const stayedOnSchedule =
+        currentUrl === beforeUrl ||
+        (currentUrlLower.includes('/sport/') && currentUrlLower.includes('tab=schedule'));
+
+      if (stayedOnSchedule) {
+        const cardText = await container.textContent().catch(() => '');
+        throw new Error(
+          `❌ [Home Sport Upcoming] Buy now click did not leave the Upcoming Fights schedule page. ` +
+          `Refusing to click a page-wide CTA because it may belong to another event.\n` +
+          `URL: ${currentUrl}\n` +
+          `Card: ${(cardText || '').replace(/\s+/g, ' ').trim().substring(0, 200)}`
+        );
+      }
+
+      const landedOnFixtureDetails =
+        currentUrlLower.includes('/fixture/') ||
+        currentUrlLower.includes('/event/') ||
+        currentUrlLower.includes('contentid') ||
+        (
+          currentUrlLower.includes('/sport/') &&
+          !currentUrlLower.includes('tab=schedule') &&
+          currentUrl !== beforeUrl
+        );
+
+      if (landedOnFixtureDetails && !currentUrlLower.includes('plandetails') && !currentUrlLower.includes('tierplans') && !currentUrlLower.includes('signup') && !currentUrlLower.includes('checkout') && !currentUrlLower.includes('payment')) {
         console.log('📍 [Home Sport Upcoming] Landed on event details page. Looking for main "Buy now" button...');
 
-        const detailsCta = this.page.locator('a:has-text("Buy now"), button:has-text("Buy now"), a:has-text("Buy Now"), button:has-text("Buy Now")').first();
-        await detailsCta.waitFor({ state: 'visible', timeout: 10000 });
+        const detailsCta = this.page.locator('main a:has-text("Buy now"), main button:has-text("Buy now"), main a:has-text("Buy Now"), main button:has-text("Buy Now")').first();
+        await detailsCta.waitFor({ state: 'visible', timeout: 6000 });
 
         const finalBeforeUrl = this.page.url();
         await detailsCta.click({ force: true });
@@ -816,7 +916,7 @@ export class BoxingHomePage extends HomePage {
 
         await this.page.waitForURL(
           (url: URL) => url.toString() !== finalBeforeUrl,
-          { timeout: 15000 }
+          { timeout: 10000 }
         ).catch(() => { });
         await this.page.waitForLoadState('domcontentloaded').catch(() => { });
         console.log(`✅ [Home Sport Upcoming] Final URL after event details page: ${this.page.url()}`);

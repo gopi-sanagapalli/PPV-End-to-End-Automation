@@ -32,6 +32,62 @@ function deepMerge(base: any, override: any): any {
   return result;
 }
 
+function ordinalSuffix(day: number): string {
+  if (day >= 11 && day <= 13) return 'th';
+  switch (day % 10) {
+    case 1: return 'st';
+    case 2: return 'nd';
+    case 3: return 'rd';
+    default: return 'th';
+  }
+}
+
+function formatHomeBoxingUpcomingDate(value: string): string {
+  const clean = String(value || '').trim();
+  const monthNames = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
+  const monthIndex = monthNames.findIndex(month =>
+    new RegExp(`\\b${month}\\b|\\b${month.slice(0, 3)}\\b`, 'i').test(clean)
+  );
+  const dayMatch = clean.match(/\b([1-9]|[12]\d|3[01])(?:st|nd|rd|th)?\b/i);
+  if (monthIndex === -1 || !dayMatch) return clean;
+
+  const day = Number(dayMatch[1]);
+  const now = getNowIST();
+  const date = new Date(now.getFullYear(), monthIndex, day);
+  if (date.getTime() < now.getTime() - 30 * 24 * 60 * 60 * 1000) {
+    date.setFullYear(now.getFullYear() + 1);
+  }
+
+  const weekday = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][date.getDay()];
+  return `${weekday} ${day}${ordinalSuffix(day)} ${monthNames[monthIndex]}`;
+}
+
+function formatHomeBoxingUpcomingTime(...values: Array<string | undefined>): string {
+  for (const value of values) {
+    const clean = String(value || '').trim();
+    if (!clean) continue;
+
+    const timeMatches = Array.from(clean.matchAll(/\b(\d{1,2}):(\d{2})\s*(am|pm)?\b/gi));
+    const match = timeMatches[timeMatches.length - 1];
+    if (!match) continue;
+
+    let hours = Number(match[1]);
+    const minutes = match[2];
+    const marker = (match[3] || '').toUpperCase();
+    if (marker === 'PM' && hours < 12) hours += 12;
+    if (marker === 'AM' && hours === 12) hours = 0;
+
+    const suffix = hours >= 12 ? 'PM' : 'AM';
+    const displayHour = hours % 12 || 12;
+    return `${displayHour}:${minutes}${suffix}`;
+  }
+
+  return '';
+}
+
 
 const GLOBAL_DEFAULTS: Record<string, string> = {
   PPV_CTA_TEXT: "Continue with pay-per-view",
@@ -440,12 +496,6 @@ export function buildEventData(
     }
     base.PPV_STATUS = ppvStatus;
 
-    // Active standard user: Choose How To Buy page shows different feature text
-    if (isActiveStandard) {
-      base.UPSELL_FEATURE_1 = 'Pay-per-views included at no extra cost. Minimum of 12 events per year.';
-      base.UPSELL_FEATURE_2 = "185+ fights a year from the best promoters.|185+ fights a year from the best promotors.|185+ fights a year from the world's best promoters.";
-      base.UPSELL_FEATURE_3 = 'HDR and Dolby 5.1 surround sound on select events.';
-    }
   } // end if (userStateKey)
 
   if (!base.RATE_PLAN_LABEL && (regional.RATE_PLAN_LABEL ?? merged.RATE_PLAN_LABEL)) base.RATE_PLAN_LABEL = regional.RATE_PLAN_LABEL ?? merged.RATE_PLAN_LABEL;
@@ -771,6 +821,30 @@ export function buildEventData(
     } else {
       base.ANNUAL_TOTAL_DISPLAY = base.ANNUAL_TOTAL;
     }
+  }
+
+  if (!base.HOME_BOXING_UPCOMING_DATE) {
+    base.HOME_BOXING_UPCOMING_DATE = formatHomeBoxingUpcomingDate(
+      base.HOME_BOXING_UPCOMING_RAW_DATE ||
+      base.LANDING_PAGE_PPV_DATE ||
+      base.BOXING_UPCOMING_DATE ||
+      base.PPV_DATE ||
+      ''
+    );
+  }
+
+  if (!base.HOME_BOXING_UPCOMING_TIME) {
+    base.HOME_BOXING_UPCOMING_TIME = formatHomeBoxingUpcomingTime(
+      base.HOME_BOXING_UPCOMING_RAW_TIME,
+      base.BOXING_BANNER_SUBTITLE,
+      base.PPV_TIME,
+      base.PPV_DATE
+    );
+  }
+
+  if (!base.HOME_BOXING_UPCOMING_DATE_TIME_TEXT) {
+    base.HOME_BOXING_UPCOMING_DATE_TIME_TEXT =
+      `WATCH LIVE ${base.HOME_BOXING_UPCOMING_DATE} at ${base.HOME_BOXING_UPCOMING_TIME}`.trim();
   }
 
   if (isBundleFlow && base.TIER !== 'ultimate') {

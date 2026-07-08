@@ -129,6 +129,23 @@ export async function detectPageType(
     return 'standalone-ppv';
   }
 
+  // page=PlanDetails can appear before the SPA appends upsellTierShown=true.
+  // If contextual PPV-only copy is already rendered, this is still the PPV
+  // selection page and must not be validated as a DAZN Plan page.
+  if (
+    urlLower.includes('contextualppvid=') &&
+    (urlLower.includes('page=plandetails') || urlLower.includes('page=tierplans')) &&
+    !urlLower.includes('upselltierselected=true') &&
+    (
+      body.includes('continue with pay-per-view') ||
+      body.includes('just the fight') ||
+      body.includes('to watch your pay-per-view') ||
+      body.includes('the ultimate fan package')
+    )
+  ) {
+    return 'ppv';
+  }
+
   if (urlLower.includes('page=plandetails')) return 'plan';
   if (urlLower.includes('page=tierplans')) return 'plan';
 
@@ -209,4 +226,63 @@ export async function detectPageType(
   if (body.includes('pick a plan to go with')) return 'plan';
 
   return 'unknown';
+}
+
+// ─────────────────────────────────────────────────────────────────
+// HANDLE NO-PPV CLICK — for "Subscribe without a pay-per-view" flow
+// Called when surfacingpoint.json has noPpvClick: true
+// ─────────────────────────────────────────────────────────────────
+export async function handleNoPpvClick(
+  page: any,
+  eventData: Record<string, any>
+): Promise<void> {
+  console.log('🔗 [handleNoPpvClick] Looking for "Subscribe without a pay-per-view" link...');
+
+  const noPpvSelectors = [
+    'a:has-text("Subscribe without a pay-per-view")',
+    'button:has-text("Subscribe without a pay-per-view")',
+    'a:has-text("Subscribe without pay-per-view")',
+    'a:has-text("Continue without pay-per-view")',
+    'a:has-text("Continue without a pay-per-view")',
+    '[class*="ctaWithoutPPV" i]',
+  ];
+
+  let noPpvLink: any = null;
+  for (const sel of noPpvSelectors) {
+    const el = page.locator(sel).first();
+    if (await el.isVisible({ timeout: 3000 }).catch(() => false)) {
+      noPpvLink = el;
+      console.log(`✅ [handleNoPpvClick] Found link via: ${sel}`);
+      break;
+    }
+  }
+
+  if (!noPpvLink) {
+    throw new Error(
+      '❌ [handleNoPpvClick] "Subscribe without a pay-per-view" link not found on page'
+    );
+  }
+
+  const beforeUrl = page.url();
+  await noPpvLink.click({ force: true });
+  console.log('✅ [handleNoPpvClick] Clicked "Subscribe without a pay-per-view"');
+
+  await page.waitForURL(
+    (url: URL) =>
+      url.toString().includes('noPpv=true') ||
+      url.toString().includes('tierplans') ||
+      url.toString().includes('plandetails') ||
+      url.toString() !== beforeUrl,
+    { timeout: 10000 }
+  ).catch(() => {
+    console.log(
+      `⚠️ [handleNoPpvClick] URL did not change as expected. Current: ${page.url()}`
+    );
+  });
+
+  await page.waitForLoadState('domcontentloaded').catch(() => {});
+  console.log(`✅ [handleNoPpvClick] Navigated to: ${page.url()}`);
+
+  process.env.SUBSCRIBE_WITHOUT_PPV = 'true';
+  eventData.SUBSCRIBE_WITHOUT_PPV = 'true';
 }

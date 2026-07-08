@@ -1,10 +1,149 @@
 import { Page, Locator } from '@playwright/test';
 import { BasePage } from './BasePage';
 import selectors from '../config/selectors.json';
+import { validateVariant } from '../flows/validateVariant';
+import { readSheet } from '../utils/excelReader';
 
 export class LandingPage extends BasePage {
   constructor(page: Page) {
     super(page);
+  }
+
+  protected isFixtureOrPreviewUrl(url: string): boolean {
+    const lower = url.toLowerCase();
+    const isTarget =
+      lower.includes('preview') ||
+      lower.includes('fixture') ||
+      lower.includes('event') ||
+      lower.includes('stream') ||
+      lower.includes('player');
+    const isPurchaseRoute =
+      lower.includes('plandetails') ||
+      lower.includes('tierplans') ||
+      lower.includes('signup') ||
+      lower.includes('signin') ||
+      lower.includes('payment') ||
+      lower.includes('checkout');
+    return isTarget && !isPurchaseRoute;
+  }
+
+  protected getUltimateValidationSheet(pageName: string): string {
+    const normalized = pageName.toLowerCase();
+    if (normalized.includes('home of boxing')) return 'Home of Boxing';
+    if (normalized.includes('home page')) return 'Home page';
+    if (normalized.includes('boxing')) return 'Boxing page';
+    return 'Landing page';
+  }
+
+  protected getFlowRows(sheetName: string, flow: string): any[] {
+    const normalize = (value: any) => value?.toString().trim().toLowerCase();
+    const rows = readSheet(sheetName).filter((row: any) => normalize(row.Flow) === normalize(flow));
+    if (!rows.length) {
+      throw new Error(`❌ No Excel validation rows found for sheet="${sheetName}" flow="${flow}"`);
+    }
+    return rows;
+  }
+
+  protected async validateExcelFlow(
+    sheetName: string,
+    flow: string,
+    results: any[],
+    eventData: Record<string, string>,
+    pageName: string,
+    variant = 'landing'
+  ): Promise<void> {
+    const rows = this.getFlowRows(sheetName, flow);
+    await validateVariant(this.page, variant, rows, results, eventData, pageName, flow);
+  }
+
+  protected async waitForFixtureOrPreviewNavigation(
+    results: any[],
+    eventData: Record<string, string>,
+    pageName: string,
+    flow: string,
+    sheetName = this.getUltimateValidationSheet(pageName),
+    timeout = 15000
+  ): Promise<void> {
+    await this.page.waitForURL((url: URL) => this.isFixtureOrPreviewUrl(url.href), { timeout }).catch(() => { });
+    await this.page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => { });
+    await this.validateExcelFlow(sheetName, flow, results, eventData, pageName);
+
+    const navResult = results
+      .slice()
+      .reverse()
+      .find((r: any) => r.page === pageName && r.field === 'Ultimate Navigation Target');
+    if (navResult?.status === 'FAIL') {
+      throw new Error(`❌ [${pageName}] Ultimate navigation target validation failed. URL: ${this.page.url()}`);
+    }
+  }
+
+  protected async clickFightCardFromContainer(container: any): Promise<void> {
+    const fightCard = container
+      .locator('a:has-text("Fight Card"), button:has-text("Fight Card"), a:has-text("Fight card"), button:has-text("Fight card")')
+      .first();
+    const visible = await fightCard.isVisible({ timeout: 5000 }).catch(() => false);
+    if (!visible) {
+      throw new Error('❌ [Ultimate Banner] Fight Card CTA not visible on purchased banner.');
+    }
+
+    await fightCard.click({ force: true, timeout: 5000 });
+    await this.page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => { });
+  }
+
+  async validateUltimatePurchasedBannerAndFightCard(
+    container: any,
+    source: string,
+    results: any[],
+    eventData: Record<string, string>,
+    pageName: string,
+    flowParam?: string
+  ): Promise<void> {
+    const sheetName = this.getUltimateValidationSheet(pageName);
+    const baseFlow = flowParam && flowParam !== 'landing' ? flowParam : source;
+
+    console.log(`💎 [Ultimate Banner] Validating purchased banner via Excel flow: ${baseFlow}-ultimate-banner`);
+    await this.validateExcelFlow(sheetName, `${baseFlow}-ultimate-banner`, results, eventData, pageName);
+
+    console.log('🖱️ [Ultimate Banner] Clicking Fight Card CTA and validating modal...');
+    await this.clickFightCardFromContainer(container);
+    await this.page.waitForSelector(
+      '[role="dialog"], [aria-modal="true"], [class*="modal" i], [class*="popup" i]',
+      { state: 'visible', timeout: 10000 }
+    ).catch(() => { });
+    await this.validateExcelFlow(sheetName, `${baseFlow}-ultimate-fight-card`, results, eventData, pageName);
+  }
+
+  async clickUltimateTileAndValidateNavigation(
+    container: any,
+    source: string,
+    results: any[],
+    eventData: Record<string, string>,
+    pageName: string,
+    flowParam?: string
+  ): Promise<void> {
+    const sheetName = this.getUltimateValidationSheet(pageName);
+    const baseFlow = flowParam && flowParam !== 'landing' ? flowParam : source;
+
+    if (!this.isFixtureOrPreviewUrl(this.page.url())) {
+      const containerIsBody = await container.evaluate((el: HTMLElement) =>
+        el.tagName.toLowerCase() === 'body'
+      ).catch(() => false);
+
+      if (containerIsBody) {
+        throw new Error(`❌ [Ultimate Tile] Tile flow returned page body but did not navigate to fixture. URL: ${this.page.url()}`);
+      }
+
+      await container.scrollIntoViewIfNeeded().catch(() => { });
+      await container.click({ force: true, timeout: 5000 });
+    }
+
+    await this.waitForFixtureOrPreviewNavigation(
+      results,
+      eventData,
+      pageName,
+      `${baseFlow}-ultimate-tile`,
+      sheetName
+    );
   }
 
   // ─────────────────────────────
@@ -22,6 +161,20 @@ export class LandingPage extends BasePage {
     await pageLoadedIndicator.waitFor({ state: 'visible', timeout: 8000 }).catch(() => { });
 
     console.log(`✅ Landed on: ${this.page.url()}`);
+  }
+
+  // ─────────────────────────────
+  // CLICK LOG IN ON WELCOME PAGE
+  // ─────────────────────────────
+  async clickLogIn(): Promise<void> {
+    const logInBtn = this.page.locator(
+      'button:has-text("Log in"), a:has-text("Log in"), ' +
+      'button:has-text("Log In"), a:has-text("Log In")'
+    ).first();
+    await logInBtn.waitFor({ state: 'visible', timeout: 10000 });
+    console.log('🖱️ Clicking Log In on welcome page...');
+    await logInBtn.click({ force: true });
+    await this.page.waitForLoadState('domcontentloaded').catch(() => {});
   }
 
   // ─────────────────────────────
