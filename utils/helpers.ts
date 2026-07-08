@@ -106,7 +106,9 @@ export async function handleCookies(page: Page, timeout: number = 8000): Promise
 // ─────────────────────────────────────────────────────────────────
 export async function stabilisePage(page: Page): Promise<void> {
   if (page.isClosed()) return;
-  await page.evaluate(() => {
+  // Cap at 3s: page.evaluate() has no built-in timeout and will hang
+  // indefinitely on a CPU-starved runner until the test timeout kills it.
+  const evalWork = page.evaluate(() => {
     if (window.location.href.includes('/myaccount')) return;
     [
       '#onetrust-banner-sdk',
@@ -122,6 +124,8 @@ export async function stabilisePage(page: Page): Promise<void> {
         .forEach(el => el.remove())
     );
   }).catch(() => { });
+  const timeout = new Promise<void>(resolve => setTimeout(resolve, 3000));
+  await Promise.race([evalWork, timeout]);
 }
 
 // ─────────────────────────────────────────────────────────────────
