@@ -34,7 +34,7 @@ import {
 import { detectVariant } from '../../flows/detectVariant';
 import { validateVariant } from '../../flows/validateVariant';
 import { buildEventData } from '../../utils/buildEventData';
-import { detectPageType } from '../../utils/flowHelpers';
+import { detectPageType, handleNoPpvClick } from '../../utils/flowHelpers';
 import { displayResultsTable } from '../../utils/resultsDisplay';
 import { writeResults } from '../../utils/excelWriter';
 import { generateReports } from '../../utils/reportGenerator';
@@ -53,6 +53,8 @@ import {
   handlePopupModal,
   assertCountryMatch,
 } from '../../utils/testHelpers';
+import { AuthenticationManager } from '../../auth/AuthenticationManager';
+
 
 const REGION = process.env.DAZN_REGION || 'GB';
 const EVENT_CONFIG = process.env.PPV_CONFIG || 'aj_joshua_prenga.json';
@@ -62,6 +64,23 @@ const PPV_TYPE = (process.env.PPV_TYPE || 'normal').toLowerCase();
 const SWITCH_TO_ULTIMATE = (process.env.SWITCH || '').toLowerCase() === 'true';
 const ENV = (process.env.DAZN_ENV || 'stag').toLowerCase();
 const PAYMENT_METHOD = (process.env.PAYMENT_METHOD || 'credit_card').toLowerCase();
+const HOME_SPORT_DROPDOWN_SOURCES = new Set([
+  'home-boxing-banner',
+  'home-boxing-tile',
+  'home-boxing-upcoming',
+  'home-kickboxing-tile',
+]);
+
+function throwLogged(error: Error): never {
+  console.log(error.message);
+  throw error;
+}
+
+test.afterEach(async ({ }, testInfo) => {
+  if (testInfo.status !== testInfo.expectedStatus && testInfo.error?.message) {
+    console.log(`❌ Test failure:\n${testInfo.error.message}`);
+  }
+});
 
 // ═══════════════════════════════════════════════════════════════
 // RUN A SINGLE FLOW
@@ -108,11 +127,11 @@ async function waitForPostPlanTransition(page: Page): Promise<void> {
 
   if (!nextState) {
     const body = await page.locator('body').innerText().catch(() => '');
-    throw new Error(
+    throwLogged(new Error(
       `❌ Plan CTA did not transition within 30 seconds.\n` +
       `URL: ${page.url()}\n` +
       `Page text: ${body.slice(0, 3000)}`
-    );
+    ));
   }
 
   console.log(`✅ Post-plan transition detected: ${nextState} | URL: ${page.url()}`);
@@ -125,7 +144,8 @@ async function runFlow(
   region: string,
   validateLanding: boolean
 ): Promise<{ results: any[]; reachedEndPage: boolean; skipped?: boolean; videoPath?: string | null }> {
-  const { name, source, tier, ratePlan: rawRatePlan, enableDevMode: devModeEnabled } = flowConfig;
+  const { name, source, tier, ratePlan: rawRatePlan, enableDevMode: devModeEnabled, noPpvClick: noPpvClickConfig } = flowConfig;
+  let noPpvClick = !!(noPpvClickConfig);
   const ratePlan = (rawRatePlan || '').replace(/-/g, ' ').toLowerCase();
   if ((SOURCE === 'boxing-banner-ultimate' || SOURCE === 'boxing-ultimate-subscription' || SOURCE === 'boxing-join-the-club') && tier !== 'ultimate') {
     throw new Error(`❌ SOURCE "${SOURCE}" requires an Ultimate plan (e.g., PLAN=ultimate_apm).`);
@@ -292,14 +312,52 @@ async function runFlow(
   try {
     // ── Step 1: Navigate to landing page ─────────────────────
     const isHomePageSource = source.startsWith('home-page-') || source === 'home-biggest-fights';
-    const isHomeSport = (source.startsWith('home-') && !isHomePageSource) || source === 'home-kickboxing-tile';
+    const isHomeSport = HOME_SPORT_DROPDOWN_SOURCES.has(source.toLowerCase());
     const isBoxingSource = source.startsWith('boxing');
     const isSearch = source.toLowerCase().includes('search');
     const isSchedule = source.toLowerCase().includes('schedule');
 
     const isGlory = source.toLowerCase() === 'glory';
 
-    if (isGlory) {
+    // ══════════════════════════════════════════════════════════════
+    // HOME PAGE POPUP FLOW
+    // ══════════════════════════════════════════════════════════════
+    if (source === 'home-page-popup') {
+      console.log('\n╔═══════════════════════════════════════════════════════╗');
+      console.log('║  HOME PAGE POPUP FLOW — New User                      ║');
+      console.log('╚═══════════════════════════════════════════════════════╝\n');
+
+      // ── Navigate to welcome page and click Log In ──
+      const landingForPopup = new LandingPage(page);
+      await page.goto(`${baseUrl}/welcome`, { waitUntil: 'domcontentloaded' });
+      await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });
+      await handleCookies(page, 15000);
+      await landingForPopup.clickLogIn();
+
+      // ── Sign up with new user ──
+      const signupForPopup = new SignupPage(page);
+      await page.waitForURL(/emailDetails|signup|signin/i, { timeout: 10000 }).catch(() => { });
+      await page.waitForLoadState('domcontentloaded').catch(() => { });
+      console.log(`📍 [Home Page Popup] Landed on: ${page.url()}`);
+
+      await signupForPopup.enterEmail(user.email);
+      await signupForPopup.clickContinue();
+
+      // Fill personal details if shown
+      const nextStep = await signupForPopup.waitForNextStep();
+      if (nextStep === 'personalDetails') {
+        await signupForPopup.fillPersonalDetails(user);
+        await signupForPopup.clickPersonalDetailsContinue();
+        console.log('✅ [Home Page Popup] Personal details filled');
+      }
+
+      // ── Popup detection + validation + Buy Now (via HomePage POM) ──
+      const homePageForPopup = new HomePage(page, baseUrl);
+      await homePageForPopup.waitForHomePagePopup(
+        { email: user.email, password: user.password },
+        baseUrl, results, eventData
+      );
+    } else if (isGlory) {
       const gloryPage = new GloryPage(page);
       await gloryPage.navigate();
       await setupPage(page, 8000);
@@ -357,9 +415,9 @@ async function runFlow(
       await searchPage.navigate(baseUrl);
       await setupPage(page, 8000);
       assertCountryMatch(page, region);
-      await searchPage.searchAndClick(eventData.PPV_NAME);
+      await searchPage.searchForPPVTileWithUpcomingFallback(eventData.PPV_NAME);
 
-      console.log('\n📋 Validating Search page...');
+      console.log('\n📋 Validating Search page before tile click...');
       try {
         const searchData = readSheet('Search page');
         await validateVariant(page, 'search', searchData, results, eventData, 'Search');
@@ -367,7 +425,9 @@ async function runFlow(
         console.warn(`⚠️  Search page validation error: ${err.message}`);
       }
 
-      // Check and validate popup modal if visible BEFORE clicking Buy Now
+      await searchPage.clickPPVTile(eventData.PPV_NAME);
+
+      // Check and validate popup modal after clicking the tile and before clicking Buy Now
       await handlePopupModal(page, results, eventData, source, false);
 
       await searchPage.clickBuyNow();
@@ -460,7 +520,7 @@ async function runFlow(
         }
 
         if (!container) {
-          throw new Error(`❌ PPV container not found via ${source}`);
+          throwLogged(new Error(`❌ PPV container not found via ${source}`));
         }
       }
 
@@ -525,7 +585,11 @@ async function runFlow(
                 console.log(`ℹ️ No spreadsheet rules for homepage source "${source}" — skipping validation`);
               }
             } else {
-              const queryFlow = source.includes('banner') ? 'home-boxing-banner' : 'home-boxing-tile';
+              const queryFlow = source.includes('banner')
+                ? 'home-boxing-banner'
+                : source === 'home-boxing-upcoming'
+                  ? 'home-boxing-upcoming'
+                  : 'home-boxing-tile';
               const homeOfBoxingData = getHomeOfBoxingData(queryFlow);
               if (homeOfBoxingData && homeOfBoxingData.length > 0) {
                 await validateVariant(page, 'home-boxing', homeOfBoxingData, results, eventData, 'Home of Boxing', queryFlow);
@@ -551,25 +615,27 @@ async function runFlow(
       }
     }
 
-    // Handle generic popup validations and click-through
-    if ((!isHomeSport || source === 'home-page-dont-miss') && source !== 'glory') {
-      await handlePopupModal(page, results, eventData, source, true);
-    }
+    if (source !== 'home-page-popup') {
+      // Handle generic popup validations and click-through
+      if ((!isHomeSport || source === 'home-page-dont-miss') && source !== 'glory') {
+        await handlePopupModal(page, results, eventData, source, true);
+      }
 
-    await page.waitForURL(
-      (url: URL) =>
-        url.toString().includes('PlanDetails') ||
-        url.toString().includes('TierPlans') ||
-        url.toString().includes('signup'),
-      { timeout: 10000 }
-    ).catch(async () => {
       await page.waitForURL(
-        (url: URL) => !url.toString().includes('/welcome'),
-        { timeout: 5000 }
-      ).catch(() => { });
-    });
+        (url: URL) =>
+          url.toString().includes('PlanDetails') ||
+          url.toString().includes('TierPlans') ||
+          url.toString().includes('signup'),
+        { timeout: 10000 }
+      ).catch(async () => {
+        await page.waitForURL(
+          (url: URL) => !url.toString().includes('/welcome'),
+          { timeout: 5000 }
+        ).catch(() => { });
+      });
 
-    await page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => { });
+      await page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => { });
+    }
 
     // ── Step 3: Detect variant ───────────────────────────────
     console.log('landed on:', page.url());
@@ -685,7 +751,7 @@ async function runFlow(
       const hasPPVOption = stdBody.toLowerCase().includes('subscribe without a pay-per-view') ||
         stdBody.toLowerCase().includes('continue without pay-per-view') ||
         stdBody.toLowerCase().includes('continue without a pay-per-view');
-      if (!hasPPVOption) {
+      if (!hasPPVOption && !noPpvClick) {
         if (source === 'home-page-dazntile') {
           throw new Error(
             `❌ [${source}] PPV is not configured in default sign-up after ` +
@@ -780,85 +846,9 @@ async function runFlow(
         console.log('🔑 Reached OTP Verification page');
         reachedEndPage = true;
 
-        // Validate OTP page content from Excel
         try {
           const otpData = getOTPPageData();
-          console.log(`\n🧾 Validating OTP page — ${otpData.length} fields`);
-
-          for (const row of otpData) {
-            const field = (row['Field'] || '').trim();
-            const expected = (row['Expected'] || '').toString().trim();
-            if (!field) continue;
-
-            let actual = 'N/A';
-            const fieldLower = field.toLowerCase();
-
-            if (fieldLower === 'page title') {
-              // Try h1 first, then h2, then look for text containing 'enter the code' or 'verify'
-              const h1 = await page.locator('h1').first().textContent({ timeout: 5000 }).catch(() => '');
-              if (h1 && h1.trim()) {
-                actual = h1.trim();
-              } else {
-                const h2 = await page.locator('h2').first().textContent({ timeout: 3000 }).catch(() => '');
-                if (h2 && h2.trim()) {
-                  actual = h2.trim();
-                } else {
-                  // Fallback: search body text for heading-like text
-                  const bodyText = await page.locator('body').innerText({ timeout: 3000 }).catch(() => '');
-                  const lines = bodyText.split('\n').map((l: string) => l.trim()).filter((l: string) => l.length > 10 && l.length < 100);
-                  for (const line of lines) {
-                    if (/enter.*code|verify|verification/i.test(line)) { actual = line; break; }
-                  }
-                }
-              }
-            } else if (fieldLower === 'page description') {
-              // Look for description text containing 'sent' or 'code' or phone number
-              const desc = await page.locator('h1 + p, h2 + p, h1 ~ p, [class*="subtitle"], [class*="description"]')
-                .first().textContent({ timeout: 3000 }).catch(() => '');
-              if (desc && desc.trim()) {
-                actual = desc.trim();
-              } else {
-                const bodyText = await page.locator('body').innerText({ timeout: 3000 }).catch(() => '');
-                const lines = bodyText.split('\n').map((l: string) => l.trim()).filter((l: string) => l.length > 15 && l.length < 200);
-                for (const line of lines) {
-                  if (/sent.*code|code.*to|digit.*code/i.test(line)) { actual = line; break; }
-                }
-              }
-            } else if (fieldLower === 'otp input present') {
-              // OTP inputs can be: individual digit inputs, a single code input, or inputs with pattern
-              const otpInputs = page.locator(
-                'input[type="tel"], input[type="number"], input[inputmode="numeric"], ' +
-                'input[autocomplete="one-time-code"], input[name*="otp" i], input[name*="code" i], ' +
-                'input[data-test-id*="otp" i], input[data-test-id*="code" i], ' +
-                'input[maxlength="1"], input[maxlength="4"], input[maxlength="6"]'
-              );
-              const count = await otpInputs.count().catch(() => 0);
-              actual = count > 0 ? 'Yes' : 'No';
-            } else if (fieldLower === 'verify button') {
-              const btn = page.locator(
-                'button:has-text("Verify"), button:has-text("Submit"), button:has-text("Confirm"), button[type="submit"]'
-              ).first();
-              const text = await btn.textContent({ timeout: 3000 }).catch(() => '');
-              actual = (text || '').trim() || 'N/A';
-            } else if (fieldLower === 'resend code link') {
-              const resend = page.locator(
-                'button:has-text("Resend"), a:has-text("Resend"), button:has-text("resend"), a:has-text("resend"), ' +
-                'button:has-text("Send again"), a:has-text("Send again"), ' +
-                '*:has-text("Resend code"), *:has-text("resend code")'
-              ).first();
-              actual = (await resend.isVisible({ timeout: 3000 }).catch(() => false)) ? 'Yes' : 'No';
-            }
-
-            const actualNorm = actual.toLowerCase().replace(/\s+/g, ' ').trim();
-            const expectedNorm = expected.toLowerCase().replace(/\s+/g, ' ').trim();
-            const status = (actualNorm === expectedNorm ||
-              actualNorm.includes(expectedNorm) ||
-              expectedNorm.includes(actualNorm)) ? 'PASS' : 'FAIL';
-
-            console.log(`  ${status === 'PASS' ? '✅' : '❌'} [${field}]  expected="${expected}"  actual="${actual}"`);
-            const _shotOTP = status === 'FAIL' ? await captureFailShot(page, field) : undefined;
-            results.push({ page: 'OTP Verification', field, expected, actual, status, screenshot: _shotOTP });
-          }
+          await validateVariant(page, 'otp', otpData, results, eventData, 'OTP Verification');
         } catch (e: any) {
           console.warn('⚠️  OTP page validation error:', e.message);
           results.push({
@@ -878,57 +868,9 @@ async function runFlow(
         console.log('📱 Reached "Add your phone number" page');
         reachedEndPage = true;
 
-        // Validate phone page content from Excel
         try {
           const phoneData = getPhonePageData();
-          console.log(`\n🧾 Validating Phone Number page — ${phoneData.length} fields`);
-
-          for (const row of phoneData) {
-            const field = (row['Field'] || '').trim();
-            const expected = (row['Expected'] || '').toString().trim();
-            if (!field) continue;
-
-            let actual = 'N/A';
-            const fieldLower = field.toLowerCase();
-
-            if (fieldLower === 'page title') {
-              const h1 = await page.locator('h1').first().textContent({ timeout: 5000 }).catch(() => '');
-              actual = (h1 || '').trim() || 'N/A';
-            } else if (fieldLower === 'page description') {
-              const desc = await page.locator('h1 + p, h1 ~ p, [class*="subtitle"], [class*="description"]')
-                .first().textContent({ timeout: 3000 }).catch(() => '');
-              if (desc && desc.trim()) {
-                actual = desc.trim();
-              } else {
-                // Fallback: find text containing "recover" or "locked out"
-                const body = await page.locator('body').innerText({ timeout: 3000 }).catch(() => '');
-                const lines = body.split('\n').map((l: string) => l.trim()).filter((l: string) => l.length > 20 && l.length < 200);
-                for (const line of lines) {
-                  if (/recover|locked out|verify/i.test(line)) { actual = line; break; }
-                }
-              }
-            } else if (fieldLower === 'phone input present') {
-              const input = page.locator('input[type="tel"], input[name*="phone" i], input[placeholder*="phone" i]').first();
-              actual = (await input.isVisible({ timeout: 3000 }).catch(() => false)) ? 'Yes' : 'No';
-            } else if (fieldLower === 'continue button') {
-              const btn = page.locator('button:has-text("Continue"), button[type="submit"]').first();
-              const text = await btn.textContent({ timeout: 3000 }).catch(() => '');
-              actual = (text || '').trim() || 'N/A';
-            } else if (fieldLower === 'country code present') {
-              const cc = page.locator('[class*="country" i], [class*="dial" i], select, [role="listbox"]').first();
-              actual = (await cc.isVisible({ timeout: 3000 }).catch(() => false)) ? 'Yes' : 'No';
-            }
-
-            const actualNorm = actual.toLowerCase().replace(/\s+/g, ' ').trim();
-            const expectedNorm = expected.toLowerCase().replace(/\s+/g, ' ').trim();
-            const status = (actualNorm === expectedNorm ||
-              actualNorm.includes(expectedNorm) ||
-              expectedNorm.includes(actualNorm)) ? 'PASS' : 'FAIL';
-
-            console.log(`  ${status === 'PASS' ? '✅' : '❌'} [${field}]  expected="${expected}"  actual="${actual}"`);
-            const _shotPhone = status === 'FAIL' ? await captureFailShot(page, field) : undefined;
-            results.push({ page: 'Phone Number', field, expected, actual, status, screenshot: _shotPhone });
-          }
+          await validateVariant(page, 'phone', phoneData, results, eventData, 'Phone Number');
         } catch (e: any) {
           console.warn('⚠️  Phone page validation error:', e.message);
           results.push({
@@ -1196,6 +1138,17 @@ async function runFlow(
         console.log(
           `📧 Signup state | plan=${ratePlan} | email=${user.email} | url=${page.url()}`
         );
+
+        // ── Social login mid-flow (AUTH_METHOD=google etc.) ──────────────────
+        const authMethodEnv = (process.env.AUTH_METHOD || '').toLowerCase().trim();
+        if (authMethodEnv && authMethodEnv !== 'email') {
+          console.log(`🔐 [New User] AUTH_METHOD="${authMethodEnv}" — authenticating mid-flow via AuthenticationManager`);
+          const authManager = new AuthenticationManager(page, context, baseUrl);
+          await authManager.authenticate(eventData);
+          console.log('✅ [New User] Social login complete — continuing flow');
+          continue;
+        }
+        // ─────────────────────────────────────────────────────────────────────
 
         if (page.url().includes('userExists=true')) {
           throw new Error(
@@ -1488,6 +1441,14 @@ async function runFlow(
       if (pageType === 'ppv') {
         console.log('👉 PPV page');
         stuckCount = 0;
+
+        // ── Subscribe Without PPV opt-out ──────────────────────────────
+        if (noPpvClick) {
+          console.log('🔗 [noPpvClick] Triggering subscribe-without-pay-per-view flow...');
+          await handleNoPpvClick(page, eventData);
+          noPpvClick = false; // reset so it only fires once
+          continue;           // re-detect page type after navigation
+        }
 
         if (!ppvValidated) {
           try {
@@ -1968,7 +1929,8 @@ for (const planKey of plansToRun) {
         ratePlan: (planData.RATE_PLAN || 'monthly').toLowerCase(),
         endPage: endPage,
         enableDevMode: devMode,
-        planKey: planKey
+        planKey: planKey,
+        noPpvClick: !!(srcConfig.noPpvClick),
       };
 
       console.log(`\n╔═══════════════════════════════════════════════════════╗`);
@@ -2035,11 +1997,15 @@ for (const planKey of plansToRun) {
       console.log(`${'─'.repeat(55)}`);
 
       if (total === 0) {
-        throw new Error(`❌ Flow "${flowConfig.name}" had 0 validation checks`);
+        const errMsg = `❌ Flow "${flowConfig.name}" had 0 validation checks`;
+        console.log(errMsg);
+        throw new Error(errMsg);
       }
 
       if (!reachedEndPage) {
-        throw new Error(`❌ Flow "${flowConfig.name}" did not reach the expected end page: "${flowConfig.endPage || 'payment'}"`);
+        const errMsg = `❌ Flow "${flowConfig.name}" did not reach the expected end page: "${flowConfig.endPage || 'payment'}"`;
+        console.log(errMsg);
+        throw new Error(errMsg);
       }
 
       if (failed > 0) {
@@ -2048,9 +2014,9 @@ for (const planKey of plansToRun) {
           .map(r => `  - [${r.page}] ${r.field}: expected "${r.expected}", actual "${r.actual}"`)
           .join('\n');
 
-        throw new Error(
-          `❌ Flow "${flowConfig.name}" completed navigation but had ${failed} validation failure(s):\n${failMsgs}`
-        );
+        const errMsg = `❌ Flow "${flowConfig.name}" completed navigation but had ${failed} validation failure(s):\n${failMsgs}`;
+        console.log(errMsg);
+        throw new Error(errMsg);
       }
     } catch (error) {
       console.error('❌ Test error:', error);

@@ -1,6 +1,10 @@
 import { Page } from '@playwright/test';
 import { LandingPage } from './LandingPage';
 import { RailsInterceptor } from '../utils/railsInterceptor';
+import { pollForHomePagePopup, logoutForPopupRetry, clickAndWaitForNav } from '../utils/testHelpers';
+import { handleCookies, stabilisePage } from '../utils/helpers';
+import { validateVariant } from '../flows/validateVariant';
+import { getHomePageData } from '../utils/excelReader';
 
 export class HomePage extends LandingPage {
   protected baseUrl: string;
@@ -132,6 +136,10 @@ export class HomePage extends LandingPage {
       }
 
       await sectionHeading.scrollIntoViewIfNeeded().catch(() => { });
+      const sectionHeadingText = ((await sectionHeading.textContent().catch(() => '')) || '').trim();
+      if (sectionHeadingText) {
+        eventData.HOME_BIGGEST_FIGHTS_SECTION_HEADING = sectionHeadingText;
+      }
       console.log(`✅ [HomePage Biggest Fights] Section heading found (matched: ${matchedPattern})`);
 
       const ppvName = eventData.PPV_NAME || '';
@@ -182,7 +190,7 @@ export class HomePage extends LandingPage {
       // ── STEP 2: Find the rail container, then locate the correct tile ─────────
       // IMPORTANT: scope ALL img/link searches to the rail container, not the full
       // page, so we don't accidentally pick up Joshua tiles from Don't Miss or Banner.
-      await sectionHeading.scrollIntoViewIfNeeded().catch(() => {});
+      await sectionHeading.scrollIntoViewIfNeeded().catch(() => { });
 
       // Walk up from heading to the nearest ancestor that has competition links
       let railContainer: any = sectionHeading.locator('xpath=..');
@@ -196,9 +204,9 @@ export class HomePage extends LandingPage {
         }
       }
 
-      await railContainer.scrollIntoViewIfNeeded().catch(() => {});
+      await railContainer.scrollIntoViewIfNeeded().catch(() => { });
       await this.page.waitForTimeout(400);
-      await railContainer.hover({ force: true }).catch(() => {});
+      await railContainer.hover({ force: true }).catch(() => { });
 
       const nextBtn = railContainer.locator([
         'button[aria-label="Next slide"]',
@@ -295,8 +303,8 @@ export class HomePage extends LandingPage {
             el.classList.contains('swiper-button-disabled') || el.hasAttribute('disabled')
           ).catch(() => true);
           if (nd) { console.log('⚠️ [Biggest Fights] Carousel end reached'); break; }
-          await railContainer.hover({ force: true }).catch(() => {});
-          await nextBtn.click({ force: true, timeout: 3000 }).catch(() => {});
+          await railContainer.hover({ force: true }).catch(() => { });
+          await nextBtn.click({ force: true, timeout: 3000 }).catch(() => { });
           clicks++;
           await this.page.waitForTimeout(500);
           targetTile = await findTileInRail();
@@ -313,7 +321,7 @@ export class HomePage extends LandingPage {
       // ── STEP 4: Click tile → Navigate to competition page ────────────
       const tileHref = await targetTile.getAttribute('href').catch(() => '');
       console.log(`✅ [Biggest Fights] Clicking competition tile: href="${tileHref}"`);
-      await targetTile.scrollIntoViewIfNeeded().catch(() => {});
+      await targetTile.scrollIntoViewIfNeeded().catch(() => { });
       await targetTile.click({ timeout: 5000 });
       console.log('🔗 [Biggest Fights] Clicked tile, waiting for competition/sport page...');
 
@@ -991,120 +999,10 @@ export class HomePage extends LandingPage {
     // ── Wait for page to be fully loaded ─────────────────────
     await this.page.waitForLoadState('domcontentloaded');
 
-    // ── Dismiss any popup that may be blocking the page ──────
-    // NOTE: Never scroll on home page — just dismiss popups
-    console.log('⏳ Waiting for home page header...');
-    await this.dismissPopup();
-    await this.dismissPopup();
-
-    // ── Click profile button ──────────────────────────────────
-    console.log('🖱️  Clicking profile button...');
-
-    // Try multiple selectors — UK uses XPath, IN uses avatar button
-    const profileSelectors = [
-      'xpath=//header//nav//ul[2]//li[2]//button',  // UK structure
-      'button[class*="avatar" i]',
-      'button[class*="profile" i]',
-      '[class*="avatar" i] button',
-      // IN structure — circle button with initial top right
-      'header button:has([class*="avatar" i])',
-      'header button:has([class*="initial" i])',
-      // Generic — last button in header nav area
-      'header nav button:last-child',
-      'header > div button:last-child',
-      // The dropdown arrow button next to avatar
-      'header button[aria-haspopup]',
-      'header button[aria-expanded]',
-    ];
-
-    let clicked = false;
-
-    for (const selector of profileSelectors) {
-      try {
-        const btn = this.page.locator(selector).first();
-        const box = await btn.boundingBox({ timeout: 1500 }).catch(() => null);
-
-        if (box && box.width > 0 && box.height > 0) {
-          // Verify it's in the top-right area (x > 60% of viewport)
-          const viewportWidth = this.page.viewportSize()?.width || 1920;
-          if (box.x < viewportWidth * 0.5) continue; // skip if not on right side
-
-          console.log(`📍 Profile button found via: ${selector}`);
-          console.log(`📍 boundingBox: ${JSON.stringify(box)}`);
-
-          const cx = Math.round(box.x + box.width / 2);
-          const cy = Math.round(box.y + box.height / 2);
-          console.log(`🖱️  Clicking at: x=${cx} y=${cy}`);
-
-          await this.page.mouse.move(cx, cy);
-          await this.page.waitForTimeout(300);
-          await this.page.mouse.click(cx, cy);
-          console.log('✅ Profile button clicked');
-          clicked = true;
-          break;
-        }
-      } catch {
-        // try next
-      }
-    }
-
-    if (!clicked) {
-      console.log('⚠️  Profile button not found — navigating directly');
-      await this.navigateDirectly();
-      return;
-    }
-
-    // ── Wait for dropdown to appear after click ───────────────
-    await this.page.waitForTimeout(200);
-
-    // ── Wait for My Account link and click ────────────────────
-    const myAccountLink = this.page.locator(
-      'a[href*="myaccount" i], ' +
-      'a:has-text("My Account"), ' +
-      'a:has-text("Account"), ' +
-      '[data-testid*="myaccount" i], ' +
-      'li:has-text("My Account") a, ' +
-      '[class*="dropdown" i] a, ' +
-      '[class*="menu" i] a[href*="account" i]'
-    ).first();
-
-    const linkVisible = await myAccountLink
-      .isVisible({ timeout: 5000 })
-      .catch(() => false);
-
-    console.log(`🔍 My Account link visible: ${linkVisible}`);
-
-    if (linkVisible) {
-      await myAccountLink.click({ force: true });
-      console.log('✅ Clicked My Account');
-    } else {
-      console.log('⚠️  My Account link not visible — navigating directly');
-      await this.navigateDirectly();
-      return;
-    }
-
-    // ── Wait for My Account URL ───────────────────────────────
-    try {
-      await this.page.waitForURL(
-        url => {
-          const u = url.toString().toLowerCase();
-          return (
-            u.includes('/myaccount') ||
-            (u.includes('/account') &&
-              !u.includes('/signup') &&
-              !u.includes('/signin') &&
-              !u.includes('/personaldetails') &&
-              !u.includes('/emaildetails') &&
-              !u.includes('/content/'))
-          );
-        },
-        { timeout: 15000 }
-      );
-      console.log(`✅ On My Account: ${this.page.url()}`);
-    } catch {
-      console.log('⚠️  URL did not change — navigating directly');
-      await this.navigateDirectly();
-    }
+    // Avoid clicking volatile header controls after sign-in. The profile menu
+    // can shift by region/session and may open All Sports instead of Account.
+    await this.page.keyboard.press('Escape').catch(() => { });
+    await this.navigateDirectly();
   }
 
   protected getFallbackBaseUrl(): string {
@@ -1248,30 +1146,41 @@ export class HomePage extends LandingPage {
   protected async clickAllSportsDropdown(): Promise<boolean> {
     console.log('🔍 Looking for "All Sports" or "Sports" dropdown menu trigger...');
     const triggers = [
-      'button:has-text("Sports")',
-      'a:has-text("Sports")',
-      'button:has-text("All Sports")',
-      'a:has-text("All Sports")',
-      '[aria-label*="sports" i]',
-      '[class*="sports" i]',
-      'button[aria-haspopup="true"]',
+      { label: 'button role: All sports', locator: this.page.getByRole('button', { name: /^All sports$/i }) },
+      { label: 'link role: All sports', locator: this.page.getByRole('link', { name: /^All sports$/i }) },
+      { label: 'button role: Sports', locator: this.page.getByRole('button', { name: /^Sports$/i }) },
+      { label: 'link role: Sports', locator: this.page.getByRole('link', { name: /^Sports$/i }) },
+      { label: 'button text: All sports', locator: this.page.locator('button').filter({ hasText: /^All sports$/i }) },
+      { label: 'anchor text: All sports', locator: this.page.locator('a').filter({ hasText: /^All sports$/i }) },
+      { label: 'button aria-label sports', locator: this.page.locator('button[aria-label*="sports" i]') },
+      { label: 'anchor aria-label sports', locator: this.page.locator('a[aria-label*="sports" i]') },
     ];
 
-    for (const selector of triggers) {
-      const locator = this.page.locator(selector);
+    for (const trigger of triggers) {
+      const locator = trigger.locator;
       const count = await locator.count().catch(() => 0);
       for (let i = 0; i < count; i++) {
         const el = locator.nth(i);
-        if (await el.isVisible().catch(() => false)) {
-          console.log(`🎯 Clicking Sports dropdown trigger: "${selector}"`);
+        const visible = await el.isVisible().catch(() => false);
+        if (visible) {
+          const triggerText = ((await el.innerText().catch(() => '')) || '').replace(/\s+/g, ' ').trim();
+          const ariaLabel = await el.getAttribute('aria-label').catch(() => '');
+          const textLooksRight = /^all sports$/i.test(triggerText) || /^sports$/i.test(triggerText) || /sports/i.test(ariaLabel || '');
+          if (!textLooksRight) {
+            console.log(`⏭️ Skipping dropdown candidate "${trigger.label}" because text/label is "${triggerText || ariaLabel || 'empty'}"`);
+            continue;
+          }
+
+          console.log(`🎯 Clicking Sports dropdown trigger: "${trigger.label}" (${triggerText || ariaLabel})`);
           await el.scrollIntoViewIfNeeded().catch(() => { });
           await el.click({ force: true });
 
           // Wait up to 3 seconds for a dropdown container to appear
           const containerSelectors = ['[role="menu"]', '[role="listbox"]', '[class*="dropdown" i]', '[class*="menu" i]'];
           for (const cSel of containerSelectors) {
-            const visible = await this.page.locator(cSel).first().waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false);
-            if (visible) {
+            const menu = this.page.locator(cSel).filter({ hasText: /Boxing|Football|Basketball|MMA|All sports/i }).first();
+            const menuVisible = await menu.waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false);
+            if (menuVisible) {
               console.log(`✅ Sports dropdown menu visible: "${cSel}"`);
               return true;
             }
@@ -1418,5 +1327,183 @@ export class HomePage extends LandingPage {
       }
     }
     return false;
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // WAIT FOR HOME PAGE POPUP — 3-attempt popup detection + validate + Buy Now
+  // Called after the user has authenticated and is ready to land on /home.
+  // Handles: navigate to home → poll → refresh+poll → logout+re-login+poll
+  //          → validate popup fields → click Buy Now → wait for navigation
+  // ─────────────────────────────────────────────────────────────
+  async waitForHomePagePopup(
+    credentials: { email: string; password: string },
+    baseUrl: string,
+    results: any[],
+    eventData: any
+  ): Promise<void> {
+    console.log('\n╔═══════════════════════════════════════════════════════╗');
+    console.log('║  HOME PAGE POPUP — Detecting popup on home page       ║');
+    console.log('╚═══════════════════════════════════════════════════════╝\n');
+
+    // ── Navigate to home page (skip if already there — the popup appears on login redirect) ──
+    const currentUrl = this.page.url();
+    if (currentUrl.includes('/home')) {
+      console.log('🏠 [Home Page Popup] Already on home page — waiting for page to settle...');
+      await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });
+    } else {
+      console.log('🏠 [Home Page Popup] Navigating to home page...');
+      await this.page.goto(`${baseUrl}/home`, { waitUntil: 'domcontentloaded' });
+      await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });
+    }
+    await handleCookies(this.page, 5000);
+    await stabilisePage(this.page);
+    console.log(`📍 [Home Page Popup] On home page: ${this.page.url()}`);
+
+    // ── Attempt 1 — poll 40s for popup ──
+    console.log('\n🔁 [Home Page Popup] Attempt 1 — polling 40s for popup...');
+    let popupModal: any = await pollForHomePagePopup(this.page, 40000);
+
+    // ── Attempt 2 — refresh and poll again ──
+    if (!popupModal) {
+      console.log('\n🔁 [Home Page Popup] Attempt 2 — refreshing page and polling 40s...');
+      await this.page.reload({ waitUntil: 'domcontentloaded' });
+      await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });
+      await handleCookies(this.page, 5000);
+      await stabilisePage(this.page);
+      console.log(`📍 [Home Page Popup] After refresh: ${this.page.url()}`);
+      popupModal = await pollForHomePagePopup(this.page, 40000);
+    }
+
+    // ── Attempt 3 — logout, re-login, navigate to home, poll ──
+    if (!popupModal) {
+      console.log('\n🔁 [Home Page Popup] Attempt 3 — logging out and signing back in...');
+
+      await logoutForPopupRetry(this.page, baseUrl);
+      await handleCookies(this.page, 5000);
+
+      // Re-login
+      const signinUrl = `${baseUrl}/signin`;
+      console.log(`🔐 [Home Page Popup] Re-navigating to: ${signinUrl}`);
+      await this.page.goto(signinUrl, { waitUntil: 'domcontentloaded' });
+      await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });
+      await handleCookies(this.page, 10000);
+      await this.page.waitForURL(/emailDetails|signup|signin/i, { timeout: 10000 }).catch(() => { });
+
+      // Enter email
+      const emailInput = this.page.locator(
+        'input[type="email"], input[name="email"], input[placeholder*="email" i]'
+      ).first();
+      await emailInput.waitFor({ state: 'visible', timeout: 10000 });
+      console.log(`📧 [Home Page Popup] Re-entering email: ${credentials.email}`);
+      await emailInput.fill(credentials.email);
+
+      const emailNextBtn = this.page.locator(
+        'button:has-text("Next"), button:has-text("Continue"), button[type="submit"]'
+      ).first();
+      await clickAndWaitForNav(this.page, emailNextBtn, 'Home Page Popup Retry — Email Next');
+      await this.page.waitForLoadState('domcontentloaded').catch(() => { });
+
+      // Enter password if shown
+      const passwordInput = this.page.locator(
+        'input[type="password"], input[name="password"]'
+      ).first();
+      try {
+        await passwordInput.waitFor({ state: 'visible', timeout: 8000 });
+        console.log('🔑 [Home Page Popup] Entering password for retry login...');
+        await passwordInput.fill(credentials.password);
+        const signInBtn = this.page.locator(
+          'button:has-text("Sign in"), button:has-text("Log in"), ' +
+          'button:has-text("Sign In"), button[type="submit"]'
+        ).first();
+        await clickAndWaitForNav(this.page, signInBtn, 'Home Page Popup Retry — Sign In');
+      } catch {
+        console.log('ℹ️ [Home Page Popup] Password field not shown during retry');
+      }
+
+      // Wait for redirect to /home (don't force goto — popup appears on redirect)
+      await this.page.waitForURL(/\/home/i, { timeout: 20000 }).catch(() => { });
+      await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });
+      await handleCookies(this.page, 5000);
+      await stabilisePage(this.page);
+      console.log(`📍 [Home Page Popup] After re-login, on: ${this.page.url()}`);
+
+      popupModal = await pollForHomePagePopup(this.page, 40000);
+    }
+
+    // ── Fail if popup still not found ──
+    if (!popupModal) {
+      throw new Error(
+        `❌ [Home Page Popup] PPV popup did not appear after 3 attempts ` +
+        `(initial load + page refresh + re-login). URL: ${this.page.url()}`
+      );
+    }
+
+    // ── Validate popup fields via PPV_Input.xlsx (Home page sheet → Flow: home-page-popup) ──
+    console.log('\n📋 [Home Page Popup] Validating popup fields...');
+    try {
+      const popupData = getHomePageData('home-page-popup');
+      if (popupData && popupData.length > 0) {
+        await validateVariant(
+          this.page, 'home-page', popupData, results, eventData, 'Home Page Popup', 'home-page-popup'
+        );
+        console.log('✅ [Home Page Popup] Popup validations complete');
+      } else {
+        console.log('ℹ️ [Home Page Popup] No validation rules found in PPV_Input.xlsx for home-page-popup');
+      }
+    } catch (err: any) {
+      console.warn(`⚠️ [Home Page Popup] Popup validation error: ${err.message}`);
+    }
+
+    // ── Click Buy Now inside the popup via JS click (avoids overlay interception) ──
+    console.log('\n💳 [Home Page Popup] Clicking Buy Now inside popup...');
+
+    const clicked = await this.page.evaluate(() => {
+      // Try DAZN-specific button first
+      const selectors = [
+        '[class*="content-promotion"] button.tp-button-primary',
+        '[class*="content-promotion"] button',
+        '[class*="modal"] button.tp-button-primary',
+        '[class*="modal"] button',
+      ];
+      for (const sel of selectors) {
+        const btns = document.querySelectorAll<HTMLButtonElement>(sel);
+        for (const btn of btns) {
+          const text = (btn.textContent || '').trim().toLowerCase();
+          if (text.includes('buy now') || text.includes('buy')) {
+            btn.click();
+            return `Clicked: "${btn.textContent?.trim()}" via ${sel}`;
+          }
+        }
+      }
+      return null;
+    });
+
+    if (clicked) {
+      console.log(`✅ [Home Page Popup] ${clicked}`);
+    } else {
+      console.warn('⚠️ [Home Page Popup] JS click failed — trying Playwright click...');
+      const fallbackBtn = this.page.locator(
+        '[class*="content-promotion"] button:has-text("Buy Now"), ' +
+        '[class*="modal"] button:has-text("Buy Now")'
+      ).first();
+      await fallbackBtn.click({ force: true }).catch((e: any) => {
+        console.error(`❌ [Home Page Popup] Fallback click also failed: ${e.message}`);
+      });
+    }
+
+    console.log('⏳ [Home Page Popup] Waiting for navigation...');
+    await this.page.waitForURL(
+      (url: URL) =>
+        url.toString().includes('PlanDetails') ||
+        url.toString().includes('TierPlans') ||
+        url.toString().includes('signup') ||
+        url.toString().includes('payment') ||
+        url.toString().includes('checkout'),
+      { timeout: 15000 }
+    ).catch(() => {
+      console.log(`⚠️ [Home Page Popup] Navigation timeout — current URL: ${this.page.url()}`);
+    });
+
+    console.log(`📍 [Home Page Popup] After Buy Now: ${this.page.url()}`);
   }
 }

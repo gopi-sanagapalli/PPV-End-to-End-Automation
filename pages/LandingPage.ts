@@ -1,10 +1,179 @@
 import { Page, Locator } from '@playwright/test';
 import { BasePage } from './BasePage';
 import selectors from '../config/selectors.json';
+import { validateVariant } from '../flows/validateVariant';
+import { readSheet } from '../utils/excelReader';
 
 export class LandingPage extends BasePage {
   constructor(page: Page) {
     super(page);
+  }
+
+  protected isFixtureOrPreviewUrl(url: string): boolean {
+    const lower = url.toLowerCase();
+    const isTarget =
+      lower.includes('preview') ||
+      lower.includes('fixture') ||
+      lower.includes('event') ||
+      lower.includes('stream') ||
+      lower.includes('player');
+    const isPurchaseRoute =
+      lower.includes('plandetails') ||
+      lower.includes('tierplans') ||
+      lower.includes('signup') ||
+      lower.includes('signin') ||
+      lower.includes('payment') ||
+      lower.includes('checkout');
+    return isTarget && !isPurchaseRoute;
+  }
+
+  protected getUltimateValidationSheet(pageName: string): string {
+    const normalized = pageName.toLowerCase();
+    if (normalized.includes('home of boxing')) return 'Home of Boxing';
+    if (normalized.includes('home page')) return 'Home page';
+    if (normalized.includes('boxing')) return 'Boxing page';
+    return 'Landing page';
+  }
+
+  protected getFlowRows(sheetName: string, flow: string): any[] {
+    const normalize = (value: any) => value?.toString().trim().toLowerCase();
+    const rows = readSheet(sheetName).filter((row: any) => normalize(row.Flow) === normalize(flow));
+    if (!rows.length) {
+      console.warn(`⚠️ No Excel validation rows found for sheet="${sheetName}" flow="${flow}" — skipping validation`);
+    }
+    return rows;
+  }
+
+  protected async validateExcelFlow(
+    sheetName: string,
+    flow: string,
+    results: any[],
+    eventData: Record<string, string>,
+    pageName: string,
+    variant = 'landing'
+  ): Promise<void> {
+    const rows = this.getFlowRows(sheetName, flow);
+    if (rows.length === 0) return;
+    await validateVariant(this.page, variant, rows, results, eventData, pageName, flow);
+  }
+
+  protected async waitForFixtureOrPreviewNavigation(
+    results: any[],
+    eventData: Record<string, string>,
+    pageName: string,
+    flow: string,
+    sheetName = this.getUltimateValidationSheet(pageName),
+    timeout = 15000
+  ): Promise<void> {
+    await this.page.waitForURL((url: URL) => this.isFixtureOrPreviewUrl(url.href), { timeout }).catch(() => { });
+    await this.page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => { });
+
+    // Run Excel validation if rows exist for this flow; skip gracefully if not
+    await this.validateExcelFlow(sheetName, flow, results, eventData, pageName);
+
+    // Always validate fixture navigation — this is the core check for ultimate users
+    const currentUrl = this.page.url();
+    const isFixture = this.isFixtureOrPreviewUrl(currentUrl);
+    results.push({
+      page: pageName,
+      field: 'Ultimate Navigation Target',
+      expected: 'Fixture/Preview page',
+      actual: isFixture ? currentUrl : `Not on fixture page: ${currentUrl}`,
+      status: isFixture ? 'PASS' : 'FAIL',
+    });
+    if (isFixture) {
+      console.log(`✅ [${pageName}] Ultimate user navigated to fixture page: ${currentUrl}`);
+    } else {
+      console.log(`❌ [${pageName}] Ultimate navigation failed — expected fixture page, got: ${currentUrl}`);
+    }
+  }
+
+  protected async clickFightCardFromContainer(container: any): Promise<void> {
+    const fightCard = container
+      .locator('a:has-text("Fight Card"), button:has-text("Fight Card"), a:has-text("Fight card"), button:has-text("Fight card")')
+      .first();
+    const visible = await fightCard.isVisible({ timeout: 5000 }).catch(() => false);
+    if (!visible) {
+      throw new Error('❌ [Ultimate Banner] Fight Card CTA not visible on purchased banner.');
+    }
+
+    await fightCard.click({ force: true, timeout: 5000 });
+    await this.page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => { });
+  }
+
+  async validateUltimatePurchasedBannerAndFightCard(
+    container: any,
+    source: string,
+    results: any[],
+    eventData: Record<string, string>,
+    pageName: string,
+    flowParam?: string
+  ): Promise<void> {
+    const sheetName = this.getUltimateValidationSheet(pageName);
+    const baseFlow = flowParam && flowParam !== 'landing' ? flowParam : source;
+
+    // Run Excel banner validation if rows exist; skip gracefully if not
+    console.log(`💎 [Ultimate Banner] Validating purchased banner via Excel flow: ${baseFlow}-ultimate-banner`);
+    await this.validateExcelFlow(sheetName, `${baseFlow}-ultimate-banner`, results, eventData, pageName);
+
+    console.log('🖱️ [Ultimate Banner] Clicking Fight Card CTA...');
+    await this.clickFightCardFromContainer(container);
+
+    // Wait for fixture/preview navigation after Fight Card click
+    await this.page.waitForURL((url: URL) => this.isFixtureOrPreviewUrl(url.href), { timeout: 15000 }).catch(() => { });
+    await this.page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => { });
+
+    // Run Excel fight-card validation if rows exist; skip gracefully if not
+    await this.validateExcelFlow(sheetName, `${baseFlow}-ultimate-fight-card`, results, eventData, pageName);
+
+    // Always validate fixture navigation — core check for ultimate banner users
+    const currentUrl = this.page.url();
+    const isFixture = this.isFixtureOrPreviewUrl(currentUrl);
+    results.push({
+      page: pageName,
+      field: 'Ultimate Fight Card Navigation',
+      expected: 'Fixture/Preview page',
+      actual: isFixture ? currentUrl : `Not on fixture page: ${currentUrl}`,
+      status: isFixture ? 'PASS' : 'FAIL',
+    });
+    if (isFixture) {
+      console.log(`✅ [${pageName}] Ultimate banner → Fight Card navigated to fixture page: ${currentUrl}`);
+    } else {
+      console.log(`❌ [${pageName}] Ultimate banner → Fight Card navigation failed: ${currentUrl}`);
+    }
+  }
+
+  async clickUltimateTileAndValidateNavigation(
+    container: any,
+    source: string,
+    results: any[],
+    eventData: Record<string, string>,
+    pageName: string,
+    flowParam?: string
+  ): Promise<void> {
+    const sheetName = this.getUltimateValidationSheet(pageName);
+    const baseFlow = flowParam && flowParam !== 'landing' ? flowParam : source;
+
+    if (!this.isFixtureOrPreviewUrl(this.page.url())) {
+      const containerIsBody = await container.evaluate((el: HTMLElement) =>
+        el.tagName.toLowerCase() === 'body'
+      ).catch(() => false);
+
+      if (containerIsBody) {
+        throw new Error(`❌ [Ultimate Tile] Tile flow returned page body but did not navigate to fixture. URL: ${this.page.url()}`);
+      }
+
+      await container.scrollIntoViewIfNeeded().catch(() => { });
+      await container.click({ force: true, timeout: 5000 });
+    }
+
+    await this.waitForFixtureOrPreviewNavigation(
+      results,
+      eventData,
+      pageName,
+      `${baseFlow}-ultimate-tile`,
+      sheetName
+    );
   }
 
   // ─────────────────────────────
@@ -22,6 +191,20 @@ export class LandingPage extends BasePage {
     await pageLoadedIndicator.waitFor({ state: 'visible', timeout: 8000 }).catch(() => { });
 
     console.log(`✅ Landed on: ${this.page.url()}`);
+  }
+
+  // ─────────────────────────────
+  // CLICK LOG IN ON WELCOME PAGE
+  // ─────────────────────────────
+  async clickLogIn(): Promise<void> {
+    const logInBtn = this.page.locator(
+      'button:has-text("Log in"), a:has-text("Log in"), ' +
+      'button:has-text("Log In"), a:has-text("Log In")'
+    ).first();
+    await logInBtn.waitFor({ state: 'visible', timeout: 10000 });
+    console.log('🖱️ Clicking Log In on welcome page...');
+    await logInBtn.click({ force: true });
+    await this.page.waitForLoadState('domcontentloaded').catch(() => { });
   }
 
   // ─────────────────────────────
@@ -158,13 +341,13 @@ export class LandingPage extends BasePage {
 
           const stopSwiper = (swiper: any) => {
             if (!swiper) return;
-            try { swiper.autoplay?.stop(); } catch {}
+            try { swiper.autoplay?.stop(); } catch { }
             try {
               swiper.params.autoplay = false;
-            } catch {}
+            } catch { }
             try {
               if (swiper.autoplay?.running) swiper.autoplay.stop();
-            } catch {}
+            } catch { }
           };
 
           // Strategy 1: el.swiper
@@ -185,8 +368,8 @@ export class LandingPage extends BasePage {
               stopSwiper(el.swiper);
             }
           });
-        } catch {}
-      }).catch(() => {});
+        } catch { }
+      }).catch(() => { });
     };
 
     // Stop auto-slide immediately
@@ -200,7 +383,7 @@ export class LandingPage extends BasePage {
     }
 
     // Scroll to the carousel to ensure it is in view for hover/click interactions
-    await carousel.scrollIntoViewIfNeeded().catch(() => {});
+    await carousel.scrollIntoViewIfNeeded().catch(() => { });
     await stopAllAutoSlide();
 
     // Helper to get the currently active slide text
@@ -277,48 +460,72 @@ export class LandingPage extends BasePage {
         const txt = ((await slide.textContent().catch(() => '')) || '').trim();
 
         if (txt && this.matchesPPVName(txt, ppvName)) {
-          console.log(`✅ [Banner] PPV found in slide ${i}`);
+          eventData._ppvBannerSlideIndex = String(i);
 
-          // Navigate swiper to this slide by DOM index (works with or without loop mode)
-          await this.page.evaluate((domIndex: number) => {
-            try {
-              const heroEls = document.querySelectorAll(
-                'main .swiper, [class*="heroBanner"] .swiper, [class*="bannersContainer"] .swiper, .swiper'
-              );
-              let swiperInst: any = null;
-              for (const el of Array.from(heroEls)) {
-                if ((el as any).swiper) { swiperInst = (el as any).swiper; break; }
-              }
-              if (!swiperInst) return;
-              try { swiperInst.autoplay?.stop(); } catch {}
-              try { swiperInst.params.autoplay = false; } catch {}
-              const nonDup = Array.from(
-                swiperInst.el.querySelectorAll('.swiper-slide:not(.swiper-slide-duplicate)')
-              );
-              const target = nonDup[domIndex] as HTMLElement | undefined;
-              if (!target) return;
-              const loopIdx = target.getAttribute('data-swiper-slide-index');
-              if (loopIdx !== null && typeof swiperInst.slideToLoop === 'function') {
-                swiperInst.slideToLoop(Number(loopIdx), 300, false);
-              } else if (typeof swiperInst.slideTo === 'function') {
-                swiperInst.slideTo(domIndex, 300, false);
-              }
-            } catch {}
-          }, i).catch(() => {});
+          // Check if already active
+          const alreadyActive = await slide.evaluate((node: HTMLElement) =>
+            node.classList.contains('swiper-slide-active')
+          ).catch(() => false);
 
-          await this.page.waitForTimeout(600);
-          await stopAllAutoSlide();
-
-          // Verify PPV is now the active slide
-          const verifyText = await getActiveSlideText();
-          if (verifyText && this.matchesPPVName(verifyText, ppvName)) {
-            console.log(`✅ [Banner] PPV slide confirmed active`);
-            eventData._ppvBannerSlideIndex = String(i);
+          if (alreadyActive) {
+            console.log(`✅ [Banner] PPV found in slide ${i} — already active`);
             return carousel.locator(selectors.banner.activeSlide).locator(':visible').first();
           }
-          // Fallback: return the found slide directly
-          console.log(`⚠️ [Banner] Returning found slide directly (active slide not yet updated)`);
-          eventData._ppvBannerSlideIndex = String(i);
+
+          // Activate target slide via pure DOM class injection — no clicks, no Swiper API.
+          // Both pagination bullet clicks AND next-button clicks trigger DAZN SPA routing
+          // on authenticated home page (URL changes → page closes). Only safe path is
+          // manipulating CSS classes + inline styles directly via evaluate().
+          console.log(`🎯 [Banner] Activating slide ${i} via DOM class injection (no SPA routing)...`);
+          await this.page.evaluate((targetIdx: number) => {
+            try {
+              const bannerEl = document.querySelector(
+                [
+                  'main [class*="hero-banner" i]',
+                  'main [class*="heroBanner" i]',
+                  'main [class*="herobanner" i]',
+                  'main div.heroBannerSlider',
+                  'main [class*="bannersContainer" i]',
+                  'main [class*="hero-slider" i]',
+                  'main [class*="heroSlider" i]',
+                  'main [class*="hero" i] .swiper',
+                  'main [class*="banner" i] .swiper',
+                  '[class*="hero-banner" i]',
+                  '[class*="heroBanner" i]',
+                  '[class*="bannersContainer" i]',
+                ].join(', ')
+              ) as HTMLElement;
+              if (!bannerEl) return;
+              // Freeze swiper wrapper transition
+              const swiperWrapper = bannerEl.querySelector('.swiper-wrapper') as HTMLElement;
+              if (swiperWrapper) swiperWrapper.style.transitionDuration = '0ms';
+              // Get non-duplicate slides in order
+              const allSlides = Array.from(
+                bannerEl.querySelectorAll('.swiper-slide:not(.swiper-slide-duplicate)')
+              ) as HTMLElement[];
+              const target = allSlides[targetIdx];
+              if (!target) return;
+              // Remove active state from ALL slides (including loop duplicates)
+              bannerEl.querySelectorAll('.swiper-slide').forEach((el) => {
+                const s = el as HTMLElement;
+                s.classList.remove('swiper-slide-active', 'swiper-slide-next', 'swiper-slide-prev');
+                s.style.removeProperty('opacity');
+                s.style.removeProperty('pointer-events');
+              });
+              // Make target visible — class makes Swiper CSS apply opacity:1, inline styles
+              // force visibility even if Swiper CSS doesn't cover all cases
+              target.classList.add('swiper-slide-active');
+              target.style.opacity = '1';
+              target.style.pointerEvents = 'auto';
+            } catch { }
+          }, i).catch(() => { });
+          await this.page.waitForTimeout(300);
+          await stopAllAutoSlide();
+
+          // Return the specific slide element directly — more reliable than re-querying
+          // by selectors.banner.activeSlide (lazy locator could pick up wrong slide if
+          // Swiper's React reconciler restores classes between injection and evaluation).
+          console.log(`✅ [Banner] PPV slide ${i} activated via DOM — returning slide element`);
           return slide;
         }
       }
@@ -353,7 +560,7 @@ export class LandingPage extends BasePage {
       console.log(`  slide ${attempt + 1}: "${currentText.substring(0, 50)}..." — clicking next`);
 
       // Hover over the carousel to reveal chevron/navigation buttons
-      await carousel.hover().catch(() => {});
+      await carousel.hover().catch(() => { });
       await this.page.waitForTimeout(200);
 
       // Check if next button exists in carousel DOM
@@ -362,14 +569,14 @@ export class LandingPage extends BasePage {
 
       if (nextBtnVisible) {
         const prevText = currentText;
-        await nextBtn.click({ force: true }).catch(() => {});
+        await nextBtn.click({ force: true }).catch(() => { });
 
         // Wait for slide transition
         await this.page.waitForFunction((args) => {
           const activeEl = document.querySelector(args.activeSelector);
           const text = activeEl?.textContent?.trim() || '';
           return text !== args.prevText;
-        }, { activeSelector: selectors.banner.activeSlide, prevText }, { timeout: 3000 }).catch(() => {});
+        }, { activeSelector: selectors.banner.activeSlide, prevText }, { timeout: 3000 }).catch(() => { });
 
         await this.page.waitForTimeout(500);
         await stopAllAutoSlide();
@@ -390,31 +597,9 @@ export class LandingPage extends BasePage {
       const slide = allSlides.nth(i);
       const text = ((await slide.textContent().catch(() => '')) || '').trim();
       if (text && this.matchesPPVName(text, ppvName)) {
-        console.log(`✅ [Banner] PPV found in slide ${i} — navigating via Swiper API`);
-        // Navigate swiper to this slide
-        await this.page.evaluate((index) => {
-          const swiperEl = document.querySelector('.swiper') as any;
-          if (swiperEl?.swiper) {
-            swiperEl.swiper.autoplay?.stop();
-            if (swiperEl.swiper.params.loop && typeof swiperEl.swiper.slideToLoop === 'function') {
-              swiperEl.swiper.slideToLoop(index);
-            } else {
-              swiperEl.swiper.slideTo(index);
-            }
-          }
-        }, i).catch(() => {});
-
-        await this.page.waitForTimeout(500);
-        await stopAllAutoSlide();
-
-        // Store slide index
+        console.log(`✅ [Banner] PPV found in slide ${i} (fallback scan) — returning directly`);
+        // Do NOT call slideToLoop/slideTo — triggers DAZN SPA navigation/page close.
         eventData._ppvBannerSlideIndex = String(i);
-
-        // Return the now-active slide (fresh locator, not stale reference)
-        const activeAfterNav = carousel.locator(selectors.banner.activeSlide).locator(':visible').first();
-        if (await activeAfterNav.isVisible({ timeout: 2000 }).catch(() => false)) {
-          return activeAfterNav;
-        }
         return slide;
       }
     }
@@ -505,7 +690,7 @@ export class LandingPage extends BasePage {
           top: Math.max(0, Math.round(nextScrollTop)),
           behavior: 'instant',
         });
-      }).catch(() => {});
+      }).catch(() => { });
 
       await this.page.waitForTimeout(500);
     }
@@ -530,7 +715,7 @@ export class LandingPage extends BasePage {
         top: Math.max(0, Math.round(absoluteTop - headerOffset)),
         behavior: 'instant',
       });
-    }).catch(() => {});
+    }).catch(() => { });
 
     await this.page.waitForTimeout(300);
 
@@ -920,9 +1105,9 @@ export class LandingPage extends BasePage {
           }
           const stopSwiper = (swiper: any) => {
             if (!swiper) return;
-            try { swiper.autoplay?.stop(); } catch {}
-            try { swiper.params.autoplay = false; } catch {}
-            try { if (swiper.autoplay?.running) swiper.autoplay.stop(); } catch {}
+            try { swiper.autoplay?.stop(); } catch { }
+            try { swiper.params.autoplay = false; } catch { }
+            try { if (swiper.autoplay?.running) swiper.autoplay.stop(); } catch { }
           };
           document.querySelectorAll('.swiper, [class*="swiper"], .swiper-container').forEach((el: any) => {
             if (el.swiper) stopSwiper(el.swiper);
@@ -930,16 +1115,28 @@ export class LandingPage extends BasePage {
           document.querySelectorAll('*').forEach((el: any) => {
             if (el.swiper && typeof el.swiper === 'object' && el.swiper.autoplay) stopSwiper(el.swiper);
           });
-        } catch {}
-      }).catch(() => {});
+        } catch { }
+      }).catch(() => { });
     } else {
       await this.stopCarouselAutoSlide();
     }
-    await container.scrollIntoViewIfNeeded().catch(() => { });
+    // For banner sources: skip scrollIntoViewIfNeeded — calling it on a non-active
+    // swiper slide triggers a DAZN SPA navigation that closes the Playwright page context.
+    // Swiper slide activation below uses slideTo/slideToLoop (JS-only, no browser scroll).
+    if (!src.includes('banner')) {
+      await container.scrollIntoViewIfNeeded().catch(() => { });
+    }
     if (this.page.isClosed()) {
-      throw new Error(
-        `❌ [clickBuyNow] Page was closed after scroll — likely a session redirect or account-state issue (source: ${source || 'unknown'})`
-      );
+      // Give the page up to 2s to recover in case this is a transient
+      // navigation / onboarding redirect (e.g. DAZN ?step= wizard).
+      console.warn(`⚠️ [clickBuyNow] Page appears closed after scroll (source: ${source || 'unknown'}) — waiting to confirm...`);
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      if (this.page.isClosed()) {
+        throw new Error(
+          `❌ [clickBuyNow] Page was closed after scroll — likely a session redirect or account-state issue (source: ${source || 'unknown'})`
+        );
+      }
+      console.log('✅ [clickBuyNow] Page recovered after transient close state — continuing...');
     }
     await this.page.waitForTimeout(200);
 
@@ -1023,9 +1220,8 @@ export class LandingPage extends BasePage {
                   }
                 }
               }, handle);
-              await this.page.waitForTimeout(1000); // Wait for transition animation
+              await this.page.waitForTimeout(1000);
 
-              // Verify active slide now matches
               if (await activeSlideLocator.isVisible().catch(() => false)) {
                 const newActiveInfo = await activeSlideLocator.evaluate((node: HTMLElement) => {
                   const slideIndexAttr = node.getAttribute('data-swiper-slide-index');

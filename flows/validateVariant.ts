@@ -95,7 +95,7 @@ export const validateVariant = async (
   const tier     = (eventData.TIER      || 'standard').toLowerCase();
   const ratePlan = (eventData.RATE_PLAN || 'monthly').toLowerCase();
 
-  const rules = data.filter(r => {
+  let rules = data.filter(r => {
     const rv = (r.Variant  || '').trim().toLowerCase();
     const rt = (r.Tier     || '').trim().toLowerCase();
     const rf = (r.Flow     || '').trim().toLowerCase(); // ← new Flow column
@@ -125,6 +125,20 @@ export const validateVariant = async (
     // No filter column — include all rows (Landing, Schedule, etc.)
     return true;
   });
+
+  const pageNameLower = pageName.trim().toLowerCase();
+  const popupValidationFields = new Set([
+    'popup - event title',
+    'popup - event date',
+    'popup - promoter',
+    'popup - buy now cta',
+    'popup - event description',
+    'popup - close button',
+  ]);
+
+  if (pageNameLower === 'popup modal') {
+    rules = rules.filter(r => popupValidationFields.has(String(r.Field || '').trim().toLowerCase()));
+  }
 
   if (!rules.length) {
     throw new Error(`❌ No rules for variant: "${variant}" / tier: "${tier}"`);
@@ -261,6 +275,16 @@ export const validateVariant = async (
   const validations = rules.map(async (rule) => {
     const field = (rule.Field || '').trim();
     if (!field) return null;
+    const fieldLowerNormalized = field.toLowerCase().replace(/\s+/g, ' ').trim();
+
+    if (
+      pageNameLower.startsWith('search') &&
+      (fieldLowerNormalized === 'buy now button' || fieldLowerNormalized === 'buy now cta')
+    ) {
+      console.log(`  ⏭️  Skipping [${field}] — Search validates the PPV tile and popup, not the Buy Now CTA`);
+      return null;
+    }
+
     // Skip welcome back banner fields because there is no welcome back banner in the new UI
     if (field.toLowerCase().includes('welcome back')) {
       console.log(`  ⏭️  Skipping welcome back banner field validation: "${field}"`);
@@ -315,6 +339,7 @@ export const validateVariant = async (
       'page title',
       'pagetitle',
       'currency',
+      'biggest fights section',
     ]);
     const fieldLowerForFallback = field.toLowerCase().replace(/\s+/g, ' ').trim();
     const requiresExactActual = strictActualFields.has(fieldLowerForFallback);

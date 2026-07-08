@@ -1,10 +1,88 @@
 import { Page, Locator, expect } from '@playwright/test';
 import { BasePage } from './BasePage';
 import { dismissMarketingPopup } from '../utils/helpers';
+import { validateVariant } from '../flows/validateVariant';
+import { readSheet } from '../utils/excelReader';
 
 export class SearchPage extends BasePage {
   constructor(page: Page) {
     super(page);
+  }
+
+  private isFixtureOrPreviewUrl(url: string): boolean {
+    const lower = url.toLowerCase();
+    const isTarget =
+      lower.includes('preview') ||
+      lower.includes('fixture') ||
+      lower.includes('event') ||
+      lower.includes('stream') ||
+      lower.includes('player');
+    const isPurchaseRoute =
+      lower.includes('plandetails') ||
+      lower.includes('tierplans') ||
+      lower.includes('signup') ||
+      lower.includes('signin') ||
+      lower.includes('payment') ||
+      lower.includes('checkout');
+    return isTarget && !isPurchaseRoute;
+  }
+
+  private async clickVisibleEntitledTile(eventName: string): Promise<void> {
+    const cleanName = eventName.replace(/[:\-–]/g, ' ').replace(/\s+/g, ' ').trim();
+    const firstMeaningfulWord = cleanName.split(/\s+/).find(w => w.length > 2) || cleanName;
+    const regex = new RegExp(firstMeaningfulWord.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+    const candidates = this.page
+      .locator('article, a[class*="tile" i], div[class*="tile" i], div[class*="card" i], li, [class*="result" i]')
+      .filter({ hasText: regex });
+    const count = await candidates.count().catch(() => 0);
+
+    for (let i = 0; i < count; i++) {
+      const tile = candidates.nth(i);
+      if (!await tile.isVisible().catch(() => false)) continue;
+      const text = ((await tile.textContent().catch(() => '')) || '').toLowerCase();
+      if (
+        text.includes('press conference') ||
+        text.includes('weigh-in') ||
+        text.includes('weigh in') ||
+        text.includes('highlights') ||
+        text.includes('replay') ||
+        text.includes('preview')
+      ) {
+        continue;
+      }
+
+      console.log(`🖱️ [Search] Clicking entitled PPV tile: "${text.replace(/\s+/g, ' ').trim().substring(0, 100)}"`);
+      await tile.scrollIntoViewIfNeeded().catch(() => { });
+      await tile.click({ force: true, timeout: 5000 });
+      await this.page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => { });
+      return;
+    }
+
+    throw new Error(`❌ [Search] Could not find visible entitled tile for "${eventName}"`);
+  }
+
+  async searchAndClickEntitledPPV(
+    eventName: string,
+    results: any[],
+    eventData: Record<string, string>
+  ): Promise<void> {
+    await this.searchForEvent(eventName);
+    await this.clickVisibleEntitledTile(eventName);
+    await this.page.waitForURL((url: URL) => this.isFixtureOrPreviewUrl(url.href), { timeout: 15000 }).catch(() => { });
+    await this.page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => { });
+
+    const rows = readSheet('Search page').filter((row: any) =>
+      String(row.Flow || '').trim().toLowerCase() === 'ultimate-login-first'
+    );
+    await validateVariant(this.page, 'search', rows, results, eventData, 'Search', 'ultimate-login-first');
+
+    const navResult = results
+      .slice()
+      .reverse()
+      .find((r: any) => r.page === 'Search' && r.field === 'Ultimate Navigation Target');
+    if (navResult?.status === 'FAIL') {
+      throw new Error(`❌ [Search] Ultimate navigation target validation failed. URL: ${this.page.url()}`);
+    }
   }
 
   // ── NAVIGATE ──────────────────────────────────────────────────
@@ -55,6 +133,134 @@ export class SearchPage extends BasePage {
 
     await this.page.waitForTimeout(1000);
     console.log(`✅ Search completed for: ${eventName}`);
+  }
+
+  async searchForUpcomingEvent(eventName: string): Promise<void> {
+    let searchQuery = eventName;
+    if (eventName.includes(':')) {
+      searchQuery = eventName.split(':').pop()?.trim() || eventName;
+    }
+
+    const upcomingQuery = `${searchQuery} Upcoming`;
+    console.log(`🔍 [Search] Searching for upcoming PPV tile with: "${upcomingQuery}"`);
+    await this.searchForEvent(upcomingQuery);
+  }
+
+  private async hasVisiblePPVTile(eventName: string): Promise<boolean> {
+    let matchPattern = eventName;
+    if (eventName.includes(':')) {
+      matchPattern = eventName.split(':').pop()?.trim() || eventName;
+    }
+
+    const regexesToTry = [new RegExp(matchPattern.replace(/\s+/g, '.*'), 'i')];
+    const isStaging = (process.env.DAZN_ENV || 'prod').toLowerCase() === 'stag';
+    if (isStaging) {
+      const firstWord = matchPattern.split(/\s+/)[0]?.trim();
+      if (firstWord && firstWord.length > 2 && firstWord.toLowerCase() !== 'the') {
+        regexesToTry.push(new RegExp(firstWord, 'i'));
+      }
+    }
+
+    const selectors = [
+      'article',
+      '[class*="EventTile" i]',
+      '[class*="event-tile" i]',
+      '[class*="SearchResult" i]',
+      '[class*="search-result" i]',
+      '[class*="tile" i]',
+      '[class*="card" i]',
+      'li[class*="result" i]',
+      'li',
+    ];
+
+    for (const regex of regexesToTry) {
+      for (const selector of selectors) {
+        const tiles = this.page.locator(selector).filter({ hasText: regex });
+        const count = await tiles.count().catch(() => 0);
+
+        for (let i = 0; i < count; i++) {
+          const tile = tiles.nth(i);
+          if (!await tile.isVisible().catch(() => false)) continue;
+
+          const text = await tile.textContent().catch(() => '');
+          if (!text || text.length > 800) continue;
+
+          const textLower = text.toLowerCase();
+          const isAncillary = [
+            'press conference',
+            'weigh-in',
+            'workout',
+            'replay',
+            'highlights',
+            'preview',
+            'promo',
+            'interview',
+            'behind the scenes',
+            'episode',
+            'documentary',
+            'face off',
+            'kickboxing',
+          ].some(term => textLower.includes(term));
+          if (isAncillary) continue;
+
+          const heading = await tile.locator('h1, h2, h3, h4, h5, [class*="title" i], [class*="heading" i]').first().textContent().catch(() => '');
+          if (heading) {
+            const headingLower = heading.toLowerCase();
+            if (headingLower.includes(':') || headingLower.includes('press') || headingLower.includes('weigh')) {
+              if (!headingLower.includes('(test)')) continue;
+            }
+          }
+
+          const hasDate = await tile.locator('[class*="badge" i], [class*="date" i], time').isVisible({ timeout: 500 }).catch(() => false);
+          const hasLock = await tile.locator('[class*="lock" i], [class*="ppv" i]').isVisible({ timeout: 500 }).catch(() => false);
+          const hasPpvText = /pay-per-view|ppv/i.test(text);
+          const hasDateText =
+            /\b\d{1,2}\s*(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\b/i.test(text) ||
+            /\b\d{1,2}:\d{2}\s*(?:AM|PM)?\b/i.test(text);
+
+          if (hasDate || hasLock || hasPpvText || hasDateText) {
+            console.log(`✅ [Search] PPV tile available for validation: "${text.replace(/\s+/g, ' ').trim().substring(0, 100)}"`);
+            return true;
+          }
+        }
+      }
+    }
+
+    return false;
+  }
+
+  async searchForPPVTileWithUpcomingFallback(eventName: string): Promise<void> {
+    let searchQuery = eventName;
+    if (eventName.includes(':')) {
+      searchQuery = eventName.split(':').pop()?.trim() || eventName;
+    }
+
+    console.log(`🔍 [Search Attempt 1] Searching with: "${searchQuery}"`);
+    await this.searchForEvent(searchQuery);
+    if (await this.hasVisiblePPVTile(eventName)) {
+      return;
+    }
+
+    const upcomingQuery = `${searchQuery} Upcoming`;
+    console.log(`⚠️ [Search Attempt 1] PPV tile not found for "${eventName}" — retrying with "${upcomingQuery}"...`);
+    await this.searchForEvent(upcomingQuery);
+    if (await this.hasVisiblePPVTile(eventName)) {
+      return;
+    }
+
+    const allText = await this.page.evaluate(() => {
+      return Array.from(document.querySelectorAll('article, li, [class*="result" i]'))
+        .map(el => (el as HTMLElement).innerText?.substring(0, 100))
+        .filter(t => t && t.length > 5)
+        .slice(0, 10)
+        .join('\n');
+    }).catch(() => 'N/A');
+    console.log('📋 Page content sample:\n', allText);
+
+    throw new Error(
+      `❌ PPV tile not found for: "${eventName}" ` +
+      `(tried "${searchQuery}" and "${upcomingQuery}")`
+    );
   }
 
   // ── FIND AND CLICK PPV TILE ───────────────────────────────────
@@ -374,9 +580,26 @@ export class SearchPage extends BasePage {
       if (yellowDotVisible) {
         console.log('✅ Yellow dot visible on search page — dev mode CONFIRMED ✨');
 
-        // Navigate back to the original URL to continue the flow
-        console.log(`🔄 Navigating back to original URL: ${originalUrl}`);
-        await this.page.goto(originalUrl, { waitUntil: 'domcontentloaded' });
+        // Strip DAZN onboarding ?step= query param before navigating back.
+        // ?step=0 triggers a wizard overlay that intercepts banner clicks and
+        // can cause the page context to be closed mid-flow.
+        let targetUrl = originalUrl;
+        try {
+          const urlObj = new URL(originalUrl);
+          if (urlObj.searchParams.has('step')) {
+            urlObj.searchParams.delete('step');
+            targetUrl = urlObj.toString().replace(/\?$/, '');
+            console.log(`🔧 Stripped ?step= from return URL: ${originalUrl} → ${targetUrl}`);
+          }
+        } catch {
+          // URL parsing failed — fall back to base path without query string
+          targetUrl = originalUrl.split('?')[0];
+          console.log(`🔧 Stripped query string from return URL: ${originalUrl} → ${targetUrl}`);
+        }
+
+        console.log(`🔄 Navigating back to original URL: ${targetUrl}`);
+        await this.page.goto(targetUrl, { waitUntil: 'domcontentloaded' });
+        await this.page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => { });
         await this.waitForConsentAndDismiss().catch(() => { });
       } else {
         console.log('❌ Yellow dot NOT visible — dev mode activation FAILED');

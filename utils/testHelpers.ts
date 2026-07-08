@@ -223,6 +223,18 @@ export async function handlePopupModal(
       }
 
       if (popupRules.length > 0) {
+        const popupValidationFields = new Set([
+          'popup - event title',
+          'popup - event date',
+          'popup - promoter',
+          'popup - buy now cta',
+          'popup - event description',
+          'popup - close button',
+        ]);
+        popupRules = popupRules.filter(rule =>
+          popupValidationFields.has(String(rule.Field || '').trim().toLowerCase())
+        );
+
         // Run validations
         try {
           const isHomeField = src === 'home-page-dont-miss' || src === 'home-biggest-fights';
@@ -296,4 +308,124 @@ export function assertCountryMatch(page: any, region: string): void {
     throw new Error(`❌ [Country Match Check] Country mismatch: expected region "${region}" but URL is "${url}". Please ensure your VPN is connected to the correct region.`);
   }
   console.log(`✅ [Country Match Check] URL matches expected region "${region}": ${url}`);
+}
+
+// ─────────────────────────────────────────────────────────────────
+// POLL FOR HOME PAGE POPUP
+// Polls every 2 seconds up to maxWaitMs for a modal containing
+// a "Buy Now" CTA to appear on the home page.
+// Returns the modal locator if found, null if not found.
+// ─────────────────────────────────────────────────────────────────
+export async function pollForHomePagePopup(
+  page: any,
+  maxWaitMs: number = 40000
+): Promise<any | null> {
+  const popupCtaSelector = [
+    'button:has-text("Buy Now")', 'a:has-text("Buy Now")',
+    'button:has-text("Buy now")', 'a:has-text("Buy now")',
+  ].join(', ');
+
+  const modalSelectors = [
+    '[class*="content-promotion__modal"]',
+    '[role="dialog"]',
+    '[aria-modal="true"]',
+    '[class*="modal" i]',
+    '[class*="popup" i]',
+    '[class*="Dialog" i]',
+    '.Modal',
+  ];
+
+  const startTime = Date.now();
+
+  while (Date.now() - startTime < maxWaitMs) {
+    const elapsed = Date.now() - startTime;
+    console.log(`⏳ [Home Page Popup] Polling... ${elapsed}ms / ${maxWaitMs}ms | URL: ${page.url()}`);
+
+    for (const selector of modalSelectors) {
+      try {
+        const modalLocator = page.locator(selector)
+          .filter({ has: page.locator(popupCtaSelector) })
+          .first();
+        const isVisible = await modalLocator.isVisible({ timeout: 500 }).catch(() => false);
+        if (isVisible) {
+          console.log(`✅ [Home Page Popup] Popup detected after ${elapsed}ms via selector: ${selector}`);
+          return modalLocator;
+        }
+      } catch {
+        // selector not found, try next
+      }
+    }
+
+    await page.waitForTimeout(2000);
+  }
+
+  console.log(`⚠️ [Home Page Popup] Popup not found after ${maxWaitMs}ms`);
+  return null;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// LOGOUT HELPER FOR HOME PAGE POPUP RETRY
+// Logs out the current user from the DAZN home page.
+// Tries the user menu → Log out flow, falls back to direct
+// navigation to the sign-out URL.
+// ─────────────────────────────────────────────────────────────────
+export async function logoutForPopupRetry(
+  page: any,
+  baseUrl: string
+): Promise<void> {
+  console.log('🔓 [Home Page Popup] Logging out for retry...');
+
+  try {
+    // Try clicking user menu / avatar first
+    const userMenuSelectors = [
+      '[data-test-id*="user-menu" i]',
+      '[data-test-id*="profile" i]',
+      '[data-test-id*="avatar" i]',
+      '[aria-label*="account" i]',
+      '[aria-label*="profile" i]',
+      '[class*="user-menu" i]',
+      '[class*="avatar" i]',
+    ];
+
+    let menuOpened = false;
+    for (const sel of userMenuSelectors) {
+      const el = page.locator(sel).first();
+      if (await el.isVisible({ timeout: 2000 }).catch(() => false)) {
+        await el.click({ force: true });
+        await page.waitForTimeout(1000);
+        menuOpened = true;
+        console.log(`✅ [Home Page Popup] Opened user menu via: ${sel}`);
+        break;
+      }
+    }
+
+    if (menuOpened) {
+      // Click Log out inside the menu
+      const logoutBtn = page.locator(
+        'button:has-text("Log out"), a:has-text("Log out"), ' +
+        'button:has-text("Sign out"), a:has-text("Sign out"), ' +
+        '[data-test-id*="logout" i], [data-test-id*="sign-out" i]'
+      ).first();
+
+      if (await logoutBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await logoutBtn.click({ force: true });
+        await page.waitForURL(/welcome|signin/i, { timeout: 10000 }).catch(() => { });
+        console.log(`✅ [Home Page Popup] Logged out — on: ${page.url()}`);
+        return;
+      }
+    }
+  } catch (e: any) {
+    console.warn(`⚠️ [Home Page Popup] Menu logout failed: ${e.message} — falling back to direct navigation`);
+  }
+
+  // Fallback: navigate directly to sign-out URL
+  try {
+    await page.goto(`${baseUrl}/signout`, { waitUntil: 'domcontentloaded' });
+    await page.waitForURL(/welcome|signin/i, { timeout: 10000 }).catch(() => { });
+    console.log(`✅ [Home Page Popup] Logged out via /signout — on: ${page.url()}`);
+  } catch (e: any) {
+    console.warn(`⚠️ [Home Page Popup] /signout navigation failed: ${e.message}`);
+    // Last resort: navigate to welcome page
+    await page.goto(`${baseUrl}/welcome`, { waitUntil: 'domcontentloaded' }).catch(() => { });
+  }
 }

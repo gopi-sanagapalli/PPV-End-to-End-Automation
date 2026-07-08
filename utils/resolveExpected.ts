@@ -1,5 +1,8 @@
 import { getDynamicDateBadge, getDynamicDateTimeBadge } from './dateUtils';
 
+const DEFAULT_PPV_POPUP_DESCRIPTION = 'Catch the biggest moment of the year. Select a DAZN plan to pair with your pay-per-view.';
+const ACTIVE_STANDARD_PPV_POPUP_DESCRIPTION = 'Catch the biggest moment of the year. Add this pay-per-view to your DAZN plan.';
+
 function replacePlaceholders(template: string, eventData: Record<string, string>): string {
   let result = template;
   for (let pass = 0; pass < 2; pass++) {
@@ -36,6 +39,12 @@ export function resolveExpected(
 
   const rawPage = rule.Page || rule.page || eventData.CURRENT_PAGE || eventData.current_page || '';
   const pageName = rawPage.trim().toLowerCase();
+  const currentUserState = String(eventData.USER_STATE || process.env.USER_STATE || '').trim().toLowerCase();
+  const isActiveStandardUser = [
+    'active_standard',
+    'active_standard_monthly',
+    'active_standard_apm',
+  ].includes(currentUserState);
 
   if (field === 'banner - fight card cta' && pageName.includes('landing')) {
     return 'N/A';
@@ -43,6 +52,21 @@ export function resolveExpected(
 
   if (field === 'upsell feature 1' && pageName === 'ppv') {
     return 'Minimum 12 pay-per-views a year included at no extra cost.';
+  }
+
+  if (isActiveStandardUser && pageName === 'choose how to buy') {
+    if (field === 'upsell feature 1') {
+      return 'Pay-per-views included at no extra cost. Minimum of 12 events per year.';
+    }
+    if (field === 'upsell feature 2') {
+      return 'HDR and Dolby 5.1 surround sound on select events.';
+    }
+    if (field === 'upsell feature 3') {
+      return "185+ fights a year from the world's best promotors";
+    }
+    if (field === 'upsell feature 4') {
+      return 'Every match from Lega Serie A, and highlights from LALIGA, Bundesliga and the Saudi Pro League.';
+    }
   }
 
   if (pageName === 'payment') {
@@ -70,25 +94,58 @@ export function resolveExpected(
       return userState === 'freemium' ? 'No' : 'Yes';
     }
 
-    // ── Next Payment fields: skip for GB, IT, and 7-day trial ──
+    // ── Next Payment fields: skip for GB, IE, and 7-day trial ──
     if (field === 'next payment label' || field === 'next payment price') {
       const region = (eventData.DAZN_REGION || process.env.DAZN_REGION || '').toUpperCase();
       const offerType = (eventData.OFFER_TYPE || '').toLowerCase();
-      if (region === 'GB' || region === 'IT' || offerType === '7_day_trial') {
+      if (region === 'GB' || region === 'IE' || offerType === '7_day_trial') {
         return 'N/A';
       }
     }
   }
 
+  // ── Excluding Tax ──────────────────────────────────────────────
+  if (field === 'excluding tax text' || field === 'excluding tax') {
+    const isUS = (eventData.BASE_URL || '').includes('/en-US') ||
+      (eventData.DAZN_REGION || process.env.DAZN_REGION || '') === 'US';
+    return isUS ? '(excluding tax)' : 'N/A';
+  }
+
+  // ── Annual plan selection: flip Yes/No based on actual RATE_PLAN ─────────
+  // Excel default assumes APM selected (ultimate_apm). For APU plans, invert.
+  if (field === 'annual pay monthly selected' || field === 'annual pay upfront selected') {
+    const rp = (eventData.RATE_PLAN || eventData.rate_plan || '').toLowerCase().trim();
+    const isAPU = rp.includes('upfront');
+    if (field === 'annual pay monthly selected') return isAPU ? 'No' : 'Yes';
+    if (field === 'annual pay upfront selected') return isAPU ? 'Yes' : 'No';
+  }
+  // ─────────────────────────────────────────────────────────────────────────
+
   let raw = rule.Expected ?? rule.Value;
+
 
   const currentSource = (eventData.SOURCE || eventData.source || '').trim().toLowerCase();
 
+  if (
+    field === 'biggest fights section' &&
+    currentSource === 'home-biggest-fights' &&
+    eventData.HOME_BIGGEST_FIGHTS_SECTION_HEADING
+  ) {
+    return String(eventData.HOME_BIGGEST_FIGHTS_SECTION_HEADING);
+  }
 
-  // Landing banner uses its own display date
+  if (pageName === 'default signup') {
+    if (field === 'upsell price') {
+      raw = '{{UPSELL_PRICE}}/month';
+    } else if (field === 'upsell price length') {
+      raw = '/month';
+    }
+  }
+
+
+  // All banners use the landing banner display date
   if (
     field === 'banner - event date' &&
-    (pageName || '').toLowerCase().startsWith('landing') &&
     eventData.LANDING_BANNER_DATE
   ) {
     return String(eventData.LANDING_BANNER_DATE);
@@ -97,6 +154,10 @@ export function resolveExpected(
 
   // Page-specific date expectations
   if (field === 'ppv date and time text') {
+    if (pageName === 'home of boxing' && currentSource === 'home-boxing-upcoming') {
+      return replacePlaceholders(String(raw ?? ''), eventData);
+    }
+
     switch ((pageName || "").toLowerCase()) {
       case 'boxing':
         if (eventData.BOXING_BANNER_DATE) return String(eventData.BOXING_BANNER_DATE);
@@ -146,14 +207,14 @@ export function resolveExpected(
   ) {
     return 'N/A';
   }
-  
+
   // Check if a PPV event is active. If a PPV event is active, the boxing subscription-only sources
   // will render the PPV-bundled offers on the live site, so they should be validated using the PPV rules.
   const hasPPVEvent = eventData.PPV_NAME && eventData.PPV_NAME !== 'N/A' && eventData.PPV_NAME !== 'none';
   const isSubscriptionOnly =
     (currentSource === 'boxing-ultimate-subscription' ||
-     currentSource === 'boxing-standard-subscription' ||
-     currentSource === 'boxing-join-the-club') &&
+      currentSource === 'boxing-standard-subscription' ||
+      currentSource === 'boxing-join-the-club') &&
     !hasPPVEvent;
 
   if (isSubscriptionOnly) {
@@ -234,6 +295,19 @@ export function resolveExpected(
   const isNonFreeMonthOffer = currentOfferType !== '1_month_free';
   const isAnnualFreeMonth = (eventData.ANNUAL_FREE_BADGE || eventData.ANNUAL_BADGE || '').toLowerCase().includes('1 month free') || (eventData.ANNUAL_FREE_BADGE || eventData.ANNUAL_BADGE || '').toLowerCase().includes('1 month');
 
+  if (
+    field === 'flex future date' &&
+    (pageName === 'dazn plan' || pageName === 'plan' || pageName === '')
+  ) {
+    const isMonthlyTrial =
+      currentOfferType === '7_day_trial' &&
+      (currentRatePlan === 'monthly' || currentRatePlan === '' || currentRatePlan.includes('flex'));
+
+    if (!isMonthlyTrial) {
+      return 'N/A| |';
+    }
+  }
+
   if (isNonFreeMonthOffer && !isSubscriptionOnly) {
     // DAZN Plan page: no "1 MONTH FREE" badge, no promotional features/price text
     if (pageName === 'dazn plan' || pageName === 'plan' || pageName === '') {
@@ -263,7 +337,7 @@ export function resolveExpected(
     if (pageName === 'payment' || pageName === '') {
       // Payment page header for 7-day trial (monthly only — APM/APU always shows 'Choose how to pay')
       if (currentOfferType === '7_day_trial' && !currentRatePlan.includes('annual') && (field === 'header' || field === 'payment page title')) {
-        return eventData.PAYMENT_PAGE_TITLE_TRIAL || 'Choose how to pay after your free trial';
+        return eventData.PAYMENT_PAGE_TITLE || eventData.PAYMENT_PAGE_TITLE_TRIAL || 'Choose how to pay after your free trial';
       }
       if (field === 'rate plan original price' || field === 'rate plan discounted price') {
         return 'N/A| |';
@@ -351,6 +425,19 @@ export function resolveExpected(
     }
   }
 
+  if (field === 'popup description' || field === 'popup - event description') {
+    // home-page-popup has separate Home Popup fields that resolve from HOME_POPUP_*.
+    // Let those template rows resolve naturally.
+    const currentSrc = (eventData.SOURCE || eventData.source || '').trim().toLowerCase();
+    if (currentSrc !== 'home-page-popup') {
+      if (isActiveStandardUser) {
+        raw = ACTIVE_STANDARD_PPV_POPUP_DESCRIPTION;
+      } else {
+        raw = eventData.PPV_DESCRIPTION || DEFAULT_PPV_POPUP_DESCRIPTION;
+      }
+    }
+  }
+
   if (raw !== undefined && raw !== null) {
     const currentRatePlan = (eventData.RATE_PLAN || eventData.ratePlan || '').trim().toLowerCase();
     const currentSource = (eventData.SOURCE || eventData.source || '').trim().toLowerCase();
@@ -398,37 +485,6 @@ export function resolveExpected(
         currentSource !== 'boxing-join-the-club'
       ) {
         raw = 'N/A';
-      }
-    } else if (field === 'saturday badge') {
-      const eventDate = eventData.PPV_DATE || '';
-      const match = eventDate.match(/^([A-Za-z]+)\s+(\d+)(?:st|nd|rd|th)?\s+([A-Za-z]+)/i);
-      if (match) {
-        const shortDay = match[1].substring(0, 3).toUpperCase();
-        const dateNum = match[2];
-        const shortMonth = match[3].substring(0, 3).toUpperCase();
-
-        const getOrdinalSuffix = (dStr: string) => {
-          const d = parseInt(dStr, 10);
-          if (isNaN(d)) return 'th';
-          if (d >= 11 && d <= 13) return 'th';
-          switch (d % 10) {
-            case 1: return 'st';
-            case 2: return 'nd';
-            case 3: return 'rd';
-            default: return 'th';
-          }
-        };
-
-        raw = `${shortDay} ${dateNum}${getOrdinalSuffix(dateNum)} ${shortMonth}`;
-      } else {
-        const dayNames = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-        const matchedDays: string[] = [];
-        for (const day of dayNames) {
-          if (eventDate.toLowerCase().includes(day)) {
-            matchedDays.push(day.toUpperCase());
-          }
-        }
-        raw = matchedDays.length > 0 ? matchedDays.join('|') : 'SATURDAY';
       }
     } else if (field === 'next payment label') {
       if (ratePlan.includes('annual pay monthly')) {
@@ -598,20 +654,30 @@ export function resolveExpected(
 
       // Override PPV_DATE specifically for landing/boxing/home pages
       // BUT NOT for banner fields — banners show the full PPV_DATE (e.g. 'Sat 27th Jun at 16:30')
+      // AND NOT for home-page-popup — the auto-popup shows the full PPV_DATE in the badge
       const pageNameLower = pageName.toLowerCase();
       const isBannerField = field.startsWith('banner');
-      if (k.toUpperCase() === 'PPV_DATE' && !isBannerField && (pageNameLower === 'landing' || pageNameLower === 'boxing' || pageNameLower.includes('home') || pageNameLower.includes('popup'))) {
+      const resolveSource = (eventData.SOURCE || eventData.source || '').trim().toLowerCase();
+      const isHomePagePopup = resolveSource === 'home-page-popup';
+      if (k.toUpperCase() === 'PPV_DATE' && !isBannerField && !isHomePagePopup && (pageNameLower === 'landing' || pageNameLower === 'boxing' || pageNameLower.includes('home') || pageNameLower.includes('popup'))) {
         if (eventData.LANDING_PAGE_PPV_DATE) {
           return String(eventData.LANDING_PAGE_PPV_DATE);
         }
       }
 
+      let searchKey = k;
+      if (searchKey.toUpperCase() === 'PPV_DATE' && (pageName.toLowerCase().includes('mobile') || pageName.toLowerCase().includes('paywall'))) {
+        if (eventData.MOBILE_PPV_DATE) {
+          searchKey = 'MOBILE_PPV_DATE';
+        }
+      }
+
       const value =
-        eventData[k] ??
-        eventData[k.toUpperCase()] ??
-        eventData[k.toLowerCase()] ??
-        eventData[k.replace(/\s+/g, '_').toUpperCase()] ??
-        eventData[k.replace(/\s+/g, '_')];
+        eventData[searchKey] ??
+        eventData[searchKey.toUpperCase()] ??
+        eventData[searchKey.toLowerCase()] ??
+        eventData[searchKey.replace(/\s+/g, '_').toUpperCase()] ??
+        eventData[searchKey.replace(/\s+/g, '_')];
 
       if (value === undefined) {
         if (pass === 0) return match;
@@ -694,6 +760,9 @@ export function resolveExpected(
     'ppv2 upsell tile date',
   ];
   if (dateOnlyFields.includes(field)) {
+    if (pageName.toLowerCase().includes('mobile') || pageName.toLowerCase().includes('paywall')) {
+      return template;
+    }
     return getDynamicDateBadge(template);
   }
 
@@ -706,6 +775,12 @@ export function resolveExpected(
     'event date and time',
   ];
   if (dateTimeFields.includes(field)) {
+    if (pageName.toLowerCase().includes('mobile') || pageName.toLowerCase().includes('paywall')) {
+      return template;
+    }
+    if (pageName.toLowerCase().startsWith('search')) {
+      return template;
+    }
     return getDynamicDateTimeBadge(template);
   }
 
