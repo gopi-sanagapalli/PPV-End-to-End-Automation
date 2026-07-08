@@ -1,7 +1,7 @@
 export function compare(
-  actual:   string,
+  actual: string,
   expected: string,
-  type?:    string
+  type?: string
 ): boolean {
   if (!expected) {
     // Empty expected: pass only if actual is also empty or N/A
@@ -16,24 +16,24 @@ export function compare(
 
   const norm = (s: string) =>
     s.replace(/[\u200B-\u200D\uFEFF\u200E\u200F\u00A0]/g, '')
-     .replace(/[£$€₹]|AED\s?/g, '')
-     .replace(/'/gi, "'")
-     .replace(/&#39;/gi, "'")
-     .replace(/&apos;/gi, "'")
-     .replace(/&quot;/gi, '"')
-     .replace(/&amp;/gi, '&')
-     .replace(/&lt;/gi, '<')
-     .replace(/&gt;/gi, '>')
-     .replace(/"/gi, '"')
-     .replace(/&/gi, '&')
-     .replace(/[\u2018\u2019\u201A\u201B\u2032\u0060\u00B4]/g, "'")
-     .replace(/[\u201C\u201D\u201E\u201F\u2033]/g, '"')
-     .replace(/\bppv\b/gi, '')
-     .replace(/[\-–—\u2014\u2013]/g, ' ')
-     .replace(/[•·]/g, ' ').replace(/\s+/g, ' ')
-     .trim()
-     .toLowerCase()
-     .replace(/\.$/, '');
+      .replace(/[£$€₹]|AED\s?/g, '')
+      .replace(/'/gi, "'")
+      .replace(/&#39;/gi, "'")
+      .replace(/&apos;/gi, "'")
+      .replace(/&quot;/gi, '"')
+      .replace(/&amp;/gi, '&')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/"/gi, '"')
+      .replace(/&/gi, '&')
+      .replace(/[\u2018\u2019\u201A\u201B\u2032\u0060\u00B4]/g, "'")
+      .replace(/[\u201C\u201D\u201E\u201F\u2033]/g, '"')
+      .replace(/\bppv\b/gi, '')
+      .replace(/[\-–—\u2014\u2013]/g, ' ')
+      .replace(/[•·]/g, ' ').replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase()
+      .replace(/\.$/, '');
 
   const a = norm(actual);
   const e = norm(expected);
@@ -58,7 +58,7 @@ export function compare(
 
   // ── Yes/No ─────────────────────────────────────────────────────
   if (e === 'yes') return ['yes', 'visible', 'present', 'checked', 'selected'].includes(a) || actual === 'Yes';
-  if (e === 'no')  return a === 'no'  || actual === 'No';
+  if (e === 'no') return a === 'no' || actual === 'No';
 
   // ── Gold ───────────────────────────────────────────────────────
   if (e === 'gold') return a === 'gold' || actual === 'Gold';
@@ -135,28 +135,29 @@ export function compare(
   // ── Date flexibility ───────────────────────────────────────────
   const extractDateParts = (s: string) => {
     const months = [
-      'jan','feb','mar','apr','may','jun',
-      'jul','aug','sep','oct','nov','dec'
+      'jan', 'feb', 'mar', 'apr', 'may', 'jun',
+      'jul', 'aug', 'sep', 'oct', 'nov', 'dec'
     ];
     const month = months.find(m => s.toLowerCase().includes(m));
-    const day   = s.match(/\b(\d{1,2})(st|nd|rd|th)?\b/)?.[1];
+    const day = s.match(/\b(\d{1,2})(st|nd|rd|th)?\b/)?.[1];
     return { month, day };
   };
 
   const aParts = extractDateParts(a);
   const eParts = extractDateParts(e);
 
-  // Date flexibility: a date-only expected value may match a compact badge
-  // that also includes time, e.g. "25 July" vs "25 JUL 9:30PM".
-  // If expected includes a time, the normal time-flexibility block below
-  // still has to match it.
+  // Date-only match: ONLY passes when NEITHER actual NOR expected contains a time.
+  // If the actual has time info (e.g. "25 JUL 6:00PM") but expected doesn't
+  // (e.g. "25 July"), this must FAIL — the expected value in the Excel sheet
+  // is incomplete and needs to be updated to include the time.
   const expectedHasTime = /\b\d{1,2}:\d{2}\s*(?:am|pm)?\.?\b/i.test(expected);
+  const actualHasTime   = /\b\d{1,2}:\d{2}\s*(?:am|pm)?\.?\b/i.test(actual);
   if (
     aParts.month && eParts.month &&
     aParts.day   && eParts.day   &&
     aParts.month === eParts.month &&
     aParts.day   === eParts.day &&
-    !expectedHasTime
+    !expectedHasTime && !actualHasTime
   ) return true;
 
   // ── Time match flexibility ─────────────────────────────────────
@@ -186,17 +187,17 @@ export function compare(
   const eTimeMinutes = parseToMinutes(expected);
   if (aTimeMinutes !== null && eTimeMinutes !== null && aTimeMinutes === eTimeMinutes) {
     const cleanTime = (s: string) => s.replace(/\d{1,2}:\d{2}\s*(?:am|pm)?/gi, '').replace(/[•·]/g, ' ').replace(/\s+/g, ' ').trim();
-    
+
     // Normalize weekday names & strip date/month parts (e.g. "13th Jun", "27th Jun")
     const normalizeDayAndStripDate = (str: string) => {
       let s = norm(cleanTime(str));
       s = s.replace(/\bsaturday\b/g, 'sat')
-           .replace(/\bsunday\b/g, 'sun')
-           .replace(/\bmonday\b/g, 'mon')
-           .replace(/\btuesday\b/g, 'tue')
-           .replace(/\bwednesday\b/g, 'wed')
-           .replace(/\bthursday\b/g, 'thu')
-           .replace(/\bfriday\b/g, 'fri');
+        .replace(/\bsunday\b/g, 'sun')
+        .replace(/\bmonday\b/g, 'mon')
+        .replace(/\btuesday\b/g, 'tue')
+        .replace(/\bwednesday\b/g, 'wed')
+        .replace(/\bthursday\b/g, 'thu')
+        .replace(/\bfriday\b/g, 'fri');
       // Strip month names
       s = s.replace(/\b(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec)\b/g, '');
       // Strip day numbers like 13th, 27th, 3, etc.
@@ -215,10 +216,8 @@ export function compare(
   // ── Time timezone flexibility ──────────────────────────────────
   // If both strings have a time format, but they might differ due to timezone,
   // compare their text contents with the time part stripped.
-  // Use separate regex instances for .test() to avoid g-flag lastIndex issue
-  const hasTimeA = /\b\d{1,2}:\d{2}\s*(?:am|pm)?\.?\b/i.test(actual);
-  const hasTimeE = /\b\d{1,2}:\d{2}\s*(?:am|pm)?\.?\b/i.test(expected);
-  if (hasTimeA && hasTimeE) {
+  // Reuse actualHasTime / expectedHasTime computed above.
+  if (actualHasTime && expectedHasTime) {
     const stripTime = (s: string) => s.replace(/\b\d{1,2}:\d{2}\s*(?:am|pm)?\.?\b/gi, '').replace(/[•·]/g, ' ').replace(/\s+/g, ' ').trim();
     const aNoTime = stripTime(actual);
     const eNoTime = stripTime(expected);
