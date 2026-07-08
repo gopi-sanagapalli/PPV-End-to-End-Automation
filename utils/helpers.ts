@@ -60,7 +60,7 @@ export async function handleCookies(page: Page, timeout: number = 8000): Promise
         return;
       } catch {
         // JS click as last resort
-        const handle = await cookieAcceptBtn.elementHandle().catch(() => null);
+        const handle = await cookieAcceptBtn.elementHandle({ timeout: 2000 }).catch(() => null);
         if (handle) {
           await page.evaluate((el: any) => el.click(), handle).catch(() => { });
           console.log('🍪 Accepted cookies via JS click');
