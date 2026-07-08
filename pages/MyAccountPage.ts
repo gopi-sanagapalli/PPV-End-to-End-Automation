@@ -1,9 +1,39 @@
 import { Page, Locator } from '@playwright/test';
 import { handleCookies } from '../utils/helpers';
+import { validateVariant } from '../flows/validateVariant';
+import { getMyAccountData } from '../utils/excelReader';
 
 
 export class MyAccountPage {
   constructor(private page: Page) { }
+
+  async navigateAndValidatePurchasedPPVStatus(
+    baseUrl: string,
+    results: any[],
+    eventData: Record<string, string>
+  ): Promise<void> {
+    console.log('\n🏠 [My Account] Validating purchased PPV status via Excel...');
+    const myAccountUrl = `${baseUrl.replace(/\/$/, '')}/myaccount`;
+    await this.page.goto(myAccountUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });
+    await handleCookies(this.page, 8000);
+    await this.scrollToPPVSection();
+
+    const rows = getMyAccountData().filter((row: any) =>
+      String(row.Field || '').trim().toLowerCase() === 'ppv status'
+    );
+    await validateVariant(this.page, 'myaccount', rows, results, eventData, 'My Account', 'myaccount');
+
+    const statusResult = results
+      .slice()
+      .reverse()
+      .find((r: any) => r.page === 'My Account' && r.field === 'PPV Status');
+    if (statusResult?.status === 'FAIL') {
+      throw new Error(
+        `❌ [My Account] PPV Status validation failed. expected="${statusResult.expected}" actual="${statusResult.actual}"`
+      );
+    }
+  }
 
   async hasPPV(ppvName: string): Promise<boolean> {
     const row = await this.searchPPVInCurrentDOM(ppvName);
@@ -35,6 +65,57 @@ export class MyAccountPage {
         !url.includes('/emaildetails') &&
         !url.includes('/content/'))
     );
+  }
+
+  private normalizeEventName(value: string): string {
+    return value
+      .toLowerCase()
+      .replace(/\bv(?:s)?\.?\b/g, ' vs ')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  private eventNameWords(ppvName: string): string[] {
+    return this.normalizeEventName(ppvName)
+      .split(' ')
+      .filter(w => w.length > 2 && !['the', 'and', 'for', 'with', 'from', 'vs'].includes(w));
+  }
+
+  private isEventTitleText(text: string, ppvName: string): boolean {
+    const cleanText = this.normalizeEventName(text);
+    const cleanName = this.normalizeEventName(ppvName);
+    if (!cleanText || !cleanName) return false;
+    if (cleanText === cleanName) return true;
+
+    const words = this.eventNameWords(ppvName);
+    if (words.length === 0 || text.length > 100) return false;
+    return words.every(word => cleanText.includes(word));
+  }
+
+  private async cardHasMatchingTitle(card: Locator, ppvName: string): Promise<boolean> {
+    const titleCandidates = card.locator(
+      'span, p, h1, h2, h3, h4, h5, strong, [id*="title" i], [class*="title" i]'
+    );
+    const count = await titleCandidates.count().catch(() => 0);
+    for (let i = 0; i < count; i++) {
+      const text = ((await titleCandidates.nth(i).textContent().catch(() => '')) || '').trim();
+      if (this.isEventTitleText(text, ppvName)) {
+        return true;
+      }
+    }
+
+    const cardText = ((await card.textContent().catch(() => '')) || '').trim();
+    const ctaCount = await card
+      .locator('div[role="button"], button, a')
+      .filter({ hasText: /buy now|purchased|included/i })
+      .count()
+      .catch(() => 0);
+
+    // Last resort for card structures that render no separate title element.
+    // Keep this intentionally strict so a list containing multiple PPVs is not
+    // accepted as the requested event card.
+    return cardText.length > 0 && cardText.length <= 260 && ctaCount <= 1 && this.isEventTitleText(cardText, ppvName);
   }
 
   // ─────────────────────────────
@@ -97,13 +178,17 @@ export class MyAccountPage {
 
     } else {
       console.log('⚠️  PPV heading not found — scrolling to mid-page');
-      await this.page.evaluate(() =>
-        window.scrollTo({
-          top: document.body.scrollHeight / 2,
-          behavior: 'instant',
-        })
-      );
-      await this.page.waitForTimeout(500);
+      try {
+        await this.page.evaluate(() =>
+          window.scrollTo({
+            top: document.body.scrollHeight / 2,
+            behavior: 'instant',
+          })
+        );
+        await this.page.waitForTimeout(500);
+      } catch (scrollErr: any) {
+        console.warn(`⚠️  Scroll failed (page may have navigated): ${scrollErr.message}`);
+      }
     }
 
     const finalY = await this.page
@@ -117,14 +202,50 @@ export class MyAccountPage {
   private async searchPPVInCurrentDOM(ppvName: string): Promise<Locator | null> {
     const regex = new RegExp(ppvName.split(/\s+/).join('.*'), 'i');
 
+    // Strategy 0: prefer individual PPV cards and require a matching title
+    // inside that card. The My Account page can render multiple PPVs inside one
+    // list container; returning that parent makes date/price/clicks use the
+    // first card instead of the requested PPV.
+    const cardSelectorGroups = [
+      '#addons-list-card',
+      '[id*="ppv-card" i], [class*="ppv-card" i], [id*="ppv-tile" i], [class*="ppv-tile" i]',
+      'article',
+      'div[class*="card" i]:not([class*="list" i]):not([class*="container" i]):not([class*="wrapper" i])',
+      'div[class*="tile" i], div[class*="event" i]:not([class*="list" i]):not([class*="container" i]):not([class*="wrapper" i])',
+      'a[href*="/ppv"], a[href*="/pay-per-view"]',
+    ];
+
+    for (const selector of cardSelectorGroups) {
+      const cards = this.page.locator(selector);
+      const cardCount = await cards.count().catch(() => 0);
+      for (let i = 0; i < cardCount; i++) {
+        const card = cards.nth(i);
+        const cardText = ((await card.textContent().catch(() => '')) || '').trim();
+        if (!cardText || cardText.length > 500) continue;
+
+        const ctaCount = await card
+          .locator('div[role="button"], button, a')
+          .filter({ hasText: /buy|get|book|continue|subscribe|purchase|select|choose/i })
+          .count()
+          .catch(() => 0);
+        const subCardsCount = await card.locator('#addons-list-card, article, [class*="card" i]').count().catch(() => 0);
+        if (ctaCount > 1 || subCardsCount > 1) continue;
+
+        if (await this.cardHasMatchingTitle(card, ppvName)) {
+          console.log(`✅ Matched PPV card text: "${cardText.replace(/\s+/g, ' ').slice(0, 160)}"`);
+          return card;
+        }
+      }
+    }
+
     // Strategy 1: Find name title element first, and walk up to find its card
-    const titleLocator = this.page.locator('span, p, div, h2, h3, h4, h5, a')
+    const titleLocator = this.page.locator('span, p, h2, h3, h4, h5, strong')
       .filter({ hasText: regex });
     const titleCount = await titleLocator.count().catch(() => 0);
     for (let i = 0; i < titleCount; i++) {
       const el = titleLocator.nth(i);
       const text = await el.textContent().catch(() => '');
-      if (!text || text.length > 120) continue;
+      if (!text || text.length > 120 || !this.isEventTitleText(text, ppvName)) continue;
 
       let current = el;
       for (let depth = 0; depth < 5; depth++) {
@@ -137,7 +258,9 @@ export class MyAccountPage {
         if (ctaCount > 1 || subCardsCount > 1) break;
         current = parent;
       }
-      return current;
+      if (await this.cardHasMatchingTitle(current, ppvName)) {
+        return current;
+      }
     }
 
     // Strategy 2: Fallback to old candidate list-based scan
@@ -171,11 +294,11 @@ export class MyAccountPage {
       const role = await el.getAttribute('role').catch(() => null);
       const isSelfCTA = tagName === 'a' || tagName === 'button' || role === 'button';
       const hasCTA = isSelfCTA || ctaCount > 0;
-      if (hasCTA) return el;
+      if (hasCTA && await this.cardHasMatchingTitle(el, ppvName)) return el;
 
       const elText = text.toLowerCase();
       const hasPurchasedText = elText.includes('purchased') || elText.includes('included');
-      if (hasPurchasedText && text.length < 200) return el;
+      if (hasPurchasedText && text.length < 200 && await this.cardHasMatchingTitle(el, ppvName)) return el;
     }
 
     // Strategy 3: Try partial matching on cards
@@ -213,10 +336,10 @@ export class MyAccountPage {
         const role = await card.getAttribute('role').catch(() => null);
         const isSelfCTA = tagName === 'a' || tagName === 'button' || role === 'button';
         const hasCTA = isSelfCTA || ctaCount > 0;
-        if (hasCTA) return card;
+        if (hasCTA && await this.cardHasMatchingTitle(card, ppvName)) return card;
 
         const hasPurchased = cardText.toLowerCase().includes('purchased') || cardText.toLowerCase().includes('included');
-        if (hasPurchased && cardText.length < 200) return card;
+        if (hasPurchased && cardText.length < 200 && await this.cardHasMatchingTitle(card, ppvName)) return card;
       }
     }
 

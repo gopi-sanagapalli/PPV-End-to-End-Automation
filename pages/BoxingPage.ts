@@ -563,6 +563,7 @@ export class BoxingPage extends LandingPage {
 
     console.log(`✅ Clicked Boxing CTA`);
     await this.page.waitForLoadState('domcontentloaded').catch(() => { });
+    await this.waitForBoxingCtaRouteToSettle(source || '');
 
     const newUrl = this.page.url();
     console.log(`✅ Navigated to: ${newUrl}`);
@@ -572,5 +573,43 @@ export class BoxingPage extends LandingPage {
       !newUrl.includes('contextualPpv') && !newUrl.includes('signup')) {
       console.log(`⚠️  WARNING: Unexpected URL: ${newUrl}`);
     }
+  }
+
+  private async waitForBoxingCtaRouteToSettle(source: string): Promise<void> {
+    const src = source.toLowerCase();
+    const isPpvEntrySource =
+      src === 'boxing-page-banner' ||
+      src === 'boxing-buy' ||
+      src === 'boxing-page-bundle' ||
+      src === 'boxing-bundle' ||
+      src === 'boxing-upcoming-fights';
+
+    if (!isPpvEntrySource) {
+      await this.page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => { });
+      return;
+    }
+
+    await this.page.waitForFunction(() => {
+      const href = window.location.href.toLowerCase();
+      const text = document.body?.innerText?.toLowerCase() || '';
+      const onPayment =
+        href.includes('paymentdetails') ||
+        href.includes('page=payment') ||
+        text.includes('choose how to pay');
+      const ppvSelectionReady =
+        href.includes('contextualppvid=') &&
+        !href.includes('upselltierselected=true') &&
+        (
+          href.includes('upselltiershown=true') ||
+          text.includes('continue with pay-per-view') ||
+          text.includes('to watch your pay-per-view') ||
+          text.includes('just the fight')
+        );
+      return onPayment || ppvSelectionReady;
+    }, { timeout: 12000 }).catch(() => {
+      console.log('⚠️ [Boxing CTA] Route did not fully settle before detection; continuing with current page state.');
+    });
+
+    await this.page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => { });
   }
 }

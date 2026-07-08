@@ -1,9 +1,54 @@
 import { Page, Locator, expect } from '@playwright/test';
 import { handleCookies, dismissMarketingPopup } from '../utils/helpers';
+import { validateVariant } from '../flows/validateVariant';
+import { readSheet } from '../utils/excelReader';
 
 
 export class SchedulePage {
   constructor(private page: Page) { }
+
+  private isFixtureOrPreviewUrl(url: string): boolean {
+    const lower = url.toLowerCase();
+    const isTarget =
+      lower.includes('preview') ||
+      lower.includes('fixture') ||
+      lower.includes('event') ||
+      lower.includes('stream') ||
+      lower.includes('player');
+    const isPurchaseRoute =
+      lower.includes('plandetails') ||
+      lower.includes('tierplans') ||
+      lower.includes('signup') ||
+      lower.includes('signin') ||
+      lower.includes('payment') ||
+      lower.includes('checkout');
+    return isTarget && !isPurchaseRoute;
+  }
+
+  async clickEntitledEventAndValidate(
+    event: Locator,
+    results: any[],
+    eventData: Record<string, string>
+  ): Promise<void> {
+    console.log('💎 [Schedule] Clicking entitled PPV event tile directly...');
+    await event.scrollIntoViewIfNeeded().catch(() => { });
+    await event.click({ force: true, timeout: 5000 });
+    await this.page.waitForURL((url: URL) => this.isFixtureOrPreviewUrl(url.href), { timeout: 15000 }).catch(() => { });
+    await this.page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => { });
+
+    const rows = readSheet('Schedule page').filter((row: any) =>
+      String(row.Flow || '').trim().toLowerCase() === 'ultimate-login-first'
+    );
+    await validateVariant(this.page, 'schedule', rows, results, eventData, 'Schedule', 'ultimate-login-first');
+
+    const navResult = results
+      .slice()
+      .reverse()
+      .find((r: any) => r.page === 'Schedule' && r.field === 'Ultimate Navigation Target');
+    if (navResult?.status === 'FAIL') {
+      throw new Error(`❌ [Schedule] Ultimate navigation target validation failed. URL: ${this.page.url()}`);
+    }
+  }
 
   // ── DISMISS POPUPS ─────────────────────────────────────────────
   async dismissSchedulePopups() {

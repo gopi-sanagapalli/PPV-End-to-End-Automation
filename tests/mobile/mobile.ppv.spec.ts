@@ -56,6 +56,12 @@ const SWITCH_TO_ULTIMATE = (process.env.SWITCH || '').toLowerCase() === 'true';
 const ENV = (process.env.DAZN_ENV || 'stag').toLowerCase();
 const PAYMENT_METHOD = (process.env.PAYMENT_METHOD || 'credit_card').toLowerCase();
 
+test.afterEach(async ({}, testInfo) => {
+  if (testInfo.status !== testInfo.expectedStatus && testInfo.error?.message) {
+    console.log(`❌ Test failure:\n${testInfo.error.message}`);
+  }
+});
+
 // ── Screenshot helper for failed fields ─────────────────────────
 async function captureFailShot(page: Page, field: string): Promise<string | undefined> {
   try {
@@ -318,78 +324,7 @@ test.describe('Mobile → Web PPV Handoff', () => {
 
         try {
           const otpData = getOTPPageData();
-          console.log(`\n🧾 Validating OTP page — ${otpData.length} fields`);
-
-          for (const row of otpData) {
-            const field = (row['Field'] || '').trim();
-            const expected = (row['Expected'] || '').toString().trim();
-            if (!field) continue;
-
-            let actual = 'N/A';
-            const fieldLower = field.toLowerCase();
-
-            if (fieldLower === 'page title') {
-              const h1 = await page.locator('h1').first().textContent({ timeout: 5000 }).catch(() => '');
-              if (h1 && h1.trim()) {
-                actual = h1.trim();
-              } else {
-                const h2 = await page.locator('h2').first().textContent({ timeout: 3000 }).catch(() => '');
-                if (h2 && h2.trim()) {
-                  actual = h2.trim();
-                } else {
-                  const bodyText = await page.locator('body').innerText({ timeout: 3000 }).catch(() => '');
-                  const lines = bodyText.split('\n').map((l: string) => l.trim()).filter((l: string) => l.length > 10 && l.length < 100);
-                  for (const line of lines) {
-                    if (/enter.*code|verify|verification/i.test(line)) { actual = line; break; }
-                  }
-                }
-              }
-            } else if (fieldLower === 'page description') {
-              const desc = await page.locator('h1 + p, h2 + p, h1 ~ p, [class*="subtitle"], [class*="description"]')
-                .first().textContent({ timeout: 3000 }).catch(() => '');
-              if (desc && desc.trim()) {
-                actual = desc.trim();
-              } else {
-                const bodyText = await page.locator('body').innerText({ timeout: 3000 }).catch(() => '');
-                const lines = bodyText.split('\n').map((l: string) => l.trim()).filter((l: string) => l.length > 15 && l.length < 200);
-                for (const line of lines) {
-                  if (/sent.*code|code.*to|digit.*code/i.test(line)) { actual = line; break; }
-                }
-              }
-            } else if (fieldLower === 'otp input present') {
-              const otpInputs = page.locator(
-                'input[type="tel"], input[type="number"], input[inputmode="numeric"], ' +
-                'input[autocomplete="one-time-code"], input[name*="otp" i], input[name*="code" i], ' +
-                'input[data-test-id*="otp" i], input[data-test-id*="code" i], ' +
-                'input[maxlength="1"], input[maxlength="4"], input[maxlength="6"]'
-              );
-              const count = await otpInputs.count().catch(() => 0);
-              actual = count > 0 ? 'Yes' : 'No';
-            } else if (fieldLower === 'verify button') {
-              const btn = page.locator(
-                'button:has-text("Verify"), button:has-text("Submit"), button:has-text("Confirm"), button[type="submit"]'
-              ).first();
-              const text = await btn.textContent({ timeout: 3000 }).catch(() => '');
-              actual = (text || '').trim() || 'N/A';
-            } else if (fieldLower === 'resend code link') {
-              const resend = page.locator(
-                'button:has-text("Resend"), a:has-text("Resend"), button:has-text("resend"), a:has-text("resend"), ' +
-                'button:has-text("Send again"), a:has-text("Send again"), ' +
-                '*:has-text("Resend code"), *:has-text("resend code")'
-              ).first();
-              actual = (await resend.isVisible({ timeout: 3000 }).catch(() => false)) ? 'Yes' : 'No';
-            }
-
-            const actualNorm = actual.toLowerCase().replace(/\s+/g, ' ').trim();
-            const expectedNorm = expected.toLowerCase().replace(/\s+/g, ' ').trim();
-            const status = (actualNorm === expectedNorm ||
-              actualNorm.includes(expectedNorm) ||
-              expectedNorm.includes(actualNorm)) ? 'PASS' : 'FAIL';
-
-            console.log(`  ${status === 'PASS' ? '✅' : '❌'} [${field}]  expected="${expected}"  actual="${actual}"`);
-            const _shotOTP = status === 'FAIL' ? await captureFailShot(page, field) : undefined;
-            results.push({ page: 'OTP Verification', field, expected, actual, status, screenshot: _shotOTP });
-          }
+          await validateVariant(page, 'otp', otpData, results, eventData, 'OTP Verification');
         } catch (e: any) {
           console.warn('⚠️  OTP page validation error:', e.message);
           results.push({
@@ -411,53 +346,7 @@ test.describe('Mobile → Web PPV Handoff', () => {
 
         try {
           const phoneData = getPhonePageData();
-          console.log(`\n🧾 Validating Phone Number page — ${phoneData.length} fields`);
-
-          for (const row of phoneData) {
-            const field = (row['Field'] || '').trim();
-            const expected = (row['Expected'] || '').toString().trim();
-            if (!field) continue;
-
-            let actual = 'N/A';
-            const fieldLower = field.toLowerCase();
-
-            if (fieldLower === 'page title') {
-              const h1 = await page.locator('h1').first().textContent({ timeout: 5000 }).catch(() => '');
-              actual = (h1 || '').trim() || 'N/A';
-            } else if (fieldLower === 'page description') {
-              const desc = await page.locator('h1 + p, h1 ~ p, [class*="subtitle"], [class*="description"]')
-                .first().textContent({ timeout: 3000 }).catch(() => '');
-              if (desc && desc.trim()) {
-                actual = desc.trim();
-              } else {
-                const body = await page.locator('body').innerText({ timeout: 3000 }).catch(() => '');
-                const lines = body.split('\n').map((l: string) => l.trim()).filter((l: string) => l.length > 20 && l.length < 200);
-                for (const line of lines) {
-                  if (/recover|locked out|verify/i.test(line)) { actual = line; break; }
-                }
-              }
-            } else if (fieldLower === 'phone input present') {
-              const input = page.locator('input[type="tel"], input[name*="phone" i], input[placeholder*="phone" i]').first();
-              actual = (await input.isVisible({ timeout: 3000 }).catch(() => false)) ? 'Yes' : 'No';
-            } else if (fieldLower === 'continue button') {
-              const btn = page.locator('button:has-text("Continue"), button[type="submit"]').first();
-              const text = await btn.textContent({ timeout: 3000 }).catch(() => '');
-              actual = (text || '').trim() || 'N/A';
-            } else if (fieldLower === 'country code present') {
-              const cc = page.locator('[class*="country" i], [class*="dial" i], select, [role="listbox"]').first();
-              actual = (await cc.isVisible({ timeout: 3000 }).catch(() => false)) ? 'Yes' : 'No';
-            }
-
-            const actualNorm = actual.toLowerCase().replace(/\s+/g, ' ').trim();
-            const expectedNorm = expected.toLowerCase().replace(/\s+/g, ' ').trim();
-            const status = (actualNorm === expectedNorm ||
-              actualNorm.includes(expectedNorm) ||
-              expectedNorm.includes(actualNorm)) ? 'PASS' : 'FAIL';
-
-            console.log(`  ${status === 'PASS' ? '✅' : '❌'} [${field}]  expected="${expected}"  actual="${actual}"`);
-            const _shotPhone = status === 'FAIL' ? await captureFailShot(page, field) : undefined;
-            results.push({ page: 'Phone Number', field, expected, actual, status, screenshot: _shotPhone });
-          }
+          await validateVariant(page, 'phone', phoneData, results, eventData, 'Phone Number');
         } catch (e: any) {
           console.warn('⚠️  Phone page validation error:', e.message);
           results.push({
@@ -1277,11 +1166,15 @@ test.describe('Mobile → Web PPV Handoff', () => {
     console.log(`${'─'.repeat(55)}`);
 
     if (total === 0) {
-      throw new Error(`❌ Flow "${flowConfig.name}" had 0 validation checks`);
+      const errMsg = `❌ Flow "${flowConfig.name}" had 0 validation checks`;
+      console.log(errMsg);
+      throw new Error(errMsg);
     }
 
     if (!reachedEndPage) {
-      throw new Error(`❌ Flow "${flowConfig.name}" did not reach the expected end page`);
+      const errMsg = `❌ Flow "${flowConfig.name}" did not reach the expected end page`;
+      console.log(errMsg);
+      throw new Error(errMsg);
     }
   });
 });
