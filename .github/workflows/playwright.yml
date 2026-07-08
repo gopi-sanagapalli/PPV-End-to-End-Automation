@@ -99,12 +99,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: |
-          rm -rf node_modules
-          npm ci
-
-      - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium chrome
+        run: npm ci
 
       - name: Run new-user web PPV flow
         run: npx playwright test tests/new_user/newuser.ppv.spec.ts --project=chromium
