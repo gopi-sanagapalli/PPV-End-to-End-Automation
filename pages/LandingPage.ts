@@ -1338,12 +1338,27 @@ export class LandingPage extends BasePage {
       const handle = await buyNowBtn.elementHandle().catch(() => null);
       if (handle) {
         await this.page.evaluate((el: any) => el.click(), handle);
-      } else {
-        // Last resort: for constrained sources, do NOT search entire page
-        if (src.includes('banner') || src.includes('tile') || src.includes('dont-miss')) {
-          throw new Error(`❌ [${src}] elementHandle failed — cannot click Buy Now. Will not search entire page.`);
+      } else if (src.includes('banner') || src.includes('tile') || src.includes('dont-miss')) {
+        // elementHandle went stale (carousel rotated) — re-click scoped to active slide only
+        console.log('🔄 elementHandle stale — clicking Buy Now in active banner slide via evaluate');
+        const clicked = await this.page.evaluate(() => {
+          const activeSlide = document.querySelector(
+            '.swiper-slide-active:not(.swiper-slide-duplicate), [class*="swiper-slide-active"]:not([class*="duplicate"])'
+          );
+          const root = activeSlide || document.querySelector('main') || document.body;
+          const candidates = root.querySelectorAll('a, button');
+          for (const btn of candidates) {
+            if (/buy now/i.test(btn.textContent || '')) {
+              (btn as HTMLElement).click();
+              return true;
+            }
+          }
+          return false;
+        }).catch(() => false);
+        if (!clicked) {
+          throw new Error(`❌ [${src}] elementHandle stale and active-slide fallback found no Buy Now button.`);
         }
-        console.log('⚠️  elementHandle failed — trying page.evaluate click');
+      } else {
         await this.page.evaluate(() => {
           const btns = document.querySelectorAll('a, button');
           for (const btn of btns) {

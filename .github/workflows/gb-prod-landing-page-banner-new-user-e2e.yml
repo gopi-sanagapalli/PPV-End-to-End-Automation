@@ -74,25 +74,20 @@ jobs:
           node-version: lts/*
           cache: npm
 
-      - name: Show Runner
-        run: |
-          echo "Runner: $RUNNER_NAME"
-          echo "OS: $RUNNER_OS"
-          hostname
-
-      - name: Verify Node
-        run: |
-          node -v
-          npm -v
-
       - name: Install dependencies
         run: npm ci
 
-      - name: Install Playwright Chromium browser
-        run: npx playwright install chromium
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: playwright-chromium-${{ runner.os }}-${{ runner.arch }}-
 
-      - name: Verify Playwright
-        run: npx playwright --version
+      - name: Install Playwright Chromium browser
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install chromium
 
       - name: Run GB PROD Landing Page Banner PPV Flow
         shell: bash
@@ -116,8 +111,6 @@ jobs:
           echo "=================================="
           echo "PLAYWRIGHT EXIT CODE = $EXIT_CODE"
           echo "=================================="
-
-          ps -ef | grep -E "node|chrome|playwright" || true
 
           exit $EXIT_CODE
 
