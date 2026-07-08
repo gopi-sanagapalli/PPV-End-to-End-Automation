@@ -736,6 +736,72 @@ export async function getActualValue(
   if (ppvPlanDetailsLine !== 'N/A') return ppvPlanDetailsLine;
 
   // ── PHONE NUMBER / OTP PAGE SPECIAL VALS ────────────────────
+  if (_variant === 'otp') {
+    switch (key) {
+      case 'page title': {
+        const h1 = clean(await page.locator('h1').first().textContent({ timeout: 5000 }).catch(() => '') || '');
+        if (h1) return h1;
+        const h2 = clean(await page.locator('h2').first().textContent({ timeout: 3000 }).catch(() => '') || '');
+        if (h2) return h2;
+        const heading = snapFind(n =>
+          n.text.length > 10 &&
+          n.text.length < 100 &&
+          /enter.*code|verify|verification/i.test(n.text)
+        );
+        return heading !== 'N/A' ? heading : 'N/A';
+      }
+      case 'page description': {
+        const desc = clean(await page
+          .locator('h1 + p, h2 + p, h1 ~ p, [class*="subtitle"], [class*="description"]')
+          .first()
+          .textContent({ timeout: 3000 })
+          .catch(() => '') || '');
+        if (desc) return desc;
+        const lines = await getBodyLines();
+        return lines.find(line =>
+          line.length > 15 &&
+          line.length < 200 &&
+          /sent.*code|code.*to|digit.*code|enter.*code.*continue/i.test(line)
+        ) || 'N/A';
+      }
+      case 'otp input present': {
+        const otpInputs = page.locator(
+          'input[type="tel"], input[type="number"], input[inputmode="numeric"], ' +
+          'input[autocomplete="one-time-code"], input[name*="otp" i], input[name*="code" i], ' +
+          'input[data-test-id*="otp" i], input[data-test-id*="code" i], ' +
+          'input[maxlength="1"], input[maxlength="4"], input[maxlength="6"]'
+        );
+        const count = await otpInputs.count().catch(() => 0);
+        if (count > 0) return 'Yes';
+        return snapExists(n => n.tag === 'input' || /otp|code|verify/i.test(n.text));
+      }
+      case 'verify button': {
+        const btn = page
+          .locator('button:has-text("Verify"), button:has-text("Submit"), button:has-text("Confirm"), button[type="submit"]')
+          .first();
+        const text = clean(await btn.textContent({ timeout: 3000 }).catch(() => '') || '');
+        if (text) return text;
+        const found = snapFind(n =>
+          n.tag === 'button' &&
+          /verify|submit|confirm/i.test(n.text)
+        );
+        return found !== 'N/A' ? found : 'N/A';
+      }
+      case 'resend code link': {
+        const resend = page
+          .locator(
+            'button:has-text("Resend"), a:has-text("Resend"), button:has-text("resend"), a:has-text("resend"), ' +
+            'button:has-text("Send again"), a:has-text("Send again"), ' +
+            '*:has-text("Resend code"), *:has-text("resend code")'
+          )
+          .first();
+        const visible = await resend.isVisible({ timeout: 3000 }).catch(() => false);
+        if (visible) return 'Yes';
+        return snapExists(n => /resend|send again/i.test(n.text));
+      }
+    }
+  }
+
   if (_variant === 'phone') {
     switch (key) {
       case 'page title': {
@@ -2798,6 +2864,69 @@ export async function getActualValue(
       const expectedPrice = eventData?.PPV_PRICE || '';
       const currency = eventData?.CURRENCY || '';
       const ppvNameForPrice = (eventData?.PPV_NAME || '').toLowerCase();
+      const hasPlanPriceContext = (text: string): boolean =>
+        /\/\s*month|per\s+month|for\s+12\s+months|annual\s+contract|auto\s+renews|dazn\s+ultimate/i.test(text);
+
+      const liveScopedPrice = await page.evaluate(({ ppvName, expectedPrice }: { ppvName: string; expectedPrice: string }) => {
+        const clean = (value: string) => value.replace(/\s+/g, ' ').trim();
+        const priceRegex = /(?:AED\s?|[£$€₹]\s?)\d+(?:\.\d{2})?/g;
+        const priceNumber = (value: string) => value.replace(/[^0-9.]/g, '');
+        const expectedNumber = priceNumber(expectedPrice || '');
+        const nameTokens = clean(ppvName || '')
+          .toLowerCase()
+          .split(/[^a-z0-9]+/i)
+          .filter(token => token.length > 3 && !['with', 'from', 'plus', 'fight', 'event'].includes(token));
+
+        const isVisible = (el: HTMLElement): boolean => {
+          const rect = el.getBoundingClientRect();
+          const style = window.getComputedStyle(el);
+          return rect.width > 0 &&
+            rect.height > 0 &&
+            style.display !== 'none' &&
+            style.visibility !== 'hidden' &&
+            style.opacity !== '0';
+        };
+
+        const matchesPPVName = (text: string): boolean => {
+          const lower = text.toLowerCase();
+          if (!nameTokens.length) return false;
+          const matches = nameTokens.filter(token => lower.includes(token)).length;
+          return matches >= Math.min(2, nameTokens.length);
+        };
+
+        const isPlanPriceContext = (text: string, matchIndex: number): boolean => {
+          const nearby = text.slice(Math.max(0, matchIndex - 30), matchIndex + 70).toLowerCase();
+          return nearby.includes('/month') ||
+            nearby.includes('per month') ||
+            nearby.includes('for 12 months') ||
+            nearby.includes('annual contract') ||
+            nearby.includes('auto renew') ||
+            nearby.includes('dazn ultimate');
+        };
+
+        const hasPrice = (text: string): boolean => /(?:AED\s?|[£$€₹]\s?)\d+(?:\.\d{2})?/.test(text);
+        const containers = Array.from(document.querySelectorAll<HTMLElement>('label, article, section, li, div'))
+          .filter(el => isVisible(el))
+          .map(el => ({ el, text: clean(el.innerText || el.textContent || '') }))
+          .filter(({ text }) => text.length > 0 && text.length < 700 && matchesPPVName(text) && hasPrice(text))
+          .sort((a, b) => a.text.length - b.text.length);
+
+        for (const { text } of containers) {
+          priceRegex.lastIndex = 0;
+          const prices = Array.from(text.matchAll(priceRegex));
+          const candidates = prices.filter(match => !isPlanPriceContext(text, match.index || 0));
+          if (candidates.length === 0) continue;
+          const expectedMatch = expectedNumber
+            ? candidates.find(match => priceNumber(match[0]) === expectedNumber)
+            : undefined;
+          if (expectedMatch) return expectedMatch[0].trim();
+          if (candidates[0]) return candidates[0][0].trim();
+        }
+
+        return '';
+      }, { ppvName: eventData?.PPV_NAME || '', expectedPrice }).catch(() => '');
+
+      if (liveScopedPrice) return liveScopedPrice;
 
       // On My Account page, route directly through the MyAccountPage POM to ensure we scope to the correct card
       const url = page.url();
@@ -2824,7 +2953,12 @@ export async function getActualValue(
       // Strategy 1: Find a single node that contains both PPV name and price
       for (const n of snap) {
         if (n.isInModal) continue;
-        if (priceMatchesName(n.text) && /(?:AED\s?|[\$£€₹]\s?)\d+(?:\.\d{2})?/.test(n.text) && n.text.length < 200) {
+        if (
+          priceMatchesName(n.text) &&
+          /(?:AED\s?|[\$£€₹]\s?)\d+(?:\.\d{2})?/.test(n.text) &&
+          n.text.length < 200 &&
+          !hasPlanPriceContext(n.text)
+        ) {
           const priceMatch = n.text.match(/(?:AED\s?|[\$£€₹]\s?)\d+(?:\.\d{2})?/);
           if (priceMatch) return priceMatch[0].trim();
         }
@@ -2855,7 +2989,9 @@ export async function getActualValue(
       if (expectedPrice) {
         const exact = snapFind(n =>
           n.childCount === 0 &&
+          !/\/\s*month|for\s+12\s+months|annual\s+contract|auto\s+renews/i.test(n.text) &&
           (n.text === expectedPrice ||
+            (currency && n.text === `${currency}${expectedPrice}`) ||
             n.text.replace(/\s/g, '') === expectedPrice.replace(/\s/g, ''))
         );
         if (exact !== 'N/A') return exact;

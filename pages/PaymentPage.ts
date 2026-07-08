@@ -1036,31 +1036,47 @@ export class PaymentPage extends BasePage {
         for (const el of allElements) {
           const t = cleanText(el.textContent || '');
           if (/today\s+you\s+pay/i.test(t)) {
-            if (!todayEl || el.textContent.length < todayEl.textContent.length) {
+            if (!todayEl || (el.textContent || '').length < (todayEl.textContent || '').length) {
               todayEl = el;
             }
           }
         }
 
         if (todayEl) {
+          const todayRect = todayEl.getBoundingClientRect();
+          const todayCenterY = todayRect.top + (todayRect.height / 2);
           let curr: HTMLElement | null = todayEl;
           while (curr && curr !== document.body) {
             const pricesInSection = Array.from(curr.querySelectorAll<HTMLElement>('*'))
               .filter(el => priceElements.includes(el));
-            
+
             const strikePrices = pricesInSection.filter(el => isStrike(el));
             const activePrices = pricesInSection.filter(el => !isStrike(el));
-            
+
             if (activePrices.length > 0) {
-              // Expose duplicate active prices in the section if there are more than 1
-              const activePriceVal = activePrices.map(el => el.textContent?.trim() || '').filter(Boolean).join(' ');
+              const sameRowPrices = activePrices
+                .map(el => {
+                  const rect = el.getBoundingClientRect();
+                  const centerY = rect.top + (rect.height / 2);
+                  return {
+                    el,
+                    distance: Math.abs(centerY - todayCenterY),
+                    text: cleanText(el.textContent || ''),
+                  };
+                })
+                .filter(item => item.text && item.distance <= Math.max(18, todayRect.height));
+
+              const selectedPrice = (sameRowPrices.length > 0
+                ? sameRowPrices.sort((a, b) => a.distance - b.distance)[0].text
+                : cleanText(activePrices[0].textContent || ''));
+
               if (activePrices.length === 1 && strikePrices.length > 0) {
                 const strikePriceVal = strikePrices[0].textContent?.trim();
-                if (strikePriceVal === activePriceVal) {
+                if (strikePriceVal === selectedPrice) {
                   console.warn(`⚠️ Redundant strike-through price found showing same value: ${strikePriceVal}`);
                 }
               }
-              return activePriceVal;
+              return selectedPrice;
             }
             curr = curr.parentElement;
           }
