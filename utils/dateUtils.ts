@@ -21,15 +21,18 @@ export function getNowIST(): Date {
  */
 export function getNowForRegion(region?: string): Date {
   const tzMap: Record<string, string> = {
-    GB: 'Europe/London',
-    US: 'America/New_York',
-    DE: 'Europe/Berlin',
-    IT: 'Europe/Rome',
-    ES: 'Europe/Madrid',
-    FR: 'Europe/Paris',
-    CA: 'America/Toronto',
-    AU: 'Australia/Sydney',
-    JP: 'Asia/Tokyo',
+    GB:  'Europe/London',
+    UK:  'Europe/London',
+    US:  'America/New_York',
+    UAE: 'Asia/Dubai',
+    AU:  'Australia/Sydney',
+    BR:  'America/Sao_Paulo',
+    DE:  'Europe/Berlin',
+    IT:  'Europe/Rome',
+    ES:  'Europe/Madrid',
+    FR:  'Europe/Paris',
+    CA:  'America/Toronto',
+    JP:  'Asia/Tokyo',
   };
   const tz = tzMap[(region || process.env.DAZN_REGION || 'GB').toUpperCase()] || 'Europe/London';
   const now = new Date();
