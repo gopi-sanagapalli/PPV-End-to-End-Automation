@@ -243,9 +243,6 @@ jobs:
           rm -rf node_modules
           npm ci
 
-      - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium chrome
-
       - name: Verify Playwright
         run: npx playwright --version
 
