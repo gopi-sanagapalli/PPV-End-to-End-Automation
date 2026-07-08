@@ -723,35 +723,21 @@ for (const stateKey of userStatesToRun) {
             await searchPage.enableDevMode();
           }
 
+          let scheduleEventCard: any;
           let scheduleEventClicked = false;
 
-          // ── Phase 1: Validate TILE fields BEFORE clicking event (popup not yet open) ──
-          try {
-            const scheduleData = readSheet('Schedule page');
-            const tileFields = scheduleData.filter((r: any) =>
-              !String(r.Field || '').toLowerCase().startsWith('popup')
-            );
-            if (tileFields.length) {
-              console.log('\n📋 Validating Schedule tile fields (before popup opens)...');
-              await validateVariant(page, 'schedule', tileFields, results, eventData, 'Schedule');
-            }
-          } catch (err: any) {
-            console.warn(`⚠️  Schedule tile validation error: ${err.message}`);
-          }
-
+          // Step 1: Apply sport filter and locate event tile (no click yet)
           try {
             await schedule.selectSport(sport);
-            const eventCard = await schedule.findEvent(eventData.PPV_NAME);
             if (LOGIN_FIRST && isActiveUltimateState(userStateKey)) {
+              const eventCard = await schedule.findEvent(eventData.PPV_NAME);
               await schedule.clickEntitledEventAndValidate(eventCard, results, eventData);
               await finishRun('ultimate', userStateKey);
               return;
-            } else {
-              await schedule.clickEvent(eventCard);
-              scheduleEventClicked = true;
             }
+            scheduleEventCard = await schedule.findEvent(eventData.PPV_NAME);
           } catch (schedErr: any) {
-            console.error(`❌ Schedule flow failed: ${schedErr.message}`);
+            console.error(`❌ Schedule: could not find event: ${schedErr.message}`);
             let shotPath: string | undefined;
             try {
               const dir = path.resolve(process.cwd(), 'test-results', 'screenshots');
@@ -769,12 +755,52 @@ for (const stateKey of userStatesToRun) {
             });
           }
 
-          if (scheduleEventClicked) {
-            // ── Phase 2: Validate POPUP fields via handlePopupModal (popup now open) ──
-            await handlePopupModal(page, results, eventData, SOURCE, false);
+          if (scheduleEventCard) {
+            // Step 2: Validate TILE fields BEFORE clicking (filter applied, popup not open)
+            try {
+              const scheduleData = readSheet('Schedule page');
+              const tileFields = scheduleData.filter((r: any) =>
+                !String(r.Field || '').toLowerCase().startsWith('popup')
+              );
+              if (tileFields.length) {
+                console.log('\n📋 Validating Schedule tile fields (before popup opens)...');
+                await validateVariant(page, 'schedule', tileFields, results, eventData, 'Schedule');
+              }
+            } catch (err: any) {
+              console.warn(`⚠️  Schedule tile validation error: ${err.message}`);
+            }
 
+            // Step 3: Scroll event card back into view (validateVariant may have scrolled page),
+            // then click to open popup
+            try {
+              await scheduleEventCard.scrollIntoViewIfNeeded();
+              await schedule.clickEvent(scheduleEventCard);
+              scheduleEventClicked = true;
+            } catch (schedErr: any) {
+              console.error(`❌ Schedule clickEvent failed: ${schedErr.message}`);
+              let shotPath: string | undefined;
+              try {
+                const dir = path.resolve(process.cwd(), 'test-results', 'screenshots');
+                if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+                shotPath = path.join(dir, `FAIL_Schedule_Event_Click_${Date.now()}.jpg`);
+                await page.screenshot({ path: shotPath, type: 'jpeg', quality: 75, fullPage: false });
+              } catch { shotPath = undefined; }
+              results.push({
+                page: 'Schedule',
+                field: 'PPV Event Click',
+                expected: `${eventData.PPV_NAME} clickable via ${sport} filter`,
+                actual: schedErr.message,
+                status: 'FAIL',
+                screenshot: shotPath,
+              });
+            }
+          }
+
+          if (scheduleEventClicked) {
+            await handlePopupModal(page, results, eventData, SOURCE, false);
             await schedule.clickBuyNow();
           }
+
         } else if (isSearch) {
           const searchPage = new SearchPage(page);
           await searchPage.navigate(baseUrl);

@@ -382,29 +382,15 @@ async function runFlow(
       assertCountryMatch(page, region);
 
       const sport = json.SPORT || 'Boxing';
+      let scheduleEventCard: any;
       let scheduleEventClicked = false;
 
-      // ── Phase 1: Validate TILE fields BEFORE clicking event (popup not open yet) ──
-      try {
-        const scheduleData = readSheet('Schedule page');
-        const tileFields = scheduleData.filter((r: any) =>
-          !String(r.Field || '').toLowerCase().startsWith('popup')
-        );
-        if (tileFields.length) {
-          console.log('\n📋 Validating Schedule tile fields (before popup opens)...');
-          await validateVariant(page, 'schedule', tileFields, results, eventData, 'Schedule');
-        }
-      } catch (err: any) {
-        console.warn(`⚠️  Schedule tile validation error: ${err.message}`);
-      }
-
+      // Step 1: Apply sport filter and locate the event tile (no click yet)
       try {
         await schedule.selectSport(sport);
-        const eventCard = await schedule.findEvent(eventData.PPV_NAME);
-        await schedule.clickEvent(eventCard);
-        scheduleEventClicked = true;
+        scheduleEventCard = await schedule.findEvent(eventData.PPV_NAME);
       } catch (schedErr: any) {
-        console.error(`❌ Schedule flow failed: ${schedErr.message}`);
+        console.error(`❌ Schedule: could not find event: ${schedErr.message}`);
         results.push({
           page: 'Schedule',
           field: 'PPV Event Click',
@@ -414,10 +400,41 @@ async function runFlow(
         });
       }
 
-      if (scheduleEventClicked) {
-        // ── Phase 2: Validate POPUP fields via handlePopupModal (popup now open) ──
-        await handlePopupModal(page, results, eventData, source, false);
+      if (scheduleEventCard) {
+        // Step 2: Validate TILE fields BEFORE clicking (popup not open yet, filter applied)
+        try {
+          const scheduleData = readSheet('Schedule page');
+          const tileFields = scheduleData.filter((r: any) =>
+            !String(r.Field || '').toLowerCase().startsWith('popup')
+          );
+          if (tileFields.length) {
+            console.log('\n📋 Validating Schedule tile fields (before popup opens)...');
+            await validateVariant(page, 'schedule', tileFields, results, eventData, 'Schedule');
+          }
+        } catch (err: any) {
+          console.warn(`⚠️  Schedule tile validation error: ${err.message}`);
+        }
 
+        // Step 3: Scroll event card back into view (validateVariant may have scrolled page),
+        // then click to open popup
+        try {
+          await scheduleEventCard.scrollIntoViewIfNeeded();
+          await schedule.clickEvent(scheduleEventCard);
+          scheduleEventClicked = true;
+        } catch (schedErr: any) {
+          console.error(`❌ Schedule clickEvent failed: ${schedErr.message}`);
+          results.push({
+            page: 'Schedule',
+            field: 'PPV Event Click',
+            expected: `${eventData.PPV_NAME} clickable via ${sport} filter`,
+            actual: schedErr.message,
+            status: 'FAIL',
+          });
+        }
+      }
+
+      if (scheduleEventClicked) {
+        await handlePopupModal(page, results, eventData, source, false);
         await schedule.clickBuyNow();
       }
     } else if (isSearch) {
