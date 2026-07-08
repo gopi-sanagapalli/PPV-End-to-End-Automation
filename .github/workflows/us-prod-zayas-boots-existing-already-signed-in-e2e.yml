@@ -193,15 +193,10 @@ jobs:
           npm -v
 
       - name: Install dependencies
-        run: |
-          rm -rf node_modules
-          npm ci
+        run: npm ci
 
       - name: Install Playwright Chromium browser
         run: npx playwright install chromium
-
-      - name: Verify Playwright
-        run: npx playwright --version
 
       - name: Run PROD PPV Flow
         run: npx playwright test tests/existing_user/existinguser.ppv.spec.ts --project=chromium

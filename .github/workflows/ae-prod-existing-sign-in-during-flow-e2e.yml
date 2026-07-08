@@ -186,15 +186,10 @@ jobs:
           npm -v
 
       - name: Install dependencies
-        run: |
-          rm -rf node_modules
-          npm ci
+        run: npm ci
 
       - name: Install Playwright Chromium browser
         run: npx playwright install chromium
-
-      - name: Verify Playwright
-        run: npx playwright --version
 
       - name: Set USER_STATE and PLAN from matrix profile
         run: |

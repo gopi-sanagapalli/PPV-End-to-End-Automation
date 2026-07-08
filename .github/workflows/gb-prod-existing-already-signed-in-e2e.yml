@@ -248,9 +248,6 @@ jobs:
       - name: Install Playwright Chromium browser
         run: npx playwright install chromium
 
-      - name: Verify Playwright
-        run: npx playwright --version
-
       - name: Set USER_STATE and PLAN from matrix profile
         run: |
           IFS='/' read -r _US _PL <<< "$PROFILE"

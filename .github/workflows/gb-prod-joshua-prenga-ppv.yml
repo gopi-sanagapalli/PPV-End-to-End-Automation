@@ -164,9 +164,6 @@ jobs:
       - name: Install Playwright Chromium browser
         run: npx playwright install chromium
 
-      - name: Verify Playwright
-        run: npx playwright --version
-
       - name: Run PPV Flow
         run: npx playwright test tests/new_user/newuser.ppv.spec.ts --project=chromium
 
