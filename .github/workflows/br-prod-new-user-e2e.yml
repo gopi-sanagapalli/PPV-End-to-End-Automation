@@ -29,6 +29,9 @@ on:
 permissions:
   contents: read
 
+env:
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
+
 jobs:
   prod:
     name: ${{ matrix.source }} | ${{ matrix.plan }}
@@ -123,12 +126,10 @@ jobs:
           npm -v
 
       - name: Install dependencies
-        run: |
-          rm -rf node_modules
-          npm ci
+        run: npm ci
 
-      - name: Verify Playwright
-        run: npx playwright --version
+      - name: Install Playwright Chromium browser
+        run: npx playwright install chromium
 
       - name: Run PROD PPV Flow
         run: npx playwright test tests/new_user/newuser.ppv.spec.ts --project=chromium

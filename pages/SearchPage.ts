@@ -135,6 +135,7 @@ export class SearchPage extends BasePage {
     console.log(`✅ Search completed for: ${eventName}`);
   }
 
+
   async searchForUpcomingEvent(eventName: string): Promise<void> {
     let searchQuery = eventName;
     if (eventName.includes(':')) {
@@ -489,6 +490,7 @@ export class SearchPage extends BasePage {
           this.page.waitForURL('**/search', { timeout: 10000 }).catch(() => { }),
           searchLink.click({ force: true })
         ]);
+
         await this.page.waitForLoadState('domcontentloaded').catch(() => { });
       } else {
         const baseUrl = this.page.url().match(/https:\/\/[^\/]+\/en-[A-Z]+/i)?.[0] || 'https://www.dazn.com/en-GB';
@@ -564,7 +566,6 @@ export class SearchPage extends BasePage {
       }
 
       // ── Step 4: Ensure we're on search page, refresh, verify yellow dot ──────
-      // DAZN may auto-redirect to home after Copy ID — navigate back to search
       const currentUrl = this.page.url();
       if (!currentUrl.includes('/search')) {
         console.log(`⚠️ Redirected away from search to: ${currentUrl}`);
@@ -580,9 +581,6 @@ export class SearchPage extends BasePage {
       if (yellowDotVisible) {
         console.log('✅ Yellow dot visible on search page — dev mode CONFIRMED ✨');
 
-        // Strip DAZN onboarding ?step= query param before navigating back.
-        // ?step=0 triggers a wizard overlay that intercepts banner clicks and
-        // can cause the page context to be closed mid-flow.
         let targetUrl = originalUrl;
         try {
           const urlObj = new URL(originalUrl);
@@ -592,7 +590,6 @@ export class SearchPage extends BasePage {
             console.log(`🔧 Stripped ?step= from return URL: ${originalUrl} → ${targetUrl}`);
           }
         } catch {
-          // URL parsing failed — fall back to base path without query string
           targetUrl = originalUrl.split('?')[0];
           console.log(`🔧 Stripped query string from return URL: ${originalUrl} → ${targetUrl}`);
         }
@@ -606,7 +603,6 @@ export class SearchPage extends BasePage {
         throw new Error('❌ Yellow dot not visible on search page after dev mode activation');
       }
 
-      // ── Done — caller navigates to home/source ──────
       console.log('✅ Dev mode enabled — returning to caller for navigation');
       console.log('═══════════════════════════════════════════════════\n');
 
