@@ -74,10 +74,12 @@ const HOME_SPORT_DROPDOWN_SOURCES = new Set([
   'home-boxing-upcoming',
   'home-kickboxing-tile',
 ]);
-const LOGIN_FIRST_INVALID_LANDING_SOURCES = new Set<string>([]);
+const LOGIN_FIRST_INVALID_LANDING_SOURCES = new Set<string>([
+  'landing-page-banner',
+  'landing-page-dont-miss-live',
+]);
 const ENV = (process.env.DAZN_ENV || 'stag').toLowerCase();
 const PAYMENT_METHOD = (process.env.PAYMENT_METHOD || 'credit_card').toLowerCase();
-const isHeadless = process.env.HEADLESS === 'true';
 
 function throwLogged(error: Error): never {
   console.log(error.message);
@@ -88,7 +90,7 @@ function isActiveUltimateState(userStateKey: string): boolean {
   return userStateKey.toLowerCase().startsWith('active_ultimate');
 }
 
-test.afterEach(async ({}, testInfo) => {
+test.afterEach(async ({ }, testInfo) => {
   if (testInfo.status !== testInfo.expectedStatus && testInfo.error?.message) {
     console.log(`❌ Test failure:\n${testInfo.error.message}`);
   }
@@ -307,7 +309,7 @@ for (const stateKey of userStatesToRun) {
     } : undefined;
 
     const context = await browser.newContext({
-      viewport: isHeadless ? { width: 1920, height: 1080 } : null,
+      viewport: { width: 1920, height: 1080 },
       colorScheme: 'dark',
       reducedMotion: 'no-preference',
       locale: 'en-IN',
@@ -662,14 +664,14 @@ for (const stateKey of userStatesToRun) {
           // ── Navigate to welcome page and click Log In ──
           const landingForPopup = new LandingPage(page);
           await page.goto(`${baseUrl}/welcome`, { waitUntil: 'domcontentloaded' });
-          await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+          await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });
           await handleCookies(page, 15000);
           await landingForPopup.clickLogIn();
 
           // ── Login with existing user credentials ──
           const signupForPopup = new SignupPage(page);
-          await page.waitForURL(/emailDetails|signup|signin/i, { timeout: 10000 }).catch(() => {});
-          await page.waitForLoadState('domcontentloaded').catch(() => {});
+          await page.waitForURL(/emailDetails|signup|signin/i, { timeout: 10000 }).catch(() => { });
+          await page.waitForLoadState('domcontentloaded').catch(() => { });
           console.log(`📍 [Home Page Popup] Landed on: ${page.url()}`);
 
           await signupForPopup.enterEmail(userEmail);
@@ -677,7 +679,7 @@ for (const stateKey of userStatesToRun) {
           await signupForPopup.enterPasswordAndSignIn(userPassword);
 
           // Wait for home page redirect
-          await page.waitForURL(/\/home/i, { timeout: 20000 }).catch(() => {});
+          await page.waitForURL(/\/home/i, { timeout: 20000 }).catch(() => { });
 
           // ── Popup detection + validation + Buy Now (via HomePage POM) ──
           const homePageForPopup = new HomePage(page, baseUrl);
@@ -721,20 +723,21 @@ for (const stateKey of userStatesToRun) {
             await searchPage.enableDevMode();
           }
 
+          let scheduleEventCard: any;
           let scheduleEventClicked = false;
+
+          // Step 1: Apply sport filter and locate event tile (no click yet)
           try {
             await schedule.selectSport(sport);
-            const eventCard = await schedule.findEvent(eventData.PPV_NAME);
             if (LOGIN_FIRST && isActiveUltimateState(userStateKey)) {
+              const eventCard = await schedule.findEvent(eventData.PPV_NAME);
               await schedule.clickEntitledEventAndValidate(eventCard, results, eventData);
               await finishRun('ultimate', userStateKey);
               return;
-            } else {
-              await schedule.clickEvent(eventCard);
-              scheduleEventClicked = true;
             }
+            scheduleEventCard = await schedule.findEvent(eventData.PPV_NAME);
           } catch (schedErr: any) {
-            console.error(`❌ Schedule flow failed: ${schedErr.message}`);
+            console.error(`❌ Schedule: could not find event: ${schedErr.message}`);
             let shotPath: string | undefined;
             try {
               const dir = path.resolve(process.cwd(), 'test-results', 'screenshots');
@@ -752,19 +755,80 @@ for (const stateKey of userStatesToRun) {
             });
           }
 
-          if (scheduleEventClicked) {
-            console.log('\n📋 Validating Schedule page...');
+          if (scheduleEventCard) {
+            // Step 2: Scroll card into view FIRST, then validate tile fields from it
+            await scheduleEventCard.scrollIntoViewIfNeeded().catch(() => {});
+
+            // Pre-capture tile values directly from the located event card element
+            // so getActualValue uses these instead of a broad DOM scan
             try {
-              const scheduleData = readSheet('Schedule page');
-              await validateVariant(
-                page, 'schedule', scheduleData, results, eventData, 'Schedule'
-              );
-            } catch (err: any) {
-              console.warn(`⚠️  Schedule page validation error: ${err.message}`);
+              // Time badge: HH:MM or H:MMam/pm format
+              const timeEl = scheduleEventCard.locator('span, time, div, p').filter({
+                hasText: /^\d{1,2}:\d{2}(\s*[aApP][mM])?$/
+              }).first();
+              const tileTime = await timeEl.innerText({ timeout: 3000 }).catch(() => '');
+              if (tileTime.trim()) eventData.__SCHEDULE_TILE_TIME = tileTime.trim();
+
+              // Title / PPV name from the card
+              const titleEl = scheduleEventCard.locator('h3, h4, h2, [class*="title"], [class*="name"], p').first();
+              const tileTitle = await titleEl.innerText({ timeout: 3000 }).catch(() => '');
+              if (tileTitle.trim()) eventData.__SCHEDULE_TILE_NAME = tileTitle.trim();
+
+              // Promoter — second paragraph or subtitle element
+              const promoterEl = scheduleEventCard.locator('p').nth(1);
+              const tilePromoter = await promoterEl.innerText({ timeout: 3000 }).catch(() => '');
+              if (tilePromoter.trim()) eventData.__SCHEDULE_TILE_PROMOTER = tilePromoter.trim();
+
+              console.log(`📌 Schedule tile pre-captured → time: ${eventData.__SCHEDULE_TILE_TIME || 'N/A'}, name: ${eventData.__SCHEDULE_TILE_NAME || 'N/A'}, promoter: ${eventData.__SCHEDULE_TILE_PROMOTER || 'N/A'}`);
+            } catch (preErr: any) {
+              console.warn(`⚠️  Could not pre-capture schedule tile values: ${preErr.message}`);
             }
 
+            // Step 3: Validate TILE fields (card in view, values pre-captured)
+            try {
+              const scheduleData = readSheet('Schedule page');
+              const tileFields = scheduleData.filter((r: any) =>
+                !String(r.Field || '').toLowerCase().startsWith('popup')
+              );
+              if (tileFields.length) {
+                console.log('\n📋 Validating Schedule tile fields (before popup opens)...');
+                await validateVariant(page, 'schedule', tileFields, results, eventData, 'Schedule', undefined, true);
+              }
+            } catch (err: any) {
+              console.warn(`⚠️  Schedule tile validation error: ${err.message}`);
+            }
+
+            // Step 4: Ensure card still in view then click to open popup
+            try {
+              await scheduleEventCard.scrollIntoViewIfNeeded();
+              await schedule.clickEvent(scheduleEventCard);
+              scheduleEventClicked = true;
+            } catch (schedErr: any) {
+              console.error(`❌ Schedule clickEvent failed: ${schedErr.message}`);
+              let shotPath: string | undefined;
+              try {
+                const dir = path.resolve(process.cwd(), 'test-results', 'screenshots');
+                if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+                shotPath = path.join(dir, `FAIL_Schedule_Event_Click_${Date.now()}.jpg`);
+                await page.screenshot({ path: shotPath, type: 'jpeg', quality: 75, fullPage: false });
+              } catch { shotPath = undefined; }
+              results.push({
+                page: 'Schedule',
+                field: 'PPV Event Click',
+                expected: `${eventData.PPV_NAME} clickable via ${sport} filter`,
+                actual: schedErr.message,
+                status: 'FAIL',
+                screenshot: shotPath,
+              });
+            }
+          }
+
+
+          if (scheduleEventClicked) {
+            await handlePopupModal(page, results, eventData, SOURCE, false);
             await schedule.clickBuyNow();
           }
+
         } else if (isSearch) {
           const searchPage = new SearchPage(page);
           await searchPage.navigate(baseUrl);
@@ -782,19 +846,27 @@ for (const stateKey of userStatesToRun) {
             return;
           }
 
-          await searchPage.searchAndClick(eventData.PPV_NAME);
+          await searchPage.searchForPPVTileWithUpcomingFallback(eventData.PPV_NAME);
 
-          console.log('\n📋 Validating Search page...');
+          console.log('\n📋 Validating Search page tile fields (before tile click)...');
           try {
             const searchData = readSheet('Search page');
+            // Only validate tile fields here — popup fields are validated by
+            // handlePopupModal after clickPPVTile opens the popup
+            const tileFields = searchData.filter((r: any) =>
+              !String(r.Field || '').toLowerCase().startsWith('popup')
+            );
             await validateVariant(
-              page, 'search', searchData, results, eventData, 'Search'
+              page, 'search', tileFields, results, eventData, 'Search'
             );
           } catch (err: any) {
             console.warn(`⚠️  Search page validation error: ${err.message}`);
           }
 
-          // Check and validate popup modal if visible BEFORE clicking Buy Now
+
+          await searchPage.clickPPVTile(eventData.PPV_NAME);
+
+          // Check and validate popup modal after clicking the tile and before clicking Buy Now
           await handlePopupModal(page, results, eventData, SOURCE, false);
 
           await searchPage.clickBuyNow();
@@ -828,6 +900,16 @@ for (const stateKey of userStatesToRun) {
           // authentication and then searches for landing-page containers on the
           // wrong page.
           if (LOGIN_FIRST) {
+            // Landing page flows require a non-logged-in user to see the welcome/landing page.
+            // When LOGIN_FIRST=true the user is already signed in, so these flows are not applicable.
+            if (LOGIN_FIRST_INVALID_LANDING_SOURCES.has(SOURCE.toLowerCase())) {
+              throw new Error(
+                `❌ LOGIN_FIRST=true is not compatible with SOURCE="${SOURCE}". ` +
+                `Landing page flows (${[...LOGIN_FIRST_INVALID_LANDING_SOURCES].join(', ')}) ` +
+                `require a non-logged-in user to access the landing/welcome page. ` +
+                `Use LOGIN_FIRST=false or choose a different source (e.g. home-boxing-tile, home-boxing-banner).`
+              );
+            }
             console.log(`ℹ️ [Login First] User already logged in, skipping welcome page navigation. Current URL: ${page.url()}`);
             const baseNoSlash = baseUrl.replace(/\/$/, '');
             const isLandingPageSource = SOURCE.toLowerCase().includes('landing-page');
@@ -920,7 +1002,7 @@ for (const stateKey of userStatesToRun) {
               ? 'home-boxing-banner'
               : SOURCE === 'home-boxing-upcoming'
                 ? 'home-boxing-upcoming'
-              : 'home-boxing-tile';
+                : 'home-boxing-tile';
           } else if (isBoxingSourceInner) {
             sheetName = 'Boxing page';
             pageName = 'Boxing';
@@ -973,6 +1055,7 @@ for (const stateKey of userStatesToRun) {
           }
 
           const isBoxingSubscriptionSource =
+            SOURCE === 'boxing-banner-ultimate' ||
             SOURCE === 'boxing-ultimate-subscription' ||
             SOURCE === 'boxing-standard-subscription' ||
             SOURCE === 'boxing-join-the-club';
@@ -1036,7 +1119,12 @@ for (const stateKey of userStatesToRun) {
                   : sheetName === 'Home of Boxing'
                     ? getHomeOfBoxingData(flowParam)
                     : readSheet(sheetName);
-                await validateVariant(page, 'landing', landingData, results, eventData, pageName, flowParam);
+                const variantName = sheetName === 'Home of Boxing'
+                  ? 'home-boxing'
+                  : sheetName === 'Home page'
+                    ? 'home-page'
+                    : 'landing';
+                await validateVariant(page, variantName, landingData, results, eventData, pageName, flowParam);
               }
             } catch (err: any) {
               console.warn(`⚠️  Entry page validation error: ${err.message}`);
@@ -1050,30 +1138,30 @@ for (const stateKey of userStatesToRun) {
         }
 
         if (SOURCE !== 'home-page-popup') {
-        // Handle generic popup validations and click-through
-        // For home-biggest-fights: clickBuyNow only clicks the tile, handlePopupModal validates + clicks Buy Now
-        // For dont-miss/tile sources: avoid double-clicking modal
-        const clickPopup = SOURCE === 'home-biggest-fights' || (!SOURCE.includes('dont-miss') && !SOURCE.includes('tile'));
-        if (SOURCE.toLowerCase() !== 'glory') {
-          await handlePopupModal(page, results, eventData, SOURCE, clickPopup);
-        }
+          // Handle generic popup validations and click-through
+          // For home-biggest-fights: clickBuyNow only clicks the tile, handlePopupModal validates + clicks Buy Now
+          // For dont-miss/tile sources: avoid double-clicking modal
+          const clickPopup = SOURCE === 'home-biggest-fights' || (!SOURCE.includes('dont-miss') && !SOURCE.includes('tile'));
+          if (SOURCE.toLowerCase() !== 'glory') {
+            await handlePopupModal(page, results, eventData, SOURCE, clickPopup);
+          }
 
-        await page.waitForLoadState('domcontentloaded').catch(() => { });
-        await page.waitForURL(
-          (url: URL) =>
-            url.toString().includes('PlanDetails') ||
-            url.toString().includes('TierPlans') ||
-            url.toString().includes('signup') ||
-            url.toString().includes('checkout') ||
-            url.toString().includes('payment'),
-          { timeout: 10000 }
-        ).catch(async () => {
+          await page.waitForLoadState('domcontentloaded').catch(() => { });
           await page.waitForURL(
-            (url: URL) => !url.toString().includes('/welcome'),
-            { timeout: 5000 }
-          ).catch(() => { });
-        });
-        console.log(`📍 Landed after Buy Now: ${page.url()}`);
+            (url: URL) =>
+              url.toString().includes('PlanDetails') ||
+              url.toString().includes('TierPlans') ||
+              url.toString().includes('signup') ||
+              url.toString().includes('checkout') ||
+              url.toString().includes('payment'),
+            { timeout: 10000 }
+          ).catch(async () => {
+            await page.waitForURL(
+              (url: URL) => !url.toString().includes('/welcome'),
+              { timeout: 5000 }
+            ).catch(() => { });
+          });
+          console.log(`📍 Landed after Buy Now: ${page.url()}`);
         }
 
         // ── STRICT VALIDATION FOR ULTIMATE USER PRE-LOGGED IN ──
@@ -1926,6 +2014,7 @@ for (const stateKey of userStatesToRun) {
 
           // If the URL is myaccount or home page and we are in a subscription-only flow, fail immediately.
           const isBoxingSubOnlySource =
+            SOURCE === 'boxing-banner-ultimate' ||
             SOURCE === 'boxing-ultimate-subscription' ||
             SOURCE === 'boxing-standard-subscription' ||
             SOURCE === 'boxing-join-the-club';
@@ -2047,6 +2136,7 @@ for (const stateKey of userStatesToRun) {
           // Skip for boxing-ultimate-subscription and boxing-join-the-club — they intentionally bypass the PPV page.
           // boxing-standard-subscription is NOT excluded here: it has defaultSignup=true and should show a PPV option.
           const isBoxingSubSource =
+            SOURCE === 'boxing-banner-ultimate' ||
             SOURCE === 'boxing-ultimate-subscription' ||
             SOURCE === 'boxing-page-bundle' ||
             SOURCE === 'boxing-upcoming-fights' ||

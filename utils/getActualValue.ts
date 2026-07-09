@@ -90,7 +90,7 @@ async function getScopedLandingPPVContainer(
           top: Math.max(0, Math.round(absoluteTop - 24)),
           behavior: 'instant',
         });
-      }).catch(() => {});
+      }).catch(() => { });
 
       await page.waitForTimeout(300);
       let railWrapper = railHeading.locator('xpath=ancestor::*[contains(@class,"railWrapper")][1]');
@@ -331,6 +331,129 @@ export async function getActualValue(
     return containerText && predicate(containerText) ? containerText : '';
   };
 
+  const isSearchContext = (): boolean => {
+    const currentPage = (eventData?.CURRENT_PAGE || '').toLowerCase();
+    return page.url().toLowerCase().includes('/search') || currentPage.startsWith('search');
+  };
+
+  let searchTileCache: any = undefined;
+  const getSearchPPVTile = async (): Promise<any | null> => {
+    if (!isSearchContext()) return null;
+    if (searchTileCache !== undefined) return searchTileCache;
+
+    const rawName = eventData?.PPV_NAME || eventData?.PPV_DISPLAY_NAME || '';
+    const namePart = rawName.includes(':') ? rawName.split(':').slice(1).join(':') : rawName;
+    const words = namePart
+      .toLowerCase()
+      .replace(/\bppv\b/g, ' ')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length > 2 && !['the', 'and', 'for', 'with', 'from'].includes(w));
+
+    const firstWord = words[0] || namePart.toLowerCase().split(/\s+/)[0] || '';
+    if (!firstWord) {
+      searchTileCache = null;
+      return null;
+    }
+
+    const selector = [
+      'article',
+      'a[class*="tile" i]',
+      'div[class*="tile" i]',
+      'div[class*="card" i]',
+      'div[class*="result" i]',
+      'li',
+    ].join(', ');
+
+    const candidates = page.locator(selector);
+    const count = await candidates.count().catch(() => 0);
+
+    for (let i = 0; i < Math.min(count, 250); i++) {
+      const tile = candidates.nth(i);
+      if (!await tile.isVisible().catch(() => false)) continue;
+
+      const combined = await tile.evaluate((el: HTMLElement) => {
+        const clean = (value: string | null | undefined) =>
+          String(value ?? '').replace(/\s+/g, ' ').trim();
+        const imageText = Array.from(el.querySelectorAll('img'))
+          .map(img => clean((img as HTMLImageElement).alt || img.getAttribute('aria-label') || img.getAttribute('title')))
+          .filter(Boolean)
+          .join(' ');
+        return clean(`${el.innerText || el.textContent || ''} ${imageText} ${el.getAttribute('aria-label') || ''} ${el.getAttribute('title') || ''}`);
+      }).catch(() => '');
+
+      const lower = combined.toLowerCase();
+      if (!lower.includes(firstWord)) continue;
+      if (
+        lower.includes('press conference') ||
+        lower.includes('weigh-in') ||
+        lower.includes('weigh in') ||
+        lower.includes('highlights') ||
+        lower.includes('replay') ||
+        lower.includes('preview')
+      ) {
+        continue;
+      }
+
+      const matchesAllWords = words.length > 0 && words.every(w => lower.includes(w));
+      const hasPpvSignals =
+        /\b\d{1,2}\s*(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/i.test(combined) ||
+        /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s*\d{1,2}\b/i.test(combined) ||
+        /\b\d{1,2}:\d{2}\s*(?:am|pm)?\b/i.test(combined) ||
+        /pay-per-view|ppv/i.test(combined);
+
+      if (matchesAllWords && hasPpvSignals) {
+        searchTileCache = tile;
+        return tile;
+      }
+    }
+
+    searchTileCache = null;
+    return searchTileCache;
+  };
+
+  const getSearchTileText = async (): Promise<string> => {
+    const tile = await getSearchPPVTile();
+    if (!tile) return '';
+    return clean(await tile.innerText({ timeout: T }).catch(() => '') || await tile.textContent().catch(() => '') || '');
+  };
+
+  const getSearchTileDateText = async (): Promise<string> => {
+    const tile = await getSearchPPVTile();
+    if (!tile) return '';
+
+    const dateText = await tile.evaluate((el: HTMLElement) => {
+      const clean = (value: string | null | undefined) =>
+        String(value ?? '').replace(/\s+/g, ' ').trim();
+      const looksDate = (value: string) => {
+        const text = clean(value);
+        if (text.length < 4 || text.length > 80) return false;
+        if (/buy now|fight card|matchroom|boxing|select a dazn plan/i.test(text)) return false;
+        const hasMonth = /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december)\b/i.test(text);
+        const hasTime = /\b\d{1,2}:\d{2}\s*(?:am|pm)?\b/i.test(text);
+        const hasDay = /\b\d{1,2}(?:st|nd|rd|th)?\b/i.test(text);
+        const hasWeekday = /\b(mon|tue|wed|thu|fri|sat|sun|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i.test(text);
+        return (hasMonth && hasDay) || (hasWeekday && hasTime) || (hasMonth && hasTime);
+      };
+
+      const elements = Array.from(el.querySelectorAll<HTMLElement>('span, time, p, div, label'));
+      for (const node of elements) {
+        if (node.children.length > 2) continue;
+        const text = clean(node.innerText || node.textContent);
+        if (looksDate(text)) return text;
+      }
+
+      const allText = clean(el.innerText || el.textContent);
+      const compact = allText.match(/\b\d{1,2}\s+(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z]*\s+\d{1,2}:\d{2}\s*(?:AM|PM)?\b/i);
+      if (compact) return compact[0];
+      const weekday = allText.match(/\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[a-z]*\s+\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*(?:\s+at)?\s+\d{1,2}:\d{2}\s*(?:AM|PM)?\b/i);
+      if (weekday) return weekday[0];
+      return '';
+    }).catch(() => '');
+
+    return clean(dateText);
+  };
+
   const selectedRadioByText = async (terms: string[]): Promise<string> => {
     const selected = await page.evaluate((needleTerms: string[]) => {
       const cleanText = (value: string | null | undefined) =>
@@ -437,6 +560,82 @@ export async function getActualValue(
     }
     _modal = null;
     return null;
+  };
+
+  let _popupContainer: any = undefined;
+  const getPopupContainer = async (): Promise<any | null> => {
+    if (_popupContainer !== undefined) return _popupContainer;
+
+    const rawName = eventData?.PPV_NAME || eventData?.PPV_DISPLAY_NAME || '';
+    const namePart = rawName.includes(':') ? rawName.split(':').slice(1).join(':') : rawName;
+    const titleWords = namePart
+      .toLowerCase()
+      .replace(/\bppv\b/g, ' ')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length > 2 && !['the', 'and', 'for', 'with', 'from'].includes(w));
+
+    const popupSelectors = [
+      '[role="dialog"]',
+      '[aria-modal="true"]',
+      '[class*="content-promotion" i]',
+      '[class*="modal-dialog" i]',
+      '[class*="modal" i]',
+      '[class*="popup" i]',
+    ];
+
+    let best: any = null;
+    let bestScore = -Infinity;
+    let bestArea = Infinity;
+
+    for (const sel of popupSelectors) {
+      const loc = page.locator(sel);
+      const count = await loc.count().catch(() => 0);
+      for (let i = 0; i < Math.min(count, 80); i++) {
+        const candidate = loc.nth(i);
+        if (!await candidate.isVisible().catch(() => false)) continue;
+
+        const info = await candidate.evaluate((el: HTMLElement, words: string[]) => {
+          const clean = (value: string | null | undefined) =>
+            String(value ?? '').replace(/\s+/g, ' ').trim();
+          const rect = el.getBoundingClientRect();
+          const text = clean(el.innerText || el.textContent);
+          const lower = text.toLowerCase();
+          const area = rect.width * rect.height;
+          const viewportArea = Math.max(1, window.innerWidth * window.innerHeight);
+          const classText = clean(el.className as any).toLowerCase();
+          const aria = clean(el.getAttribute('aria-label')).toLowerCase();
+          const role = clean(el.getAttribute('role')).toLowerCase();
+
+          let score = 0;
+          if (role === 'dialog' || el.getAttribute('aria-modal') === 'true') score += 35;
+          if (classText.includes('modal-dialog') || classText.includes('content-promotion')) score += 45;
+          if (classText.includes('modal') || classText.includes('popup')) score += 15;
+          if (lower.includes('buy now')) score += 60;
+          if (words.length > 0 && words.every(w => lower.includes(w))) score += 55;
+          if (el.querySelector('img')) score += 15;
+          if (el.querySelector('button, a')) score += 12;
+          if (classText.includes('close') || aria.includes('close') || el.querySelector('[aria-label*="close" i], [class*="close" i]')) score += 8;
+
+          if (rect.width < 180 || rect.height < 120) score -= 80;
+          if (area > viewportArea * 0.7) score -= 70;
+          else score += 30;
+          if (classText.includes('header') || classText.includes('nav') || classText.includes('menu')) score -= 100;
+
+          return { score, area, textLength: text.length };
+        }, titleWords).catch(() => null);
+
+        if (!info || info.score < 20) continue;
+        if (info.score > bestScore || (info.score === bestScore && info.area < bestArea)) {
+          best = candidate;
+          bestScore = info.score;
+          bestArea = info.area;
+        }
+      }
+    }
+
+    _popupContainer = best || null;
+    return _popupContainer;
   };
 
   const isPriceText = (t: string) =>
@@ -1136,6 +1335,18 @@ export async function getActualValue(
       return 'N/A';
     }
 
+    case "don't miss section":
+    case 'dont miss section': {
+      const source = (eventData?.SOURCE || eventData?.source || '').toLowerCase();
+      const savedHeading = (eventData?.__HOME_DONT_MISS_SECTION_HEADING || '').trim();
+      if (source === 'home-page-dont-miss' && savedHeading) return 'Present';
+
+      const heading = page.locator(
+        'h1, h2, h3, h4, [role="heading"], [class*="heading" i], [class*="title" i], [data-testid*="title" i]'
+      ).filter({ hasText: /don.t miss/i }).first();
+      return await heading.isVisible({ timeout: 2000 }).catch(() => false) ? 'Present' : 'Not found';
+    }
+
     case 'upcoming big fights section':
     case 'upcoming big fights heading':
     case 'section heading': {
@@ -1176,11 +1387,69 @@ export async function getActualValue(
       const nameParts = expectedTitle.split(/[:\-–]/).map(p => p.trim()).filter(p => p.length > 3);
       const titleRegex = new RegExp(expectedTitle.split(/\s+/).join('.*'), 'i');
       const regexParts = nameParts.map(part => new RegExp(part.split(/\s+/).join('.*'), 'i'));
+
+      // Helper: extract title heading from a scoped container element
+      const extractTitleFromContainer = async (containerEl: any): Promise<string | null> => {
+        // Try headings first (most precise)
+        const headingSels = ['h1', 'h2', 'h3', 'h4', '[class*="title" i]', '[class*="heading" i]'];
+        for (const hSel of headingSels) {
+          const headings = containerEl.locator(hSel);
+          const hCount = await headings.count().catch(() => 0);
+          for (let hi = 0; hi < hCount; hi++) {
+            const hText = clean(await headings.nth(hi).innerText({ timeout: T }).catch(() => '') || '');
+            if (hText && (titleRegex.test(hText) || regexParts.some(rx => rx.test(hText)))) {
+              return hText;
+            }
+          }
+        }
+        // Fallback: split container text by newline, find matching line
+        const containerText = clean(await containerEl.innerText({ timeout: T }).catch(() => '') || '');
+        if (titleRegex.test(containerText) || regexParts.some(rx => rx.test(containerText))) {
+          const lines = containerText.split('\n').map((l: string) => l.trim()).filter(Boolean);
+          const titleLine = lines.find((l: string) => titleRegex.test(l) || regexParts.some(rx => rx.test(l)));
+          // Only return the line if it's short enough to be a title (not the whole banner text)
+          if (titleLine && titleLine.length < 120) return titleLine;
+        }
+        return null;
+      };
+
+      // Strategy 1: Use scoped PPV container (most precise — avoids reading all slides)
+      const scopedContainer = await getScopedLandingPPVContainer(page, eventData);
+      if (scopedContainer) {
+        const result = await extractTitleFromContainer(scopedContainer);
+        if (result) return result;
+      }
+
+      // Strategy 2: Try the active slide directly (next most scoped)
+      const activeSlide = page.locator('.swiper-slide-active, [class*="swiper-slide-active"]').first();
+      if (await activeSlide.isVisible({ timeout: 500 }).catch(() => false)) {
+        const result = await extractTitleFromContainer(activeSlide);
+        if (result) return result;
+      }
+
+      // Strategy 3: Broad banner container fallback — scope to active slide within it
+      const broadSels = ['main [class*="banner"]', 'main [class*="hero"]'];
+      for (const sel of broadSels) {
+        const bannerEl = page.locator(sel).first();
+        const isVis = await bannerEl.isVisible({ timeout: 500 }).catch(() => false);
+        if (!isVis) continue;
+        // Prefer the active slide within the container
+        const activeWithin = bannerEl.locator('.swiper-slide-active, [class*="swiper-slide-active"]').first();
+        if (await activeWithin.count().catch(() => 0) > 0) {
+          const result = await extractTitleFromContainer(activeWithin);
+          if (result) return result;
+        }
+        // Last resort: search headings in the whole container but only return short title matches
+        const result = await extractTitleFromContainer(bannerEl);
+        if (result) return result;
+      }
+
+      // Fallback to snapshot only searching banner-related nodes
       const found = snapFind(n => {
         const text = n.text;
-        return titleRegex.test(text) || regexParts.some(rx => rx.test(text));
+        const isBanner = /banner|hero|swiper/i.test(n.classes || '') || n.tag === 'section' || n.tag === 'article';
+        return isBanner && (titleRegex.test(text) || regexParts.some(rx => rx.test(text)));
       });
-      // Return actual DOM text, not expected — so the report shows the real title
       return found !== 'N/A' ? found : 'Not found in banner';
     }
     case 'banner - event date': {
@@ -1400,12 +1669,59 @@ export async function getActualValue(
       return 'Not found';
     }
     case 'popup - event date': {
+      // Read directly from the compact popup card. Broad selectors such as
+      // [class*="modal"] can match a full-screen overlay that also contains
+      // the dimmed page behind it, so choose the smallest popup-like container
+      // before looking for the date chip.
+      const modal = await getPopupContainer();
+      if (modal) {
+        const dateEls = modal.locator('[class*="date" i], [class*="badge" i], time, span, p, label, div');
+        const elCount = await dateEls.count().catch(() => 0);
+        let bestDate = '';
+        let bestScore = -Infinity;
+
+        for (let i = 0; i < Math.min(elCount, 160); i++) {
+          const el = dateEls.nth(i);
+          if (!await el.isVisible().catch(() => false)) continue;
+          const kids = await el.locator('> *').count().catch(() => 0);
+          if (kids > 2) continue;
+          const t = clean(await el.innerText({ timeout: 2000 }).catch(() => '') || '');
+          if (!t || t.length > 80) continue;
+
+          const lower = t.toLowerCase();
+          if (/buy now|fight card|matchroom boxing|select a dazn plan/i.test(t)) continue;
+
+          const hasMonth = /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|may|june|july|august|september|october|november|december)\b/i.test(t);
+          const hasDay = /\b\d{1,2}(?:st|nd|rd|th)?\b/i.test(t);
+          const hasWeekday = /\b(mon|tue|wed|thu|fri|sat|sun|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i.test(t);
+          const hasTime = /\b\d{1,2}:\d{2}\s*(?:am|pm)?\b/i.test(t);
+          if (!(hasMonth && hasDay) && !(hasWeekday && hasTime)) continue;
+
+          let score = 0;
+          if (hasMonth) score += 30;
+          if (hasDay) score += 20;
+          if (hasTime) score += 25;
+          if (hasWeekday) score += 10;
+          if (kids === 0) score += 12;
+          if (lower.includes('at ')) score += 4;
+          score -= Math.max(0, t.length - 18);
+
+          if (score > bestScore) {
+            bestDate = t;
+            bestScore = score;
+          }
+        }
+
+        if (bestDate) return bestDate;
+      }
+
+      // ── Fallback: snapshot modal nodes only ────────────────────────────────
       // For home-page-popup flow, the popup shows the full PPV_DATE (e.g. "Sun 26th Jul at 00:30")
       // not the abbreviated LANDING_PAGE_PPV_DATE (e.g. "25 July")
       const popupSource = (eventData?.SOURCE || eventData?.source || '').toLowerCase();
       const expectedDate = popupSource === 'home-page-popup'
-        ? (eventData?.PPV_DATE || eventData?.LANDING_PAGE_PPV_DATE || '')
-        : (eventData?.LANDING_PAGE_PPV_DATE || eventData?.PPV_DATE || '');
+        ? (eventData?.PPV_POPUP_DATE || eventData?.PPV_DATE || eventData?.LANDING_PAGE_PPV_DATE || '')
+        : (eventData?.PPV_POPUP_DATE || eventData?.LANDING_PAGE_PPV_DATE || eventData?.PPV_DATE || '');
 
       const checkOption = (option: string, text: string): boolean => {
         const optionLower = option.toLowerCase();
@@ -1467,25 +1783,6 @@ export async function getActualValue(
 
       let found = snapFind(n => n.isInModal && isMatch(n.text), true);
 
-      if (found === 'N/A') {
-        found = snapFind(n => {
-          if (n.isInModal) return false;
-          const inHeader = n.classes.toLowerCase().includes('header') || n.classes.toLowerCase().includes('nav') || n.classes.toLowerCase().includes('menu');
-          if (inHeader) return false;
-          return isMatch(n.text);
-        });
-      }
-
-      // Third pass: search ALL nodes regardless of isInModal
-      // (home page popups may not be detected as modals by the DOM snapshot)
-      if (found === 'N/A') {
-        for (const n of snap) {
-          const inHeader = n.classes.toLowerCase().includes('header') || n.classes.toLowerCase().includes('nav') || n.classes.toLowerCase().includes('menu');
-          if (inHeader) continue;
-          if (isMatch(n.text)) { found = n.text; break; }
-        }
-      }
-      // Return actual DOM text for popup event date
       return found !== 'N/A' ? found : 'Not found';
     }
     case 'popup - promoter': {
@@ -1997,6 +2294,19 @@ export async function getActualValue(
     // SCHEDULE
     // ════════════════════════════════════════════════════════════
     case 'ppv tile present': {
+      const source = (eventData?.SOURCE || eventData?.source || '').toLowerCase();
+      if (source === 'home-page-dont-miss' && eventData?.__HOME_DONT_MISS_TILE_FOUND) {
+        return eventData.__HOME_DONT_MISS_TILE_FOUND;
+      }
+      if (source === 'home-boxing-tile' && eventData?.__HOME_BOXING_TILE_FOUND) {
+        return eventData.__HOME_BOXING_TILE_FOUND;
+      }
+
+      if (isSearchContext()) {
+        const tile = await getSearchPPVTile();
+        return tile ? 'Yes' : 'No';
+      }
+
       const url = page.url();
       const isLandingOrHome = url.includes('/welcome') || url.includes('/home') || url.includes('/boxing') ||
         (eventData?.CURRENT_PAGE && ['landing', 'boxing', 'home page', 'home of boxing'].includes(eventData.CURRENT_PAGE.toLowerCase()));
@@ -2013,6 +2323,37 @@ export async function getActualValue(
     }
 
     case 'lock icon present': {
+      if (isSearchContext()) {
+        const tile = await getSearchPPVTile();
+        if (!tile) return 'No';
+
+        const lock = tile.locator([
+          '[class*="lock" i]',
+          '[aria-label*="lock" i]',
+          '[data-testid*="lock" i]',
+          'svg[class*="lock" i]',
+          'use[href*="lock" i]',
+          '[class*="badge" i] svg',
+        ].join(', ')).first();
+        if (await lock.isVisible({ timeout: 1500 }).catch(() => false)) return 'Yes';
+
+        const hasLockLike = await tile.evaluate((el: HTMLElement) => {
+          const text = (el.innerText || el.textContent || '').toLowerCase();
+          if (text.includes('pay-per-view') || text.includes('ppv')) return true;
+          return Array.from(el.querySelectorAll<HTMLElement>('svg, use, path, [class], [aria-label], [data-testid]')).some(node => {
+            const value = [
+              node.className,
+              node.getAttribute('aria-label'),
+              node.getAttribute('data-testid'),
+              node.getAttribute('href'),
+              node.getAttribute('d'),
+            ].map(v => String(v || '').toLowerCase()).join(' ');
+            return value.includes('lock') || value.includes('padlock');
+          });
+        }).catch(() => false);
+        return hasLockLike ? 'Yes' : 'No';
+      }
+
       if (isLandingOrHomeContext()) {
         const container = await getScopedLandingPPVContainer(page, eventData);
         if (container) {
@@ -2046,6 +2387,39 @@ export async function getActualValue(
     }
 
     case 'ppv time on tile': {
+      // ── Use pre-captured value from the located event card (set in spec after scrollIntoViewIfNeeded) ──
+      if (eventData?.__SCHEDULE_TILE_TIME) return eventData.__SCHEDULE_TILE_TIME;
+
+      // getScopedLandingFieldText only runs for landing/home contexts.
+      // On schedule, snapFind returns the first HH:MM in the DOM — which can
+      // be from an adjacent tile. Instead, find the specific article first.
+      const isScheduleCtx = page.url().toLowerCase().includes('/schedule');
+      if (isScheduleCtx) {
+        const firstWord = (eventData?.PPV_NAME || '').toLowerCase().split(' ')[0];
+        const articles = page.locator('article');
+        const artCount = await articles.count().catch(() => 0);
+        for (let i = 0; i < artCount; i++) {
+          const art = articles.nth(i);
+          const artText = clean(
+            await art.innerText({ timeout: T }).catch(() => '')
+          ).toLowerCase();
+          if (firstWord && !artText.includes(firstWord)) continue;
+          // Found the correct tile — read its time badge
+          const inner = art.locator('span, time, p, div');
+          const ic = await inner.count().catch(() => 0);
+          for (let j = 0; j < ic; j++) {
+            const el = inner.nth(j);
+            if (!await el.isVisible().catch(() => false)) continue;
+            const kids = await el.locator('> *').count().catch(() => 0);
+            if (kids > 1) continue;
+            const t = clean(await el.innerText({ timeout: T }).catch(() => ''));
+            if (/^\d{1,2}:\d{2}(\s*(?:am|pm))?$/i.test(t)) return t;
+          }
+        }
+        return 'N/A';
+      }
+
+      // ── Non-schedule pages: original logic ──────────────────────────────
       const scopedTime = await getScopedLandingFieldText('span, time, p, div', text =>
         /^\d{1,2}:\d{2}\s*(?:am|pm)?$/i.test(text) ||
         /^\d{1,2}:\d{2}\s*(?:AM|PM)$/i.test(text)
@@ -2058,15 +2432,15 @@ export async function getActualValue(
       );
       if (fromSnap !== 'N/A') return fromSnap;
 
-      const firstWord = (eventData?.PPV_NAME || '').toLowerCase().split(' ')[0];
-      const articles = page.locator('article');
-      const artCount = await articles.count().catch(() => 0);
-      for (let i = 0; i < artCount; i++) {
-        const art = articles.nth(i);
+      const firstWord2 = (eventData?.PPV_NAME || '').toLowerCase().split(' ')[0];
+      const articles2 = page.locator('article');
+      const artCount2 = await articles2.count().catch(() => 0);
+      for (let i = 0; i < artCount2; i++) {
+        const art = articles2.nth(i);
         const artText = clean(
           await art.innerText({ timeout: T }).catch(() => '')
         ).toLowerCase();
-        if (firstWord && !artText.includes(firstWord)) continue;
+        if (firstWord2 && !artText.includes(firstWord2)) continue;
         const inner = art.locator('span, time, p, div');
         const ic = await inner.count().catch(() => 0);
         for (let j = 0; j < ic; j++) {
@@ -2183,6 +2557,37 @@ export async function getActualValue(
     // ════════════════════════════════════════════════════════════
     case 'ppv name': {
       const source = (eventData?.SOURCE || eventData?.source || '').toLowerCase();
+      if (source === 'home-page-dont-miss' && eventData?.__HOME_DONT_MISS_TILE_TEXT) {
+        const expectedName = eventData?.PPV_NAME || '';
+        const titleParts = expectedName
+          .split(/[:\-–]/)
+          .map(p => p.trim().toLowerCase())
+          .filter(p => p.length > 2);
+        const tileText = eventData.__HOME_DONT_MISS_TILE_TEXT;
+        const matchingPart = titleParts.find(part => {
+          const words = part.replace(/\bppv\b/g, ' ').split(/\s+/).filter(w => w.length > 2);
+          return words.length > 0 && words.every(w => tileText.toLowerCase().includes(w));
+        });
+        if (matchingPart) return expectedName;
+      }
+      if (source === 'home-boxing-tile' && eventData?.__HOME_BOXING_TILE_TEXT) {
+        const expectedName = eventData?.PPV_NAME || '';
+        const titleParts = expectedName
+          .split(/[:\-–]/)
+          .map(p => p.trim().toLowerCase())
+          .filter(p => p.length > 2);
+        const tileText = eventData.__HOME_BOXING_TILE_TEXT;
+        const matchingPart = titleParts.find(part => {
+          const words = part.replace(/\bppv\b/g, ' ').split(/\s+/).filter(w => w.length > 2);
+          return words.length > 0 && words.every(w => tileText.toLowerCase().includes(w));
+        });
+        if (matchingPart) return expectedName;
+      }
+
+      // ── Pre-captured from event card on schedule page ──
+      if (eventData?.__SCHEDULE_TILE_NAME && page.url().toLowerCase().includes('/schedule')) {
+        return eventData.__SCHEDULE_TILE_NAME;
+      }
       const isDefaultSignup =
         process.env.DEFAULT_SIGNUP === 'true' ||
         source === 'home-page-get-started' ||
@@ -2194,6 +2599,51 @@ export async function getActualValue(
         return 'N/A';
       }
       const url = page.url();
+      if (isSearchContext()) {
+        const tile = await getSearchPPVTile();
+        if (tile) {
+          const rawName = eventData?.PPV_NAME || '';
+          const namePart = rawName.includes(':') ? rawName.split(':').slice(1).join(':') : rawName;
+          const words = namePart
+            .toLowerCase()
+            .replace(/\bppv\b/g, ' ')
+            .replace(/[^a-z0-9]+/g, ' ')
+            .split(/\s+/)
+            .filter(w => w.length > 2 && !['the', 'and', 'for', 'with', 'from'].includes(w));
+
+          const title = await tile.evaluate((el: HTMLElement, expectedWords: string[]) => {
+            const clean = (value: string | null | undefined) =>
+              String(value ?? '').replace(/\s+/g, ' ').trim();
+            const candidates = Array.from(el.querySelectorAll<HTMLElement>(
+              'h1, h2, h3, h4, h5, strong, b, p, span, [class*="title" i], [class*="name" i]'
+            ));
+            for (const candidate of candidates) {
+              const text = clean(candidate.innerText || candidate.textContent);
+              const lower = text.toLowerCase();
+              if (text.length < 3 || text.length > 140) continue;
+              if (/buy now|fight card|\d{1,2}:\d{2}/i.test(text)) continue;
+              if (expectedWords.length > 0 && expectedWords.every(w => lower.includes(w))) return text;
+            }
+            return '';
+          }, words).catch(() => '');
+
+          if (title) return title;
+
+          const tileText = await getSearchTileText();
+          if (tileText && words.every(w => tileText.toLowerCase().includes(w))) {
+            const lines = tileText.split(/\n| {2,}/).map(clean).filter(Boolean);
+            const bestLine = lines.find(line =>
+              line.length < 140 &&
+              words.every(w => line.toLowerCase().includes(w)) &&
+              !/\d{1,2}:\d{2}/.test(line) &&
+              !/buy now|fight card/i.test(line)
+            );
+            if (bestLine) return bestLine;
+          }
+        }
+      }
+      if (isSearchContext()) return 'N/A';
+
       if (url.includes('/myaccount') || (eventData?.CURRENT_PAGE && eventData.CURRENT_PAGE.toLowerCase() === 'my account')) {
         const { MyAccountPage } = require('../pages/MyAccountPage');
         const myAccountPage = new MyAccountPage(page);
@@ -2379,6 +2829,34 @@ export async function getActualValue(
     // ════════════════════════════════════════════════════════════
     case 'ppv date': {
       const url = page.url();
+      const source = (eventData?.SOURCE || eventData?.source || '').toLowerCase();
+      if (source === 'home-page-dont-miss') {
+        const dateText = eventData?.__HOME_DONT_MISS_TILE_DATE || eventData?.LANDING_PAGE_PPV_DATE || '';
+        if (!dateText) return 'N/A';
+        const monthPattern = '(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC|January|February|March|April|May|June|July|August|September|October|November|December)';
+        const dayMonthMatch = dateText.match(new RegExp(`(?:^|[^0-9])([1-9]|[12]\\d|3[01])(?:st|nd|rd|th)?\\s*${monthPattern}`, 'i'));
+        const monthDayMatch = dateText.match(new RegExp(`${monthPattern}\\s*([1-9]|[12]\\d|3[01])(?:st|nd|rd|th)?`, 'i'));
+        if (dayMonthMatch) return `${dayMonthMatch[1]} ${dayMonthMatch[2].toUpperCase()}`;
+        if (monthDayMatch) return `${monthDayMatch[2]} ${monthDayMatch[1].toUpperCase()}`;
+        return dateText;
+      }
+      if (source === 'home-boxing-tile') {
+        const dateText = eventData?.__HOME_BOXING_TILE_DATE || eventData?.LANDING_PAGE_PPV_DATE || '';
+        if (!dateText) return 'N/A';
+        const monthPattern = '(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC|January|February|March|April|May|June|July|August|September|October|November|December)';
+        const dayMonthMatch = dateText.match(new RegExp(`(?:^|[^0-9])([1-9]|[12]\\d|3[01])(?:st|nd|rd|th)?\\s*${monthPattern}`, 'i'));
+        const monthDayMatch = dateText.match(new RegExp(`${monthPattern}\\s*([1-9]|[12]\\d|3[01])(?:st|nd|rd|th)?`, 'i'));
+        if (dayMonthMatch) return `${dayMonthMatch[1]} ${dayMonthMatch[2].toUpperCase()}`;
+        if (monthDayMatch) return `${monthDayMatch[2]} ${monthDayMatch[1].toUpperCase()}`;
+        return dateText;
+      }
+
+      if (isSearchContext()) {
+        const searchDate = await getSearchTileDateText();
+        if (searchDate) return searchDate;
+        return 'N/A';
+      }
+
       if (url.includes('/myaccount') || (eventData?.CURRENT_PAGE && eventData.CURRENT_PAGE.toLowerCase() === 'my account')) {
         const { MyAccountPage } = require('../pages/MyAccountPage');
         const myAccountPage = new MyAccountPage(page);
@@ -2451,11 +2929,21 @@ export async function getActualValue(
     // ════════════════════════════════════════════════════════════
     // POPUP FIELDS
     // ════════════════════════════════════════════════════════════
+    case 'popup - image present':
     case 'popup image present': {
+      const modal = await getPopupContainer();
+      if (modal) {
+        const imageCount = await modal.locator('img, picture, [role="img"], [style*="background-image" i]').count().catch(() => 0);
+        if (imageCount > 0) return 'Yes';
+      }
+
       return firstExists(
         '[role="dialog"] img',
         '[aria-modal="true"] img',
-        '[class*="modal" i] img'
+        '[class*="content-promotion" i] img',
+        '[class*="modal-dialog" i] img',
+        '[class*="modal" i] img',
+        '[class*="popup" i] img'
       );
     }
 
@@ -2676,7 +3164,44 @@ export async function getActualValue(
     case 'hero image':
     case 'ppv image present':
     case 'ppv image': {
+      const source = (eventData?.SOURCE || eventData?.source || '').toLowerCase();
+      if (source === 'home-page-dont-miss' && eventData?.__HOME_DONT_MISS_IMAGE_PRESENT) {
+        return eventData.__HOME_DONT_MISS_IMAGE_PRESENT;
+      }
+      if (source === 'home-boxing-tile' && eventData?.__HOME_BOXING_IMAGE_PRESENT) {
+        return eventData.__HOME_BOXING_IMAGE_PRESENT;
+      }
+
       const url = page.url();
+      if (isSearchContext()) {
+        const tile = await getSearchPPVTile();
+        if (!tile) return 'No';
+
+        const media = tile.locator('img, picture, [role="img"], [style*="background-image"]').first();
+        if (await media.isVisible({ timeout: 1500 }).catch(() => false)) return 'Yes';
+
+        const hasMediaBlock = await tile.evaluate((el: HTMLElement) => {
+          const root = el.getBoundingClientRect();
+          const nodes = Array.from(el.querySelectorAll<HTMLElement>('img, picture, [role="img"], div, a, span'));
+          return nodes.some(node => {
+            const rect = node.getBoundingClientRect();
+            const style = window.getComputedStyle(node);
+            const hasBg = style.backgroundImage && style.backgroundImage !== 'none';
+            const hasImgLike = node.tagName.toLowerCase() === 'img' ||
+              node.tagName.toLowerCase() === 'picture' ||
+              node.getAttribute('role') === 'img' ||
+              hasBg;
+            const text = (node.innerText || node.textContent || '').trim();
+            const isLargeVisual = rect.width >= 120 &&
+              rect.height >= 80 &&
+              rect.width <= Math.max(root.width + 20, 160) &&
+              !/buy now|fight card|matchroom|boxing|vs\.?/i.test(text);
+            return hasImgLike || isLargeVisual;
+          });
+        }).catch(() => false);
+        return hasMediaBlock ? 'Yes' : 'No';
+      }
+
       if (url.includes('/myaccount') || (eventData?.CURRENT_PAGE && eventData.CURRENT_PAGE.toLowerCase() === 'my account')) {
         const { MyAccountPage } = require('../pages/MyAccountPage');
         const myAccountPage = new MyAccountPage(page);
@@ -3039,7 +3564,7 @@ export async function getActualValue(
         const nameLocator = page.locator('div, span, p, label, h2, h3')
           .filter({ hasText: eventData?.PPV_NAME || 'Joshua' })
           .first();
-        
+
         if (await nameLocator.isVisible({ timeout: 2000 }).catch(() => false)) {
           let container = nameLocator;
           for (let i = 0; i < 4; i++) {
@@ -3419,8 +3944,15 @@ export async function getActualValue(
     case 'event date and time':
     case 'ppv1 date and time text on bundle':
     case 'ppv1 date text on ultimate tier':
+    case 'search ppv date and time':
     case 'landing page ppv date': {
       const url = page.url();
+      if (isSearchContext()) {
+        const searchDate = await getSearchTileDateText();
+        if (searchDate) return searchDate;
+        return 'N/A';
+      }
+
       const isLandingOrHome = url.includes('/welcome') || url.includes('/home') || url.includes('/boxing') ||
         (eventData?.CURRENT_PAGE && ['landing', 'boxing', 'home page', 'home of boxing'].includes(eventData.CURRENT_PAGE.toLowerCase()));
       if (isLandingOrHome) {
@@ -4020,7 +4552,7 @@ export async function getActualValue(
         isActiveStandardUser && currentPage === 'choose how to buy'
           ? activeStandardChooseBuyFeatures[featureKey]
           : eventData?.[featureKey]
-      || '').toLowerCase();
+          || '').toLowerCase();
 
       const normalizeFeatureText = (text: string): string =>
         text.toLowerCase()
@@ -4355,6 +4887,11 @@ export async function getActualValue(
       }).catch(() => '');
 
       return badgeFromDom || 'N/A';
+    }
+
+    case 'boxing banner date': {
+      const liveText = await page.locator('[data-target="banner-tag"] span, [class*="BoxedHeroBanners-module__tag___"]').first().innerText().catch(() => '');
+      return liveText.trim() || 'N/A';
     }
 
     case 'event subtitle': {

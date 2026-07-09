@@ -24,6 +24,7 @@ const landingData = [
 
 const boxingLandingData = [
   { Field: 'Boxing Banner Present', Expected: 'Yes', Flow: 'boxing' },
+  { Field: 'Boxing Banner Date', Expected: '{{BOXING_BANNER_DATE}}', Flow: 'boxing' },
   { Field: 'Event Name', Expected: '{{PPV_NAME}}', Flow: 'boxing' },
   { Field: 'Event Subtitle', Expected: '{{BOXING_BANNER_SUBTITLE}}', Flow: 'boxing' },
   { Field: 'Or Separator', Expected: 'or', Flow: 'boxing' },
@@ -366,20 +367,20 @@ const paymentData = [
 // SHEET 5: Schedule page
 // ═══════════════════════════════════════════════════════════
 const scheduleData = [
+  // ── Tile fields (validated BEFORE popup opens) ──────────────────────────────
   { Field: 'PPV Tile Present', Expected: 'Yes' },
   { Field: 'PPV Name', Expected: '{{PPV_NAME}}' },
-  { Field: 'PPV Date', Expected: '{{PPV_DATE}}' },
-  { Field: 'PPV Time on Tile', Expected: '{{PPV_TIME}}' },
+  { Field: 'PPV Time on Tile', Expected: '{{SCHEDULE_PPV_TIME}}' },
   { Field: 'Lock Icon Present', Expected: 'Yes' },
   { Field: 'PPV Promoter on Tile', Expected: '{{PPV_PROMOTER}}' },
-  { Field: 'Popup Image Present', Expected: 'Yes' },
-  { Field: 'Popup Date', Expected: '{{PPV_DATE}}' },
-  { Field: 'Popup PPV Name', Expected: '{{PPV_NAME}}' },
-  { Field: 'Popup Promoter', Expected: '{{PPV_PROMOTER}}' },
-  { Field: 'Popup Description', Expected: 'Catch the biggest moment of the year. Select a DAZN plan to pair with your pay-per-view.' },
-  { Field: 'Popup Buy Now CTA Present', Expected: 'Yes' },
-  { Field: 'Popup Buy Now CTA Text', Expected: 'Buy now' },
-  { Field: 'Popup Close Button', Expected: 'Yes' },
+  // ── Popup fields (validated via handlePopupModal AFTER popup opens) ─────────
+  { Field: 'Popup - Image Present', Expected: 'Yes' },
+  { Field: 'Popup - Event Title', Expected: '{{PPV_NAME}}' },
+  { Field: 'Popup - Event Date', Expected: '{{PPV_POPUP_DATE}}' },
+  { Field: 'Popup - Promoter', Expected: '{{PPV_PROMOTER}}' },
+  { Field: 'Popup - Event Description', Expected: 'Catch the biggest moment of the year. Select a DAZN plan to pair with your pay-per-view.' },
+  { Field: 'Popup - Buy Now CTA', Expected: 'Visible' },
+  { Field: 'Popup - Close Button', Expected: 'Visible' },
 ];
 
 // ═══════════════════════════════════════════════════════════
@@ -509,8 +510,12 @@ const homeOfBoxingData = [
   { Flow: 'home-boxing-banner', Field: 'Banner - Buy Now CTA', Expected: 'Visible' },
   { Flow: 'home-boxing-banner', Field: 'Banner - Fight Card CTA', Expected: 'Visible' },
   { Flow: 'home-boxing-tile', Field: 'Best of Boxing Section', Expected: 'Present' },
+  { Flow: 'home-boxing-tile', Field: 'PPV Tile Present', Expected: 'Yes' },
+  { Flow: 'home-boxing-tile', Field: 'PPV Name', Expected: '{{PPV_NAME}}' },
+  { Flow: 'home-boxing-tile', Field: 'PPV Date', Expected: '{{LANDING_PAGE_PPV_DATE}}' },
+  { Flow: 'home-boxing-tile', Field: 'PPV Image Present', Expected: 'Yes' },
   { Flow: 'home-boxing-tile', Field: 'Popup - Event Title', Expected: '{{PPV_NAME}}' },
-  { Flow: 'home-boxing-tile', Field: 'Popup - Event Date', Expected: '{{PPV_DATE}}' },
+  { Flow: 'home-boxing-tile', Field: 'Popup - Event Date', Expected: '{{PPV_POPUP_DATE}}' },
   { Flow: 'home-boxing-tile', Field: 'Popup - Promoter', Expected: '{{PPV_PROMOTER}}' },
   { Flow: 'home-boxing-tile', Field: 'Popup - Buy Now CTA', Expected: 'Visible' },
   { Flow: 'home-boxing-tile', Field: 'Popup - Event Description', Expected: 'Catch the biggest moment of the year. Select a DAZN plan to pair with your pay-per-view.' },
@@ -536,8 +541,13 @@ const homePageData = [
   { Flow: 'home-page-banner', Field: 'Banner - Event Description', Expected: '{{BANNER_DESCRIPTION}}' },
   { Flow: 'home-page-banner', Field: 'Banner - Buy Now CTA', Expected: 'Visible' },
   { Flow: 'home-page-banner', Field: 'Banner - Fight Card CTA', Expected: 'Visible' },
+  { Flow: 'home-page-dont-miss', Field: 'Don\'t Miss Section', Expected: 'Present' },
+  { Flow: 'home-page-dont-miss', Field: 'PPV Tile Present', Expected: 'Yes' },
+  { Flow: 'home-page-dont-miss', Field: 'PPV Name', Expected: '{{PPV_NAME}}' },
+  { Flow: 'home-page-dont-miss', Field: 'PPV Date', Expected: '{{LANDING_PAGE_PPV_DATE}}' },
+  { Flow: 'home-page-dont-miss', Field: 'PPV Image Present', Expected: 'Yes' },
   { Flow: 'home-page-dont-miss', Field: 'Popup - Event Title', Expected: '{{PPV_NAME}}' },
-  { Flow: 'home-page-dont-miss', Field: 'Popup - Event Date', Expected: '{{PPV_DATE}}' },
+  { Flow: 'home-page-dont-miss', Field: 'Popup - Event Date', Expected: '{{PPV_POPUP_DATE}}' },
   { Flow: 'home-page-dont-miss', Field: 'Popup - Promoter', Expected: '{{PPV_PROMOTER}}' },
   { Flow: 'home-page-dont-miss', Field: 'Popup - Buy Now CTA', Expected: 'Visible' },
   { Flow: 'home-page-dont-miss', Field: 'Popup - Event Description', Expected: 'Catch the biggest moment of the year. Select a DAZN plan to pair with your pay-per-view.' },
@@ -632,10 +642,19 @@ const upsellPaymentData = [
 // SHEET 18: Search page
 // ═══════════════════════════════════════════════════════════
 const searchPageData = [
+  // ── Tile fields (validated BEFORE popup opens) ──────────────────────────────
   { Field: 'PPV Tile Present', Expected: 'Yes' },
   { Field: 'PPV Name', Expected: '{{PPV_NAME}}' },
-  { Field: 'PPV Date', Expected: '{{PPV_DATE}}' },
-  { Field: 'Buy Now Button', Expected: 'Yes' },
+  { Field: 'PPV Image Present', Expected: 'Yes' },
+  { Field: 'Search PPV Date and Time', Expected: '{{SEARCH_PPV_DATE_TIME}}' },
+  { Field: 'Lock Icon Present', Expected: 'Yes' },
+  // ── Popup fields (validated via handlePopupModal AFTER popup opens) ─────────
+  { Field: 'Popup - Event Title', Expected: '{{PPV_NAME}}' },
+  { Field: 'Popup - Event Date', Expected: '{{PPV_POPUP_DATE}}' },
+  { Field: 'Popup - Promoter', Expected: '{{PPV_PROMOTER}}' },
+  { Field: 'Popup - Buy Now CTA', Expected: 'Visible' },
+  { Field: 'Popup - Event Description', Expected: 'Catch the biggest moment of the year. Select a DAZN plan to pair with your pay-per-view.' },
+  { Field: 'Popup - Close Button', Expected: 'Visible' },
 ];
 
 // ═══════════════════════════════════════════════════════════
