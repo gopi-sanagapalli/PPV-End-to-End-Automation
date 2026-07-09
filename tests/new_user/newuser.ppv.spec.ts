@@ -401,7 +401,37 @@ async function runFlow(
       }
 
       if (scheduleEventCard) {
-        // Step 2: Validate TILE fields BEFORE clicking (popup not open yet, filter applied)
+        // Step 2: Scroll card into view FIRST, then validate tile fields from it
+        await scheduleEventCard.scrollIntoViewIfNeeded().catch(() => {});
+
+        // Pre-capture tile values directly from the located event card element
+        // so getActualValue uses these instead of a broad DOM scan
+        try {
+          const cardHtml = await scheduleEventCard.innerHTML({ timeout: 5000 }).catch(() => '');
+          const cardText = await scheduleEventCard.innerText({ timeout: 5000 }).catch(() => '');
+          // Time badge: HH:MM or H:MMam/pm format
+          const timeEl = scheduleEventCard.locator('span, time, div, p').filter({
+            hasText: /^\d{1,2}:\d{2}(\s*[aApP][mM])?$/
+          }).first();
+          const tileTime = await timeEl.innerText({ timeout: 3000 }).catch(() => '');
+          if (tileTime.trim()) eventData.__SCHEDULE_TILE_TIME = tileTime.trim();
+
+          // Title / PPV name from the card
+          const titleEl = scheduleEventCard.locator('h3, h4, h2, [class*="title"], [class*="name"], p').first();
+          const tileTitle = await titleEl.innerText({ timeout: 3000 }).catch(() => '');
+          if (tileTitle.trim()) eventData.__SCHEDULE_TILE_NAME = tileTitle.trim();
+
+          // Promoter — second paragraph or subtitle element
+          const promoterEl = scheduleEventCard.locator('p').nth(1);
+          const tilePromoter = await promoterEl.innerText({ timeout: 3000 }).catch(() => '');
+          if (tilePromoter.trim()) eventData.__SCHEDULE_TILE_PROMOTER = tilePromoter.trim();
+
+          console.log(`📌 Schedule tile pre-captured → time: ${eventData.__SCHEDULE_TILE_TIME || 'N/A'}, name: ${eventData.__SCHEDULE_TILE_NAME || 'N/A'}, promoter: ${eventData.__SCHEDULE_TILE_PROMOTER || 'N/A'}`);
+        } catch (preErr: any) {
+          console.warn(`⚠️  Could not pre-capture schedule tile values: ${preErr.message}`);
+        }
+
+        // Step 3: Validate TILE fields (card in view, values pre-captured)
         try {
           const scheduleData = readSheet('Schedule page');
           const tileFields = scheduleData.filter((r: any) =>
@@ -415,8 +445,7 @@ async function runFlow(
           console.warn(`⚠️  Schedule tile validation error: ${err.message}`);
         }
 
-        // Step 3: Scroll event card back into view (validateVariant may have scrolled page),
-        // then click to open popup
+        // Step 4: Ensure card still in view then click to open popup
         try {
           await scheduleEventCard.scrollIntoViewIfNeeded();
           await schedule.clickEvent(scheduleEventCard);

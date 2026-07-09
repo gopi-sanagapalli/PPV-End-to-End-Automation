@@ -2263,7 +2263,9 @@ export async function getActualValue(
     }
 
     case 'ppv time on tile': {
-      // ── Schedule page: scope to the article containing PPV_NAME ─────────
+      // ── Use pre-captured value from the located event card (set in spec after scrollIntoViewIfNeeded) ──
+      if (eventData?.__SCHEDULE_TILE_TIME) return eventData.__SCHEDULE_TILE_TIME;
+
       // getScopedLandingFieldText only runs for landing/home contexts.
       // On schedule, snapFind returns the first HH:MM in the DOM — which can
       // be from an adjacent tile. Instead, find the specific article first.
@@ -2430,6 +2432,10 @@ export async function getActualValue(
     // PPV NAME
     // ════════════════════════════════════════════════════════════
     case 'ppv name': {
+      // ── Pre-captured from event card on schedule page ──
+      if (eventData?.__SCHEDULE_TILE_NAME && page.url().toLowerCase().includes('/schedule')) {
+        return eventData.__SCHEDULE_TILE_NAME;
+      }
       const source = (eventData?.SOURCE || eventData?.source || '').toLowerCase();
       const isDefaultSignup =
         process.env.DEFAULT_SIGNUP === 'true' ||
