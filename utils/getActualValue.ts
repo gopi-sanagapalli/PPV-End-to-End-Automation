@@ -2263,6 +2263,37 @@ export async function getActualValue(
     }
 
     case 'ppv time on tile': {
+      // ── Schedule page: scope to the article containing PPV_NAME ─────────
+      // getScopedLandingFieldText only runs for landing/home contexts.
+      // On schedule, snapFind returns the first HH:MM in the DOM — which can
+      // be from an adjacent tile. Instead, find the specific article first.
+      const isScheduleCtx = page.url().toLowerCase().includes('/schedule');
+      if (isScheduleCtx) {
+        const firstWord = (eventData?.PPV_NAME || '').toLowerCase().split(' ')[0];
+        const articles = page.locator('article');
+        const artCount = await articles.count().catch(() => 0);
+        for (let i = 0; i < artCount; i++) {
+          const art = articles.nth(i);
+          const artText = clean(
+            await art.innerText({ timeout: T }).catch(() => '')
+          ).toLowerCase();
+          if (firstWord && !artText.includes(firstWord)) continue;
+          // Found the correct tile — read its time badge
+          const inner = art.locator('span, time, p, div');
+          const ic = await inner.count().catch(() => 0);
+          for (let j = 0; j < ic; j++) {
+            const el = inner.nth(j);
+            if (!await el.isVisible().catch(() => false)) continue;
+            const kids = await el.locator('> *').count().catch(() => 0);
+            if (kids > 1) continue;
+            const t = clean(await el.innerText({ timeout: T }).catch(() => ''));
+            if (/^\d{1,2}:\d{2}(\s*(?:am|pm))?$/i.test(t)) return t;
+          }
+        }
+        return 'N/A';
+      }
+
+      // ── Non-schedule pages: original logic ──────────────────────────────
       const scopedTime = await getScopedLandingFieldText('span, time, p, div', text =>
         /^\d{1,2}:\d{2}\s*(?:am|pm)?$/i.test(text) ||
         /^\d{1,2}:\d{2}\s*(?:AM|PM)$/i.test(text)
@@ -2275,15 +2306,15 @@ export async function getActualValue(
       );
       if (fromSnap !== 'N/A') return fromSnap;
 
-      const firstWord = (eventData?.PPV_NAME || '').toLowerCase().split(' ')[0];
-      const articles = page.locator('article');
-      const artCount = await articles.count().catch(() => 0);
-      for (let i = 0; i < artCount; i++) {
-        const art = articles.nth(i);
+      const firstWord2 = (eventData?.PPV_NAME || '').toLowerCase().split(' ')[0];
+      const articles2 = page.locator('article');
+      const artCount2 = await articles2.count().catch(() => 0);
+      for (let i = 0; i < artCount2; i++) {
+        const art = articles2.nth(i);
         const artText = clean(
           await art.innerText({ timeout: T }).catch(() => '')
         ).toLowerCase();
-        if (firstWord && !artText.includes(firstWord)) continue;
+        if (firstWord2 && !artText.includes(firstWord2)) continue;
         const inner = art.locator('span, time, p, div');
         const ic = await inner.count().catch(() => 0);
         for (let j = 0; j < ic; j++) {

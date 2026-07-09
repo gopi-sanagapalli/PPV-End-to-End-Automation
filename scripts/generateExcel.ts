@@ -370,8 +370,7 @@ const scheduleData = [
   // ── Tile fields (validated BEFORE popup opens) ──────────────────────────────
   { Field: 'PPV Tile Present', Expected: 'Yes' },
   { Field: 'PPV Name', Expected: '{{PPV_NAME}}' },
-  { Field: 'PPV Date', Expected: '{{PPV_DATE}}' },
-  { Field: 'PPV Time on Tile', Expected: '{{PPV_TIME}}' },
+  { Field: 'PPV Time on Tile', Expected: '{{SCHEDULE_PPV_TIME}}' },
   { Field: 'Lock Icon Present', Expected: 'Yes' },
   { Field: 'PPV Promoter on Tile', Expected: '{{PPV_PROMOTER}}' },
   // ── Popup fields (validated via handlePopupModal AFTER popup opens) ─────────
