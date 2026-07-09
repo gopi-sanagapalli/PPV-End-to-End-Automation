@@ -10,6 +10,34 @@ export async function detectPageType(
 ): Promise<'ppv' | 'plan' | 'email' | 'payment' | 'phone' | 'otp' | 'unknown' | 'standalone-ppv' | 'success-upsell' | 'saved-card-payment' | 'bet-upsell' | 'default-signup' | 'choose-how-to-buy' | 'confirmation'> {
   if (!p || p.isClosed()) return 'unknown';
 
+  // ── Wait for SPA routing / initial load to settle if needed ──
+  const initialUrl = p.url().toLowerCase();
+  if (
+    initialUrl.includes('index.html') ||
+    initialUrl.includes('externalpurchaseid=') ||
+    initialUrl.includes('contextualppvid=') ||
+    ((initialUrl.includes('page=plandetails') || initialUrl.includes('page=tierplans')) && 
+     !initialUrl.includes('upselltiershown') && 
+     !initialUrl.includes('upselltierselected') && 
+     !initialUrl.includes('upselltierskipped'))
+  ) {
+    try {
+      await p.waitForFunction(() => {
+        const href = window.location.href.toLowerCase();
+        const bodyText = document.body ? document.body.innerText.toLowerCase() : '';
+        const hasUpsellStateInUrl = href.includes('upselltiershown') || 
+                                     href.includes('upselltierselected') || 
+                                     href.includes('upselltierskipped');
+        const hasPpvText = bodyText.includes('pay-per-view') || 
+                            bodyText.includes('just the fight') || 
+                            bodyText.includes('continue with pay-per-view') || 
+                            bodyText.includes('ultimate fan package') ||
+                            bodyText.includes('to watch your pay-per-view');
+        return hasUpsellStateInUrl || hasPpvText;
+      }, { timeout: 8000 }).catch(() => {});
+    } catch {}
+  }
+
   // ── Body text detection FIRST for highly specific pages (OTP & Phone) ──
   // This prevents URL-based false positives when SPA navigation updates UI before URL changes
   const body = await p.locator('body')
@@ -133,7 +161,7 @@ export async function detectPageType(
   // If contextual PPV-only copy is already rendered, this is still the PPV
   // selection page and must not be validated as a DAZN Plan page.
   if (
-    urlLower.includes('contextualppvid=') &&
+    (urlLower.includes('contextualppvid=') || urlLower.includes('externalpurchaseid=')) &&
     (urlLower.includes('page=plandetails') || urlLower.includes('page=tierplans')) &&
     !urlLower.includes('upselltierselected=true') &&
     (

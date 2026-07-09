@@ -838,6 +838,7 @@ export function buildEventData(
   if (!base.HOME_BOXING_UPCOMING_DATE) {
     base.HOME_BOXING_UPCOMING_DATE = formatHomeBoxingUpcomingDate(
       base.HOME_BOXING_UPCOMING_RAW_DATE ||
+      base.MOBILE_PPV_DATE ||
       base.LANDING_PAGE_PPV_DATE ||
       base.BOXING_UPCOMING_DATE ||
       base.PPV_DATE ||
@@ -848,6 +849,7 @@ export function buildEventData(
   if (!base.HOME_BOXING_UPCOMING_TIME) {
     base.HOME_BOXING_UPCOMING_TIME = formatHomeBoxingUpcomingTime(
       base.HOME_BOXING_UPCOMING_RAW_TIME,
+      base.MOBILE_PPV_DATE,
       base.BOXING_BANNER_SUBTITLE,
       base.PPV_TIME,
       base.PPV_DATE
