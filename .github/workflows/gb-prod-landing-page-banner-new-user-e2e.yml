@@ -29,6 +29,9 @@ on:
 permissions:
   contents: read
 
+env:
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
+
 jobs:
   prod:
     name: landing-page-banner | ${{ matrix.plan }}
@@ -38,11 +41,11 @@ jobs:
       - macOS
       - ARM64
 
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     strategy:
       fail-fast: false
-      max-parallel: 4
+      max-parallel: 8
       matrix:
         plan:
           - standard_monthly
@@ -69,28 +72,13 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: lts/*
-
-      - name: Show Runner
-        run: |
-          echo "Runner: $RUNNER_NAME"
-          echo "OS: $RUNNER_OS"
-          hostname
-
-      - name: Verify Node
-        run: |
-          node -v
-          npm -v
+          cache: npm
 
       - name: Install dependencies
-        run: |
-          rm -rf node_modules
-          npm ci
+        run: npm ci
 
-      - name: Install Playwright browsers
-        run: npx playwright install chromium chrome
-
-      - name: Verify Playwright
-        run: npx playwright --version
+      - name: Install Playwright Chromium browser
+        run: npx playwright install chromium
 
       - name: Run GB PROD Landing Page Banner PPV Flow
         shell: bash
@@ -114,8 +102,6 @@ jobs:
           echo "=================================="
           echo "PLAYWRIGHT EXIT CODE = $EXIT_CODE"
           echo "=================================="
-
-          ps -ef | grep -E "node|chrome|playwright" || true
 
           exit $EXIT_CODE
 

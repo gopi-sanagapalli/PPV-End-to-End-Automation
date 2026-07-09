@@ -2,7 +2,7 @@ import { defineConfig } from '@playwright/test';
 
 const isHeadless = process.env.HEADLESS === 'true';
 
-/*const REGION = (process.env.DAZN_REGION || 'GB').toUpperCase();
+const REGION = (process.env.DAZN_REGION || 'GB').toUpperCase();
 const regionLocaleMap: Record<string, { locale: string; timezoneId: string }> = {
   GB: { locale: 'en-GB', timezoneId: 'Europe/London' },
   US: { locale: 'en-US', timezoneId: 'America/New_York' },
@@ -12,7 +12,7 @@ const regionLocaleMap: Record<string, { locale: string; timezoneId: string }> = 
 };
 const { locale: regionLocale, timezoneId: regionTimezone } =
   regionLocaleMap[REGION] ?? { locale: 'en-GB', timezoneId: 'Europe/London' };
-*/
+
 export default defineConfig({
   testDir: './tests',
   timeout: 300_000,
@@ -23,18 +23,22 @@ export default defineConfig({
   use: {
     headless: isHeadless,
 
-    // Keep CI/headless on the same desktop layout as local headed Chrome.
-    viewport: { width: 1920, height: 1080 },
+    // Headless (CI): fix at 1920×1080 for consistent layout.
+    // Headed (laptop/desktop): null = use actual maximised window size so the
+    // browser is never larger than the physical screen.
+    viewport: isHeadless ? { width: 1920, height: 1080 } : null,
     deviceScaleFactor: 1,
     isMobile: false,
     hasTouch: false,
 
-    timezoneId: 'Asia/Kolkata',
-    locale: 'en-IN',
+    timezoneId: regionTimezone,
+    locale: regionLocale,
 
     launchOptions: {
       args: [
-        '--window-size=1920,1080',
+        // Headless: set a virtual 1920×1080 display. Headed: maximise to the
+        // real screen size so it is never clipped on smaller laptop displays.
+        ...(isHeadless ? ['--window-size=1920,1080'] : ['--start-maximized']),
         '--disable-infobars',
         '--no-sandbox',
         '--disable-dev-shm-usage',
@@ -49,8 +53,10 @@ export default defineConfig({
     navigationTimeout: 30_000,
 
     video: {
-      mode: process.env.CI ? 'on' : 'retain-on-failure',
-      size: { width: 1920, height: 1080 },
+      mode: 'retain-on-failure',
+      // In headless/CI mode pin recordings to 1920×1080.
+      // In headed mode omit size so Playwright inherits the window dimensions.
+      ...(isHeadless ? { size: { width: 1920, height: 1080 } } : {}),
     },
 
     screenshot: 'only-on-failure',
@@ -61,7 +67,7 @@ export default defineConfig({
     {
       name: 'chromium',
       use: {
-        channel: 'chrome',
+        browserName: 'chromium',
       },
     },
   ],

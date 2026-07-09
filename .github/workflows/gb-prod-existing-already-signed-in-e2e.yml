@@ -29,6 +29,9 @@ on:
 permissions:
   contents: read
 
+env:
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
+
 jobs:
   prod:
     name: ${{ matrix.source }} | ${{ matrix.profile }}
@@ -38,7 +41,7 @@ jobs:
       - macOS
       - ARM64
 
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     strategy:
       fail-fast: false
@@ -192,6 +195,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: lts/*
+          cache: npm
 
       - name: Show Runner
         run: |
@@ -239,15 +243,10 @@ jobs:
           npm -v
 
       - name: Install dependencies
-        run: |
-          rm -rf node_modules
-          npm ci
+        run: npm ci
 
-      - name: Install Playwright browsers
-        run: npx playwright install chromium chrome
-
-      - name: Verify Playwright
-        run: npx playwright --version
+      - name: Install Playwright Chromium browser
+        run: npx playwright install chromium
 
       - name: Set USER_STATE and PLAN from matrix profile
         run: |
