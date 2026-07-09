@@ -45,6 +45,8 @@
   "regions": {
     "GB": {
       "LANDING_PAGE_PPV_DATE": "25 July",
+      "PPV_DATE": "Sat 25th Jul at 20:00",
+      "PPV_PAGE_DATE": "Sat 25th Jul at 20:00",
       "PPV_PRICE": "19.99",
       "TODAY_YOU_PAY_PRICE": "19.99",
       "UPSELL_PRICE_LENGTH": "/month for 12 months",
