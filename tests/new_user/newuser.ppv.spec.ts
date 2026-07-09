@@ -1672,9 +1672,14 @@ async function runFlow(
         if (!planValidated && !page.url().includes('page=TierPlans')) {
           try {
             const planData = getPlanDataByTier(tier);
+            const planFlow = [
+              'boxing-banner-ultimate',
+              'boxing-ultimate-subscription',
+              'boxing-join-the-club',
+            ].includes(source) ? 'boxing-ultimate-direct' : undefined;
             console.log(`📊 Plan rows: ${planData.length}`);
             console.log(`🔍 spec call debug: eventData =`, typeof eventData, eventData ? "defined" : "undefined", eventData ? Object.keys(eventData).join(', ') : 'none');
-            await validateVariant(page, 'plan', planData, results, eventData, 'DAZN Plan');
+            await validateVariant(page, 'plan', planData, results, eventData, 'DAZN Plan', planFlow);
           } catch (e: any) {
             console.warn('⚠️  Plan validation error:', e.message);
           }

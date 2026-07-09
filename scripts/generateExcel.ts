@@ -219,6 +219,11 @@ const planData = [
   // ── Ultimate ─────────────────────────────────────────────
 
   { Tier: 'Ultimate', Field: 'Page Title', Expected: '{{PLAN_PAGE_TITLE}}', Flow: '' },
+  { Tier: 'Ultimate', Field: 'Ultimate Card Present', Expected: 'Yes', Flow: 'boxing-ultimate-direct' },
+  { Tier: 'Ultimate', Field: 'Ultimate Badge', Expected: 'The Ultimate Fan Package', Flow: 'boxing-ultimate-direct' },
+  { Tier: 'Ultimate', Field: 'Ultimate Plan Name', Expected: 'DAZN Ultimate', Flow: 'boxing-ultimate-direct' },
+  { Tier: 'Ultimate', Field: 'Ultimate Package Description', Expected: 'All these fights and more this year. One unbeatable price.', Flow: 'boxing-ultimate-direct' },
+  { Tier: 'Ultimate', Field: 'Ultimate Image Strip Present', Expected: 'Yes', Flow: 'boxing-ultimate-direct' },
   { Tier: 'Ultimate', Field: 'Annual Pay Monthly Option', Expected: 'Yes', Flow: '' },
   { Tier: 'Ultimate', Field: 'Annual Pay Monthly Title', Expected: 'Annual - Pay Monthly', Flow: '' },
   { Tier: 'Ultimate', Field: 'Annual Pay Monthly Price', Expected: '{{ANNUAL_PAY_MONTHLY_PRICE}}', Flow: '' },
@@ -234,6 +239,7 @@ const planData = [
   { Tier: 'Ultimate', Field: 'Ultimate Feature 1', Expected: '{{ULTIMATE_FEATURE_1}}', Flow: '' },
   { Tier: 'Ultimate', Field: 'Ultimate Feature 2', Expected: '{{ULTIMATE_FEATURE_2}}', Flow: '' },
   { Tier: 'Ultimate', Field: 'Ultimate Feature 3', Expected: '{{ULTIMATE_FEATURE_3}}', Flow: '' },
+  { Tier: 'Ultimate', Field: 'Select How To Pay Heading', Expected: 'Select how to pay', Flow: 'boxing-ultimate-direct' },
   { Tier: 'Ultimate', Field: 'CTA Button', Expected: '{{PLAN_CTA_BUTTON}}', Flow: '' },
 ];
 
