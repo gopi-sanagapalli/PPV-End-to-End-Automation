@@ -79,7 +79,8 @@ export const validateVariant = async (
   results:   any[],
   eventData: Record<string, string>,
   pageName:  string = 'PPV',
-  flow?:     string   // ← new optional param: 'myaccount' | 'landing' | undefined
+  flow?:     string,   // ← optional: 'myaccount' | 'landing' | undefined
+  skipLazyScroll?: boolean  // ← when true, skip the full-page lazy-load scroll
 ) => {
   console.log(`🔍 validateVariant entry: pageName = "${pageName}", variant = "${variant}", hasEventData = ${!!eventData}, typeof eventData = ${typeof eventData}, keys = ${eventData ? Object.keys(eventData).join(', ') : 'none'}`);
   if (!eventData) throw new Error('❌ eventData is missing');
@@ -95,7 +96,7 @@ export const validateVariant = async (
   const tier     = (eventData.TIER      || 'standard').toLowerCase();
   const ratePlan = (eventData.RATE_PLAN || 'monthly').toLowerCase();
 
-  const rules = data.filter(r => {
+  let rules = data.filter(r => {
     const rv = (r.Variant  || '').trim().toLowerCase();
     const rt = (r.Tier     || '').trim().toLowerCase();
     const rf = (r.Flow     || '').trim().toLowerCase(); // ← new Flow column
@@ -126,6 +127,20 @@ export const validateVariant = async (
     return true;
   });
 
+  const pageNameLower = pageName.trim().toLowerCase();
+  const popupValidationFields = new Set([
+    'popup - event title',
+    'popup - event date',
+    'popup - promoter',
+    'popup - buy now cta',
+    'popup - event description',
+    'popup - close button',
+  ]);
+
+  if (pageNameLower === 'popup modal') {
+    rules = rules.filter(r => popupValidationFields.has(String(r.Field || '').trim().toLowerCase()));
+  }
+
   if (!rules.length) {
     throw new Error(`❌ No rules for variant: "${variant}" / tier: "${tier}"`);
   }
@@ -147,7 +162,7 @@ export const validateVariant = async (
     urlLower.includes('upselltiershown=true') || // PPV page — upsell section is below fold
     (urlLower.includes('page=plandetails') && !urlLower.includes('upselltiershown=true'));
 
-  if (needsScroll) {
+  if (needsScroll && !skipLazyScroll) {
     // Save original scroll position
     const originalScrollY = await page.evaluate(() => window.scrollY).catch(() => 0);
 
@@ -261,6 +276,16 @@ export const validateVariant = async (
   const validations = rules.map(async (rule) => {
     const field = (rule.Field || '').trim();
     if (!field) return null;
+    const fieldLowerNormalized = field.toLowerCase().replace(/\s+/g, ' ').trim();
+
+    if (
+      pageNameLower.startsWith('search') &&
+      (fieldLowerNormalized === 'buy now button' || fieldLowerNormalized === 'buy now cta')
+    ) {
+      console.log(`  ⏭️  Skipping [${field}] — Search validates the PPV tile and popup, not the Buy Now CTA`);
+      return null;
+    }
+
     // Skip welcome back banner fields because there is no welcome back banner in the new UI
     if (field.toLowerCase().includes('welcome back')) {
       console.log(`  ⏭️  Skipping welcome back banner field validation: "${field}"`);

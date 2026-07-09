@@ -143,10 +143,9 @@ export function resolveExpected(
   }
 
 
-  // Landing banner uses its own display date
+  // All banners use the landing banner display date
   if (
     field === 'banner - event date' &&
-    (pageName || '').toLowerCase().startsWith('landing') &&
     eventData.LANDING_BANNER_DATE
   ) {
     return String(eventData.LANDING_BANNER_DATE);
@@ -187,6 +186,11 @@ export function resolveExpected(
   // Page-specific subtitle expectations
   if (field === 'event subtitle' && (pageName || "").toLowerCase() === 'boxing' && eventData.BOXING_BANNER_SUBTITLE) {
     return String(eventData.BOXING_BANNER_SUBTITLE);
+  }
+
+  // Boxing banner date (tag chip above event title on /boxing page)
+  if (field === 'boxing banner date' && eventData.BOXING_BANNER_DATE) {
+    return String(eventData.BOXING_BANNER_DATE);
   }
 
 
@@ -418,6 +422,13 @@ export function resolveExpected(
     }
   }
 
+  // ── PPV_POPUP_DATE: dedicated field for popup modal date chip ───────────────
+  // Resolves {{PPV_POPUP_DATE}} → eventData.PPV_POPUP_DATE (set per event/region)
+  if (raw.includes('PPV_POPUP_DATE')) {
+    const popupDate = eventData.PPV_POPUP_DATE || '';
+    if (popupDate) return popupDate;
+  }
+
   if (field === 'popup date') {
     const pDate = eventData.PPV_DATE || '';
     const lpDate = eventData.LANDING_PAGE_PPV_DATE || '';
@@ -431,16 +442,11 @@ export function resolveExpected(
     // Let those template rows resolve naturally.
     const currentSrc = (eventData.SOURCE || eventData.source || '').trim().toLowerCase();
     if (currentSrc !== 'home-page-popup') {
-      const userState = String(eventData.USER_STATE || process.env.USER_STATE || '').trim().toLowerCase();
-      const activeStandardStates = new Set([
-        'active_standard',
-        'active_standard_monthly',
-        'active_standard_apm',
-      ]);
-
-      raw = activeStandardStates.has(userState)
-        ? eventData.PPV_DESCRIPTION_ACTIVE_STANDARD || ACTIVE_STANDARD_PPV_POPUP_DESCRIPTION
-        : eventData.PPV_DESCRIPTION || DEFAULT_PPV_POPUP_DESCRIPTION;
+      if (isActiveStandardUser) {
+        raw = ACTIVE_STANDARD_PPV_POPUP_DESCRIPTION;
+      } else {
+        raw = eventData.PPV_DESCRIPTION || DEFAULT_PPV_POPUP_DESCRIPTION;
+      }
     }
   }
 
@@ -782,6 +788,9 @@ export function resolveExpected(
   ];
   if (dateTimeFields.includes(field)) {
     if (pageName.toLowerCase().includes('mobile') || pageName.toLowerCase().includes('paywall')) {
+      return template;
+    }
+    if (pageName.toLowerCase().startsWith('search')) {
       return template;
     }
     return getDynamicDateTimeBadge(template);

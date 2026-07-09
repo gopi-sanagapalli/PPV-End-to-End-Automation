@@ -488,4 +488,358 @@ export class SearchPage extends BasePage {
     }
   }
 
-}
+
+  async searchForUpcomingEvent(eventName: string): Promise<void> {
+    let searchQuery = eventName;
+    if (eventName.includes(':')) {
+      searchQuery = eventName.split(':').pop()?.trim() || eventName;
+    }
+
+    const upcomingQuery = `${searchQuery} Upcoming`;
+    console.log(`🔍 [Search] Searching for upcoming PPV tile with: "${upcomingQuery}"`);
+    await this.searchForEvent(upcomingQuery);
+  }
+
+  private async hasVisiblePPVTile(eventName: string): Promise<boolean> {
+    let matchPattern = eventName;
+    if (eventName.includes(':')) {
+      matchPattern = eventName.split(':').pop()?.trim() || eventName;
+    }
+
+    const regexesToTry = [new RegExp(matchPattern.replace(/\s+/g, '.*'), 'i')];
+    const isStaging = (process.env.DAZN_ENV || 'prod').toLowerCase() === 'stag';
+    if (isStaging) {
+      const firstWord = matchPattern.split(/\s+/)[0]?.trim();
+      if (firstWord && firstWord.length > 2 && firstWord.toLowerCase() !== 'the') {
+        regexesToTry.push(new RegExp(firstWord, 'i'));
+      }
+    }
+
+    const selectors = [
+      'article',
+      '[class*="EventTile" i]',
+      '[class*="event-tile" i]',
+      '[class*="SearchResult" i]',
+      '[class*="search-result" i]',
+      '[class*="tile" i]',
+      '[class*="card" i]',
+      'li[class*="result" i]',
+      'li',
+    ];
+
+    for (const regex of regexesToTry) {
+      for (const selector of selectors) {
+        const tiles = this.page.locator(selector).filter({ hasText: regex });
+        const count = await tiles.count().catch(() => 0);
+
+        for (let i = 0; i < count; i++) {
+          const tile = tiles.nth(i);
+          if (!await tile.isVisible().catch(() => false)) continue;
+
+          const text = await tile.textContent().catch(() => '');
+          if (!text || text.length > 800) continue;
+
+          const textLower = text.toLowerCase();
+          const isAncillary = [
+            'press conference',
+            'weigh-in',
+            'workout',
+            'replay',
+            'highlights',
+            'preview',
+            'promo',
+            'interview',
+            'behind the scenes',
+            'episode',
+            'documentary',
+            'face off',
+            'kickboxing',
+          ].some(term => textLower.includes(term));
+          if (isAncillary) continue;
+
+          const heading = await tile.locator('h1, h2, h3, h4, h5, [class*="title" i], [class*="heading" i]').first().textContent().catch(() => '');
+          if (heading) {
+            const headingLower = heading.toLowerCase();
+            if (headingLower.includes(':') || headingLower.includes('press') || headingLower.includes('weigh')) {
+              if (!headingLower.includes('(test)')) continue;
+            }
+          }
+
+          const hasDate = await tile.locator('[class*="badge" i], [class*="date" i], time').isVisible({ timeout: 500 }).catch(() => false);
+          const hasLock = await tile.locator('[class*="lock" i], [class*="ppv" i]').isVisible({ timeout: 500 }).catch(() => false);
+          const hasPpvText = /pay-per-view|ppv/i.test(text);
+          const hasDateText =
+            /\b\d{1,2}\s*(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\b/i.test(text) ||
+            /\b\d{1,2}:\d{2}\s*(?:AM|PM)?\b/i.test(text);
+
+          if (hasDate || hasLock || hasPpvText || hasDateText) {
+            console.log(`✅ [Search] PPV tile available for validation: "${text.replace(/\s+/g, ' ').trim().substring(0, 100)}"`);
+            return true;
+          }
+        }
+      }
+    }
+
+    return false;
+  }
+
+  async searchForPPVTileWithUpcomingFallback(eventName: string): Promise<void> {
+    let searchQuery = eventName;
+    if (eventName.includes(':')) {
+      searchQuery = eventName.split(':').pop()?.trim() || eventName;
+    }
+
+    console.log(`🔍 [Search Attempt 1] Searching with: "${searchQuery}"`);
+    await this.searchForEvent(searchQuery);
+    if (await this.hasVisiblePPVTile(eventName)) {
+      return;
+    }
+
+    const upcomingQuery = `${searchQuery} Upcoming`;
+    console.log(`⚠️ [Search Attempt 1] PPV tile not found for "${eventName}" — retrying with "${upcomingQuery}"...`);
+    await this.searchForEvent(upcomingQuery);
+    if (await this.hasVisiblePPVTile(eventName)) {
+      return;
+    }
+
+    const allText = await this.page.evaluate(() => {
+      return Array.from(document.querySelectorAll('article, li, [class*="result" i]'))
+        .map(el => (el as HTMLElement).innerText?.substring(0, 100))
+        .filter(t => t && t.length > 5)
+        .slice(0, 10)
+        .join('\n');
+    }).catch(() => 'N/A');
+    console.log('📋 Page content sample:\n', allText);
+
+    throw new Error(
+      `❌ PPV tile not found for: "${eventName}" ` +
+      `(tried "${searchQuery}" and "${upcomingQuery}")`
+    );
+  }
+
+  // ── FIND AND CLICK PPV TILE ───────────────────────────────────
+  async clickPPVTile(eventName: string): Promise<void> {
+    console.log(`🎯 Looking for PPV tile: ${eventName}`);
+
+    let matchPattern = eventName;
+    if (eventName.includes(':')) {
+      matchPattern = eventName.split(':').pop()?.trim() || eventName;
+    }
+
+    const regexesToTry = [new RegExp(matchPattern.replace(/\s+/g, '.*'), 'i')];
+    const isStaging = (process.env.DAZN_ENV || 'prod').toLowerCase() === 'stag';
+    if (isStaging) {
+      const firstWord = matchPattern.split(/\s+/)[0]?.trim();
+      if (firstWord && firstWord.length > 2 && firstWord.toLowerCase() !== 'the') {
+        regexesToTry.push(new RegExp(firstWord, 'i'));
+      }
+    }
+
+    // Try multiple selectors for search result tiles
+    const selectors = [
+      'article',
+      '[class*="EventTile" i]',
+      '[class*="event-tile" i]',
+      '[class*="SearchResult" i]',
+      '[class*="search-result" i]',
+      '[class*="tile" i]',
+      '[class*="card" i]',
+      'li[class*="result" i]',
+      'li',
+    ];
+
+    for (const regex of regexesToTry) {
+      console.log(`🔍 Trying regex pattern: ${regex}`);
+      for (const selector of selectors) {
+        const tiles = this.page.locator(selector).filter({ hasText: regex });
+        const count = await tiles.count().catch(() => 0);
+
+        if (count > 0) {
+          console.log(`🔍 Found ${count} tiles with selector: ${selector} for regex ${regex}`);
+
+          for (let i = 0; i < count; i++) {
+            const tile = tiles.nth(i);
+            const text = await tile.textContent().catch(() => '');
+            if (!text || text.length > 800) continue;
+
+            // Exclude ancillary content like press conferences, weigh-ins, etc.
+            const textLower = text.toLowerCase();
+            const isAncillary = [
+              'press conference',
+              'weigh-in',
+              'workout',
+              'replay',
+              'highlights',
+              'preview',
+              'promo',
+              'interview',
+              'behind the scenes',
+              'episode',
+              'documentary',
+              'face off',
+              'kickboxing'
+            ].some(term => textLower.includes(term));
+            if (isAncillary) continue;
+
+            // Extra safety check: if the main title/heading has a colon or press/weigh terms, skip it
+            const heading = await tile.locator('h1, h2, h3, h4, h5, [class*="title" i], [class*="heading" i]').first().textContent().catch(() => '');
+            if (heading) {
+              const headingLower = heading.toLowerCase();
+              if (headingLower.includes(':') || headingLower.includes('press') || headingLower.includes('weigh')) {
+                // Keep it if it is a test event, e.g. "Glory 108: Petch v Miguel Trindade (TEST)"
+                if (!headingLower.includes('(test)')) {
+                  continue;
+                }
+              }
+            }
+
+            console.log(`  Tile ${i}: "${text.substring(0, 80).trim()}"`);
+
+            // Check for date badge (PPV tile indicator)
+            const hasDate = await tile.locator('[class*="badge" i], [class*="date" i], time').isVisible({ timeout: 500 }).catch(() => false);
+            const hasLock = await tile.locator('[class*="lock" i], [class*="ppv" i]').isVisible({ timeout: 500 }).catch(() => false);
+            const hasMay = text.includes('MAY') || text.includes('May') || text.includes('9 MAY') || text.includes('20:30') || text.toLowerCase().includes('test');
+
+            if (hasDate || hasLock || hasMay) {
+              console.log(`✅ PPV tile found: "${text.substring(0, 80).trim()}"`);
+
+              const scrollY = await this.page.evaluate(() => window.scrollY);
+              await tile.scrollIntoViewIfNeeded().catch(() => { });
+              await this.page.waitForTimeout(300);
+
+              const box = await tile.boundingBox();
+              if (!box) continue;
+
+              await this.page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+
+              const buyNowButton = this.page.locator(
+                'a:has-text("Buy now"), button:has-text("Buy now"), ' +
+                'a:has-text("Buy Now"), button:has-text("Buy Now"), ' +
+                'a:has-text("Continue"), button:has-text("Continue")'
+              ).first();
+
+              await expect(buyNowButton).toBeVisible({ timeout: 15000 });
+
+              await this.page.evaluate((y) => {
+                window.scrollTo(0, y);
+                document.body.style.overflow = 'hidden';
+                document.documentElement.style.overflow = 'hidden';
+              }, scrollY);
+
+              console.log('🔒 Background scroll locked');
+              console.log('✅ PPV popup opened & Buy button located');
+              return;
+            }
+          }
+        }
+      }
+    }
+
+    // Debug — dump what's on the page
+    const allText = await this.page.evaluate(() => {
+      return Array.from(document.querySelectorAll('article, li, [class*="result" i]'))
+        .map(el => (el as HTMLElement).innerText?.substring(0, 100))
+        .filter(t => t && t.length > 5)
+        .slice(0, 10)
+        .join('\n');
+    }).catch(() => 'N/A');
+    console.log('📋 Page content sample:\n', allText);
+
+    throw new Error(`❌ PPV tile not found for: ${eventName}`);
+  }
+
+  // ── SEARCH + CLICK WITH UPCOMING FALLBACK ────────────────────
+  // Strategy:
+  //   1. Search with bare PPV name → try to find & click tile
+  //   2. If not found → retry with "<name> Upcoming"
+  //   3. If still not found → throw clear failure
+  async searchAndClick(eventName: string): Promise<void> {
+    // Strip leading "Sport:" prefix if present
+    let searchQuery = eventName;
+    if (eventName.includes(':')) {
+      searchQuery = eventName.split(':').pop()?.trim() || eventName;
+    }
+
+    // ── Attempt 1: bare PPV name ──────────────────────────────
+    console.log(`🔍 [Search Attempt 1] Searching with: "${searchQuery}"`);
+    await this.searchForEvent(searchQuery);
+    try {
+      await this.clickPPVTile(eventName);
+      return; // success
+    } catch {
+      console.log(`⚠️ [Search Attempt 1] Tile not found for "${eventName}" — retrying with "Upcoming" suffix...`);
+    }
+
+    // ── Attempt 2: append "Upcoming" ──────────────────────────
+    const upcomingQuery = `${searchQuery} Upcoming`;
+    console.log(`🔍 [Search Attempt 2] Searching with: "${upcomingQuery}"`);
+    await this.searchForEvent(upcomingQuery);
+    try {
+      await this.clickPPVTile(eventName);
+      return; // success
+    } catch {
+      console.log(`❌ [Search Attempt 2] Tile still not found for "${eventName}"`);
+    }
+
+    // Both attempts failed — dump page content for diagnosis
+    const allText = await this.page.evaluate(() => {
+      return Array.from(document.querySelectorAll('article, li, [class*="result" i]'))
+        .map(el => (el as HTMLElement).innerText?.substring(0, 100))
+        .filter(t => t && t.length > 5)
+        .slice(0, 10)
+        .join('\n');
+    }).catch(() => 'N/A');
+    console.log('📋 Page content sample:\n', allText);
+
+    throw new Error(
+      `❌ PPV tile not found for: "${eventName}" ` +
+      `(tried "${searchQuery}" and "${upcomingQuery}")`
+    );
+  }
+
+  // ── CLICK BUY NOW ─────────────────────────────────────────────
+  async clickBuyNow(): Promise<void> {
+    console.log('💳 Clicking Buy Now CTA...');
+    const buyNow = this.page.locator(
+      'a:has-text("Buy now"), button:has-text("Buy now"), ' +
+      'a:has-text("Buy Now"), button:has-text("Buy Now"), ' +
+      'a:has-text("Subscribe"), button:has-text("Subscribe"), ' +
+      'a:has-text("Continue"), button:has-text("Continue")'
+    ).first();
+
+    await expect(buyNow).toBeVisible({ timeout: 8000 });
+    await buyNow.click({ force: true });
+    console.log('✅ Buy Now clicked');
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // DEV MODE: Enable dev mode to bypass phone number page
+  // Flow: Landing → Explore → Home → Search → dev_mode_on → Copy ID → Back 2x → Back to Landing
+  // ═══════════════════════════════════════════════════════════════
+  async enableDevMode(): Promise<void> {
+    console.log('\n═══════════════════════════════════════════════════');
+    console.log('  🎭 ENABLING DEV MODE to bypass phone number page');
+    console.log('═══════════════════════════════════════════════════\n');
+
+    const originalUrl = this.page.url();
+    console.log(`Original URL before dev mode: ${originalUrl}`);
+
+    try {
+      // ── Step 0: Check if dev mode is already active ────────────
+      const yellowDot = this.page.locator('div[class*="dev-mode__circle"], [class*="dev-mode"]').first();
+      const alreadyActive = await yellowDot.isVisible({ timeout: 1500 }).catch(() => false);
+      if (alreadyActive) {
+        console.log('✅ Dev mode is already active (yellow dot visible). Skipping activation flow.');
+        return;
+      }
+
+      // ── Step 1: Navigate to search page ───────────
+      const searchLink = this.page.locator('header a[href*="/search"], a[href*="/search"]').first();
+      const searchVisible = await searchLink.isVisible({ timeout: 2000 }).catch(() => false);
+
+      if (searchVisible) {
+        console.log('✅ Found search link — navigating via client-side click');
+        await Promise.all([
+          this.page.waitForURL('**/search', { timeout: 10000 }).catch(() => { }),
+          searchLink.click({ force: true })
+        ]);
