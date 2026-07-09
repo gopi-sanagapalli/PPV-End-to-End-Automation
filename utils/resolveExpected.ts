@@ -143,9 +143,10 @@ export function resolveExpected(
   }
 
 
-  // All banners use the landing banner display date
+  // Landing banner uses its own display date
   if (
     field === 'banner - event date' &&
+    (pageName || '').toLowerCase().startsWith('landing') &&
     eventData.LANDING_BANNER_DATE
   ) {
     return String(eventData.LANDING_BANNER_DATE);
