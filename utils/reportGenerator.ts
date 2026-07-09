@@ -402,10 +402,10 @@ export async function generateReports(
   const html = buildHtml(results, meta);
   fs.writeFileSync(htmlPath, html, 'utf-8');
 
-  // Render PDF via headless Chrome (channel:chrome avoids needing bundled chromium)
+  // Render PDF via bundled Playwright Chromium (no system Chrome dependency)
   let pdfOk = false;
   try {
-    const browser = await chromium.launch({ channel: 'chrome', headless: true });
+    const browser = await chromium.launch({ headless: true });
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
     await page.goto('file://' + htmlPath, { waitUntil: 'load' });
@@ -419,7 +419,8 @@ export async function generateReports(
     await browser.close();
     pdfOk = true;
   } catch (e: any) {
-    // PDF generation failed silently — HTML report still available
+    console.error(`❌ PDF report generation failed: ${e?.message || e}`);
+    console.error(e?.stack || e);
   }
 
   // Copy Excel results into the run folder
