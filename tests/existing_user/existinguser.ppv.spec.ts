@@ -764,7 +764,7 @@ for (const stateKey of userStatesToRun) {
               );
               if (tileFields.length) {
                 console.log('\n📋 Validating Schedule tile fields (before popup opens)...');
-                await validateVariant(page, 'schedule', tileFields, results, eventData, 'Schedule');
+                await validateVariant(page, 'schedule', tileFields, results, eventData, 'Schedule', undefined, true);
               }
             } catch (err: any) {
               console.warn(`⚠️  Schedule tile validation error: ${err.message}`);

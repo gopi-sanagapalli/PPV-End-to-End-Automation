@@ -79,7 +79,8 @@ export const validateVariant = async (
   results:   any[],
   eventData: Record<string, string>,
   pageName:  string = 'PPV',
-  flow?:     string   // ← new optional param: 'myaccount' | 'landing' | undefined
+  flow?:     string,   // ← optional: 'myaccount' | 'landing' | undefined
+  skipLazyScroll?: boolean  // ← when true, skip the full-page lazy-load scroll
 ) => {
   console.log(`🔍 validateVariant entry: pageName = "${pageName}", variant = "${variant}", hasEventData = ${!!eventData}, typeof eventData = ${typeof eventData}, keys = ${eventData ? Object.keys(eventData).join(', ') : 'none'}`);
   if (!eventData) throw new Error('❌ eventData is missing');
@@ -161,7 +162,7 @@ export const validateVariant = async (
     urlLower.includes('upselltiershown=true') || // PPV page — upsell section is below fold
     (urlLower.includes('page=plandetails') && !urlLower.includes('upselltiershown=true'));
 
-  if (needsScroll) {
+  if (needsScroll && !skipLazyScroll) {
     // Save original scroll position
     const originalScrollY = await page.evaluate(() => window.scrollY).catch(() => 0);
 
