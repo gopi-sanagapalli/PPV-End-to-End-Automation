@@ -1581,14 +1581,17 @@ export async function getActualValue(
       return 'Not found';
     }
     case 'popup - event date': {
-      // ── Step 0: Read DIRECTLY from the open modal element (scoped, not a broad DOM scan) ──
-      // This prevents picking up background elements (e.g. search result tile dates)
-      // that also match the fuzzy "25" + "jul" pattern.
-      const modalSelectors = ['[role="dialog"]', '[aria-modal="true"]', '[class*="modal" i]', '[class*="popup" i]'];
+      // Only use selectors that target the actual modal dialog — NOT [class*='popup']
+      // which matches PPV tile card elements (they have 'popup' in their CSS class names).
+      // Gate check: only treat an element as the PPV modal if it contains a 'Buy now' button.
+      const modalSelectors = ['[role="dialog"]', '[aria-modal="true"]', '[class*="modal" i]'];
       for (const modalSel of modalSelectors) {
         const modal = page.locator(modalSel).first();
         if (!await modal.isVisible({ timeout: 1000 }).catch(() => false)) continue;
-        // Look for the date chip element inside the modal
+        // Confirm this is the PPV purchase modal (not a random element) by checking for Buy Now
+        const hasBuyNow = await modal.locator('button, a').filter({ hasText: /buy now/i }).count().catch(() => 0) > 0;
+        if (!hasBuyNow) continue;
+        // Look for the date chip element inside the confirmed modal
         const dateEls = modal.locator('span, time, div, p, label');
         const elCount = await dateEls.count().catch(() => 0);
         for (let i = 0; i < elCount; i++) {
@@ -1603,7 +1606,7 @@ export async function getActualValue(
           const hasDay = /\b\d{1,2}\b/.test(t);
           if (hasMonth && hasDay) return t;
         }
-        break; // found a visible modal — stop looking at other modal selectors
+        break; // found the confirmed modal — stop looking at other selectors
       }
 
       // ── Fallback: original snapFind logic (for home-page contexts) ──────────
