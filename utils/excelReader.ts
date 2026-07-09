@@ -303,13 +303,39 @@ export const getOTPPageData = () => {
 export const getHomeOfBoxingData = (flowName: string) => {
   const data = readSheet('Home of Boxing');
   const normalize = (val: any) => val?.toString().trim().toLowerCase();
-  const queryFlow = flowName === 'home-boxing-upcoming' ? 'home-boxing-tile' : flowName;
+  const queryFlow = flowName;
   const flowData = data.filter(
     (d: any) => normalize(d.Flow) === normalize(queryFlow)
   );
   console.log(`🥊 Home of Boxing Flow: ${flowName} (mapped to ${queryFlow})`);
   console.log(`📊 Home of Boxing rows: ${flowData.length}`);
   return flowData;
+};
+
+// =========================
+// SEARCH PAGE POPUP DATA
+// Returns popup- fields from the Search page sheet
+// =========================
+export const getSearchPagePopupData = () => {
+  const data = readSheet('Search page');
+  const popupData = data.filter(
+    (r: any) => String(r.Field || '').trim().toLowerCase().startsWith('popup')
+  );
+  console.log(`🔍 Search page popup rows: ${popupData.length}`);
+  return popupData;
+};
+
+// =========================
+// SCHEDULE PAGE POPUP DATA
+// Returns popup- fields from the Schedule page sheet
+// =========================
+export const getSchedulePagePopupData = () => {
+  const data = readSheet('Schedule page');
+  const popupData = data.filter(
+    (r: any) => String(r.Field || '').trim().toLowerCase().startsWith('popup')
+  );
+  console.log(`📅 Schedule page popup rows: ${popupData.length}`);
+  return popupData;
 };
 
 // =========================

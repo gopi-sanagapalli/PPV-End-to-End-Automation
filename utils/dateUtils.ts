@@ -12,52 +12,8 @@ export function getNowIST(): Date {
   return new Date(utcMs + istOffsetMs);
 }
 
-/**
- * Returns the current date/time expressed in the timezone of the given DAZN region.
- * Uses Intl.DateTimeFormat so it respects DST automatically (e.g. BST vs GMT for GB).
- *
- * Supported regions: GB, US, DE, IT, ES, FR, CA, AU, JP.
- * Falls back to 'Europe/London' for unknown regions.
- */
-export function getNowForRegion(region?: string): Date {
-  const tzMap: Record<string, string> = {
-    GB:  'Europe/London',
-    UK:  'Europe/London',
-    US:  'America/New_York',
-    UAE: 'Asia/Dubai',
-    AU:  'Australia/Sydney',
-    BR:  'America/Sao_Paulo',
-    DE:  'Europe/Berlin',
-    IT:  'Europe/Rome',
-    ES:  'Europe/Madrid',
-    FR:  'Europe/Paris',
-    CA:  'America/Toronto',
-    JP:  'Asia/Tokyo',
-  };
-  const tz = tzMap[(region || process.env.DAZN_REGION || 'GB').toUpperCase()] || 'Europe/London';
-  const now = new Date();
-  const formatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: tz,
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit',
-    hour12: false,
-  });
-  const parts = formatter.formatToParts(now);
-  const p: Record<string, string> = {};
-  for (const part of parts) p[part.type] = part.value;
-  // Construct a Date whose local fields match the wall-clock time in the target TZ
-  return new Date(
-    parseInt(p.year, 10),
-    parseInt(p.month, 10) - 1,
-    parseInt(p.day, 10),
-    parseInt(p.hour, 10) === 24 ? 0 : parseInt(p.hour, 10),
-    parseInt(p.minute, 10),
-    parseInt(p.second, 10)
-  );
-}
-
 export function formatNextPaymentDate(daysOffset: number): string {
-  const date = getNowForRegion();
+  const date = getNowIST();
   date.setDate(date.getDate() + daysOffset);
 
   const dd   = String(date.getDate()).padStart(2, '0');
@@ -69,7 +25,7 @@ export function formatNextPaymentDate(daysOffset: number): string {
 
 // ✅ New helper — adds exactly 1 calendar month
 export function formatNextPaymentDateMonthly(): string {
-  const date = getNowForRegion();
+  const date = getNowIST();
   date.setMonth(date.getMonth() + 1);
 
   const dd   = String(date.getDate()).padStart(2, '0');
@@ -81,7 +37,7 @@ export function formatNextPaymentDateMonthly(): string {
 
 // ✅ New helper — adds exactly 1 calendar year
 export function formatNextPaymentDateYearly(): string {
-  const date = getNowForRegion();
+  const date = getNowIST();
   date.setFullYear(date.getFullYear() + 1);
 
   const dd   = String(date.getDate()).padStart(2, '0');
@@ -95,7 +51,7 @@ export function formatNextPaymentDateYearly(): string {
 
 // US monthly — 1 month from today in MM.DD.YYYY
 export function formatNextPaymentDateMonthlyUS(): string {
-  const date = getNowForRegion('US');
+  const date = getNowIST();
   date.setMonth(date.getMonth() + 1);
 
   const dd   = String(date.getDate()).padStart(2, '0');
@@ -107,7 +63,7 @@ export function formatNextPaymentDateMonthlyUS(): string {
 
 // US yearly — 1 year from today in MM.DD.YYYY
 export function formatNextPaymentDateYearlyUS(): string {
-  const date = getNowForRegion('US');
+  const date = getNowIST();
   date.setFullYear(date.getFullYear() + 1);
 
   const dd   = String(date.getDate()).padStart(2, '0');
@@ -119,7 +75,7 @@ export function formatNextPaymentDateYearlyUS(): string {
 
 // US offset — N days from today in MM.DD.YYYY
 export function formatNextPaymentDateUS(daysOffset: number): string {
-  const date = getNowForRegion('US');
+  const date = getNowIST();
   date.setDate(date.getDate() + daysOffset);
 
   const dd   = String(date.getDate()).padStart(2, '0');
@@ -131,7 +87,7 @@ export function formatNextPaymentDateUS(daysOffset: number): string {
 
 // ── Flex Future Date — "In 7 days • 4 June 2026" ────────────
 export function formatFlexFutureDate(daysOffset: number = 7): string {
-  const date = getNowForRegion();
+  const date = getNowIST();
   date.setDate(date.getDate() + daysOffset);
 
   const day   = date.getDate(); // no padding
@@ -143,7 +99,7 @@ export function formatFlexFutureDate(daysOffset: number = 7): string {
 
 // ✅ Renewal date helper — 1 year minus 1 day from today in DD/MM/YYYY
 export function formatRenewalDate(): string {
-  const date = getNowForRegion();
+  const date = getNowIST();
   date.setFullYear(date.getFullYear() + 1);
   date.setDate(date.getDate() - 1);
 
@@ -156,7 +112,7 @@ export function formatRenewalDate(): string {
 
 // ✅ US renewal date helper — 1 year minus 1 day from today in MM/DD/YYYY
 export function formatRenewalDateUS(): string {
-  const date = getNowForRegion('US');
+  const date = getNowIST();
   date.setFullYear(date.getFullYear() + 1);
   date.setDate(date.getDate() - 1);
 
@@ -167,7 +123,7 @@ export function formatRenewalDateUS(): string {
   return `${mm}/${dd}/${yyyy}`;
 }
 
-export function parseConfigDate(configStr: string, referenceDate: Date = getNowForRegion()): Date {
+export function parseConfigDate(configStr: string, referenceDate: Date = getNowIST()): Date {
   const clean = configStr.toLowerCase().replace(/\bat\b/g, ' ').replace(/\s+/g, ' ').trim();
   
   const months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
@@ -246,7 +202,7 @@ export function parseConfigDate(configStr: string, referenceDate: Date = getNowF
   return fallbackDate;
 }
 
-function getDynamicDateBadgeSingle(configStr: string, referenceDate: Date = getNowForRegion()): string {
+function getDynamicDateBadgeSingle(configStr: string, referenceDate: Date = getNowIST()): string {
   if (configStr.toUpperCase() === 'N/A' || !configStr.trim()) {
     return configStr;
   }
@@ -404,7 +360,7 @@ function getDynamicDateBadgeSingle(configStr: string, referenceDate: Date = getN
   return Array.from(candidates).join('|');
 }
 
-export function getDynamicDateBadge(configStr: string, referenceDate: Date = getNowForRegion()): string {
+export function getDynamicDateBadge(configStr: string, referenceDate: Date = getNowIST()): string {
   if (!configStr) return '';
   return configStr.split('|').map(part => getDynamicDateBadgeSingle(part, referenceDate)).join('|');
 }
@@ -414,7 +370,7 @@ export function getDynamicDateBadge(configStr: string, referenceDate: Date = get
  * a time component (HH:MM). Use for "Date and Time" fields where the
  * expected value MUST include the time, not just the date.
  */
-export function getDynamicDateTimeBadge(configStr: string, referenceDate: Date = getNowForRegion()): string {
+export function getDynamicDateTimeBadge(configStr: string, referenceDate: Date = getNowIST()): string {
   if (!configStr) return '';
   const allCandidates = configStr.split('|').map(part => getDynamicDateBadgeSingle(part, referenceDate)).join('|');
   const timePattern = /\b\d{1,2}:\d{2}\b/;

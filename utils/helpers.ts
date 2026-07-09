@@ -24,7 +24,7 @@ export async function handleCookies(page: Page, timeout: number = 8000): Promise
   // and only proceed if the banner reappeared (e.g. on a new page/redirect)
   if (_dismissedContexts.has(context)) {
     const isVisibleNow = await page.locator('#onetrust-accept-btn-handler')
-      .isVisible({ timeout: 2000 })
+      .isVisible()
       .catch(() => false);
     if (!isVisibleNow) return;
     console.log('🍪 Cookie banner reappeared after initial dismissal — dismissing again...');
@@ -60,7 +60,7 @@ export async function handleCookies(page: Page, timeout: number = 8000): Promise
         return;
       } catch {
         // JS click as last resort
-        const handle = await cookieAcceptBtn.elementHandle({ timeout: 2000 }).catch(() => null);
+        const handle = await cookieAcceptBtn.elementHandle().catch(() => null);
         if (handle) {
           await page.evaluate((el: any) => el.click(), handle).catch(() => { });
           console.log('🍪 Accepted cookies via JS click');
@@ -83,7 +83,7 @@ export async function handleCookies(page: Page, timeout: number = 8000): Promise
 
   for (const selector of fallbackSelectors) {
     const btn = page.locator(selector).first();
-    const btnVisible = await btn.isVisible({ timeout: 2000 }).catch(() => false);
+    const btnVisible = await btn.isVisible().catch(() => false);
     if (btnVisible) {
       try {
         await btn.click({ timeout: 3000 });
@@ -106,9 +106,7 @@ export async function handleCookies(page: Page, timeout: number = 8000): Promise
 // ─────────────────────────────────────────────────────────────────
 export async function stabilisePage(page: Page): Promise<void> {
   if (page.isClosed()) return;
-  // Cap at 3s: page.evaluate() has no built-in timeout and will hang
-  // indefinitely on a CPU-starved runner until the test timeout kills it.
-  const evalWork = page.evaluate(() => {
+  await page.evaluate(() => {
     if (window.location.href.includes('/myaccount')) return;
     [
       '#onetrust-banner-sdk',
@@ -124,8 +122,6 @@ export async function stabilisePage(page: Page): Promise<void> {
         .forEach(el => el.remove())
     );
   }).catch(() => { });
-  const timeout = new Promise<void>(resolve => setTimeout(resolve, 3000));
-  await Promise.race([evalWork, timeout]);
 }
 
 // ─────────────────────────────────────────────────────────────────
