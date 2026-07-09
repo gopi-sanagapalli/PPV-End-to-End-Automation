@@ -232,13 +232,32 @@ export class EmailLoginStrategy extends BaseLoginStrategy {
 
     const pwdNowVisible = await passwordInput.isVisible({ timeout: 1000 }).catch(() => false);
     if (pwdNowVisible) {
-      console.log('🔑 [Email Auth] Entering password...');
-      await passwordInput.fill(password);
+      const maxSignInRetries = 3;
+      for (let attempt = 1; attempt <= maxSignInRetries; attempt++) {
+        console.log(`🔑 [Email Auth] Entering password (attempt ${attempt}/${maxSignInRetries})...`);
+        await passwordInput.fill(password);
 
-      const signInBtn = page.locator(
-        'button:has-text("Sign in"), button:has-text("Log in"), button:has-text("Sign In"), button[type="submit"]'
-      ).first();
-      await clickAndWaitForNav(page, signInBtn, 'Sign In');
+        const signInBtn = page.locator(
+          'button:has-text("Sign in"), button:has-text("Log in"), button:has-text("Sign In"), button[type="submit"]'
+        ).first();
+        await clickAndWaitForNav(page, signInBtn, `Sign In (attempt ${attempt})`);
+
+        // Check for "No key found!" DAZN error modal (error code 10-600-059)
+        const noKeyDismissed = await this.dismissNoKeyFoundModal(page);
+        if (!noKeyDismissed) break; // No error modal — login proceeded normally
+
+        if (attempt === maxSignInRetries) {
+          throw new Error(
+            `❌ [EmailLoginStrategy] "No key found!" error persisted after ${maxSignInRetries} attempts. ` +
+            `This is a transient DAZN auth service issue (error 10-600-059). Try again later.`
+          );
+        }
+
+        // Wait for password field to reappear before retrying
+        await passwordInput.waitFor({ state: 'visible', timeout: 8000 }).catch(() => {});
+        const pwdStillVisible = await passwordInput.isVisible({ timeout: 1000 }).catch(() => false);
+        if (!pwdStillVisible) break;
+      }
     } else {
       await this.throwIfBlocked(page, 'password field lookup');
       throw new Error('❌ [EmailLoginStrategy] Password input never appeared');
@@ -257,6 +276,38 @@ export class EmailLoginStrategy extends BaseLoginStrategy {
     const verified = await this.verifyAuthenticatedSession(page);
     if (!verified) {
       console.warn('⚠️  [Email Auth] Could not confirm login success — continuing anyway');
+    }
+  }
+
+  /**
+   * Detects the DAZN "No key found!" error modal (error 10-600-059) that can
+   * appear intermittently after clicking "Log in". Dismisses it by clicking
+   * "Ok" and returns true if the modal was found.
+   */
+  private async dismissNoKeyFoundModal(page: Page): Promise<boolean> {
+    if (page.isClosed()) return false;
+
+    try {
+      const noKeyLocator = page.locator(
+        'text="No key found!", ' +
+        '[class*="modal" i] >> text="No key found!", ' +
+        '[role="dialog"] >> text="No key found!"'
+      ).first();
+
+      const isVisible = await noKeyLocator.isVisible({ timeout: 3000 }).catch(() => false);
+      if (!isVisible) return false;
+
+      console.warn('⚠️ [Email Auth] "No key found!" error modal detected (error 10-600-059) — dismissing and retrying...');
+
+      const okBtn = page.locator(
+        'button:has-text("Ok"), button:has-text("OK"), button:has-text("Okay")'
+      ).first();
+      await okBtn.click({ force: true }).catch(() => {});
+      await page.waitForTimeout(1500);
+
+      return true;
+    } catch {
+      return false;
     }
   }
 

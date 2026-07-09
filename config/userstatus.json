@@ -34,8 +34,8 @@
             "USER_PASSWORD": "Test1!"
           },
           "prod": {
-            "USER_EMAIL": "akhilau@yopmail.com",
-            "USER_PASSWORD": "Test1!"
+            "USER_EMAIL": "auppvprod3@yopmail.com",
+            "USER_PASSWORD": "Dazn@1"
           }
         }
       },
