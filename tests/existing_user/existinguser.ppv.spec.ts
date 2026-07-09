@@ -848,15 +848,21 @@ for (const stateKey of userStatesToRun) {
 
           await searchPage.searchForPPVTileWithUpcomingFallback(eventData.PPV_NAME);
 
-          console.log('\n📋 Validating Search page before tile click...');
+          console.log('\n📋 Validating Search page tile fields (before tile click)...');
           try {
             const searchData = readSheet('Search page');
+            // Only validate tile fields here — popup fields are validated by
+            // handlePopupModal after clickPPVTile opens the popup
+            const tileFields = searchData.filter((r: any) =>
+              !String(r.Field || '').toLowerCase().startsWith('popup')
+            );
             await validateVariant(
-              page, 'search', searchData, results, eventData, 'Search'
+              page, 'search', tileFields, results, eventData, 'Search'
             );
           } catch (err: any) {
             console.warn(`⚠️  Search page validation error: ${err.message}`);
           }
+
 
           await searchPage.clickPPVTile(eventData.PPV_NAME);
 

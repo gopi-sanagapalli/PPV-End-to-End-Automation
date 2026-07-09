@@ -247,7 +247,18 @@ export async function handlePopupModal(
         // Run validations
         try {
           const isHomeField = src === 'home-page-dont-miss' || src === 'home-biggest-fights';
-          const pageName = isHomeField ? 'Home Page' : 'Popup Modal';
+          // Use source-specific page name so popup results appear in the same
+          // report section as tile fields (not as a separate 'Popup Modal' section)
+          let pageName: string;
+          if (isHomeField) {
+            pageName = 'Home Page';
+          } else if (src.includes('search')) {
+            pageName = 'Search';
+          } else if (src.includes('schedule')) {
+            pageName = 'Schedule';
+          } else {
+            pageName = 'Popup Modal';
+          }
           const ruleFlow = isHomeField ? src : (src.includes('search') ? 'search' : src.includes('schedule') ? 'schedule' : 'home-boxing-tile');
           const pageType = isHomeField ? 'home-page' : 'popup';
           await validateVariant(page, pageType, popupRules, results, eventData, pageName, ruleFlow);
