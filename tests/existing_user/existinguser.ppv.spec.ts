@@ -1055,6 +1055,7 @@ for (const stateKey of userStatesToRun) {
           }
 
           const isBoxingSubscriptionSource =
+            SOURCE === 'boxing-banner-ultimate' ||
             SOURCE === 'boxing-ultimate-subscription' ||
             SOURCE === 'boxing-standard-subscription' ||
             SOURCE === 'boxing-join-the-club';
@@ -2013,6 +2014,7 @@ for (const stateKey of userStatesToRun) {
 
           // If the URL is myaccount or home page and we are in a subscription-only flow, fail immediately.
           const isBoxingSubOnlySource =
+            SOURCE === 'boxing-banner-ultimate' ||
             SOURCE === 'boxing-ultimate-subscription' ||
             SOURCE === 'boxing-standard-subscription' ||
             SOURCE === 'boxing-join-the-club';
@@ -2134,6 +2136,7 @@ for (const stateKey of userStatesToRun) {
           // Skip for boxing-ultimate-subscription and boxing-join-the-club — they intentionally bypass the PPV page.
           // boxing-standard-subscription is NOT excluded here: it has defaultSignup=true and should show a PPV option.
           const isBoxingSubSource =
+            SOURCE === 'boxing-banner-ultimate' ||
             SOURCE === 'boxing-ultimate-subscription' ||
             SOURCE === 'boxing-page-bundle' ||
             SOURCE === 'boxing-upcoming-fights' ||

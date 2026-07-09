@@ -90,7 +90,7 @@ async function getScopedLandingPPVContainer(
           top: Math.max(0, Math.round(absoluteTop - 24)),
           behavior: 'instant',
         });
-      }).catch(() => {});
+      }).catch(() => { });
 
       await page.waitForTimeout(300);
       let railWrapper = railHeading.locator('xpath=ancestor::*[contains(@class,"railWrapper")][1]');
@@ -560,6 +560,82 @@ export async function getActualValue(
     }
     _modal = null;
     return null;
+  };
+
+  let _popupContainer: any = undefined;
+  const getPopupContainer = async (): Promise<any | null> => {
+    if (_popupContainer !== undefined) return _popupContainer;
+
+    const rawName = eventData?.PPV_NAME || eventData?.PPV_DISPLAY_NAME || '';
+    const namePart = rawName.includes(':') ? rawName.split(':').slice(1).join(':') : rawName;
+    const titleWords = namePart
+      .toLowerCase()
+      .replace(/\bppv\b/g, ' ')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length > 2 && !['the', 'and', 'for', 'with', 'from'].includes(w));
+
+    const popupSelectors = [
+      '[role="dialog"]',
+      '[aria-modal="true"]',
+      '[class*="content-promotion" i]',
+      '[class*="modal-dialog" i]',
+      '[class*="modal" i]',
+      '[class*="popup" i]',
+    ];
+
+    let best: any = null;
+    let bestScore = -Infinity;
+    let bestArea = Infinity;
+
+    for (const sel of popupSelectors) {
+      const loc = page.locator(sel);
+      const count = await loc.count().catch(() => 0);
+      for (let i = 0; i < Math.min(count, 80); i++) {
+        const candidate = loc.nth(i);
+        if (!await candidate.isVisible().catch(() => false)) continue;
+
+        const info = await candidate.evaluate((el: HTMLElement, words: string[]) => {
+          const clean = (value: string | null | undefined) =>
+            String(value ?? '').replace(/\s+/g, ' ').trim();
+          const rect = el.getBoundingClientRect();
+          const text = clean(el.innerText || el.textContent);
+          const lower = text.toLowerCase();
+          const area = rect.width * rect.height;
+          const viewportArea = Math.max(1, window.innerWidth * window.innerHeight);
+          const classText = clean(el.className as any).toLowerCase();
+          const aria = clean(el.getAttribute('aria-label')).toLowerCase();
+          const role = clean(el.getAttribute('role')).toLowerCase();
+
+          let score = 0;
+          if (role === 'dialog' || el.getAttribute('aria-modal') === 'true') score += 35;
+          if (classText.includes('modal-dialog') || classText.includes('content-promotion')) score += 45;
+          if (classText.includes('modal') || classText.includes('popup')) score += 15;
+          if (lower.includes('buy now')) score += 60;
+          if (words.length > 0 && words.every(w => lower.includes(w))) score += 55;
+          if (el.querySelector('img')) score += 15;
+          if (el.querySelector('button, a')) score += 12;
+          if (classText.includes('close') || aria.includes('close') || el.querySelector('[aria-label*="close" i], [class*="close" i]')) score += 8;
+
+          if (rect.width < 180 || rect.height < 120) score -= 80;
+          if (area > viewportArea * 0.7) score -= 70;
+          else score += 30;
+          if (classText.includes('header') || classText.includes('nav') || classText.includes('menu')) score -= 100;
+
+          return { score, area, textLength: text.length };
+        }, titleWords).catch(() => null);
+
+        if (!info || info.score < 20) continue;
+        if (info.score > bestScore || (info.score === bestScore && info.area < bestArea)) {
+          best = candidate;
+          bestScore = info.score;
+          bestArea = info.area;
+        }
+      }
+    }
+
+    _popupContainer = best || null;
+    return _popupContainer;
   };
 
   const isPriceText = (t: string) =>
@@ -1259,6 +1335,18 @@ export async function getActualValue(
       return 'N/A';
     }
 
+    case "don't miss section":
+    case 'dont miss section': {
+      const source = (eventData?.SOURCE || eventData?.source || '').toLowerCase();
+      const savedHeading = (eventData?.__HOME_DONT_MISS_SECTION_HEADING || '').trim();
+      if (source === 'home-page-dont-miss' && savedHeading) return 'Present';
+
+      const heading = page.locator(
+        'h1, h2, h3, h4, [role="heading"], [class*="heading" i], [class*="title" i], [data-testid*="title" i]'
+      ).filter({ hasText: /don.t miss/i }).first();
+      return await heading.isVisible({ timeout: 2000 }).catch(() => false) ? 'Present' : 'Not found';
+    }
+
     case 'upcoming big fights section':
     case 'upcoming big fights heading':
     case 'section heading': {
@@ -1581,41 +1669,59 @@ export async function getActualValue(
       return 'Not found';
     }
     case 'popup - event date': {
-      // Only use selectors that target the actual modal dialog — NOT [class*='popup']
-      // which matches PPV tile card elements (they have 'popup' in their CSS class names).
-      // Gate check: only treat an element as the PPV modal if it contains a 'Buy now' button.
-      const modalSelectors = ['[role="dialog"]', '[aria-modal="true"]', '[class*="modal" i]'];
-      for (const modalSel of modalSelectors) {
-        const modal = page.locator(modalSel).first();
-        if (!await modal.isVisible({ timeout: 1000 }).catch(() => false)) continue;
-        // Confirm this is the PPV purchase modal (not a random element) by checking for Buy Now
-        const hasBuyNow = await modal.locator('button, a').filter({ hasText: /buy now/i }).count().catch(() => 0) > 0;
-        if (!hasBuyNow) continue;
-        // Look for the date chip element inside the confirmed modal
-        const dateEls = modal.locator('span, time, div, p, label');
+      // Read directly from the compact popup card. Broad selectors such as
+      // [class*="modal"] can match a full-screen overlay that also contains
+      // the dimmed page behind it, so choose the smallest popup-like container
+      // before looking for the date chip.
+      const modal = await getPopupContainer();
+      if (modal) {
+        const dateEls = modal.locator('[class*="date" i], [class*="badge" i], time, span, p, label, div');
         const elCount = await dateEls.count().catch(() => 0);
-        for (let i = 0; i < elCount; i++) {
+        let bestDate = '';
+        let bestScore = -Infinity;
+
+        for (let i = 0; i < Math.min(elCount, 160); i++) {
           const el = dateEls.nth(i);
           if (!await el.isVisible().catch(() => false)) continue;
           const kids = await el.locator('> *').count().catch(() => 0);
-          if (kids > 2) continue; // skip containers
+          if (kids > 2) continue;
           const t = clean(await el.innerText({ timeout: 2000 }).catch(() => '') || '');
           if (!t || t.length > 80) continue;
-          // Match: contains a month name and a day number (e.g. "25 JUL 6:00PM", "Sun 26th Jul at 00:30")
-          const hasMonth = /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/i.test(t);
-          const hasDay = /\b\d{1,2}\b/.test(t);
-          if (hasMonth && hasDay) return t;
+
+          const lower = t.toLowerCase();
+          if (/buy now|fight card|matchroom boxing|select a dazn plan/i.test(t)) continue;
+
+          const hasMonth = /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|may|june|july|august|september|october|november|december)\b/i.test(t);
+          const hasDay = /\b\d{1,2}(?:st|nd|rd|th)?\b/i.test(t);
+          const hasWeekday = /\b(mon|tue|wed|thu|fri|sat|sun|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i.test(t);
+          const hasTime = /\b\d{1,2}:\d{2}\s*(?:am|pm)?\b/i.test(t);
+          if (!(hasMonth && hasDay) && !(hasWeekday && hasTime)) continue;
+
+          let score = 0;
+          if (hasMonth) score += 30;
+          if (hasDay) score += 20;
+          if (hasTime) score += 25;
+          if (hasWeekday) score += 10;
+          if (kids === 0) score += 12;
+          if (lower.includes('at ')) score += 4;
+          score -= Math.max(0, t.length - 18);
+
+          if (score > bestScore) {
+            bestDate = t;
+            bestScore = score;
+          }
         }
-        break; // found the confirmed modal — stop looking at other selectors
+
+        if (bestDate) return bestDate;
       }
 
-      // ── Fallback: original snapFind logic (for home-page contexts) ──────────
+      // ── Fallback: snapshot modal nodes only ────────────────────────────────
       // For home-page-popup flow, the popup shows the full PPV_DATE (e.g. "Sun 26th Jul at 00:30")
       // not the abbreviated LANDING_PAGE_PPV_DATE (e.g. "25 July")
       const popupSource = (eventData?.SOURCE || eventData?.source || '').toLowerCase();
       const expectedDate = popupSource === 'home-page-popup'
-        ? (eventData?.PPV_DATE || eventData?.LANDING_PAGE_PPV_DATE || '')
-        : (eventData?.LANDING_PAGE_PPV_DATE || eventData?.PPV_DATE || '');
+        ? (eventData?.PPV_POPUP_DATE || eventData?.PPV_DATE || eventData?.LANDING_PAGE_PPV_DATE || '')
+        : (eventData?.PPV_POPUP_DATE || eventData?.LANDING_PAGE_PPV_DATE || eventData?.PPV_DATE || '');
 
       const checkOption = (option: string, text: string): boolean => {
         const optionLower = option.toLowerCase();
@@ -1677,25 +1783,6 @@ export async function getActualValue(
 
       let found = snapFind(n => n.isInModal && isMatch(n.text), true);
 
-      if (found === 'N/A') {
-        found = snapFind(n => {
-          if (n.isInModal) return false;
-          const inHeader = n.classes.toLowerCase().includes('header') || n.classes.toLowerCase().includes('nav') || n.classes.toLowerCase().includes('menu');
-          if (inHeader) return false;
-          return isMatch(n.text);
-        });
-      }
-
-      // Third pass: search ALL nodes regardless of isInModal
-      // (home page popups may not be detected as modals by the DOM snapshot)
-      if (found === 'N/A') {
-        for (const n of snap) {
-          const inHeader = n.classes.toLowerCase().includes('header') || n.classes.toLowerCase().includes('nav') || n.classes.toLowerCase().includes('menu');
-          if (inHeader) continue;
-          if (isMatch(n.text)) { found = n.text; break; }
-        }
-      }
-      // Return actual DOM text for popup event date
       return found !== 'N/A' ? found : 'Not found';
     }
     case 'popup - promoter': {
@@ -2207,6 +2294,14 @@ export async function getActualValue(
     // SCHEDULE
     // ════════════════════════════════════════════════════════════
     case 'ppv tile present': {
+      const source = (eventData?.SOURCE || eventData?.source || '').toLowerCase();
+      if (source === 'home-page-dont-miss' && eventData?.__HOME_DONT_MISS_TILE_FOUND) {
+        return eventData.__HOME_DONT_MISS_TILE_FOUND;
+      }
+      if (source === 'home-boxing-tile' && eventData?.__HOME_BOXING_TILE_FOUND) {
+        return eventData.__HOME_BOXING_TILE_FOUND;
+      }
+
       if (isSearchContext()) {
         const tile = await getSearchPPVTile();
         return tile ? 'Yes' : 'No';
@@ -2461,11 +2556,38 @@ export async function getActualValue(
     // PPV NAME
     // ════════════════════════════════════════════════════════════
     case 'ppv name': {
+      const source = (eventData?.SOURCE || eventData?.source || '').toLowerCase();
+      if (source === 'home-page-dont-miss' && eventData?.__HOME_DONT_MISS_TILE_TEXT) {
+        const expectedName = eventData?.PPV_NAME || '';
+        const titleParts = expectedName
+          .split(/[:\-–]/)
+          .map(p => p.trim().toLowerCase())
+          .filter(p => p.length > 2);
+        const tileText = eventData.__HOME_DONT_MISS_TILE_TEXT;
+        const matchingPart = titleParts.find(part => {
+          const words = part.replace(/\bppv\b/g, ' ').split(/\s+/).filter(w => w.length > 2);
+          return words.length > 0 && words.every(w => tileText.toLowerCase().includes(w));
+        });
+        if (matchingPart) return expectedName;
+      }
+      if (source === 'home-boxing-tile' && eventData?.__HOME_BOXING_TILE_TEXT) {
+        const expectedName = eventData?.PPV_NAME || '';
+        const titleParts = expectedName
+          .split(/[:\-–]/)
+          .map(p => p.trim().toLowerCase())
+          .filter(p => p.length > 2);
+        const tileText = eventData.__HOME_BOXING_TILE_TEXT;
+        const matchingPart = titleParts.find(part => {
+          const words = part.replace(/\bppv\b/g, ' ').split(/\s+/).filter(w => w.length > 2);
+          return words.length > 0 && words.every(w => tileText.toLowerCase().includes(w));
+        });
+        if (matchingPart) return expectedName;
+      }
+
       // ── Pre-captured from event card on schedule page ──
       if (eventData?.__SCHEDULE_TILE_NAME && page.url().toLowerCase().includes('/schedule')) {
         return eventData.__SCHEDULE_TILE_NAME;
       }
-      const source = (eventData?.SOURCE || eventData?.source || '').toLowerCase();
       const isDefaultSignup =
         process.env.DEFAULT_SIGNUP === 'true' ||
         source === 'home-page-get-started' ||
@@ -2707,6 +2829,28 @@ export async function getActualValue(
     // ════════════════════════════════════════════════════════════
     case 'ppv date': {
       const url = page.url();
+      const source = (eventData?.SOURCE || eventData?.source || '').toLowerCase();
+      if (source === 'home-page-dont-miss') {
+        const dateText = eventData?.__HOME_DONT_MISS_TILE_DATE || eventData?.LANDING_PAGE_PPV_DATE || '';
+        if (!dateText) return 'N/A';
+        const monthPattern = '(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC|January|February|March|April|May|June|July|August|September|October|November|December)';
+        const dayMonthMatch = dateText.match(new RegExp(`(?:^|[^0-9])([1-9]|[12]\\d|3[01])(?:st|nd|rd|th)?\\s*${monthPattern}`, 'i'));
+        const monthDayMatch = dateText.match(new RegExp(`${monthPattern}\\s*([1-9]|[12]\\d|3[01])(?:st|nd|rd|th)?`, 'i'));
+        if (dayMonthMatch) return `${dayMonthMatch[1]} ${dayMonthMatch[2].toUpperCase()}`;
+        if (monthDayMatch) return `${monthDayMatch[2]} ${monthDayMatch[1].toUpperCase()}`;
+        return dateText;
+      }
+      if (source === 'home-boxing-tile') {
+        const dateText = eventData?.__HOME_BOXING_TILE_DATE || eventData?.LANDING_PAGE_PPV_DATE || '';
+        if (!dateText) return 'N/A';
+        const monthPattern = '(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC|January|February|March|April|May|June|July|August|September|October|November|December)';
+        const dayMonthMatch = dateText.match(new RegExp(`(?:^|[^0-9])([1-9]|[12]\\d|3[01])(?:st|nd|rd|th)?\\s*${monthPattern}`, 'i'));
+        const monthDayMatch = dateText.match(new RegExp(`${monthPattern}\\s*([1-9]|[12]\\d|3[01])(?:st|nd|rd|th)?`, 'i'));
+        if (dayMonthMatch) return `${dayMonthMatch[1]} ${dayMonthMatch[2].toUpperCase()}`;
+        if (monthDayMatch) return `${monthDayMatch[2]} ${monthDayMatch[1].toUpperCase()}`;
+        return dateText;
+      }
+
       if (isSearchContext()) {
         const searchDate = await getSearchTileDateText();
         if (searchDate) return searchDate;
@@ -2785,11 +2929,21 @@ export async function getActualValue(
     // ════════════════════════════════════════════════════════════
     // POPUP FIELDS
     // ════════════════════════════════════════════════════════════
+    case 'popup - image present':
     case 'popup image present': {
+      const modal = await getPopupContainer();
+      if (modal) {
+        const imageCount = await modal.locator('img, picture, [role="img"], [style*="background-image" i]').count().catch(() => 0);
+        if (imageCount > 0) return 'Yes';
+      }
+
       return firstExists(
         '[role="dialog"] img',
         '[aria-modal="true"] img',
-        '[class*="modal" i] img'
+        '[class*="content-promotion" i] img',
+        '[class*="modal-dialog" i] img',
+        '[class*="modal" i] img',
+        '[class*="popup" i] img'
       );
     }
 
@@ -3010,6 +3164,14 @@ export async function getActualValue(
     case 'hero image':
     case 'ppv image present':
     case 'ppv image': {
+      const source = (eventData?.SOURCE || eventData?.source || '').toLowerCase();
+      if (source === 'home-page-dont-miss' && eventData?.__HOME_DONT_MISS_IMAGE_PRESENT) {
+        return eventData.__HOME_DONT_MISS_IMAGE_PRESENT;
+      }
+      if (source === 'home-boxing-tile' && eventData?.__HOME_BOXING_IMAGE_PRESENT) {
+        return eventData.__HOME_BOXING_IMAGE_PRESENT;
+      }
+
       const url = page.url();
       if (isSearchContext()) {
         const tile = await getSearchPPVTile();
@@ -3402,7 +3564,7 @@ export async function getActualValue(
         const nameLocator = page.locator('div, span, p, label, h2, h3')
           .filter({ hasText: eventData?.PPV_NAME || 'Joshua' })
           .first();
-        
+
         if (await nameLocator.isVisible({ timeout: 2000 }).catch(() => false)) {
           let container = nameLocator;
           for (let i = 0; i < 4; i++) {
@@ -4390,7 +4552,7 @@ export async function getActualValue(
         isActiveStandardUser && currentPage === 'choose how to buy'
           ? activeStandardChooseBuyFeatures[featureKey]
           : eventData?.[featureKey]
-      || '').toLowerCase();
+          || '').toLowerCase();
 
       const normalizeFeatureText = (text: string): string =>
         text.toLowerCase()

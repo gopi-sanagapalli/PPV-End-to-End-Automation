@@ -86,13 +86,11 @@
   },
   "boxing-banner-ultimate": {
     "source": "boxing-banner-ultimate",
-    "endPage": "payment",
-    "defaultSignup": true
+    "endPage": "payment"
   },
   "boxing-ultimate-subscription": {
     "source": "boxing-ultimate-subscription",
-    "endPage": "payment",
-    "defaultSignup": true
+    "endPage": "payment"
   },
   "boxing-standard-subscription": {
     "source": "boxing-standard-subscription",

@@ -382,6 +382,43 @@ export class BoxingHomePage extends HomePage {
           return null;
         }
 
+        const tileCapture = await tile.evaluate((el: HTMLElement) => {
+          const clean = (value: string | null | undefined) =>
+            String(value ?? '').replace(/\s+/g, ' ').trim();
+          const text = clean(el.innerText || el.textContent);
+          const imgTexts = Array.from(el.querySelectorAll('img'))
+            .map((img: HTMLImageElement) => clean(img.alt || img.getAttribute('aria-label') || img.getAttribute('title')))
+            .filter(Boolean);
+          const combined = clean(`${text} ${imgTexts.join(' ')} ${el.getAttribute('aria-label') || ''} ${el.getAttribute('title') || ''}`);
+          const hasImage = Array.from(el.querySelectorAll<HTMLElement>('img, picture, [role="img"], div, span, a')).some(node => {
+            const rect = node.getBoundingClientRect();
+            const style = window.getComputedStyle(node);
+            const hasBackground = !!style.backgroundImage && style.backgroundImage !== 'none';
+            return node.tagName.toLowerCase() === 'img' ||
+              node.tagName.toLowerCase() === 'picture' ||
+              node.getAttribute('role') === 'img' ||
+              (hasBackground && rect.width >= 80 && rect.height >= 45);
+          });
+          const dateMatch =
+            combined.match(/\b\d{1,2}\s+(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC|January|February|March|April|May|June|July|August|September|October|November|December)\b/i) ||
+            combined.match(/\b(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC|January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}\b/i);
+          return {
+            text: combined,
+            dateText: dateMatch ? dateMatch[0] : '',
+            hasImage,
+          };
+        }).catch(() => ({ text: '', dateText: '', hasImage: false }));
+
+        eventData.__HOME_BOXING_TILE_FOUND = 'Yes';
+        eventData.__HOME_BOXING_TILE_TEXT = tileCapture.text || '';
+        eventData.__HOME_BOXING_TILE_DATE = tileCapture.dateText || eventData.LANDING_PAGE_PPV_DATE || '';
+        eventData.__HOME_BOXING_IMAGE_PRESENT = tileCapture.hasImage ? 'Yes' : 'No';
+        console.log(
+          `[Home Sport Tile] Pre-captured tile validation data: ` +
+          `date="${eventData.__HOME_BOXING_TILE_DATE}", ` +
+          `image="${eventData.__HOME_BOXING_IMAGE_PRESENT}"`
+        );
+
         console.log(`📌 [Home Sport Tile] Found PPV tile, clicking to open modal...`);
         await tile.scrollIntoViewIfNeeded().catch(() => { });
         await this.page.waitForTimeout(150);
@@ -935,20 +972,19 @@ export class BoxingHomePage extends HomePage {
         'button:has-text("Subscribe"), a:has-text("Subscribe"), ' +
         'button:has-text("Continue"), a:has-text("Continue")';
 
-      const dialog = container.locator('[role="dialog"], [aria-modal="true"], [class*="modal" i]').first();
-      let buyNowBtn = dialog.locator(ctaSelector).first();
+      let buyNowBtn = container.locator(ctaSelector).first();
 
-      let visible = await buyNowBtn.isVisible({ timeout: 2000 }).catch(() => false);
+      let visible = await buyNowBtn.isVisible({ timeout: 750 }).catch(() => false);
       if (!visible) {
-        console.log('⏳ [Home Sport Tile] Dialog selector not active. Trying generic container check...');
-        buyNowBtn = container.locator(ctaSelector).first();
-        visible = await buyNowBtn.isVisible({ timeout: 2000 }).catch(() => false);
+        console.log('⏳ [Home Sport Tile] Container CTA not visible. Trying nested dialog selector...');
+        const dialog = container.locator('[role="dialog"], [aria-modal="true"], [class*="modal" i]').first();
+        buyNowBtn = dialog.locator(ctaSelector).first();
+        visible = await buyNowBtn.isVisible({ timeout: 1000 }).catch(() => false);
       }
 
       if (!visible) {
         console.log('⏳ [Home Sport Tile] Waiting for Buy now button in modal...');
-        await this.page.waitForTimeout(1000);
-        visible = await buyNowBtn.isVisible({ timeout: 3000 }).catch(() => false);
+        visible = await buyNowBtn.isVisible({ timeout: 1500 }).catch(() => false);
       }
 
       if (!visible) {

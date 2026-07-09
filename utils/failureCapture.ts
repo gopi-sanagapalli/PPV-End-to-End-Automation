@@ -69,6 +69,83 @@ async function findTarget(page: any, candidates: string[]): Promise<any | null> 
   return null;
 }
 
+async function findPopupContainer(page: any): Promise<any | null> {
+  const selectors = [
+    '[role="dialog"]',
+    '[aria-modal="true"]',
+    '[class*="content-promotion" i]',
+    '[class*="modal-dialog" i]',
+    '[class*="modal" i]',
+    '[class*="popup" i]',
+  ];
+
+  let best: any = null;
+  let bestScore = -Infinity;
+  let bestArea = Infinity;
+
+  for (const sel of selectors) {
+    const loc = page.locator(sel);
+    const count = await loc.count().catch(() => 0);
+    for (let i = 0; i < Math.min(count, 80); i++) {
+      const candidate = loc.nth(i);
+      if (!await candidate.isVisible().catch(() => false)) continue;
+
+      const info = await candidate.evaluate((el: HTMLElement) => {
+        const clean = (value: string | null | undefined) =>
+          String(value ?? '').replace(/\s+/g, ' ').trim();
+        const rect = el.getBoundingClientRect();
+        const text = clean(el.innerText || el.textContent).toLowerCase();
+        const classText = clean(el.className as any).toLowerCase();
+        const area = rect.width * rect.height;
+        const viewportArea = Math.max(1, window.innerWidth * window.innerHeight);
+        let score = 0;
+
+        if (el.getAttribute('role') === 'dialog' || el.getAttribute('aria-modal') === 'true') score += 35;
+        if (classText.includes('modal-dialog') || classText.includes('content-promotion')) score += 45;
+        if (classText.includes('modal') || classText.includes('popup')) score += 15;
+        if (text.includes('buy now')) score += 60;
+        if (el.querySelector('img')) score += 15;
+        if (el.querySelector('button, a')) score += 12;
+        if (el.querySelector('[aria-label*="close" i], [class*="close" i]')) score += 8;
+        if (rect.width < 180 || rect.height < 120) score -= 80;
+        if (area > viewportArea * 0.7) score -= 70;
+        else score += 30;
+        if (classText.includes('header') || classText.includes('nav') || classText.includes('menu')) score -= 100;
+
+        return { score, area };
+      }).catch(() => null);
+
+      if (!info || info.score < 20) continue;
+      if (info.score > bestScore || (info.score === bestScore && info.area < bestArea)) {
+        best = candidate;
+        bestScore = info.score;
+        bestArea = info.area;
+      }
+    }
+  }
+
+  return best;
+}
+
+async function findPopupTarget(page: any, candidates: string[]): Promise<any | null> {
+  const popup = await findPopupContainer(page);
+  if (!popup) return null;
+
+  for (const text of candidates) {
+    try {
+      const locator = popup.getByText(text, { exact: false });
+      const count = await locator.count().catch(() => 0);
+      for (let i = 0; i < count; i++) {
+        const item = locator.nth(i);
+        if (await item.isVisible().catch(() => false)) {
+          return item;
+        }
+      }
+    } catch { /* try next candidate */ }
+  }
+  return null;
+}
+
 export async function captureFailures(
   page: any,
   results: any[],
@@ -93,7 +170,10 @@ export async function captureFailures(
 
     let handle: any = null;
     try {
-      const target = await findTarget(page, matchCandidates(r));
+      const candidates = matchCandidates(r);
+      const isPopupField = String(field).toLowerCase().replace(/\s+/g, ' ').trim().startsWith('popup');
+      const target = (isPopupField ? await findPopupTarget(page, candidates) : null) ||
+        await findTarget(page, candidates);
 
       if (target) {
         console.log(`🎯 [Fail Shot] Highlight target found for field "${field}": "${(await target.textContent().catch(() => '')).trim().substring(0, 50)}"`);

@@ -304,6 +304,7 @@ test.describe('Mobile → Web PPV Handoff', () => {
 
       // ── Default Signup validation check: Fail if no PPV ──
       const isBoxingSubscriptionSource =
+        SOURCE === 'boxing-banner-ultimate' ||
         SOURCE === 'boxing-ultimate-subscription' ||
         SOURCE === 'boxing-standard-subscription' ||
         SOURCE === 'boxing-join-the-club';

@@ -470,23 +470,40 @@ export class HomePage extends LandingPage {
     if (src === 'home-page-dont-miss') {
       console.log('🔍 [HomePage Tile] Flow: Tile + Modal popup flow');
 
+      await this.page.waitForFunction(() => {
+        const text = document.body?.innerText || '';
+        return text.length > 100 && /home|sports|live|schedule|boxing/i.test(text);
+      }, { timeout: 3000 }).catch(() => { });
+
       // 1. Scroll to section heading
       const sectionPattern = /don.t miss/i;
-      const railHeader = this.page.getByText(sectionPattern).first();
-
+      let railHeader: any = null;
       let foundHeading = false;
-      for (let i = 0; i < 8; i++) {
-        if (await railHeader.isVisible().catch(() => false)) {
+
+      for (let i = 0; i < 14 && !foundHeading; i++) {
+        const headingCandidates = this.page.locator('h1, h2, h3, h4, [class*="heading" i], [class*="title" i], [data-testid*="title" i]')
+          .filter({ hasText: sectionPattern });
+        const headingCount = await headingCandidates.count().catch(() => 0);
+
+        for (let j = 0; j < headingCount; j++) {
+          const candidate = headingCandidates.nth(j);
+          if (!await candidate.isVisible().catch(() => false)) continue;
+
+          const insideTileLink = await candidate.locator('xpath=ancestor::a[1]').count().catch(() => 0) > 0;
+          if (insideTileLink) continue;
+
+          railHeader = candidate;
           foundHeading = true;
           break;
         }
+
+        if (foundHeading) break;
+
         const scrollPos = (i + 1) * 800;
         await this.page.evaluate((pos) => {
           window.scrollTo({ top: pos, behavior: 'instant' });
         }, scrollPos).catch(() => { });
-
-        foundHeading = await railHeader.waitFor({ state: 'attached', timeout: 200 }).then(() => true).catch(() => false);
-        if (foundHeading) break;
+        await this.page.waitForTimeout(250);
       }
 
       if (!foundHeading) {
@@ -498,7 +515,7 @@ export class HomePage extends LandingPage {
 
       // 2. Locate rail wrapper
       const railWrapper = railHeader.locator('xpath=ancestor::*[contains(@class,"rail__rail-wrapper")][1] | ancestor::section[contains(@class,"rail")][1] | ancestor::div[contains(@class,"rail")][1] | ancestor::*[contains(@class,"railWrapper")][1]');
-      await railWrapper.waitFor({ state: 'visible', timeout: 10000 }).catch(() => { });
+      await railWrapper.waitFor({ state: 'visible', timeout: 3000 }).catch(() => { });
       console.log('✅ [HomePage Tile] Found rail wrapper');
 
       // 3. Build search parameters for tile (same as LandingPage.ts)
@@ -601,10 +618,6 @@ export class HomePage extends LandingPage {
         '[class*="next" i]',
       ].join(', ')).first();
 
-      await nextBtn.waitFor({ state: 'attached', timeout: 5000 }).catch(() => {
-        console.log('⚠️ [HomePage Tile] Swiper next button not attached after 5s');
-      });
-
       await railWrapper.hover({ force: true }).catch(() => { });
       await this.page.waitForTimeout(100);
 
@@ -674,6 +687,46 @@ export class HomePage extends LandingPage {
         console.log('Images:', JSON.stringify(dump?.imgs, null, 2));
         throw new Error(`❌ [HomePage Tile] Could not find "${fighter1 || ppvName}" tile in "Don't Miss" rail after ${clicks} clicks`);
       }
+
+      const sectionHeadingText = ((await railHeader.textContent().catch(() => '')) || '').replace(/\s+/g, ' ').trim();
+      const tileCapture = await found.evaluate((el: HTMLElement) => {
+        const clean = (value: string | null | undefined) =>
+          String(value ?? '').replace(/\s+/g, ' ').trim();
+        const text = clean(el.innerText || el.textContent);
+        const imgTexts = Array.from(el.querySelectorAll('img'))
+          .map((img: HTMLImageElement) => clean(img.alt || img.getAttribute('aria-label') || img.getAttribute('title')))
+          .filter(Boolean);
+        const combined = clean(`${text} ${imgTexts.join(' ')} ${el.getAttribute('aria-label') || ''} ${el.getAttribute('title') || ''}`);
+        const hasImage = Array.from(el.querySelectorAll<HTMLElement>('img, picture, [role="img"], div, span, a')).some(node => {
+          const rect = node.getBoundingClientRect();
+          const style = window.getComputedStyle(node);
+          const hasBackground = !!style.backgroundImage && style.backgroundImage !== 'none';
+          return node.tagName.toLowerCase() === 'img' ||
+            node.tagName.toLowerCase() === 'picture' ||
+            node.getAttribute('role') === 'img' ||
+            (hasBackground && rect.width >= 80 && rect.height >= 45);
+        });
+        const dateMatch =
+          combined.match(/\b\d{1,2}\s+(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC|January|February|March|April|May|June|July|August|September|October|November|December)\b/i) ||
+          combined.match(/\b(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC|January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}\b/i);
+        return {
+          text: combined,
+          dateText: dateMatch ? dateMatch[0] : '',
+          hasImage,
+        };
+      }).catch(() => ({ text: '', dateText: '', hasImage: false }));
+
+      eventData.__HOME_DONT_MISS_SECTION_HEADING = sectionHeadingText || 'Don\'t Miss';
+      eventData.__HOME_DONT_MISS_TILE_FOUND = 'Yes';
+      eventData.__HOME_DONT_MISS_TILE_TEXT = tileCapture.text || '';
+      eventData.__HOME_DONT_MISS_TILE_DATE = tileCapture.dateText || eventData.LANDING_PAGE_PPV_DATE || '';
+      eventData.__HOME_DONT_MISS_IMAGE_PRESENT = tileCapture.hasImage ? 'Yes' : 'No';
+      console.log(
+        `[HomePage Tile] Pre-captured Don't Miss validation data: ` +
+        `section="${eventData.__HOME_DONT_MISS_SECTION_HEADING}", ` +
+        `date="${eventData.__HOME_DONT_MISS_TILE_DATE}", ` +
+        `image="${eventData.__HOME_DONT_MISS_IMAGE_PRESENT}"`
+      );
 
       console.log(`📌 [HomePage Tile] Found PPV tile, clicking to open modal...`);
       await found.scrollIntoViewIfNeeded().catch(() => { });
@@ -939,20 +992,19 @@ export class HomePage extends LandingPage {
         'button:has-text("Subscribe"), a:has-text("Subscribe"), ' +
         'button:has-text("Continue"), a:has-text("Continue")';
 
-      const dialog = container.locator('[role="dialog"], [aria-modal="true"], [class*="modal" i]').first();
-      let buyNowBtn = dialog.locator(ctaSelector).first();
+      let buyNowBtn = container.locator(ctaSelector).first();
 
-      let visible = await buyNowBtn.isVisible({ timeout: 2000 }).catch(() => false);
+      let visible = await buyNowBtn.isVisible({ timeout: 750 }).catch(() => false);
       if (!visible) {
-        console.log('⏳ [HomePage Tile] Dialog selector not active. Trying generic container check...');
-        buyNowBtn = container.locator(ctaSelector).first();
-        visible = await buyNowBtn.isVisible({ timeout: 2000 }).catch(() => false);
+        console.log('⏳ [HomePage Tile] Container CTA not visible. Trying nested dialog selector...');
+        const dialog = container.locator('[role="dialog"], [aria-modal="true"], [class*="modal" i]').first();
+        buyNowBtn = dialog.locator(ctaSelector).first();
+        visible = await buyNowBtn.isVisible({ timeout: 1000 }).catch(() => false);
       }
 
       if (!visible) {
         console.log('⏳ [HomePage Tile] Waiting for Buy now button in modal...');
-        await this.page.waitForTimeout(1000);
-        visible = await buyNowBtn.isVisible({ timeout: 3000 }).catch(() => false);
+        visible = await buyNowBtn.isVisible({ timeout: 1500 }).catch(() => false);
       }
 
       if (!visible) {

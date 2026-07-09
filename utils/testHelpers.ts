@@ -179,17 +179,14 @@ export async function handlePopupModal(
     'button:has-text("Start watching")', 'a:has-text("Start watching")', 'button:has-text("Get started")', 'a:has-text("Get started")'
   ].join(', ');
 
-  for (const selector of modalSelectors) {
-    const modalLocator = page.locator(selector).filter({ has: page.locator(ctaSelector) }).first();
-    try {
-      await modalLocator.waitFor({ state: 'visible', timeout: 2500 });
-      if (await modalLocator.isVisible().catch(() => false)) {
-        foundModal = modalLocator;
-        break;
-      }
-    } catch {
-      // Not found with this selector, try next
+  const modalLocator = page.locator(modalSelectors.join(', ')).filter({ has: page.locator(ctaSelector) }).first();
+  try {
+    await modalLocator.waitFor({ state: 'visible', timeout: src === 'home-page-dont-miss' ? 1000 : 2500 });
+    if (await modalLocator.isVisible().catch(() => false)) {
+      foundModal = modalLocator;
     }
+  } catch {
+    // Not found yet; navigation guard below will decide whether to continue.
   }
 
   // Check if page navigated during the wait

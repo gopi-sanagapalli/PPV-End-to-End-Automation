@@ -14,6 +14,7 @@
     "PPV_POPUP_DATE": "25 JUL 9:00PM",
     "SEARCH_PPV_DATE_TIME": "25 JUL 9:00PM",
     "PPV_TIME": "00:30",
+    "SCHEDULE_PPV_TIME": "9:30PM",
     "BOXING_BANNER_DATE": "SAT 25TH JUL",
     "LANDING_BANNER_DATE": "SUN 26TH JUL AT 00:30",
     "BOXING_BANNER_SUBTITLE": "Main Event • Jeddah, Saudi Arabia • 21:30",
@@ -44,7 +45,6 @@
   "regions": {
     "GB": {
       "LANDING_PAGE_PPV_DATE": "25 July",
-      "SCHEDULE_PPV_TIME": "9:30PM",
       "PPV_PRICE": "19.99",
       "TODAY_YOU_PAY_PRICE": "19.99",
       "UPSELL_PRICE_LENGTH": "/month for 12 months",
