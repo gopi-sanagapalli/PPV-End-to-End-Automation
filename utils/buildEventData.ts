@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import {
   getNow,
-  getNowIST,
+  getNowForRegion,
   formatNextPaymentDate,
   formatNextPaymentDateMonthly,
   formatNextPaymentDateYearly,
@@ -55,7 +55,7 @@ function formatHomeBoxingUpcomingDate(value: string): string {
   if (monthIndex === -1 || !dayMatch) return clean;
 
   const day = Number(dayMatch[1]);
-  const now = getNowIST();
+  const now = getNowForRegion();
   const date = new Date(now.getFullYear(), monthIndex, day);
   if (date.getTime() < now.getTime() - 30 * 24 * 60 * 60 * 1000) {
     date.setFullYear(now.getFullYear() + 1);
@@ -581,7 +581,7 @@ export function buildEventData(
   const ratePlanLower = base.RATE_PLAN.toLowerCase();
 
   // Today's date for Upgrade Confirmation legal text
-  const todayIST = getNowIST();
+  const todayIST = getNowForRegion();
   const dd = String(todayIST.getDate()).padStart(2, '0');
   const mm = String(todayIST.getMonth() + 1).padStart(2, '0');
   const yyyy = todayIST.getFullYear();
