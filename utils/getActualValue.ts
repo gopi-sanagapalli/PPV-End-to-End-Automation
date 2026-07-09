@@ -1124,13 +1124,6 @@ export async function getActualValue(
       );
     }
 
-    case 'flex future date': {
-      return snapFind(n =>
-        n.text.toLowerCase().includes('in 7 days') &&
-        n.text.length < 40
-      );
-    }
-
     case 'annual description': {
       return snapFind(n =>
         n.childCount === 0 &&
@@ -8203,10 +8196,17 @@ export async function getActualValue(
     case 'flex future date': {
       // "In 7 days • 4 June 2026" or "In 7 days • June 4, 2026" or "In 1 month • 28 June 2026"
       const futureDateLabel = snapFind(n =>
-        /^in\s+\d+\s+(days?|months?)\s*[•·-]\s*(\d+\s+\w+|\w+\s+\d{1,2},?)\s+\d{4}$/i.test(n.text.trim()) &&
+        /(in\s+\d+\s+days?|in\s+\d+\s+months?).*\d{4}/i.test(n.text.trim()) &&
         n.text.length < 60
       );
       if (futureDateLabel !== 'N/A') return futureDateLabel.trim();
+
+      // Check for any text starting with "in X days" or "in X month" (more relaxed)
+      const looseMatch = snapFind(n =>
+        /^\s*in\s+\d+\s+(days?|months?)\b/i.test(n.text.trim()) &&
+        n.text.length < 60
+      );
+      if (looseMatch !== 'N/A') return looseMatch.trim();
 
       // Fallback: look in class "qCPrE" which holds the date label
       const dateNode = snapFind(n =>

@@ -1101,7 +1101,7 @@ export class PaymentPage extends BasePage {
           filteredPrices.push(p.trim());
         }
         if (filteredPrices.length > 0) {
-          return filteredPrices.join(' ');
+          return filteredPrices[0];
         }
         if (prices[0]) return prices[0].trim();
       }

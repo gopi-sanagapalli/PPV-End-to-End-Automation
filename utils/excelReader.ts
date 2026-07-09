@@ -35,8 +35,14 @@ export const readSheet = (sheetName: string) => {
 // LANDING DATA (Field | Value)
 // =========================
 export const getLandingData = () => {
-  const data = readSheet('Landing page');
-  console.log(`📊 Landing rows: ${data.length}`);
+  let data;
+  try {
+    data = readSheet('Landing-page-banner');
+    console.log(`📊 Landing Banner rows: ${data.length}`);
+  } catch {
+    data = readSheet('Landing page');
+    console.log(`📊 Landing rows: ${data.length}`);
+  }
   return data;
 };
 
@@ -298,12 +304,25 @@ export const getOTPPageData = () => {
 };
 
 // =========================
-// HOME OF BOXING DATA BY FLOW
-// =========================
 export const getHomeOfBoxingData = (flowName: string) => {
-  const data = readSheet('Home of Boxing');
   const normalize = (val: any) => val?.toString().trim().toLowerCase();
-  const queryFlow = flowName;
+  if (normalize(flowName) === 'home-boxing-banner') {
+    try {
+      const data = readSheet('Home-boxing-banner');
+      console.log(`🥊 Boxing Banner rows: ${data.length}`);
+      return data;
+    } catch {}
+  }
+  if (normalize(flowName) === 'home-boxing-upcoming') {
+    try {
+      const data = readSheet('Home-boxing-upcoming');
+      console.log(`🥊 Boxing Tile rows: ${data.length}`);
+      return data;
+    } catch {}
+  }
+
+  const data = readSheet('Home of Boxing');
+  const queryFlow = flowName === 'home-boxing-upcoming' ? 'home-boxing-tile' : flowName;
   const flowData = data.filter(
     (d: any) => normalize(d.Flow) === normalize(queryFlow)
   );
@@ -342,8 +361,17 @@ export const getSchedulePagePopupData = () => {
 // HOME PAGE DATA BY FLOW
 // =========================
 export const getHomePageData = (flowName: string) => {
-  const data = readSheet('Home page');
+  let data;
   const normalize = (val: any) => val?.toString().trim().toLowerCase();
+  if (normalize(flowName) === 'home-page-banner') {
+    try {
+      data = readSheet('Home-page-banner');
+      console.log(`🏠 Home Banner rows: ${data.length}`);
+      return data;
+    } catch {}
+  }
+
+  data = readSheet('Home page');
   const flowData = data.filter(
     (d: any) => normalize(d.Flow) === normalize(flowName)
   );

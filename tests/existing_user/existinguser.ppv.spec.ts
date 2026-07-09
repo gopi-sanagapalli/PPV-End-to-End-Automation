@@ -364,6 +364,35 @@ for (const stateKey of userStatesToRun) {
       pc: Record<string, { detection: string }>
     ): Promise<'ppv' | 'plan' | 'payment' | 'confirmation' | 'standalone-ppv' | 'email' | 'unknown' | 'success-upsell' | 'saved-card-payment' | 'bet-upsell' | 'default-signup' | 'phone' | 'myaccount-ppv' | 'choose-how-to-buy'> => {
       if (!p || p.isClosed()) return 'unknown';
+
+      // ── Wait for SPA routing / initial load to settle if needed ──
+      const initialUrl = p.url().toLowerCase();
+      if (
+        initialUrl.includes('index.html') ||
+        initialUrl.includes('externalpurchaseid=') ||
+        initialUrl.includes('contextualppvid=') ||
+        ((initialUrl.includes('page=plandetails') || initialUrl.includes('page=tierplans')) && 
+         !initialUrl.includes('upselltiershown') && 
+         !initialUrl.includes('upselltierselected') && 
+         !initialUrl.includes('upselltierskipped'))
+      ) {
+        try {
+          await p.waitForFunction(() => {
+            const href = window.location.href.toLowerCase();
+            const bodyText = document.body ? document.body.innerText.toLowerCase() : '';
+            const hasUpsellStateInUrl = href.includes('upselltiershown') || 
+                                         href.includes('upselltierselected') || 
+                                         href.includes('upselltierskipped');
+            const hasPpvText = bodyText.includes('pay-per-view') || 
+                                bodyText.includes('just the fight') || 
+                                bodyText.includes('continue with pay-per-view') || 
+                                bodyText.includes('ultimate fan package') ||
+                                bodyText.includes('to watch your pay-per-view');
+            return hasUpsellStateInUrl || hasPpvText;
+          }, { timeout: 8000 }).catch(() => {});
+        } catch {}
+      }
+
       const url = p.url();
       const urlLower = url.toLowerCase();
 
@@ -547,7 +576,7 @@ for (const stateKey of userStatesToRun) {
         SOURCE.toLowerCase().startsWith('boxing-bundle') ||
         SOURCE.toLowerCase() === 'boxing-upcoming-fights';
       if (
-        urlLower.includes('contextualppvid=') &&
+        (urlLower.includes('contextualppvid=') || urlLower.includes('externalpurchaseid=')) &&
         (urlLower.includes('page=plandetails') || urlLower.includes('page=tierplans')) &&
         (
           !urlLower.includes('upselltierselected=true') ||

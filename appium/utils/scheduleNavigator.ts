@@ -28,6 +28,8 @@
  * • UI-tree queries use className-filtered $$ queries — not full XML dumps.
  */
 
+import { AndroidFlowHooks } from '../pages/android/AndroidBasePage';
+
 type WdBrowser = any;
 type WdElement = any;
 
@@ -53,7 +55,7 @@ const GENTLE_SWIPE_START_Y = 0.60;
 const GENTLE_SWIPE_END_Y   = 0.42;
 
 /** Below this ratio the tile is behind the bottom nav bar. */
-const BOTTOM_NAV_THRESHOLD = 0.78;
+const BOTTOM_NAV_THRESHOLD = 0.70;
 
 /** Target vertical ratio for a centered tile. */
 const CENTER_TARGET_Y = 0.45;
@@ -470,51 +472,39 @@ export async function centerTileIfNeeded(
   tile: WdElement,
   ppvName: string,
 ): Promise<WdElement> {
-  let rect: { x: number; y: number; width: number; height: number };
+  let rect: { x: number; y: number; width: number; height: number } | null = null;
   try { rect = await tile.getRect(); }
   catch { return tile; }
 
-  const threshold = Math.round(dims.height * BOTTOM_NAV_THRESHOLD);
-  const targetY   = Math.round(dims.height * CENTER_TARGET_Y);
+  const targetMinY = Math.round(dims.height * 0.35);
+  const targetMaxY = Math.round(dims.height * 0.55);
 
-  if (rect.y <= threshold) {
-    console.log(`✅ Phase 4: Tile at y=${rect.y} — visible, no centering needed.`);
-    return tile;
+  console.log(`   Phase 4: Centering tile. Current y=${rect.y}, target range=[${targetMinY}, ${targetMaxY}].`);
+
+  let currentTile = tile;
+  let attempts = 0;
+  while (rect && rect.y > targetMaxY && attempts < 5) {
+    console.log(`   Phase 4: Tile is too low (y=${rect.y} > ${targetMaxY}). Performing a gentle scroll up.`);
+    await swipeUp(driver, dims, GENTLE_SWIPE_START_Y, GENTLE_SWIPE_END_Y, 400);
+    await driver.pause(600);
+
+    // Re-acquire element
+    const esc = ppvName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const freshEl = await driver.$(`android=new UiSelector().textMatches("(?i).*${esc}.*")`);
+    const newRect = await freshEl.getRect().catch(() => null);
+    if (!newRect) {
+      console.warn('⚠️ Phase 4: Could not re-acquire tile after scroll.');
+      break;
+    }
+    rect = newRect;
+    currentTile = freshEl;
+    attempts++;
   }
 
-  const scrollDist = rect.y - targetY;
-  const swipeStartY = Math.min(Math.round(dims.height * 0.68), dims.height - 80);
-  const swipeEndY   = Math.max(swipeStartY - scrollDist, 40);
-
-  console.log(`   Phase 4: Tile at y=${rect.y} (threshold=${threshold}). Centering by ${scrollDist}px.`);
-
-  const cx = Math.round(dims.width / 2);
-  await driver.performActions([{
-    type: 'pointer', id: 'finger1',
-    parameters: { pointerType: 'touch' },
-    actions: [
-      { type: 'pointerMove', duration: 0,   x: cx, y: swipeStartY },
-      { type: 'pointerDown', button: 0 },
-      { type: 'pause',       duration: 40 },
-      { type: 'pointerMove', duration: 280, x: cx, y: swipeEndY },
-      { type: 'pointerUp',   button: 0 },
-    ],
-  }]);
-  await driver.releaseActions();
-  await driver.pause(500);
-
-  // Re-acquire to handle RecyclerView node recycling
-  const esc      = ppvName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const freshEl  = await driver.$(`android=new UiSelector().textMatches("(?i).*${esc}.*")`);
-  if (await freshEl.isExisting()) {
-    try {
-      const nr = await freshEl.getRect();
-      console.log(`✅ Phase 4: Tile re-acquired at y=${nr.y}.`);
-    } catch { /* ignore */ }
-    return freshEl;
+  if (rect) {
+    console.log(`✅ Phase 4: Centering complete. Final y=${rect.y}.`);
   }
-  console.warn('⚠️ Phase 4: Could not re-acquire after centering — using original reference.');
-  return tile;
+  return currentTile;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -523,7 +513,9 @@ export async function centerTileIfNeeded(
 
 export async function tapTile(driver: WdBrowser, tile: WdElement): Promise<void> {
   let tapX: number, tapY: number;
+  let text = 'Unknown';
   try {
+    text = await tile.getText().catch(() => 'Unknown');
     const rect = await tile.getRect();
     tapX = rect.x + Math.round(rect.width  / 2);
     tapY = rect.y + Math.round(rect.height / 2);
@@ -531,7 +523,7 @@ export async function tapTile(driver: WdBrowser, tile: WdElement): Promise<void>
     const { x, y } = await getElementCenter(tile);
     tapX = x; tapY = y;
   }
-  console.log(`🎯 Phase 5: Tapping tile at (${tapX}, ${tapY})`);
+  console.log(`🎯 Phase 5: Tapping tile "${text}" at (${tapX}, ${tapY})`);
   await tap(driver, tapX, tapY);
 }
 
@@ -624,6 +616,7 @@ export async function verifyNavigation(
 export async function navigateScheduleToPPVTile(
   driver: WdBrowser,
   options: ScheduleNavOptions,
+  hooks: AndroidFlowHooks = {},
 ): Promise<void> {
   const { ppvName, targetMonthIndex, targetDay, maxTileSearchSwipes = 20 } = options;
 
@@ -643,6 +636,10 @@ export async function navigateScheduleToPPVTile(
   );
 
   const tile = await centerTileIfNeeded(driver, dims, rawTile, ppvName);
+
+  if (hooks && hooks.validateSurface) {
+    await hooks.validateSurface('PPV Tile');
+  }
 
   await tapTile(driver, tile);
 
@@ -664,6 +661,7 @@ export async function navigateScheduleToPPVTile(
 export async function navigateToPPVTile(
   driver: WdBrowser,
   event?: { PPV_NAME?: string; global?: { PPV_DATE?: string } },
+  hooks: AndroidFlowHooks = {},
 ): Promise<void> {
   const ppvName = event?.PPV_NAME || process.env.PPV_NAME || 'Joshua';
   const ppvDate = event?.global?.PPV_DATE;
@@ -677,7 +675,7 @@ export async function navigateToPPVTile(
       const { monthIndex, day } = parsePPVDate(ppvDate);
       await navigateScheduleToPPVTile(driver, {
         ppvName, targetMonthIndex: monthIndex, targetDay: day,
-      });
+      }, hooks);
       return;
     } catch (err: any) {
       console.warn(`⚠️ navigateToPPVTile: PPV_DATE parse failed — ${err.message}. Falling back.`);
@@ -701,5 +699,10 @@ export async function navigateToPPVTile(
 
   await tile.waitForDisplayed({ timeout: 5000 });
   const centered = await centerTileIfNeeded(driver, dims, tile, ppvName);
+
+  if (hooks && hooks.validateSurface) {
+    await hooks.validateSurface('PPV Tile');
+  }
+
   await tapTile(driver, centered);
 }
