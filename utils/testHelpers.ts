@@ -119,7 +119,7 @@ export async function logVideoPath(page: any): Promise<void> {
 }
 
 import { validateVariant } from '../flows/validateVariant';
-import { getHomeOfBoxingData, getHomePageData } from './excelReader';
+import { getHomeOfBoxingData, getHomePageData, getSearchPagePopupData, getSchedulePagePopupData } from './excelReader';
 
 // ─────────────────────────────────────────────────────────────────
 // HANDLE POPUP MODAL (VALIDATION & OPTIONAL CLICK THROUGH)
@@ -179,17 +179,14 @@ export async function handlePopupModal(
     'button:has-text("Start watching")', 'a:has-text("Start watching")', 'button:has-text("Get started")', 'a:has-text("Get started")'
   ].join(', ');
 
-  for (const selector of modalSelectors) {
-    const modalLocator = page.locator(selector).filter({ has: page.locator(ctaSelector) }).first();
-    try {
-      await modalLocator.waitFor({ state: 'visible', timeout: 2500 });
-      if (await modalLocator.isVisible().catch(() => false)) {
-        foundModal = modalLocator;
-        break;
-      }
-    } catch {
-      // Not found with this selector, try next
+  const modalLocator = page.locator(modalSelectors.join(', ')).filter({ has: page.locator(ctaSelector) }).first();
+  try {
+    await modalLocator.waitFor({ state: 'visible', timeout: src === 'home-page-dont-miss' ? 1000 : 2500 });
+    if (await modalLocator.isVisible().catch(() => false)) {
+      foundModal = modalLocator;
     }
+  } catch {
+    // Not found yet; navigation guard below will decide whether to continue.
   }
 
   // Check if page navigated during the wait
@@ -210,12 +207,19 @@ export async function handlePopupModal(
     console.log('✅ [Popup Check] Popup modal detected!');
 
     if (!alreadyValidated) {
-      // Load popup validation rules using getHomePageData or getHomeOfBoxingData
+      // Load popup validation rules from the source-specific Excel sheet
       let popupRules: any[] = [];
       try {
-        if (src === 'home-page-dont-miss' || src === 'home-biggest-fights') {
+        if (src.includes('search')) {
+          // Search page has its own Popup - fields embedded in the Search page sheet
+          popupRules = getSearchPagePopupData();
+        } else if (src.includes('schedule')) {
+          // Schedule page has its own Popup - fields embedded in the Schedule page sheet
+          popupRules = getSchedulePagePopupData();
+        } else if (src === 'home-page-dont-miss' || src === 'home-biggest-fights') {
           popupRules = getHomePageData(src);
         } else {
+          // Default: Home of Boxing sheet (home-boxing-tile, home-boxing-banner, etc.)
           popupRules = getHomeOfBoxingData('home-boxing-tile');
         }
       } catch (err: any) {
@@ -223,17 +227,43 @@ export async function handlePopupModal(
       }
 
       if (popupRules.length > 0) {
+        const popupValidationFields = new Set([
+          'popup - event title',
+          'popup - event date',
+          'popup - promoter',
+          'popup - buy now cta',
+          'popup - event description',
+          'popup - close button',
+          'popup - image present',
+          'popup - close button',
+        ]);
+        popupRules = popupRules.filter(rule =>
+          popupValidationFields.has(String(rule.Field || '').trim().toLowerCase())
+        );
+
         // Run validations
         try {
           const isHomeField = src === 'home-page-dont-miss' || src === 'home-biggest-fights';
-          const pageName = isHomeField ? 'Home Page' : 'Popup Modal';
-          const ruleFlow = isHomeField ? src : 'home-boxing-tile';
-          const pageType = isHomeField ? 'home-page' : 'home-boxing';
+          // Use source-specific page name so popup results appear in the same
+          // report section as tile fields (not as a separate 'Popup Modal' section)
+          let pageName: string;
+          if (isHomeField) {
+            pageName = 'Home Page';
+          } else if (src.includes('search')) {
+            pageName = 'Search';
+          } else if (src.includes('schedule')) {
+            pageName = 'Schedule';
+          } else {
+            pageName = 'Popup Modal';
+          }
+          const ruleFlow = isHomeField ? src : (src.includes('search') ? 'search' : src.includes('schedule') ? 'schedule' : 'home-boxing-tile');
+          const pageType = isHomeField ? 'home-page' : 'popup';
           await validateVariant(page, pageType, popupRules, results, eventData, pageName, ruleFlow);
           console.log('✅ [Popup Check] Popup modal validations completed successfully.');
         } catch (err: any) {
           console.warn(`⚠️ [Popup Check] Popup modal validation error/warning: ${err.message}`);
         }
+
       } else {
         console.warn('⚠️ [Popup Check] No popup rules available in sheet. Skipping validations.');
       }

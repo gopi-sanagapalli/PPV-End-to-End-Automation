@@ -382,14 +382,15 @@ async function runFlow(
       assertCountryMatch(page, region);
 
       const sport = json.SPORT || 'Boxing';
+      let scheduleEventCard: any;
       let scheduleEventClicked = false;
+
+      // Step 1: Apply sport filter and locate the event tile (no click yet)
       try {
         await schedule.selectSport(sport);
-        const eventCard = await schedule.findEvent(eventData.PPV_NAME);
-        await schedule.clickEvent(eventCard);
-        scheduleEventClicked = true;
+        scheduleEventCard = await schedule.findEvent(eventData.PPV_NAME);
       } catch (schedErr: any) {
-        console.error(`❌ Schedule flow failed: ${schedErr.message}`);
+        console.error(`❌ Schedule: could not find event: ${schedErr.message}`);
         results.push({
           page: 'Schedule',
           field: 'PPV Event Click',
@@ -399,15 +400,70 @@ async function runFlow(
         });
       }
 
-      if (scheduleEventClicked) {
-        console.log('\n📋 Validating Schedule page...');
+      if (scheduleEventCard) {
+        // Step 2: Scroll card into view FIRST, then validate tile fields from it
+        await scheduleEventCard.scrollIntoViewIfNeeded().catch(() => {});
+
+        // Pre-capture tile values directly from the located event card element
+        // so getActualValue uses these instead of a broad DOM scan
         try {
-          const scheduleData = readSheet('Schedule page');
-          await validateVariant(page, 'schedule', scheduleData, results, eventData, 'Schedule');
-        } catch (err: any) {
-          console.warn(`⚠️  Schedule page validation error: ${err.message}`);
+          const cardHtml = await scheduleEventCard.innerHTML({ timeout: 5000 }).catch(() => '');
+          const cardText = await scheduleEventCard.innerText({ timeout: 5000 }).catch(() => '');
+          // Time badge: HH:MM or H:MMam/pm format
+          const timeEl = scheduleEventCard.locator('span, time, div, p').filter({
+            hasText: /^\d{1,2}:\d{2}(\s*[aApP][mM])?$/
+          }).first();
+          const tileTime = await timeEl.innerText({ timeout: 3000 }).catch(() => '');
+          if (tileTime.trim()) eventData.__SCHEDULE_TILE_TIME = tileTime.trim();
+
+          // Title / PPV name from the card
+          const titleEl = scheduleEventCard.locator('h3, h4, h2, [class*="title"], [class*="name"], p').first();
+          const tileTitle = await titleEl.innerText({ timeout: 3000 }).catch(() => '');
+          if (tileTitle.trim()) eventData.__SCHEDULE_TILE_NAME = tileTitle.trim();
+
+          // Promoter — second paragraph or subtitle element
+          const promoterEl = scheduleEventCard.locator('p').nth(1);
+          const tilePromoter = await promoterEl.innerText({ timeout: 3000 }).catch(() => '');
+          if (tilePromoter.trim()) eventData.__SCHEDULE_TILE_PROMOTER = tilePromoter.trim();
+
+          console.log(`📌 Schedule tile pre-captured → time: ${eventData.__SCHEDULE_TILE_TIME || 'N/A'}, name: ${eventData.__SCHEDULE_TILE_NAME || 'N/A'}, promoter: ${eventData.__SCHEDULE_TILE_PROMOTER || 'N/A'}`);
+        } catch (preErr: any) {
+          console.warn(`⚠️  Could not pre-capture schedule tile values: ${preErr.message}`);
         }
 
+        // Step 3: Validate TILE fields (card in view, values pre-captured)
+        try {
+          const scheduleData = readSheet('Schedule page');
+          const tileFields = scheduleData.filter((r: any) =>
+            !String(r.Field || '').toLowerCase().startsWith('popup')
+          );
+          if (tileFields.length) {
+            console.log('\n📋 Validating Schedule tile fields (before popup opens)...');
+            await validateVariant(page, 'schedule', tileFields, results, eventData, 'Schedule', undefined, true);
+          }
+        } catch (err: any) {
+          console.warn(`⚠️  Schedule tile validation error: ${err.message}`);
+        }
+
+        // Step 4: Ensure card still in view then click to open popup
+        try {
+          await scheduleEventCard.scrollIntoViewIfNeeded();
+          await schedule.clickEvent(scheduleEventCard);
+          scheduleEventClicked = true;
+        } catch (schedErr: any) {
+          console.error(`❌ Schedule clickEvent failed: ${schedErr.message}`);
+          results.push({
+            page: 'Schedule',
+            field: 'PPV Event Click',
+            expected: `${eventData.PPV_NAME} clickable via ${sport} filter`,
+            actual: schedErr.message,
+            status: 'FAIL',
+          });
+        }
+      }
+
+      if (scheduleEventClicked) {
+        await handlePopupModal(page, results, eventData, source, false);
         await schedule.clickBuyNow();
       }
     } else if (isSearch) {
@@ -415,17 +471,24 @@ async function runFlow(
       await searchPage.navigate(baseUrl);
       await setupPage(page, 8000);
       assertCountryMatch(page, region);
-      await searchPage.searchAndClick(eventData.PPV_NAME);
+      await searchPage.searchForPPVTileWithUpcomingFallback(eventData.PPV_NAME);
 
-      console.log('\n📋 Validating Search page...');
+      console.log('\n📋 Validating Search page tile fields (before tile click)...');
       try {
         const searchData = readSheet('Search page');
-        await validateVariant(page, 'search', searchData, results, eventData, 'Search');
+        // Only validate tile fields here — popup fields are validated by
+        // handlePopupModal after clickPPVTile opens the popup
+        const tileFields = searchData.filter((r: any) =>
+          !String(r.Field || '').toLowerCase().startsWith('popup')
+        );
+        await validateVariant(page, 'search', tileFields, results, eventData, 'Search');
       } catch (err: any) {
         console.warn(`⚠️  Search page validation error: ${err.message}`);
       }
 
-      // Check and validate popup modal if visible BEFORE clicking Buy Now
+      await searchPage.clickPPVTile(eventData.PPV_NAME);
+
+      // Check and validate popup modal after clicking the tile and before clicking Buy Now
       await handlePopupModal(page, results, eventData, source, false);
 
       await searchPage.clickBuyNow();
@@ -533,6 +596,7 @@ async function runFlow(
           // Skip landing page validation for subscription-only boxing sources
           // — they go directly to TierPlans/PlanDetails, there is no PPV banner to validate.
           const isBoxingSubscriptionSource =
+            source === 'boxing-banner-ultimate' ||
             source === 'boxing-ultimate-subscription' ||
             source === 'boxing-standard-subscription' ||
             source === 'boxing-page-bundle' ||
@@ -826,6 +890,7 @@ async function runFlow(
       // and go directly to plans. DEFAULT_SIGNUP=true is still set for them (they are sub-only flows)
       // but the "no PPV" check only applies to home-page / landing-page default signup sources.
       const isBoxingSubscriptionSource =
+        SOURCE === 'boxing-banner-ultimate' ||
         SOURCE === 'boxing-ultimate-subscription' ||
         SOURCE === 'boxing-standard-subscription' ||
         SOURCE === 'boxing-join-the-club';
@@ -1607,9 +1672,14 @@ async function runFlow(
         if (!planValidated && !page.url().includes('page=TierPlans')) {
           try {
             const planData = getPlanDataByTier(tier);
+            const planFlow = [
+              'boxing-banner-ultimate',
+              'boxing-ultimate-subscription',
+              'boxing-join-the-club',
+            ].includes(source) ? 'boxing-ultimate-direct' : undefined;
             console.log(`📊 Plan rows: ${planData.length}`);
             console.log(`🔍 spec call debug: eventData =`, typeof eventData, eventData ? "defined" : "undefined", eventData ? Object.keys(eventData).join(', ') : 'none');
-            await validateVariant(page, 'plan', planData, results, eventData, 'DAZN Plan');
+            await validateVariant(page, 'plan', planData, results, eventData, 'DAZN Plan', planFlow);
           } catch (e: any) {
             console.warn('⚠️  Plan validation error:', e.message);
           }

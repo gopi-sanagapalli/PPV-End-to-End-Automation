@@ -307,7 +307,7 @@ export function buildEventData(
   let activeOfferType: string = 'default';
 
   // Identify flow context
-  const sourceLower = (source || '').toLowerCase();
+  const sourceLower = String(source || json.SOURCE || json.source || process.env.SOURCE || '').toLowerCase();
   const isBundleFlow = sourceLower.includes('bundle');
   const isPPVFlow = sourceLower.includes('ppv') || json.PPV_TYPE === 'standalone';
 
@@ -558,6 +558,18 @@ export function buildEventData(
   for (const field of directFields) {
     const val = regional[field] ?? merged.global?.[field] ?? merged[field];
     if (val !== undefined) base[field] = val;
+  }
+
+  const isBoxingUltimateDirectSource = [
+    'boxing-banner-ultimate',
+    'boxing-ultimate-subscription',
+    'boxing-join-the-club',
+  ].includes(sourceLower);
+
+  if (isBoxingUltimateDirectSource) {
+    base.ULTIMATE_FEATURE_1 = 'Minimum 12 pay-per-views a year included at no extra cost.';
+    base.ULTIMATE_FEATURE_2 = "185+ fights a year from the world's best promoters.";
+    base.ULTIMATE_FEATURE_3 = 'HDR and Dolby 5.1 surround sound on select events.';
   }
 
   // Active standard user: CTA must be set AFTER directFields to avoid being clobbered

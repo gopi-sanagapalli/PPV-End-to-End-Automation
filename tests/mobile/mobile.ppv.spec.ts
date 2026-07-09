@@ -304,6 +304,7 @@ test.describe('Mobile → Web PPV Handoff', () => {
 
       // ── Default Signup validation check: Fail if no PPV ──
       const isBoxingSubscriptionSource =
+        SOURCE === 'boxing-banner-ultimate' ||
         SOURCE === 'boxing-ultimate-subscription' ||
         SOURCE === 'boxing-standard-subscription' ||
         SOURCE === 'boxing-join-the-club';
@@ -916,7 +917,12 @@ test.describe('Mobile → Web PPV Handoff', () => {
         if (!planValidated && !page.url().includes('page=TierPlans')) {
           try {
             const planData = getPlanDataByTier(planTier);
-            await validateVariant(page, 'plan', planData, results, eventData, 'DAZN Plan');
+            const planFlow = [
+              'boxing-banner-ultimate',
+              'boxing-ultimate-subscription',
+              'boxing-join-the-club',
+            ].includes(SOURCE) ? 'boxing-ultimate-direct' : undefined;
+            await validateVariant(page, 'plan', planData, results, eventData, 'DAZN Plan', planFlow);
           } catch (e: any) {
             console.warn('⚠️  Plan validation error:', e.message);
           }
