@@ -3779,6 +3779,7 @@ export async function getActualValue(
     case 'event date and time':
     case 'ppv1 date and time text on bundle':
     case 'ppv1 date text on ultimate tier':
+    case 'search ppv date and time':
     case 'landing page ppv date': {
       const url = page.url();
       if (isSearchContext()) {
