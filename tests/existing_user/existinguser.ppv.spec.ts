@@ -3055,7 +3055,13 @@ for (const stateKey of userStatesToRun) {
                 }
 
                 const planData = getPlanDataByTier(targetTier);
-                const planFlow = isMyAccount ? 'myaccount' : (isReturning ? 'returning' : undefined);
+                const planFlow = [
+                  'boxing-banner-ultimate',
+                  'boxing-ultimate-subscription',
+                  'boxing-join-the-club',
+                ].includes(SOURCE)
+                  ? 'boxing-ultimate-direct'
+                  : isMyAccount ? 'myaccount' : (isReturning ? 'returning' : undefined);
                 console.log(`📊 Plan rows: ${planData.length}`);
 
                 await validateVariant(
@@ -3394,9 +3400,14 @@ for (const stateKey of userStatesToRun) {
           eventData['PLAN_CTA_BUTTON'] = 'Continue';
 
           const planData = getPlanDataByTier('ultimate');
+          const planFlow = [
+            'boxing-banner-ultimate',
+            'boxing-ultimate-subscription',
+            'boxing-join-the-club',
+          ].includes(SOURCE) ? 'boxing-ultimate-direct' : undefined;
           console.log(`📊 Plan rows: ${planData.length}`);
           await validateVariant(
-            page, 'plan', planData, results, eventData, 'DAZN Plan'
+            page, 'plan', planData, results, eventData, 'DAZN Plan', planFlow
           );
 
           // Restore

@@ -5853,6 +5853,110 @@ export async function getActualValue(
     // ════════════════════════════════════════════════════════════
     // DAZN PLAN PAGE — ULTIMATE FEATURES
     // ════════════════════════════════════════════════════════════
+    case 'ultimate card present': {
+      const found = snapFind(n => {
+        const lower = n.text.toLowerCase();
+        return lower.includes('dazn ultimate') &&
+          (lower.includes('ultimate fan package') || lower.includes('all these fights')) &&
+          n.text.length < 700;
+      });
+      if (found !== 'N/A') return 'Yes';
+
+      const card = page.locator('div, section, article')
+        .filter({ hasText: /DAZN Ultimate/i })
+        .filter({ hasText: /Ultimate Fan Package|All these fights/i })
+        .first();
+      return await card.isVisible({ timeout: 1500 }).catch(() => false) ? 'Yes' : 'No';
+    }
+
+    case 'ultimate badge': {
+      const badge = snapFind(n =>
+        n.childCount <= 2 &&
+        n.text.toLowerCase().includes('ultimate fan package') &&
+        n.text.length < 60
+      );
+      if (badge !== 'N/A') return badge;
+
+      const live = await page.locator('span, p, div')
+        .filter({ hasText: /The Ultimate Fan Package/i })
+        .first()
+        .innerText({ timeout: 1500 })
+        .catch(() => '');
+      return clean(live) || 'N/A';
+    }
+
+    case 'ultimate plan name': {
+      const planName = snapFind(n =>
+        n.childCount <= 1 &&
+        /^DAZN Ultimate$/i.test(n.text.trim())
+      );
+      if (planName !== 'N/A') return planName;
+
+      const live = await page.locator('h1, h2, h3, p, span, div')
+        .filter({ hasText: /^DAZN Ultimate$/i })
+        .first()
+        .innerText({ timeout: 1500 })
+        .catch(() => '');
+      return clean(live) || 'N/A';
+    }
+
+    case 'ultimate package description': {
+      const description = snapFind(n =>
+        n.childCount <= 2 &&
+        n.text.toLowerCase().includes('all these fights and more this year') &&
+        n.text.toLowerCase().includes('one unbeatable price') &&
+        n.text.length < 140
+      );
+      if (description !== 'N/A') return description;
+
+      const live = await page.locator('p, span, div')
+        .filter({ hasText: /All these fights and more this year/i })
+        .first()
+        .innerText({ timeout: 1500 })
+        .catch(() => '');
+      return clean(live) || 'N/A';
+    }
+
+    case 'ultimate image strip present': {
+      const card = page.locator('div, section, article')
+        .filter({ hasText: /DAZN Ultimate/i })
+        .filter({ hasText: /Ultimate Fan Package|All these fights/i })
+        .first();
+
+      if (await card.isVisible({ timeout: 1500 }).catch(() => false)) {
+        const imageCount = await card.locator('img, picture, source').count().catch(() => 0);
+        if (imageCount > 0) return 'Yes';
+
+        const hasBackgroundImage = await card.evaluate((el: HTMLElement) => {
+          const hasBg = (node: Element) => {
+            const bg = window.getComputedStyle(node).backgroundImage;
+            return !!bg && bg !== 'none' && bg !== 'initial';
+          };
+          if (hasBg(el)) return true;
+          return Array.from(el.querySelectorAll('*')).some(hasBg);
+        }).catch(() => false);
+        if (hasBackgroundImage) return 'Yes';
+      }
+
+      return 'No';
+    }
+
+    case 'select how to pay heading': {
+      const heading = snapFind(n =>
+        n.childCount <= 2 &&
+        /^select how to pay$/i.test(n.text.trim()) &&
+        n.text.length < 40
+      );
+      if (heading !== 'N/A') return heading;
+
+      const live = await page.locator('h1, h2, h3, p, span, div')
+        .filter({ hasText: /^Select how to pay$/i })
+        .first()
+        .innerText({ timeout: 1500 })
+        .catch(() => '');
+      return clean(live) || 'N/A';
+    }
+
     case 'ultimate feature 1':
     case 'ultimate feature 2':
     case 'ultimate feature 3': {
