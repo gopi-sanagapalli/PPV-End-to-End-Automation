@@ -152,6 +152,12 @@ async function runFlow(
   }
   const results: any[] = [];
 
+  // Standard-only surfacing points must not run Ultimate tier plans.
+  if (source === 'boxing-standard-subscription' && tier === 'ultimate') {
+    console.log(`INFO: SOURCE "${source}" is a Standard-only surfacing point — skipping Ultimate plan "${rawRatePlan}".`);
+    return { results, reachedEndPage: false, skipped: true };
+  }
+
   // One identity for the entire journey.
   // Never regenerate this inside the page-state loop.
   const user = createTestUser();
