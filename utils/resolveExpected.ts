@@ -46,6 +46,17 @@ export function resolveExpected(
     'active_standard_apm',
   ].includes(currentUserState);
 
+  if (field === 'instruction header' && (pageName.includes('paywall') || pageName.includes('mobile'))) {
+    const isNewUser = !currentUserState || currentUserState === 'new' || currentUserState === 'anonymous';
+    const isLoginFirst = String(eventData.LOGIN_FIRST ?? process.env.LOGIN_FIRST ?? '').toLowerCase() === 'true';
+    if (!isNewUser && isLoginFirst) {
+      const email = eventData.USER_EMAIL || process.env.USER_EMAIL || '';
+      return `To watch this and more check the email we just sent to ${email}`.trim();
+    } else {
+      return 'How to watch this and more?';
+    }
+  }
+
   if (field === 'banner - fight card cta' && pageName.includes('landing')) {
     return 'N/A';
   }
@@ -143,13 +154,20 @@ export function resolveExpected(
   }
 
 
-  // Landing banner uses its own display date
-  if (
-    field === 'banner - event date' &&
-    (pageName || '').toLowerCase().startsWith('landing') &&
-    eventData.LANDING_BANNER_DATE
-  ) {
-    return String(eventData.LANDING_BANNER_DATE);
+  // Banner date resolution: mobile uses MOBILE_BANNER_DATE_TIME; landing pages use LANDING_BANNER_DATE
+  if (field === 'banner - event date') {
+    const isMobilePage = (pageName || '').toLowerCase().includes('mobile') ||
+      (pageName || '').toLowerCase().includes('ppv banner') ||
+      (eventData.CURRENT_PAGE || '').toLowerCase().includes('ppv banner');
+    if (isMobilePage && eventData.MOBILE_BANNER_DATE_TIME) {
+      return String(eventData.MOBILE_BANNER_DATE_TIME);
+    }
+    if (
+      (pageName || '').toLowerCase().startsWith('landing') &&
+      eventData.LANDING_BANNER_DATE
+    ) {
+      return String(eventData.LANDING_BANNER_DATE);
+    }
   }
 
 
