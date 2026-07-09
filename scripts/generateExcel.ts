@@ -637,7 +637,7 @@ const searchPageData = [
   { Field: 'PPV Tile Present', Expected: 'Yes' },
   { Field: 'PPV Name', Expected: '{{PPV_NAME}}' },
   { Field: 'PPV Image Present', Expected: 'Yes' },
-  { Field: 'PPV Date and Time Text', Expected: '{{PPV_DATE}}|{{LANDING_PAGE_PPV_DATE}}' },
+  { Field: 'Search PPV Date and Time', Expected: '{{SEARCH_PPV_DATE_TIME}}' },
   { Field: 'Lock Icon Present', Expected: 'Yes' },
   // ── Popup fields (validated via handlePopupModal AFTER popup opens) ─────────
   { Field: 'Popup - Event Title', Expected: '{{PPV_NAME}}' },

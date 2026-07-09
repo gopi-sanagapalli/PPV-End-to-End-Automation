@@ -1581,6 +1581,32 @@ export async function getActualValue(
       return 'Not found';
     }
     case 'popup - event date': {
+      // ── Step 0: Read DIRECTLY from the open modal element (scoped, not a broad DOM scan) ──
+      // This prevents picking up background elements (e.g. search result tile dates)
+      // that also match the fuzzy "25" + "jul" pattern.
+      const modalSelectors = ['[role="dialog"]', '[aria-modal="true"]', '[class*="modal" i]', '[class*="popup" i]'];
+      for (const modalSel of modalSelectors) {
+        const modal = page.locator(modalSel).first();
+        if (!await modal.isVisible({ timeout: 1000 }).catch(() => false)) continue;
+        // Look for the date chip element inside the modal
+        const dateEls = modal.locator('span, time, div, p, label');
+        const elCount = await dateEls.count().catch(() => 0);
+        for (let i = 0; i < elCount; i++) {
+          const el = dateEls.nth(i);
+          if (!await el.isVisible().catch(() => false)) continue;
+          const kids = await el.locator('> *').count().catch(() => 0);
+          if (kids > 2) continue; // skip containers
+          const t = clean(await el.innerText({ timeout: 2000 }).catch(() => '') || '');
+          if (!t || t.length > 80) continue;
+          // Match: contains a month name and a day number (e.g. "25 JUL 6:00PM", "Sun 26th Jul at 00:30")
+          const hasMonth = /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/i.test(t);
+          const hasDay = /\b\d{1,2}\b/.test(t);
+          if (hasMonth && hasDay) return t;
+        }
+        break; // found a visible modal — stop looking at other modal selectors
+      }
+
+      // ── Fallback: original snapFind logic (for home-page contexts) ──────────
       // For home-page-popup flow, the popup shows the full PPV_DATE (e.g. "Sun 26th Jul at 00:30")
       // not the abbreviated LANDING_PAGE_PPV_DATE (e.g. "25 July")
       const popupSource = (eventData?.SOURCE || eventData?.source || '').toLowerCase();
