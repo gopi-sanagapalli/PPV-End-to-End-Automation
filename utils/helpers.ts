@@ -248,6 +248,10 @@ export async function getPageSnapshot(page: Page): Promise<DOMNode[]> {
   if (page.isClosed()) return [];
   try {
     return await page.evaluate((): any[] => {
+      // Initialize global __name helper to prevent ReferenceError in transpiled bundles
+      const g = typeof window !== 'undefined' ? window : globalThis;
+      (g as any).__name = (g as any).__name || ((target: any) => target);
+
       const clean = (s: string) =>
         s.replace(/\u200B/g, '').replace(/\s+/g, ' ').trim();
 

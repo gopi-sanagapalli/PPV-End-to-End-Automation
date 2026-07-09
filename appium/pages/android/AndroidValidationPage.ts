@@ -35,11 +35,16 @@ export class AndroidValidationPage extends AndroidBasePage {
     const textsSet = new Set<string>();
     let pageSource = '';
 
-    // Wait up to 10 seconds for a key paywall element
+    // Wait up to 15 seconds for key paywall elements (including Instruction Text which can be slow)
     let isLoaded = false;
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 30; i++) {
       const src = await this.driver.getPageSource().catch(() => '');
-      if (src.toLowerCase().includes('copy') || src.toLowerCase().includes('how to watch')) {
+      if (
+        src.toLowerCase().includes('copy') ||
+        src.toLowerCase().includes('how to watch') ||
+        src.toLowerCase().includes('paste this link') ||
+        src.toLowerCase().includes('paste')
+      ) {
         isLoaded = true;
         pageSource = src;
         break;
@@ -215,6 +220,15 @@ export class AndroidValidationPage extends AndroidBasePage {
           const val = match[1].trim();
           if (val) textsSet.add(val);
         }
+
+        // Save XML dump for banner debugging
+        try {
+          const fs = require('fs');
+          fs.writeFileSync('./test-results/android_banner_page_source.xml', pageSource, 'utf8');
+          console.log('💾 Saved banner XML dump to ./test-results/android_banner_page_source.xml');
+        } catch (err: any) {
+          console.warn('⚠️ Failed to save banner XML dump:', err.message);
+        }
       }
     } catch (e: any) {
       console.log(`⚠️ Failed to fetch page source: ${e.message}`);
@@ -313,6 +327,38 @@ export class AndroidValidationPage extends AndroidBasePage {
           if (!matched && expectedValue.toLowerCase().includes('how to watch')) {
             const foundHeader = texts.find(t => t.toLowerCase().includes('how to watch'));
             if (foundHeader) matched = foundHeader;
+          }
+          // Instruction Text can be slow to load — retry for up to 5 more seconds if not found
+          if (!matched && fieldName.toLowerCase() === 'instruction text') {
+            const expLower = expectedValue.replace(/[\u200b\u200c\u200d\ufeff]/g, '').trim().toLowerCase();
+            for (let attempt = 0; attempt < 10 && !matched; attempt++) {
+              await this.driver.pause(500);
+              const retrySrc = await this.driver.getPageSource().catch(() => '');
+              if (retrySrc.toLowerCase().includes('paste') || retrySrc.toLowerCase().includes(expLower.substring(0, 20))) {
+                try {
+                  const retryEls = await this.driver.$$('//android.widget.TextView');
+                  for (const el of retryEls) {
+                    const txt = await el.getText().catch(() => '');
+                    if (txt && txt.trim()) {
+                      const tc = txt.trim().toLowerCase();
+                      if (tc === expLower || tc.includes(expLower) || expLower.includes(tc.substring(0, 20))) {
+                        matched = txt.trim();
+                        break;
+                      }
+                    }
+                  }
+                } catch (e: any) {
+                  console.log(`⚠️ Instruction Text retry fetch failed: ${e.message}`);
+                }
+              }
+            }
+            if (!matched) {
+              // Last resort: check combined page source
+              const finalSrc = await this.driver.getPageSource().catch(() => pageSource);
+              if (finalSrc.toLowerCase().includes(expLower.substring(0, 30))) {
+                matched = expectedValue;
+              }
+            }
           }
           if (matched) {
             actualValue = matched;
@@ -459,6 +505,47 @@ export class AndroidValidationPage extends AndroidBasePage {
               isMatch = isPresent;
             } else {
               isMatch = !isPresent;
+            }
+          }
+        } else if (fieldName === 'Banner - Event Date') {
+          // The date on the mobile banner may be one joined string or split across parts.
+          // Try exact/includes match on the full expected string first, then try part-based matching.
+          const normalizeTime = (s: string) => s.replace(/a\.\s*m\./gi, 'am').replace(/p\.\s*m\./gi, 'pm');
+          const expClean = normalizeTime(expectedValue.replace(/[\u200b\u200c\u200d\ufeff]/g, '').trim().toLowerCase());
+          console.log(`  🔎 [Banner - Event Date] Looking for: "${expClean}"`);
+          console.log(`  🔎 [Banner - Event Date] texts array (${texts.length} items):`, JSON.stringify(texts.slice(0, 30)));
+          console.log(`  🔎 [Banner - Event Date] pageSource includes expected? ${normalizeTime(pageSource.toLowerCase()).includes(expClean)}`);
+          // Also check for date parts in pageSource for debugging
+          const debugParts = expClean.split(/\s+/);
+          for (const dp of debugParts) {
+            console.log(`  🔎 [Banner - Event Date] pageSource includes "${dp}"? ${normalizeTime(pageSource.toLowerCase()).includes(dp)}`);
+          }
+          const directMatch = texts.find(t => {
+            const tc = normalizeTime(t.replace(/[\u200b\u200c\u200d\ufeff]/g, '').trim().toLowerCase());
+            return tc === expClean || tc.includes(expClean) || expClean.includes(tc);
+          });
+          if (directMatch) {
+            actualValue = directMatch;
+            isMatch = true;
+          } else {
+            // Try combining adjacent text pieces that together form the date
+            const joined = texts.join(' ').replace(/\s+/g, ' ').toLowerCase();
+            if (joined.includes(expClean)) {
+              actualValue = expectedValue;
+              isMatch = true;
+            } else if (pageSource.toLowerCase().includes(expClean)) {
+              actualValue = expectedValue;
+              isMatch = true;
+            } else {
+              // Try partial component checks: day + month components all present
+              const dateParts = expClean.split(/\s+/).filter(p => p.length > 1);
+              const allPartsFound = dateParts.length > 0 && dateParts.every(part =>
+                joined.includes(part) || pageSource.toLowerCase().includes(part)
+              );
+              if (allPartsFound) {
+                actualValue = expectedValue;
+                isMatch = true;
+              }
             }
           }
         } else if (

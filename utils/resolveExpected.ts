@@ -154,12 +154,18 @@ export function resolveExpected(
   }
 
 
-  // All banners use the landing banner display date
-  if (
-    field === 'banner - event date' &&
-    eventData.LANDING_BANNER_DATE
-  ) {
-    return String(eventData.LANDING_BANNER_DATE);
+  // Mobile home page banner uses MOBILE_BANNER_DATE_TIME; all other banners use LANDING_BANNER_DATE
+  if (field === 'banner - event date') {
+    // If we are validating the mobile/Android home page banner, use the mobile-specific date
+    const isMobilePage = pageName.toLowerCase().includes('mobile') ||
+      pageName.toLowerCase().includes('ppv banner') ||
+      (eventData.CURRENT_PAGE || '').toLowerCase().includes('ppv banner');
+    if (isMobilePage && eventData.MOBILE_BANNER_DATE_TIME) {
+      return String(eventData.MOBILE_BANNER_DATE_TIME);
+    }
+    if (eventData.LANDING_BANNER_DATE) {
+      return String(eventData.LANDING_BANNER_DATE);
+    }
   }
 
 

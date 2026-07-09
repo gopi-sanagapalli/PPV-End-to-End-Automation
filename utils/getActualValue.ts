@@ -8209,9 +8209,11 @@ export async function getActualValue(
       if (looseMatch !== 'N/A') return looseMatch.trim();
 
       // Fallback: look in class "qCPrE" which holds the date label
+      // Must also contain date-like content to avoid matching plan titles
       const dateNode = snapFind(n =>
         n.classes?.includes('qCPrE') &&
-        n.text.length < 60
+        n.text.length < 60 &&
+        (/\d{4}/.test(n.text) || /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\b/i.test(n.text))
       );
       if (dateNode !== 'N/A') return dateNode.trim();
 
