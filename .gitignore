@@ -21,6 +21,21 @@ auth/dazn-storage-state.json
 scratch/
 ~$*.xlsx
 
+# Cline AI tool files (local only)
+.clinerules
+.clinerules.md
+
+# Backup files
+*.bak
+*.bak.*
+
+# Bare git clone directories
+*.git/
+!.git/
+
+# Local-only scripts
+scripts/run_existing_already_signed_in_parallel_local.sh
+
 # GitHub Actions runners
 actions-runner/
 actions-runner-2/
