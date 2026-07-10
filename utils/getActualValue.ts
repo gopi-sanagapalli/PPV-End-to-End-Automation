@@ -1893,10 +1893,33 @@ export async function getActualValue(
         });
       }
       if (found === 'No') {
-        // Final fallback: Playwright locator check for the actual DAZN popup close button
+        // Playwright fallback 1: common DAZN modal close selectors
         try {
           const closeEl = page.locator(
-            '[class*="modal-close"], [class*="content-promotion"] [class*="close"], [data-test-id="SVG_ICON"]'
+            '[class*="modal-close"], [class*="content-promotion"] [class*="close"], ' +
+            '[class*="modal-dialog"] [class*="close"], [data-test-id="SVG_ICON"]'
+          ).first();
+          const isVisible = await closeEl.isVisible().catch(() => false);
+          if (isVisible) found = 'Yes';
+        } catch { /* ignore */ }
+      }
+      if (found === 'No') {
+        // Playwright fallback 2: aria-label based close / dismiss buttons (SVG icon-only buttons)
+        try {
+          const closeEl = page.locator(
+            '[aria-label*="close" i], [aria-label*="dismiss" i], [aria-label*="Close"]'
+          ).first();
+          const isVisible = await closeEl.isVisible().catch(() => false);
+          if (isVisible) found = 'Yes';
+        } catch { /* ignore */ }
+      }
+      if (found === 'No') {
+        // Playwright fallback 3: any button inside role=dialog / aria-modal popup
+        try {
+          const closeEl = page.locator(
+            '[role="dialog"] button:not([class*="buy" i]):not([class*="cta" i]), ' +
+            '[aria-modal="true"] button:not([class*="buy" i]):not([class*="cta" i]), ' +
+            '[class*="content-promotion"] button:not([class*="buy" i]):not([class*="cta" i])'
           ).first();
           const isVisible = await closeEl.isVisible().catch(() => false);
           if (isVisible) found = 'Yes';

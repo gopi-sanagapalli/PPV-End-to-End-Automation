@@ -179,7 +179,7 @@ export class LandingPage extends BasePage {
     await logInBtn.waitFor({ state: 'visible', timeout: 10000 });
     console.log('🖱️ Clicking Log In on welcome page...');
     await logInBtn.click({ force: true });
-    await this.page.waitForLoadState('domcontentloaded').catch(() => {});
+    await this.page.waitForLoadState('domcontentloaded').catch(() => { });
   }
 
   // ─────────────────────────────
@@ -327,13 +327,13 @@ export class LandingPage extends BasePage {
 
           const stopSwiper = (swiper: any) => {
             if (!swiper) return;
-            try { swiper.autoplay?.stop(); } catch {}
+            try { swiper.autoplay?.stop(); } catch { }
             try {
               swiper.params.autoplay = false;
-            } catch {}
+            } catch { }
             try {
               if (swiper.autoplay?.running) swiper.autoplay.stop();
-            } catch {}
+            } catch { }
           };
 
           // Strategy 1: el.swiper
@@ -354,8 +354,8 @@ export class LandingPage extends BasePage {
               stopSwiper(el.swiper);
             }
           });
-        } catch {}
-      }).catch(() => {});
+        } catch { }
+      }).catch(() => { });
     };
 
     // Stop auto-slide immediately
@@ -399,8 +399,8 @@ export class LandingPage extends BasePage {
       await dumpPageDiag('attempt 1 — reloading page');
       console.log('🔄 [Banner] Carousel not found — reloading page and retrying...');
       await this.page.reload({ waitUntil: 'domcontentloaded' });
-      await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
-      await this.dismissConsentIfPresent().catch(() => {});
+      await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });
+      await this.dismissConsentIfPresent().catch(() => { });
       await stopAllAutoSlide();
       carousel = this.bannerCarousel();
       carouselFound = await carousel.waitFor({ state: 'visible', timeout: 20000 }).then(() => true).catch(() => false);
@@ -413,7 +413,7 @@ export class LandingPage extends BasePage {
     }
 
     // Scroll to the carousel to ensure it is in view for hover/click interactions
-    await carousel.scrollIntoViewIfNeeded().catch(() => {});
+    await carousel.scrollIntoViewIfNeeded().catch(() => { });
     await stopAllAutoSlide();
 
     // Helper to get the currently active slide text
@@ -539,16 +539,16 @@ export class LandingPage extends BasePage {
               bannerEl.querySelectorAll('.swiper-slide').forEach((el) => {
                 const s = el as HTMLElement;
                 s.classList.remove('swiper-slide-active', 'swiper-slide-next', 'swiper-slide-prev');
-                s.style.removeProperty('opacity');
-                s.style.removeProperty('pointer-events');
+                s.style.opacity = '0';
+                s.style.pointerEvents = 'none';
               });
               // Make target visible — class makes Swiper CSS apply opacity:1, inline styles
               // force visibility even if Swiper CSS doesn't cover all cases
               target.classList.add('swiper-slide-active');
               target.style.opacity = '1';
               target.style.pointerEvents = 'auto';
-            } catch {}
-          }, i).catch(() => {});
+            } catch { }
+          }, i).catch(() => { });
           await this.page.waitForTimeout(300);
           await stopAllAutoSlide();
 
@@ -590,7 +590,7 @@ export class LandingPage extends BasePage {
       console.log(`  slide ${attempt + 1}: "${currentText.substring(0, 50)}..." — clicking next`);
 
       // Hover over the carousel to reveal chevron/navigation buttons
-      await carousel.hover().catch(() => {});
+      await carousel.hover().catch(() => { });
       await this.page.waitForTimeout(200);
 
       // Check if next button exists in carousel DOM
@@ -599,14 +599,14 @@ export class LandingPage extends BasePage {
 
       if (nextBtnVisible) {
         const prevText = currentText;
-        await nextBtn.click({ force: true }).catch(() => {});
+        await nextBtn.click({ force: true }).catch(() => { });
 
         // Wait for slide transition
         await this.page.waitForFunction((args) => {
           const activeEl = document.querySelector(args.activeSelector);
           const text = activeEl?.textContent?.trim() || '';
           return text !== args.prevText;
-        }, { activeSelector: selectors.banner.activeSlide, prevText }, { timeout: 3000 }).catch(() => {});
+        }, { activeSelector: selectors.banner.activeSlide, prevText }, { timeout: 3000 }).catch(() => { });
 
         await this.page.waitForTimeout(500);
         await stopAllAutoSlide();
@@ -720,7 +720,7 @@ export class LandingPage extends BasePage {
           top: Math.max(0, Math.round(nextScrollTop)),
           behavior: 'instant',
         });
-      }).catch(() => {});
+      }).catch(() => { });
 
       await this.page.waitForTimeout(500);
     }
@@ -745,7 +745,7 @@ export class LandingPage extends BasePage {
         top: Math.max(0, Math.round(absoluteTop - headerOffset)),
         behavior: 'instant',
       });
-    }).catch(() => {});
+    }).catch(() => { });
 
     await this.page.waitForTimeout(300);
 
@@ -1135,9 +1135,9 @@ export class LandingPage extends BasePage {
           }
           const stopSwiper = (swiper: any) => {
             if (!swiper) return;
-            try { swiper.autoplay?.stop(); } catch {}
-            try { swiper.params.autoplay = false; } catch {}
-            try { if (swiper.autoplay?.running) swiper.autoplay.stop(); } catch {}
+            try { swiper.autoplay?.stop(); } catch { }
+            try { swiper.params.autoplay = false; } catch { }
+            try { if (swiper.autoplay?.running) swiper.autoplay.stop(); } catch { }
           };
           document.querySelectorAll('.swiper, [class*="swiper"], .swiper-container').forEach((el: any) => {
             if (el.swiper) stopSwiper(el.swiper);
@@ -1145,8 +1145,8 @@ export class LandingPage extends BasePage {
           document.querySelectorAll('*').forEach((el: any) => {
             if (el.swiper && typeof el.swiper === 'object' && el.swiper.autoplay) stopSwiper(el.swiper);
           });
-        } catch {}
-      }).catch(() => {});
+        } catch { }
+      }).catch(() => { });
     } else {
       await this.stopCarouselAutoSlide();
     }
