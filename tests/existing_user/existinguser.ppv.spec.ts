@@ -947,20 +947,11 @@ for (const stateKey of userStatesToRun) {
               await landing.navigate(baseUrl, SOURCE, eventData);
             } else if (isHomeSport) {
               const homeTargetUrl = `${baseNoSlash}/home`;
-              const currentUrlForSport = page.url();
-              // After login DAZN redirects to /home?step=0 which shows a post-login
-              // onboarding overlay. This overlay intercepts clicks (including All Sports
-              // dropdown) and causes random navigation. Strip ?step= by navigating to
-              // the clean /home URL before opening the dropdown.
-              const hasStepParam = /[?&]step=\d+/.test(currentUrlForSport);
-              if (!currentUrlForSport.toLowerCase().includes('/home') || hasStepParam) {
-                console.log(`🧭 [Login First] Navigating to clean Home URL before All Sports navigation: ${homeTargetUrl}`);
+              if (!page.url().toLowerCase().includes('/home')) {
+                console.log(`🧭 [Login First] Returning to Home before All Sports navigation: ${homeTargetUrl}`);
                 await page.goto(homeTargetUrl, { waitUntil: 'domcontentloaded' });
                 await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });
               }
-              // Dismiss any leftover post-login overlay / consent before dropdown click
-              await page.keyboard.press('Escape').catch(() => { });
-              await page.waitForTimeout(300);
               console.log(`🧭 [Login First] Navigating via All Sports dropdown for source: ${SOURCE}`);
               await (landing as BoxingHomePage).navigateToSportViaAllSports(SOURCE, eventData);
             } else if (isBoxingSource) {
@@ -969,23 +960,28 @@ for (const stateKey of userStatesToRun) {
               await page.goto(targetUrl, { waitUntil: 'domcontentloaded' });
               await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });
             } else {
-              // HomePage / myaccount: we are already on /home (or /home?step=0).
-              // After login DAZN redirects to /home?step=0 which shows a post-login
-              // onboarding overlay that intercepts clicks on tiles and popup elements.
-              // Always navigate to the clean /home URL to dismiss the overlay.
+              // HomePage: we are already on /home. Strip the DAZN onboarding
+              // step param before touching banner carousel DOM.
               const homeUrl = page.url();
-              const homeHasStep = /[?&]step=\d+/.test(homeUrl);
-              if (!homeUrl.toLowerCase().includes('/home') || homeHasStep) {
+              if (!homeUrl.toLowerCase().includes('/home')) {
                 const homeTargetUrl = `${baseNoSlash}/home`;
-                console.log(`🧭 [Login First] Navigating to clean Home URL (stripping ?step= or returning from wrong page): ${homeTargetUrl}`);
+                console.log(`🧭 [Login First] Returning to Home for source ${SOURCE}: ${homeTargetUrl}`);
                 await page.goto(homeTargetUrl, { waitUntil: 'domcontentloaded' });
                 await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });
+              } else if (/[?&]step=\d+/.test(homeUrl)) {
+                try {
+                  const cleanUrl = new URL(homeUrl);
+                  cleanUrl.searchParams.delete('step');
+                  const cleanUrlStr = cleanUrl.toString().replace(/\?$/, '');
+                  console.log(`🔧 [Login First] Stripping ?step= from home URL: ${homeUrl} → ${cleanUrlStr}`);
+                  await page.goto(cleanUrlStr, { waitUntil: 'domcontentloaded' });
+                  await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => { });
+                } catch {
+                  await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => { });
+                }
               } else {
                 await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => { });
               }
-              // Dismiss any residual post-login overlay before tile/modal interaction
-              await page.keyboard.press('Escape').catch(() => { });
-              await page.waitForTimeout(300);
             }
           } else {
             const navSource = (SOURCE === 'subscribe-without-pay-per-view')
