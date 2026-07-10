@@ -25,7 +25,7 @@
     "PPV_CARD_DESCRIPTION": "Just the fight - plus 7 days of DAZN Standard, free",
     "BANNER_DESCRIPTION": "Danger before destiny. AJ returns to the ring against Prenga, an unknown entity with nothing to lose.",
     "HOME_POPUP_DATE": "SUN 26TH JUL AT 00:30",
-    "HOME_POPUP_DESCRIPTION": "Danger before destiny. AJ returns to the ring against Prenga, an unknown entity with nothing to lose.",
+    "HOME_POPUP_DESCRIPTION": "AJ returns to the ring against Prenga, an unbeaten unknown with nothing to lose. One upset could change everything.",
     "BUNDLE_NAME": "The Contender Bundle",
     "BUNDLE_DESCRIPTION": "From Box Office to World Class. Two big fight nights in one bundle.",
     "BUNDLE_SAVE_BADGE": "Save 10%",
@@ -45,8 +45,11 @@
   "regions": {
     "GB": {
       "LANDING_PAGE_PPV_DATE": "25 July",
-      "PPV_PRICE": "£19.99",
-      "TODAY_YOU_PAY_PRICE": "£19.99",
+      "PPV_DATE": "Sat 25th Jul at 20:00",
+      "PPV_PAGE_DATE": "Sat 25th Jul at 20:00",
+      "LANDING_BANNER_DATE": "SAT 25TH JUL AT 20:00",
+      "PPV_PRICE": "19.99",
+      "TODAY_YOU_PAY_PRICE": "19.99",
       "UPSELL_PRICE_LENGTH": "/month for 12 months",
       "PPV1_UPSELL_TILE_DATE": "",
       "BUNDLE_ORIGINAL_PRICE": "£44.98",
@@ -57,6 +60,9 @@
     },
     "US": {
       "LANDING_PAGE_PPV_DATE": "25 July",
+      "PPV_DATE": "Sat 25th Jul at 15:00",
+      "PPV_PAGE_DATE": "Sat 25th Jul at 15:00",
+      "LANDING_BANNER_DATE": "SAT 25TH JUL AT 15:00",
       "PPV_PRICE": "$59.99",
       "TODAY_YOU_PAY_PRICE": "$59.99",
       "UPSELL_PRICE": "",
@@ -71,6 +77,9 @@
     },
     "AU": {
       "LANDING_PAGE_PPV_DATE": "26 July",
+      "PPV_DATE": "Sun 26th Jul at 05:00",
+      "PPV_PAGE_DATE": "Sun 26th Jul at 05:00",
+      "LANDING_BANNER_DATE": "SUN 26TH JUL AT 05:00",
       "PPV_PRICE": "$49.99",
       "TODAY_YOU_PAY_PRICE": "$49.99",
       "UPSELL_PRICE": "$39.99",
@@ -85,6 +94,9 @@
     },
     "AE": {
       "LANDING_PAGE_PPV_DATE": "25 July",
+      "PPV_DATE": "Sat 25th Jul at 23:00",
+      "PPV_PAGE_DATE": "Sat 25th Jul at 23:00",
+      "LANDING_BANNER_DATE": "SAT 25TH JUL AT 23:00",
       "PPV_PRICE": "AED 72.99",
       "TODAY_YOU_PAY_PRICE": "AED 72.99",
       "UPSELL_PRICE": "AED 72.99",
@@ -95,6 +107,17 @@
       "BUNDLE_PRICE": "AED 131.39",
       "BUNDLE_TODAY_YOU_PAY_STANDARD": "AED 131.39",
       "BUNDLE_PPV2_DATE": "Sat 27th Jun at 20:30",
+      "offers": []
+    },
+    "BR": {
+      "LANDING_PAGE_PPV_DATE": "25 July",
+      "PPV_DATE": "Sat 25th Jul at 16:00",
+      "PPV_PAGE_DATE": "Sat 25th Jul at 16:00",
+      "LANDING_BANNER_DATE": "SAT 25TH JUL AT 16:00",
+      "PPV_PRICE": "39.90",
+      "TODAY_YOU_PAY_PRICE": "39.90",
+      "UPSELL_PRICE_LENGTH": "/month for 12 months",
+      "PPV1_UPSELL_TILE_DATE": "",
       "offers": []
     }
   },

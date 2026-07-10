@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import {
   getNow,
-  getNowIST,
+  getNowForRegion,
   formatNextPaymentDate,
   formatNextPaymentDateMonthly,
   formatNextPaymentDateYearly,
@@ -55,7 +55,7 @@ function formatHomeBoxingUpcomingDate(value: string): string {
   if (monthIndex === -1 || !dayMatch) return clean;
 
   const day = Number(dayMatch[1]);
-  const now = getNowIST();
+  const now = getNowForRegion();
   const date = new Date(now.getFullYear(), monthIndex, day);
   if (date.getTime() < now.getTime() - 30 * 24 * 60 * 60 * 1000) {
     date.setFullYear(now.getFullYear() + 1);
@@ -581,7 +581,7 @@ export function buildEventData(
   const ratePlanLower = base.RATE_PLAN.toLowerCase();
 
   // Today's date for Upgrade Confirmation legal text
-  const todayIST = getNowIST();
+  const todayIST = getNowForRegion();
   const dd = String(todayIST.getDate()).padStart(2, '0');
   const mm = String(todayIST.getMonth() + 1).padStart(2, '0');
   const yyyy = todayIST.getFullYear();
@@ -838,6 +838,7 @@ export function buildEventData(
   if (!base.HOME_BOXING_UPCOMING_DATE) {
     base.HOME_BOXING_UPCOMING_DATE = formatHomeBoxingUpcomingDate(
       base.HOME_BOXING_UPCOMING_RAW_DATE ||
+      base.MOBILE_PPV_DATE ||
       base.LANDING_PAGE_PPV_DATE ||
       base.BOXING_UPCOMING_DATE ||
       base.PPV_DATE ||
@@ -848,6 +849,7 @@ export function buildEventData(
   if (!base.HOME_BOXING_UPCOMING_TIME) {
     base.HOME_BOXING_UPCOMING_TIME = formatHomeBoxingUpcomingTime(
       base.HOME_BOXING_UPCOMING_RAW_TIME,
+      base.MOBILE_PPV_DATE,
       base.BOXING_BANNER_SUBTITLE,
       base.PPV_TIME,
       base.PPV_DATE
