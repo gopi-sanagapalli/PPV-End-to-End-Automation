@@ -15,13 +15,13 @@ const landingData = [
   { Field: 'Buy Now Button', Expected: 'Buy now', Flow: 'landing' },
   // ── Landing Page Banner validations ───────────────────────
   { Field: 'Banner Image Present', Expected: 'Yes', Flow: 'landing-page-banner' },
-  { Field: 'Banner - Event Title', Expected: '{{MOBILE_BANNER_TITLE}}', Flow: 'landing-page-banner' },
-  { Field: 'Banner - Buy Now CTA', Expected: 'Buy now', Flow: 'landing-page-banner' },
-  { Field: 'Banner - Event Description', Expected: '{{MOBILE_BANNER_DESCRIPTION}}', Flow: 'landing-page-banner' },
-  { Field: 'Banner - Event Date', Expected: '{{MOBILE_BANNER_DATE_TIME}}', Flow: 'landing-page-banner' },
-  { Field: 'Copy Description', Expected: 'Copy the link below and paste it in your browser. We\'ll take you back to the app when you finish.', Flow: 'landing-page-banner' },
-  { Field: 'Copy URL', Expected: 'https://dazn-direct-subscription-prod.s3.eu-', Flow: 'landing-page-banner' },
-  { Field: 'Copy Button', Expected: 'Copy', Flow: 'landing-page-banner' },
+  { Field: 'Banner - Event Title', Expected: '{{PPV_NAME}}', Flow: 'landing-page-banner' },
+  { Field: 'Banner - Buy Now CTA', Expected: 'Visible', Flow: 'landing-page-banner' },
+  { Field: 'Banner - Event Description', Expected: '{{BANNER_DESCRIPTION}}', Flow: 'landing-page-banner' },
+  { Field: 'Banner - Event Date', Expected: '{{LANDING_BANNER_DATE}}', Flow: 'landing-page-banner' },
+  { Field: 'Copy Description', Expected: 'Copy the link below and paste it in your browser. We\'ll take you back to the app when you finish.', Flow: 'landing-page-banner', Platform: 'mobile' },
+  { Field: 'Copy URL', Expected: 'https://dazn-direct-subscription-prod.s3.eu-', Flow: 'landing-page-banner', Platform: 'mobile' },
+  { Field: 'Copy Button', Expected: 'Copy', Flow: 'landing-page-banner', Platform: 'mobile' },
   { Field: 'Banner - Fight Card CTA', Expected: 'Visible', Flow: 'landing-page-banner' },
 ];
 
@@ -376,29 +376,30 @@ const paymentData = [
 // SHEET 5: Schedule page
 // ═══════════════════════════════════════════════════════════
 const scheduleData = [
-  // ── Tile fields (validated BEFORE popup opens) ──────────────────────────────
-  { Field: 'PPV Tile Present', Expected: 'Yes' },
-  { Field: 'PPV Name', Expected: '{{PPV_NAME}}' },
+  // ── Tile fields ─────────────────────────────────────────────
+  { Field: 'PPV Tile Present', Expected: 'Yes', Platform: 'both' },
+  { Field: 'PPV Name', Expected: '{{PPV_NAME}}', Platform: 'both' },
   { Field: 'PPV Time on Tile', Expected: '{{SCHEDULE_PPV_TIME}}' },
-  { Field: 'PPV Image Present', Expected: 'Yes' },
-  { Field: 'Lock Icon Present', Expected: 'Yes' },
+  { Field: 'PPV Image Present', Expected: 'Yes', Platform: 'both' },
+  { Field: 'Lock Icon Present', Expected: 'Yes', Platform: 'both' },
   { Field: 'PPV Promoter on Tile', Expected: '{{PPV_PROMOTER}}' },
-  { Field: 'Day', Expected: '{{MOBILE_SCHEDULE_DAY}}' },
-  { Field: 'Month', Expected: '{{MOBILE_SCHEDULE_MONTH}}' },
-  { Field: 'Date', Expected: '{{MOBILE_SCHEDULE_DATE}}' },
-  { Field: 'Time', Expected: '{{MOBILE_SCHEDULE_TIME}}' },
-  { Field: 'Bell Icon Present', Expected: 'Yes' },
-  { Field: 'Three Dots Icon Present', Expected: 'Yes' },
-  // ── Popup fields (web/app naming) ──────────────────────────
-  { Field: 'Popup Image Present', Expected: 'Yes' },
-  { Field: 'Popup Date', Expected: '{{PPV_DATE}}' },
-  { Field: 'Popup PPV Name', Expected: '{{PPV_NAME}}' },
-  { Field: 'Popup Promoter', Expected: '{{PPV_PROMOTER}}' },
-  { Field: 'Popup Description', Expected: 'Catch the biggest moment of the year. Select a DAZN plan to pair with your pay-per-view.' },
-  { Field: 'Popup Buy Now CTA Present', Expected: 'Yes' },
-  { Field: 'Popup Buy Now CTA Text', Expected: 'Buy now' },
-  { Field: 'Popup Close Button', Expected: 'Yes' },
-  // ── Popup fields (consistent Popup- prefix) ─────────────────
+  // ── Mobile-only tile fields ──────────────────────────────────
+  { Field: 'Day', Expected: '{{MOBILE_SCHEDULE_DAY}}', Platform: 'mobile' },
+  { Field: 'Month', Expected: '{{MOBILE_SCHEDULE_MONTH}}', Platform: 'mobile' },
+  { Field: 'Date', Expected: '{{MOBILE_SCHEDULE_DATE}}', Platform: 'mobile' },
+  { Field: 'Time', Expected: '{{MOBILE_SCHEDULE_TIME}}', Platform: 'mobile' },
+  { Field: 'Bell Icon Present', Expected: 'Yes', Platform: 'mobile' },
+  { Field: 'Three Dots Icon Present', Expected: 'Yes', Platform: 'mobile' },
+  // ── Popup fields (mobile naming — no dash) ───────────────────
+  { Field: 'Popup Image Present', Expected: 'Yes', Platform: 'mobile' },
+  { Field: 'Popup Date', Expected: '{{PPV_DATE}}', Platform: 'mobile' },
+  { Field: 'Popup PPV Name', Expected: '{{PPV_NAME}}', Platform: 'mobile' },
+  { Field: 'Popup Promoter', Expected: '{{PPV_PROMOTER}}', Platform: 'mobile' },
+  { Field: 'Popup Description', Expected: 'Catch the biggest moment of the year. Select a DAZN plan to pair with your pay-per-view.', Platform: 'mobile' },
+  { Field: 'Popup Buy Now CTA Present', Expected: 'Yes', Platform: 'mobile' },
+  { Field: 'Popup Buy Now CTA Text', Expected: 'Buy now', Platform: 'mobile' },
+  { Field: 'Popup Close Button', Expected: 'Yes', Platform: 'mobile' },
+  // ── Popup fields (web naming — Popup- prefix) ────────────────
   { Field: 'Popup - Image Present', Expected: 'Yes' },
   { Field: 'Popup - Event Title', Expected: '{{PPV_NAME}}' },
   { Field: 'Popup - Event Date', Expected: '{{PPV_POPUP_DATE}}' },
@@ -530,7 +531,7 @@ const otpData = [
 const homeOfBoxingData = [
   { Flow: 'home-boxing-banner', Field: 'Best of Boxing Section', Expected: 'Present' },
   { Flow: 'home-boxing-banner', Field: 'Banner - Event Title', Expected: '{{PPV_NAME}}' },
-  { Flow: 'home-boxing-banner', Field: 'Banner - Event Date', Expected: '{{PPV_DATE}}' },
+  { Flow: 'home-boxing-banner', Field: 'Banner - Event Date', Expected: '{{LANDING_BANNER_DATE}}' },
   { Flow: 'home-boxing-banner', Field: 'Banner - Event Description', Expected: '{{BANNER_DESCRIPTION}}' },
   { Flow: 'home-boxing-banner', Field: 'Banner - Buy Now CTA', Expected: 'Visible' },
   { Flow: 'home-boxing-banner', Field: 'Banner - Fight Card CTA', Expected: 'Visible' },
@@ -545,32 +546,38 @@ const homeOfBoxingData = [
   { Flow: 'home-boxing-tile', Field: 'Popup - Buy Now CTA', Expected: 'Visible' },
   { Flow: 'home-boxing-tile', Field: 'Popup - Event Description', Expected: 'Catch the biggest moment of the year. Select a DAZN plan to pair with your pay-per-view.' },
   { Flow: 'home-boxing-tile', Field: 'Popup - Close Button', Expected: 'Visible' },
-  { Flow: 'home-boxing-upcoming', Field: 'PPV Image Present', Expected: 'Yes' },
-  { Flow: 'home-boxing-upcoming', Field: 'PPV Title', Expected: '{{MOBILE_BANNER_TITLE}}' },
-  { Flow: 'home-boxing-upcoming', Field: 'Sponsor', Expected: 'Matchroom Boxing' },
-  { Flow: 'home-boxing-upcoming', Field: 'Description', Expected: 'WATCH LIVE {{MOBILE_SEARCH_PPV_DATE}}' },
-  { Flow: 'home-boxing-upcoming', Field: 'Tile - Day', Expected: '{{MOBILE_SCHEDULE_DAY}}' },
-  { Flow: 'home-boxing-upcoming', Field: 'Tile - Date', Expected: '{{MOBILE_SCHEDULE_DATE}}' },
-  { Flow: 'home-boxing-upcoming', Field: 'Tile - Month', Expected: '{{MOBILE_SCHEDULE_MONTH}}' },
-  { Flow: 'home-boxing-upcoming', Field: 'Buy Now Button', Expected: 'Buy now' },
-  { Flow: 'home-boxing-upcoming', Field: 'Fight Card Button', Expected: 'Fight card' },
+  // ── home-boxing-upcoming: web fields (pre-PR10) ─────────────
+  { Flow: 'home-boxing-upcoming', Field: 'Best of Boxing Section', Expected: 'Present' },
+  { Flow: 'home-boxing-upcoming', Field: 'PPV Tile Present', Expected: 'Yes' },
+  { Flow: 'home-boxing-upcoming', Field: 'PPV Date', Expected: '{{LANDING_PAGE_PPV_DATE}}' },
+  { Flow: 'home-boxing-upcoming', Field: 'PPV Name', Expected: '{{PPV_NAME}}' },
+  { Flow: 'home-boxing-upcoming', Field: 'PPV Image Present', Expected: 'Yes', Platform: 'both' },
   { Flow: 'home-boxing-upcoming', Field: 'PPV Promoter on Tile', Expected: '{{PPV_PROMOTER}}' },
   { Flow: 'home-boxing-upcoming', Field: 'PPV Date and Time Text', Expected: 'WATCH LIVE {{HOME_BOXING_UPCOMING_DATE}} at {{HOME_BOXING_UPCOMING_TIME}}' },
   { Flow: 'home-boxing-upcoming', Field: 'Buy Now CTA', Expected: 'Buy now' },
   { Flow: 'home-boxing-upcoming', Field: 'Fight Card CTA', Expected: 'Fight card' },
-  { Flow: 'home-boxing-upcoming', Field: 'Lock Icon Present', Expected: 'Yes' },
+  { Flow: 'home-boxing-upcoming', Field: 'Lock Icon Present', Expected: 'Yes', Platform: 'both' },
+  // ── home-boxing-upcoming: mobile-only fields ─────────────────
+  { Flow: 'home-boxing-upcoming', Field: 'PPV Title', Expected: '{{MOBILE_BANNER_TITLE}}', Platform: 'mobile' },
+  { Flow: 'home-boxing-upcoming', Field: 'Sponsor', Expected: 'Matchroom Boxing', Platform: 'mobile' },
+  { Flow: 'home-boxing-upcoming', Field: 'Description', Expected: 'WATCH LIVE {{MOBILE_SEARCH_PPV_DATE}}', Platform: 'mobile' },
+  { Flow: 'home-boxing-upcoming', Field: 'Tile - Day', Expected: '{{MOBILE_SCHEDULE_DAY}}', Platform: 'mobile' },
+  { Flow: 'home-boxing-upcoming', Field: 'Tile - Date', Expected: '{{MOBILE_SCHEDULE_DATE}}', Platform: 'mobile' },
+  { Flow: 'home-boxing-upcoming', Field: 'Tile - Month', Expected: '{{MOBILE_SCHEDULE_MONTH}}', Platform: 'mobile' },
+  { Flow: 'home-boxing-upcoming', Field: 'Buy Now Button', Expected: 'Buy now', Platform: 'mobile' },
+  { Flow: 'home-boxing-upcoming', Field: 'Fight Card Button', Expected: 'Fight card', Platform: 'mobile' },
 ];
 
 // ═══════════════════════════════════════════════════════════
 // SHEET 13: Home page
 // ═══════════════════════════════════════════════════════════
 const homePageData = [
-  { Flow: 'home-page-banner', Field: 'Banner Image Present', Expected: 'Yes' },
-  { Flow: 'home-page-banner', Field: 'Banner - Event Title', Expected: '{{MOBILE_BANNER_TITLE}}' },
-  { Flow: 'home-page-banner', Field: 'Banner - Event Date', Expected: '{{MOBILE_BANNER_DATE_TIME}}' },
-  { Flow: 'home-page-banner', Field: 'Banner - Event Description', Expected: '{{MOBILE_BANNER_DESCRIPTION}}' },
-  { Flow: 'home-page-banner', Field: 'Banner - Buy Now CTA', Expected: 'Buy now' },
-  { Flow: 'home-page-banner', Field: 'Banner - Fight Card CTA', Expected: 'Fight Card' },
+  { Flow: 'home-page-banner', Field: 'Banner Image Present', Expected: 'Yes', Platform: 'mobile' },
+  { Flow: 'home-page-banner', Field: 'Banner - Event Title', Expected: '{{PPV_NAME}}' },
+  { Flow: 'home-page-banner', Field: 'Banner - Event Date', Expected: '{{LANDING_BANNER_DATE}}' },
+  { Flow: 'home-page-banner', Field: 'Banner - Event Description', Expected: '{{BANNER_DESCRIPTION}}' },
+  { Flow: 'home-page-banner', Field: 'Banner - Buy Now CTA', Expected: 'Visible' },
+  { Flow: 'home-page-banner', Field: 'Banner - Fight Card CTA', Expected: 'Visible' },
   { Flow: 'home-page-dont-miss', Field: "Don't Miss Section", Expected: 'Present' },
   { Flow: 'home-page-dont-miss', Field: 'PPV Tile Present', Expected: 'Yes' },
   { Flow: 'home-page-dont-miss', Field: 'PPV Name', Expected: '{{PPV_NAME}}' },
@@ -681,12 +688,12 @@ const upsellPaymentData = [
 // SHEET 18: Search page
 // ═══════════════════════════════════════════════════════════
 const paywallData = [
-  { Field: 'Event Name', Expected: '{{MOBILE_BANNER_TITLE}}' },
-  { Field: 'Event Date and Time', Expected: '{{MOBILE_PPV_DATE}}' },
-  { Field: 'Category', Expected: 'Matchroom Boxing' },
-  { Field: 'Instruction Header', Expected: 'How to watch this and more?' },
-  { Field: 'Instruction Text', Expected: 'Paste this link on your browser and choose the plan that’s right for you' },
-  { Field: 'Copy Button', Expected: 'Copy' },
+  { Field: 'Event Name', Expected: '{{MOBILE_BANNER_TITLE}}', Platform: 'mobile' },
+  { Field: 'Event Date and Time', Expected: '{{MOBILE_PPV_DATE}}', Platform: 'mobile' },
+  { Field: 'Category', Expected: 'Matchroom Boxing', Platform: 'mobile' },
+  { Field: 'Instruction Header', Expected: 'How to watch this and more?', Platform: 'mobile' },
+  { Field: 'Instruction Text', Expected: 'Paste this link on your browser and choose the plan that’s right for you', Platform: 'mobile' },
+  { Field: 'Copy Button', Expected: 'Copy', Platform: 'mobile' },
 ];
 
 const searchPageData = [
@@ -695,7 +702,7 @@ const searchPageData = [
   { Field: 'PPV Name', Expected: '{{PPV_NAME}}' },
   { Field: 'PPV Image Present', Expected: 'Yes' },
   { Field: 'Lock Icon Present', Expected: 'Yes' },
-  { Field: 'PPV Description', Expected: 'WATCH LIVE {{MOBILE_SEARCH_PPV_DATE}}' },
+  { Field: 'PPV Description', Expected: 'WATCH LIVE {{MOBILE_SEARCH_PPV_DATE}}', Platform: 'mobile' },
   { Field: 'Search PPV Date and Time', Expected: '{{SEARCH_PPV_DATE_TIME}}' },
   { Field: 'Popup - Event Title', Expected: '{{PPV_NAME}}' },
   { Field: 'Popup - Event Date', Expected: '{{PPV_POPUP_DATE}}' },

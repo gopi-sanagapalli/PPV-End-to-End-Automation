@@ -10,7 +10,7 @@ export function configureExcelPathForEvent(eventKey: string) {
 // =========================
 // READ SHEET
 // =========================
-export const readSheet = (sheetName: string) => {
+export const readSheet = (sheetName: string, platform: 'web' | 'mobile' | 'all' = 'web') => {
   const workbook = XLSX.readFile(FILE_PATH);
   const sheet = workbook.Sheets[sheetName];
 
@@ -28,7 +28,12 @@ export const readSheet = (sheetName: string) => {
     throw new Error(`❌ Sheet is empty: "${sheetName}"`);
   }
 
-  return rawData;
+  // Filter by Platform column. Rows without a Platform value default to 'web'.
+  if (platform === 'all') return rawData;
+  return rawData.filter(row => {
+    const rowPlatform = ((row.Platform as string) || 'web').toLowerCase().trim();
+    return rowPlatform === platform || rowPlatform === 'both';
+  });
 };
 
 // =========================

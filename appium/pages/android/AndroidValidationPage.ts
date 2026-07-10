@@ -265,9 +265,8 @@ export class AndroidValidationPage extends AndroidBasePage {
       try {
         const { readSheet } = require('../../../utils/excelReader');
         if (source === 'landing-page-banner') {
-          paywallRows = readSheet('Landing page').filter((r: any) =>
-            r.Flow === 'landing-page-banner' &&
-            (r.Field?.includes('Copy') || (r.Field?.includes('Description') && !r.Field?.includes('Banner')))
+          paywallRows = readSheet('Landing page', 'mobile').filter((r: any) =>
+            r.Flow === 'landing-page-banner'
           );
         } else {
           paywallRows = getMobilePaywallData();
@@ -406,7 +405,7 @@ export class AndroidValidationPage extends AndroidBasePage {
     let rows: any[] = [];
     if (sheetName) {
       try {
-        rows = readSheet(sheetName);
+        rows = readSheet(sheetName, 'mobile');
         if (sheetName === 'Schedule page') {
           rows = rows.filter((r: any) => !r.Field?.toString().trim().startsWith('Popup'));
         }
@@ -414,10 +413,8 @@ export class AndroidValidationPage extends AndroidBasePage {
       } catch (e: any) {
         if (sheetName === 'Landing-page-banner') {
           try {
-            rows = readSheet('Landing page').filter((r: any) =>
-              r.Flow === 'landing-page-banner' &&
-              !r.Field?.includes('Copy') &&
-              !(r.Field?.includes('Description') && !r.Field?.includes('Banner'))
+            rows = readSheet('Landing page', 'mobile').filter((r: any) =>
+              r.Flow === 'landing-page-banner'
             );
             console.log(`📊 Loaded ${rows.length} rows from fallback "Landing page" filtered by "landing-page-banner" (excluding Copy overlay fields)`);
           } catch (e2: any) {
@@ -425,14 +422,14 @@ export class AndroidValidationPage extends AndroidBasePage {
           }
         } else if (sheetName === 'Home-page-banner') {
           try {
-            rows = readSheet('Home page').filter((r: any) => r.Flow === 'home-page-banner');
+            rows = readSheet('Home page', 'mobile').filter((r: any) => r.Flow === 'home-page-banner');
             console.log(`📊 Loaded ${rows.length} rows from fallback "Home page" filtered by "home-page-banner"`);
           } catch (e2: any) {
             console.warn(`⚠️ Failed to load fallback sheet "Home page": ${e2.message}`);
           }
         } else if (sheetName.startsWith('Home-boxing-') || sheetName === 'boxing-upcoming-fights') {
           try {
-            rows = readSheet('Home of Boxing').filter((r: any) => r.Flow === source);
+            rows = readSheet('Home of Boxing', 'mobile').filter((r: any) => r.Flow === source);
             console.log(`📊 Loaded ${rows.length} rows from fallback "Home of Boxing" filtered by "${source}"`);
           } catch (e2: any) {
             console.warn(`⚠️ Failed to load fallback sheet "Home of Boxing": ${e2.message}`);
