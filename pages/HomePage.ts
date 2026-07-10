@@ -860,55 +860,73 @@ export class HomePage extends LandingPage {
   }
 
   private async waitForModal(): Promise<any> {
-    // Only match actual modal/dialog containers — NOT generic page elements
-    const modalSelectors = [
+    // ── Priority 1: DAZN-specific notification layer (PPV popup lives here) ──
+    // The actual PPV "Buy now" popup is always rendered inside #notification-layer
+    // with class signup-paywall__modal. Target it directly to avoid accidentally
+    // matching layout wrappers that also carry "modal" in their class names.
+    const daznPopupSelectors = [
+      '#notification-layer [class*="signup-paywall"]',
+      '#notification-layer [class*="modal"]',
+      '#notification-layer [role="dialog"]',
+      '#notification-layer',
+    ];
+
+    for (const selector of daznPopupSelectors) {
+      const el = this.page.locator(selector).first();
+      if (await el.isVisible({ timeout: 300 }).catch(() => false)) {
+        const hasBuyNow = await el
+          .locator('button:has-text("Buy now"), a:has-text("Buy now"), button:has-text("Buy Now")')
+          .first()
+          .isVisible({ timeout: 300 })
+          .catch(() => false);
+        if (hasBuyNow) {
+          console.log(`✅ [waitForModal] PPV popup found in DAZN notification layer via: ${selector}`);
+          return el;
+        }
+      }
+    }
+
+    // ── Priority 2: Standard ARIA modal/dialog — filtered to contain Buy now ──
+    const strictModalSelectors = [
       '[role="dialog"]',
       '[aria-modal="true"]',
+      '[class*="signup-paywall" i]',
+      '[class*="paywall" i]',
+    ];
+
+    for (const selector of strictModalSelectors) {
+      try {
+        const modal = this.page
+          .locator(selector)
+          .filter({ has: this.page.locator('button:has-text("Buy now"), a:has-text("Buy now"), button:has-text("Buy Now")') })
+          .first();
+        if (await modal.isVisible({ timeout: 300 }).catch(() => false)) {
+          console.log(`✅ [waitForModal] Strict modal found via: ${selector}`);
+          return modal;
+        }
+      } catch { /* selector not found */ }
+    }
+
+    // ── Priority 3: Generic modal selectors — filtered to contain Buy now ──
+    // Deliberately excluded: [class*="modal" i] without filter — too broad at wide viewports.
+    const genericSelectors = [
       '[class*="modal" i]',
       '[class*="popup" i]',
       '[class*="Dialog" i]',
       '.Modal',
     ];
 
-    for (const selector of modalSelectors) {
-      const modal = this.page.locator(selector).first();
-      if (await modal.isVisible().catch(() => false)) {
-        const hasBtn = await modal.locator('button, a').first().isVisible().catch(() => false);
-        if (hasBtn) {
+    for (const selector of genericSelectors) {
+      try {
+        const modal = this.page
+          .locator(selector)
+          .filter({ has: this.page.locator('button:has-text("Buy now"), a:has-text("Buy now"), button:has-text("Buy Now")') })
+          .first();
+        if (await modal.isVisible({ timeout: 300 }).catch(() => false)) {
+          console.log(`✅ [waitForModal] Generic modal found via: ${selector} (contains Buy now)`);
           return modal;
         }
-      }
-    }
-
-    // Fallback: find any visible "Buy now" button inside a fixed/absolute overlay
-    const buyNowBtn = this.page.locator('button:has-text("Buy now"), a:has-text("Buy now")').first();
-    if (await buyNowBtn.isVisible().catch(() => false)) {
-      // Walk up to find the closest container that is a true popup (fixed/absolute position)
-      const popupContainer = await buyNowBtn.evaluate((el: HTMLElement) => {
-        let current: HTMLElement | null = el.parentElement;
-        for (let i = 0; i < 10 && current; i++) {
-          const style = window.getComputedStyle(current);
-          // A real popup is typically fixed or absolute positioned
-          if (style.position === 'fixed' || style.position === 'absolute') {
-            // Verify it covers a significant area (not just a small positioned element)
-            const rect = current.getBoundingClientRect();
-            if (rect.width > 200 && rect.height > 200) {
-              return true;
-            }
-          }
-          current = current.parentElement;
-        }
-        return false;
-      }).catch(() => false);
-
-      if (popupContainer) {
-        // Re-locate the actual container element
-        const containerLocator = buyNowBtn.locator('xpath=ancestor::div[contains(@class,"card") or contains(@class,"container") or contains(@class,"content") or contains(@class,"wrapper") or contains(@class,"box")][last()]');
-        if (await containerLocator.isVisible().catch(() => false)) {
-          console.log('✅ [waitForModal] Found popup via Buy now button in fixed/absolute overlay');
-          return containerLocator;
-        }
-      }
+      } catch { /* selector not found */ }
     }
 
     return null;
@@ -988,33 +1006,74 @@ export class HomePage extends LandingPage {
         throw new Error('❌ [HomePage Tile] Modal container is null');
       }
 
-      const ctaSelector = 'button:has-text("Buy now"), a:has-text("Buy now"), button:has-text("Buy Now"), ' +
-        'button:has-text("Subscribe"), a:has-text("Subscribe"), ' +
-        'button:has-text("Continue"), a:has-text("Continue")';
+      // ── Step 1: Resolve the Buy Now button ──────────────────────────────────
+      // The real PPV popup lives in #notification-layer > signup-paywall__modal.
+      // The `container` from waitForModal() may be a broad layout wrapper rather
+      // than the popup itself, so we always prefer the page-scoped notification
+      // layer selectors and only fall back to container-scoped search.
+      const buyNowSelector = [
+        'button:has-text("Buy now")',
+        'a:has-text("Buy now")',
+        'button:has-text("Buy Now")',
+        'a:has-text("Buy Now")',
+      ].join(', ');
 
-      let buyNowBtn = container.locator(ctaSelector).first();
+      // Candidate 1: inside DAZN notification layer (most reliable)
+      const notifLayerBtn = this.page.locator(
+        `#notification-layer ${buyNowSelector.split(', ').join(', #notification-layer ')}`
+      ).first();
 
-      let visible = await buyNowBtn.isVisible({ timeout: 750 }).catch(() => false);
-      if (!visible) {
-        console.log('⏳ [HomePage Tile] Container CTA not visible. Trying nested dialog selector...');
-        const dialog = container.locator('[role="dialog"], [aria-modal="true"], [class*="modal" i]').first();
-        buyNowBtn = dialog.locator(ctaSelector).first();
-        visible = await buyNowBtn.isVisible({ timeout: 1000 }).catch(() => false);
+      // Candidate 2: inside signup-paywall class (DAZN-specific PPV modal)
+      const paywallBtn = this.page.locator(
+        `[class*="signup-paywall"] button:has-text("Buy now"), ` +
+        `[class*="signup-paywall"] a:has-text("Buy now"), ` +
+        `[class*="signup-paywall"] button:has-text("Buy Now")`
+      ).first();
+
+      // Candidate 3: inside the container returned by waitForModal()
+      const containerBtn = container.locator(buyNowSelector).first();
+
+      let buyNowBtn: any = null;
+      let btnSource = '';
+
+      if (await notifLayerBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
+        buyNowBtn = notifLayerBtn;
+        btnSource = '#notification-layer';
+      } else if (await paywallBtn.isVisible({ timeout: 500 }).catch(() => false)) {
+        buyNowBtn = paywallBtn;
+        btnSource = '[class*="signup-paywall"]';
+      } else if (await containerBtn.isVisible({ timeout: 500 }).catch(() => false)) {
+        // Verify it is actually inside a popup overlay (not the header nav)
+        const isInOverlay = await containerBtn.evaluate((el: HTMLElement) => {
+          let cur: HTMLElement | null = el;
+          for (let i = 0; i < 15 && cur; i++) {
+            const id = cur.id || '';
+            const cls = (cur.className || '').toLowerCase();
+            if (id === 'notification-layer' || cls.includes('paywall') || cls.includes('overlay')) {
+              return true;
+            }
+            cur = cur.parentElement;
+          }
+          return false;
+        }).catch(() => false);
+        if (isInOverlay) {
+          buyNowBtn = containerBtn;
+          btnSource = 'container (verified in overlay)';
+        }
       }
 
-      if (!visible) {
-        console.log('⏳ [HomePage Tile] Waiting for Buy now button in modal...');
-        visible = await buyNowBtn.isVisible({ timeout: 1500 }).catch(() => false);
+      if (!buyNowBtn) {
+        throw new Error(
+          '❌ [HomePage Tile] Buy now button not found inside PPV popup modal. ' +
+          'Checked: #notification-layer, [class*="signup-paywall"], container. ' +
+          'Will NOT click page-wide to avoid hitting wrong element.'
+        );
       }
 
-      if (!visible) {
-        throw new Error('❌ [HomePage Tile] Buy now button not found inside modal popup. Will NOT search page-wide to avoid clicking wrong PPV.');
-      }
+      console.log(`🖱️ [HomePage Tile] Buy now button resolved via: ${btnSource}`);
 
-      // Try robust click strategies:
-      // 1. Standard click
+      // ── Step 2: Click the button ─────────────────────────────────────────────
       try {
-        console.log('🖱️ [HomePage Tile] Trying standard click on Buy now button...');
         await buyNowBtn.click({ timeout: 5000 });
         console.log('✅ [HomePage Tile] Clicked Buy now via standard click');
         return;
@@ -1022,14 +1081,10 @@ export class HomePage extends LandingPage {
         console.log(`⚠️ [HomePage Tile] Standard click failed: ${clickErr.message} — trying JS click`);
         const handle = await buyNowBtn.elementHandle().catch(() => null);
         if (handle) {
-          await this.page.evaluate((el: any) => {
-            el.click();
-          }, handle);
+          await this.page.evaluate((el: any) => el.click(), handle);
           console.log('✅ [HomePage Tile] JS click on Buy now executed');
           return;
         }
-
-        console.log(`⚠️ [HomePage Tile] JS click not possible — trying force click`);
         try {
           await buyNowBtn.click({ force: true, timeout: 5000 });
           console.log('✅ [HomePage Tile] Clicked Buy now via force click');
