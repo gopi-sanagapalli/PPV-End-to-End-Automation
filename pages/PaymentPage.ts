@@ -10,7 +10,7 @@ const CVV_FRAME = 'Secure card security code input frame';
 const CARD_HOLDER_FRAME = 'Secure text input frame';
 
 // ── Google Pay credentials (stag test account) ─────────────
-const GPAY_EMAIL    = process.env.GPAY_EMAIL || 'srdazntest@gmail.com';
+const GPAY_EMAIL = process.env.GPAY_EMAIL || 'srdazntest@gmail.com';
 const GPAY_PASSWORD = process.env.GPAY_PASSWORD || 'Dazn@123';
 
 export class PaymentPage extends BasePage {
@@ -64,7 +64,7 @@ export class PaymentPage extends BasePage {
     console.log(`\n🧾 Validating Payment page — ${data.length} fields`);
 
     // Wait for payment page to fully load — single smart wait, max 4s total
-    await this.page.waitForLoadState('domcontentloaded').catch(() => {});
+    await this.page.waitForLoadState('domcontentloaded').catch(() => { });
     await this.page.waitForFunction(() => {
       const body = document.body.innerText.toLowerCase();
       return (
@@ -73,13 +73,13 @@ export class PaymentPage extends BasePage {
         body.includes('purchase summary') ||
         body.includes('today you pay')
       );
-    }, { timeout: 4000 }).catch(() => {});
+    }, { timeout: 4000 }).catch(() => { });
 
     // Wait for payment options to load (wait for "Credit" or "PayPal" or "Google Pay" text to become visible)
     console.log('⏳ Waiting for payment methods (Credit, PayPal, Google Pay) to load...');
     await this.page.locator('section[id*="Card" i], section[id*="Pay" i], .accordion-cta-refined___3csKv, button:has-text("Credit"), button:has-text("Pay")')
-      .first().waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});
-    
+      .first().waitFor({ state: 'visible', timeout: 15000 }).catch(() => { });
+
     // Also wait until the loading skeleton overlay disappears and the text is populated
     await this.page.waitForFunction(() => {
       const body = document.body.innerText.toLowerCase();
@@ -107,7 +107,7 @@ export class PaymentPage extends BasePage {
       const nameParts = namePart.split(/\s+/);
       const fName = nameParts[0] || '';
       const lName = nameParts.slice(1).join(' ') || '';
-      
+
       eventData.FIRST_NAME = fName;
       eventData.LAST_NAME = lName;
       eventData['FIRST_NAME'] = fName;
@@ -251,7 +251,7 @@ export class PaymentPage extends BasePage {
         // Label format check: "Next Annual payment on <date>"
         // Date can be DD/MM/YYYY or DD Month YYYY
         const labelValid = /next\s+(?:annual\s+)?payment\s+on\s+(?:\d{1,2}[\/\s]\d{2}[\/\s]\d{4}|\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4})/i.test(actualLabel);
-        
+
         const expectedDateStr = eventData.NEXT_PAYMENT_DATE || '';
         const labelExpected = expectedDateStr
           ? ((eventData.RATE_PLAN || '').includes('upfront')
@@ -273,7 +273,7 @@ export class PaymentPage extends BasePage {
         const expectedPrice = (eventData.RATE_PLAN || '').includes('upfront')
           ? (eventData.ANNUAL_UPFRONT_PRICE_DISPLAY || eventData.ANNUAL_UPFRONT_PRICE || '')
           : (eventData.ANNUAL_PAY_MONTHLY_PRICE_DISPLAY || eventData.ANNUAL_PAY_MONTHLY_PRICE || '');
-        
+
         const priceValid = actualPrice !== 'N/A' && actualPrice.replace(/\s+/g, '') === expectedPrice.replace(/\s+/g, '');
         const priceStatus = priceValid ? 'PASS' : 'FAIL';
         console.log(`  ${priceStatus === 'PASS' ? '✅' : '❌'} [Next Payment Price] expected="${expectedPrice}" actual="${actualPrice}"`);
@@ -431,7 +431,7 @@ export class PaymentPage extends BasePage {
 
     // Click the arrow with fallback strategies
     try {
-      await clickTarget.scrollIntoViewIfNeeded().catch(() => {});
+      await clickTarget.scrollIntoViewIfNeeded().catch(() => { });
       await clickTarget.click({ force: true, timeout: 5000 });
       console.log('✅ [Ultimate Upsell] Clicked > arrow');
     } catch (e: any) {
@@ -465,11 +465,11 @@ export class PaymentPage extends BasePage {
         '[role="button"]:has-text("Skip"), ' +
         '[role="button"]:has-text("Not now")'
       ).first();
-      
+
       if (await skipBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
         console.log('🖱️ [Ultimate Upsell] Clicking Skip/Not now on phone page...');
-        await skipBtn.click({ force: true }).catch(() => {});
-        await this.page.waitForLoadState('domcontentloaded').catch(() => {});
+        await skipBtn.click({ force: true }).catch(() => { });
+        await this.page.waitForLoadState('domcontentloaded').catch(() => { });
         await this.page.waitForTimeout(2000);
       } else {
         console.log('⚠️ [Ultimate Upsell] Skip button not visible on phone number page');
@@ -485,7 +485,7 @@ export class PaymentPage extends BasePage {
       return isOnPaymentOrConfirm && (hasUltimateSummary || bannerGone);
     }, { timeout: 10000 }).then(() => true).catch(() => false);
 
-    await this.page.waitForLoadState('domcontentloaded').catch(() => {});
+    await this.page.waitForLoadState('domcontentloaded').catch(() => { });
 
     if (!switched) {
       console.log('⚠️ [Ultimate Upsell] Purchase Summary did NOT update to DAZN Ultimate');
@@ -693,7 +693,7 @@ export class PaymentPage extends BasePage {
     if (fieldLower === 'header' || fieldLower === 'page header') {
       // The payment page header is the sticky top bar text
       // e.g. "Choose how to pay after your free trial" or "Choose how to pay"
-      
+
       // Strategy 1: Look for the known header text patterns directly in body
       const headerPatterns = [
         /choose how to pay after your free trial/i,
@@ -704,7 +704,7 @@ export class PaymentPage extends BasePage {
         const match = bodyText.match(pattern);
         if (match) return match[0].trim();
       }
-      
+
       // Strategy 2: Live DOM — find sticky header / nav bar element
       const stickySelectors = [
         'header',
@@ -725,7 +725,7 @@ export class PaymentPage extends BasePage {
           }
         } catch { }
       }
-      
+
       // Strategy 3: Use PAYMENT_PAGE_TITLE from eventData (already resolved correctly)
       const paymentTitle = eventData.PAYMENT_PAGE_TITLE || '';
       if (paymentTitle && paymentTitle !== 'N/A') {
@@ -734,7 +734,7 @@ export class PaymentPage extends BasePage {
           return paymentTitle;
         }
       }
-      
+
       return 'N/A';
     }
 
@@ -794,7 +794,7 @@ export class PaymentPage extends BasePage {
       return 'N/A';
     }
 
-   // ── Plan Name ──────────────────────────────────────────────
+    // ── Plan Name ──────────────────────────────────────────────
     if (fieldLower === 'plan name' || fieldLower === 'plan type') {
       // Use DOM locators for precise extraction — find the plan name near the purchase summary
       // Look for text near "DAZN Standard" or "DAZN Ultimate" or near "Change" button
@@ -960,7 +960,7 @@ export class PaymentPage extends BasePage {
       return 'N/A';
     }
 
-   // ── First Month Free Text ──────────────────────────────────
+    // ── First Month Free Text ──────────────────────────────────
     if (fieldLower === 'first month free text' || fieldLower === 'payment free text') {
       const lines = bodyText.split('\n').map(l => l.trim());
       for (const line of lines) {
@@ -971,7 +971,7 @@ export class PaymentPage extends BasePage {
       if (lower.includes('7-days free') || lower.includes('7 days free')) return '7-days free';
       return 'N/A';
     }
-    
+
     // ── 7 Days Free Badge ──────────────────────────────────────
     if (fieldLower.includes('7 days free') || fieldLower.includes('7-days free')) {
       if (fieldLower.includes('price')) {
@@ -1020,7 +1020,7 @@ export class PaymentPage extends BasePage {
           if (el.closest('del, s') !== null) return true;
           const style = window.getComputedStyle(el);
           return !!(style.textDecorationLine?.includes('line-through') ||
-                    style.textDecoration?.includes('line-through'));
+            style.textDecoration?.includes('line-through'));
         };
 
         const cleanText = (v: string) => v.replace(/\s+/g, ' ').trim();
@@ -1233,14 +1233,14 @@ export class PaymentPage extends BasePage {
       if (moreVisible) {
         console.log('🔽 [Cancellation Text] "...more" link found — clicking to expand full text...');
         try {
-          await moreLink.scrollIntoViewIfNeeded().catch(() => {});
+          await moreLink.scrollIntoViewIfNeeded().catch(() => { });
           await moreLink.click({ force: true });
           // Wait for "Less" to appear (confirms expansion)
           await this.page.waitForFunction(() => {
             const summaryEl = document.querySelector('[class*="summary" i], [class*="Summary" i]') as HTMLElement | null;
             const text = (summaryEl || document.body).innerText.toLowerCase();
             return text.includes('less');
-          }, { timeout: 3000 }).catch(() => {});
+          }, { timeout: 3000 }).catch(() => { });
           console.log('✅ [Cancellation Text] Full text expanded');
         } catch (e: any) {
           console.log(`⚠️ [Cancellation Text] Could not click "More" link: ${e.message}`);
@@ -1285,10 +1285,10 @@ export class PaymentPage extends BasePage {
           const ll = line.toLowerCase();
           if (
             (ll.includes('charged') || ll.includes('charge') || ll.includes('pay') ||
-             ll.includes('billed') || ll.includes('billing')) &&
+              ll.includes('billed') || ll.includes('billing')) &&
             (ll.includes('cancel') || ll.includes('renew') || ll.includes('renewal')) &&
             (ll.includes('month') || ll.includes('trial') || ll.includes('days') ||
-             ll.includes('free') || ll.includes('subscription'))
+              ll.includes('free') || ll.includes('subscription'))
           ) {
             return line;
           }
@@ -1302,8 +1302,8 @@ export class PaymentPage extends BasePage {
           if (
             (ll.includes('cancel') || ll.includes('renew') || ll.includes('renewal')) &&
             (ll.includes('account') || ll.includes('contract') || ll.includes('term') ||
-             ll.includes('cycle') || ll.includes('month') || ll.includes('year') ||
-             ll.includes('free') || ll.includes('subscription'))
+              ll.includes('cycle') || ll.includes('month') || ll.includes('year') ||
+              ll.includes('free') || ll.includes('subscription'))
           ) {
             return line;
           }
@@ -1440,7 +1440,7 @@ export class PaymentPage extends BasePage {
       return 'N/A';
     }
 
-   // ── Credit & Debit Card ────────────────────────────────────
+    // ── Credit & Debit Card ────────────────────────────────────
     if (fieldLower.includes('credit') && (fieldLower.includes('option') || fieldLower.includes('available'))) {
       // Check section ID
       const sectionCount = await this.page.locator('section[id="Credit & Debit Card"]').count().catch(() => 0);
@@ -1724,7 +1724,7 @@ export class PaymentPage extends BasePage {
     ).first();
 
     if (await gpaySection.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await gpaySection.scrollIntoViewIfNeeded().catch(() => {});
+      await gpaySection.scrollIntoViewIfNeeded().catch(() => { });
       // Click the radio button SVG inside the section (same pattern as selectCreditCard)
       const gpayRadio = this.page.locator(
         "section[id='Google Pay'] span svg, " +
@@ -1781,7 +1781,7 @@ export class PaymentPage extends BasePage {
     // Set up popup listener BEFORE clicking
     const popupPromise = this.page.context().waitForEvent('page', { timeout: 30000 });
 
-    await buyWithGPayBtn.scrollIntoViewIfNeeded().catch(() => {});
+    await buyWithGPayBtn.scrollIntoViewIfNeeded().catch(() => { });
     try {
       await buyWithGPayBtn.click({ force: true, timeout: 10000 });
     } catch (e: any) {
@@ -1843,7 +1843,7 @@ export class PaymentPage extends BasePage {
       await emailNextBtn.click({ force: true });
       console.log('✅ [GPay] Email entered, Next clicked');
       await popup.waitForTimeout(2000);
-      await popup.waitForLoadState('domcontentloaded').catch(() => {});
+      await popup.waitForLoadState('domcontentloaded').catch(() => { });
     } else {
       console.log('⚠️ [GPay] Email input not found — may already be on password page');
     }
@@ -1869,7 +1869,7 @@ export class PaymentPage extends BasePage {
       await passwordNextBtn.click({ force: true });
       console.log('✅ [GPay] Password entered, Next clicked');
       await popup.waitForTimeout(2000);
-      await popup.waitForLoadState('domcontentloaded').catch(() => {});
+      await popup.waitForLoadState('domcontentloaded').catch(() => { });
     } else {
       console.log('⚠️ [GPay] Password input not found — may have auto-signed in');
     }
@@ -1883,7 +1883,7 @@ export class PaymentPage extends BasePage {
       console.log(`⚠️ [GPay] Did not redirect to pay.google.com — current: ${popup.url()}`);
     });
 
-    await popup.waitForLoadState('domcontentloaded').catch(() => {});
+    await popup.waitForLoadState('domcontentloaded').catch(() => { });
     await popup.waitForTimeout(1500);
     console.log(`✅ [GPay] Signed in — popup URL: ${popup.url()}`);
   }
@@ -1991,11 +1991,11 @@ export class PaymentPage extends BasePage {
     const contentContext = gpayFrame || popup.mainFrame();
 
     // Wait for content to appear in the frame
-    await contentContext.waitForLoadState('domcontentloaded').catch(() => {});
+    await contentContext.waitForLoadState('domcontentloaded').catch(() => { });
     await popup.waitForTimeout(2000);
 
     // Take debug screenshot
-    await popup.screenshot({ path: 'test-results/gpay_popup_debug.png' }).catch(() => {});
+    await popup.screenshot({ path: 'test-results/gpay_popup_debug.png' }).catch(() => { });
 
     const bodyText = (await contentContext.locator('body').innerText().catch(() => '')).replace(/\u200B/g, '');
     const lower = bodyText.toLowerCase();
@@ -2102,7 +2102,7 @@ export class PaymentPage extends BasePage {
       const isVisible = await btn.isVisible({ timeout: 3000 }).catch(() => false);
       if (isVisible) {
         console.log(`🎯 [GPay] Found Pay button via frame locator: ${selector}`);
-        await btn.scrollIntoViewIfNeeded().catch(() => {});
+        await btn.scrollIntoViewIfNeeded().catch(() => { });
         try {
           await btn.click({ force: true, timeout: 10000 });
           console.log('✅ [GPay] Clicked Pay button in frame');
@@ -2174,7 +2174,7 @@ export class PaymentPage extends BasePage {
     }
 
     if (!clicked && !popup.isClosed()) {
-      await popup.screenshot({ path: 'test-results/gpay_pay_button_not_found.png' }).catch(() => {});
+      await popup.screenshot({ path: 'test-results/gpay_pay_button_not_found.png' }).catch(() => { });
       console.log('📸 [GPay] Screenshot saved: test-results/gpay_pay_button_not_found.png');
       console.log(`⚠️ [GPay] Could not find/click Pay button — popup URL: ${popup.url()}`);
     }
@@ -2246,7 +2246,7 @@ export class PaymentPage extends BasePage {
     console.log('⏳ [GPay] Waiting for DAZN success page...');
 
     await this.page.waitForTimeout(2000);
-    await this.page.waitForLoadState('domcontentloaded').catch(() => {});
+    await this.page.waitForLoadState('domcontentloaded').catch(() => { });
 
     let foundSuccess = false;
     for (let attempt = 0; attempt < 20; attempt++) {
