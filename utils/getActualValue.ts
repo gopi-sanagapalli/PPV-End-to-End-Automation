@@ -8132,6 +8132,9 @@ export async function getActualValue(
         n.text.length < 80
       );
       if (copy1) {
+        // Prefer full landing banner date + time (e.g. "Sat 25th Jul at 21:30" or "Sun 26th July at 5:00 AM")
+        const fullDateTime = copy1.text.match(/\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\b\s+\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)(?:\s+at\s+\d{1,2}:\d{2}(?:\s*[AP]M)?)?/i);
+        if (fullDateTime) return fullDateTime[0].trim();
         const copy2 = flexSnap.find(n =>
           n.childCount === 0 &&
           n.text.toLowerCase().includes('monthly subscription') &&
@@ -8553,8 +8556,8 @@ export async function getActualValue(
         /\b(?:today|tomorrow|yesterday)\b(?:\s+at\s+\d{1,2}:\d{2}(?:\s*[AP]M)?)?|\b(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*\b(?:\s+at\s+\d{1,2}:\d{2}(?:\s*[AP]M)?)?|\b\d{1,2}(?:st|nd|rd|th)?\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/i;
 
       if (isLandingOrHome) {
-        // Prefer full landing banner date + time (e.g. "Sat 25th Jul at 21:30")
-        const fullDateTime = text.match(/\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\b\s+\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)(?:\s+at\s+\d{1,2}:\d{2})?/i);
+        // Prefer full landing banner date + time (e.g. "Sat 25th Jul at 21:30" or "Sun 26th July at 5:00 AM")
+        const fullDateTime = text.match(/\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\b\s+\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)(?:\s+at\s+\d{1,2}:\d{2}(?:\s*[AP]M)?)?/i);
         if (fullDateTime) return fullDateTime[0].trim();
       }
 
