@@ -843,31 +843,59 @@ export class BoxingHomePage extends HomePage {
   private async waitForSportModal(): Promise<any> {
     console.log('🔍 [Home Sport Tile] Searching for modal popup...');
 
-    const modalSelectors = [
-      '[role="dialog"]',
-      '[class*="modal" i]',
-      '[class*="popup" i]',
-      '[class*="Dialog" i]',
-      '.Modal',
-      '[aria-modal="true"]',
-      '[class*="overlay" i]',
+    // ── Priority 1: DAZN-specific PPV popup selectors ──────────────────────────
+    // These are the most reliable signals that a real PPV popup appeared after
+    // clicking the tile. Check these FIRST to avoid matching the pre-existing
+    // "DAZN Ultimate" promo section (which also has class*="modal") on the page.
+    const daznPopupSelectors = [
+      '#notification-layer [class*="signup-paywall"]',
+      '#notification-layer [class*="modal"]',
+      '#notification-layer [role="dialog"]',
+      '[class*="signup-paywall"]',
     ];
 
     for (let attempt = 0; attempt < 25; attempt++) {
-      for (const selector of modalSelectors) {
+      // Priority 1: DAZN PPV-specific popup containers
+      for (const selector of daznPopupSelectors) {
+        const el = this.page.locator(selector).first();
+        if (!await el.isVisible({ timeout: 100 }).catch(() => false)) continue;
+        const hasBuyNow = await el.locator(
+          'button:has-text("Buy now"), a:has-text("Buy now"), button:has-text("Buy Now")'
+        ).first().isVisible().catch(() => false);
+        if (hasBuyNow) {
+          console.log(`✅ [Home Sport Tile] Found modal via priority selector: "${selector}"`);
+          return el;
+        }
+      }
+
+      // Priority 2: Generic modal selectors — but only if they contain "Buy now"
+      // (not just any CTA like "Subscribe" or "Continue" from the Ultimate promo)
+      const genericSelectors = [
+        '[role="dialog"]',
+        '[aria-modal="true"]',
+        '[class*="popup" i]',
+        '[class*="Dialog" i]',
+        '.Modal',
+        '[class*="overlay" i]',
+        '[class*="modal" i]',
+      ];
+
+      for (const selector of genericSelectors) {
         const modalElements = this.page.locator(selector);
         const count = await modalElements.count().catch(() => 0);
         for (let i = 0; i < count; i++) {
           const modal = modalElements.nth(i);
-          if (await modal.isVisible().catch(() => false)) {
-            const hasBuyNow = await modal.locator('button:has-text("Buy now"), a:has-text("Buy now"), button:has-text("Buy Now")').first().isVisible().catch(() => false);
-            if (hasBuyNow) {
-              console.log(`✅ [Home Sport Tile] Found modal card via selector: "${selector}" (index ${i})`);
-              return modal;
-            }
+          if (!await modal.isVisible().catch(() => false)) continue;
+          const hasBuyNow = await modal.locator(
+            'button:has-text("Buy now"), a:has-text("Buy now"), button:has-text("Buy Now")'
+          ).first().isVisible().catch(() => false);
+          if (hasBuyNow) {
+            console.log(`✅ [Home Sport Tile] Found modal card via selector: "${selector}" (index ${i})`);
+            return modal;
           }
         }
       }
+
       await this.page.waitForTimeout(100);
     }
 
@@ -968,18 +996,21 @@ export class BoxingHomePage extends HomePage {
         throw new Error('❌ [Home Sport Tile] Modal container is null');
       }
 
-      const ctaSelector = 'button:has-text("Buy now"), a:has-text("Buy now"), button:has-text("Buy Now"), ' +
-        'button:has-text("Subscribe"), a:has-text("Subscribe"), ' +
-        'button:has-text("Continue"), a:has-text("Continue")';
+      // Strictly match "Buy now" only — "Subscribe" and "Continue" are too broad
+      // and match the DAZN Ultimate promo CTA for logged-in freemium users.
+      const ctaSelector = 'button:has-text("Buy now"), a:has-text("Buy now"), button:has-text("Buy Now")';
 
       let buyNowBtn = container.locator(ctaSelector).first();
 
-      let visible = await buyNowBtn.isVisible({ timeout: 750 }).catch(() => false);
+      let visible = await buyNowBtn.isVisible({ timeout: 2000 }).catch(() => false);
       if (!visible) {
-        console.log('⏳ [Home Sport Tile] Container CTA not visible. Trying nested dialog selector...');
-        const dialog = container.locator('[role="dialog"], [aria-modal="true"], [class*="modal" i]').first();
-        buyNowBtn = dialog.locator(ctaSelector).first();
-        visible = await buyNowBtn.isVisible({ timeout: 1000 }).catch(() => false);
+        // Try the #notification-layer directly as a fallback (more reliable scope)
+        console.log('⏳ [Home Sport Tile] Container CTA not visible. Trying #notification-layer directly...');
+        const notifLayer = this.page.locator('#notification-layer').first();
+        if (await notifLayer.isVisible({ timeout: 1000 }).catch(() => false)) {
+          buyNowBtn = notifLayer.locator(ctaSelector).first();
+          visible = await buyNowBtn.isVisible({ timeout: 1000 }).catch(() => false);
+        }
       }
 
       if (!visible) {

@@ -315,6 +315,119 @@ export class BoxingPage extends LandingPage {
     return null;
   }
 
+  // ─────────────────────────────────────────────────────────────────────────────
+  // FIND BOXING PAGE PPV TILE → CLICK IT → WAIT FOR MODAL POPUP
+  // Used by home-boxing-tile. Mirrors home-page-dont-miss tile-click-popup flow:
+  //   1. Scroll the boxing page to find the PPV event tile
+  //   2. Click the tile → PPV popup appears in #notification-layer
+  //   3. Return #notification-layer so clickBuyNow can scope Buy now to the popup
+  //
+  // This avoids the body-wide Buy now search that, for logged-in freemium users,
+  // hits the pre-existing DAZN Ultimate subscription CTA instead of the PPV popup.
+  // ─────────────────────────────────────────────────────────────────────────────
+  async findBoxingTileAndOpenPopup(eventData: Record<string, string>): Promise<any> {
+    const ppvName = eventData.PPV_NAME || '';
+    const vsMatch = ppvName.match(/(\w+)\s+vs\.?\s+(\w+)/i);
+    const fighter1 = vsMatch ? vsMatch[1].toLowerCase() : '';
+    const fighter2 = vsMatch ? vsMatch[2].toLowerCase() : '';
+
+    console.log(`🔍 [home-boxing-tile] Looking for PPV tile "${ppvName}" on boxing page...`);
+
+    const cleanStr = (s: string) =>
+      (s || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+
+    const matchesTile = (text: string): boolean => {
+      const ct = cleanStr(text);
+      if (fighter1 && fighter2 && ct.includes(fighter1) && ct.includes(fighter2)) return true;
+      const nameParts = ppvName.split(/[:\-–]/).map(p => p.trim()).filter(p => p.length > 3);
+      return nameParts.some(part => {
+        const words = cleanStr(part).split(/\s+/).filter(Boolean);
+        return words.length > 0 && words.every(w => ct.includes(w));
+      });
+    };
+
+    // ── Step 1: Find the boxing page PPV tile ────────────────────────────────
+    let tile: any = null;
+
+    // Tile selectors — boxing page tiles are typically cards/articles
+    const tileSelectors = [
+      '[class*="card" i]',
+      '[class*="tile" i]',
+      '[class*="event" i]',
+      '[class*="fight" i]',
+      'article',
+      'li',
+    ].join(', ');
+
+    for (let scroll = 0; scroll < 12 && !tile; scroll++) {
+      const candidates = this.page.locator(tileSelectors);
+      const count = await candidates.count().catch(() => 0);
+
+      for (let i = 0; i < count; i++) {
+        const el = candidates.nth(i);
+        if (!await el.isVisible().catch(() => false)) continue;
+        const text = (await el.textContent().catch(() => '')) || '';
+        if (!matchesTile(text)) continue;
+        tile = el;
+        console.log(`✅ [home-boxing-tile] Found tile: "${text.replace(/\s+/g, ' ').substring(0, 80)}"`);
+        break;
+      }
+
+      if (!tile) {
+        await this.page.evaluate(() => window.scrollBy(0, 400));
+        await this.page.waitForTimeout(300);
+      }
+    }
+
+    if (!tile) {
+      console.log(`⚠️ [home-boxing-tile] PPV tile not found by event name — falling back to body`);
+      return this.page.locator('body').first();
+    }
+
+    // ── Step 2: Click the tile → popup should appear ─────────────────────────
+    const beforeUrl = this.page.url();
+    await tile.scrollIntoViewIfNeeded().catch(() => { });
+    await this.page.waitForTimeout(150);
+
+    try {
+      await tile.click({ force: true, timeout: 10000 });
+      console.log('✅ [home-boxing-tile] Clicked PPV tile');
+    } catch {
+      console.log('⚠️ [home-boxing-tile] Standard tile click failed — trying JS click');
+      const handle = await tile.elementHandle().catch(() => null);
+      if (handle) {
+        await this.page.evaluate((el: any) => el.click(), handle);
+        console.log('✅ [home-boxing-tile] JS click on tile executed');
+      }
+    }
+
+    // ── Step 3: Wait for popup in #notification-layer ───────────────────────
+    for (let attempt = 0; attempt < 15; attempt++) {
+      if (this.page.url() !== beforeUrl) {
+        console.log(`✅ [home-boxing-tile] Tile click navigated directly to: ${this.page.url()}`);
+        return this.page.locator('body').first();
+      }
+
+      // Check for popup Buy now in notification-layer (same selectors as clickBuyNow uses)
+      const notifBuyNow = this.page.locator(
+        '#notification-layer button:has-text("Buy now"), ' +
+        '#notification-layer a:has-text("Buy now"), ' +
+        '[class*="signup-paywall"] button:has-text("Buy now"), ' +
+        '[class*="signup-paywall"] a:has-text("Buy now")'
+      ).first();
+
+      if (await notifBuyNow.isVisible({ timeout: 200 }).catch(() => false)) {
+        console.log('✅ [home-boxing-tile] PPV popup appeared in #notification-layer');
+        return this.page.locator('#notification-layer').first();
+      }
+
+      await this.page.waitForTimeout(150);
+    }
+
+    console.log('⚠️ [home-boxing-tile] Modal popup not detected — falling back to body');
+    return this.page.locator('body').first();
+  }
+
   override async findPPVContainer(eventData: Record<string, string>, source?: string): Promise<any> {
     const src = (source || '').toLowerCase();
     if (src.startsWith('boxing-bundle') || src.startsWith('boxing-page-bundle')) {
@@ -338,6 +451,15 @@ export class BoxingPage extends LandingPage {
       console.log(`ℹ️ [BoxingPage] Subscription source "${src}" — returning page body as container`);
       return this.page.locator('body').first();
     }
+    if (src === 'home-boxing-tile') {
+      // The boxing page (Home of Boxing, /p/boxing) has a PPV tile.
+      // For logged-in users there are OTHER "Buy now" / subscription CTAs already on the page
+      // (Ultimate promo in notification-layer, header upgrade btn, etc.) which break the
+      // naive body-wide Buy now search.
+      // Fix: find and click the boxing page PPV tile so the PPV popup appears in
+      // #notification-layer, then return it — exactly as home-page-dont-miss does.
+      return this.findBoxingTileAndOpenPopup(eventData);
+    }
     return this.page.locator('body').first();
   }
 
@@ -350,7 +472,7 @@ export class BoxingPage extends LandingPage {
     await this.stopCarouselAutoSlide();
     await this.dismissConsentIfPresent();
 
-    let btn;
+    let btn: any;
     if (source === 'boxing-bundle' || source === 'boxing-page-bundle' || source === 'boxing-bundle-ultimate') {
       if (source === 'boxing-bundle-ultimate') {
         // Look for container with Ultimate text and find its Get Started button
@@ -525,10 +647,37 @@ export class BoxingPage extends LandingPage {
           );
         }
         btn = cardBuyNow;
-      }
-      if (!btn || (source !== 'boxing-upcoming-fights' && !btnSelector)) {
-        btn = container.locator(btnSelector || 'button:has-text("Buy now")').first();
-      } else if (source !== 'boxing-upcoming-fights') {
+      } else if (source === 'home-boxing-tile') {
+        // home-boxing-tile: tile click opens a PPV popup modal in #notification-layer.
+        // The container returned by findPPVContainer is `body` — do NOT search inside
+        // body for "Buy now" or we'll hit the first match on the page (e.g. header nav).
+        // Instead, scope directly to the DAZN notification layer like home-page-dont-miss.
+        const notifBtn = this.page.locator(
+          '#notification-layer button:has-text("Buy now"), ' +
+          '#notification-layer a:has-text("Buy now"), ' +
+          '#notification-layer button:has-text("Buy Now")'
+        ).first();
+        const paywallBtn = this.page.locator(
+          '[class*="signup-paywall"] button:has-text("Buy now"), ' +
+          '[class*="signup-paywall"] a:has-text("Buy now"), ' +
+          '[class*="signup-paywall"] button:has-text("Buy Now")'
+        ).first();
+
+        if (await notifBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+          btn = notifBtn;
+          console.log('✅ [home-boxing-tile] Buy now found in #notification-layer');
+        } else if (await paywallBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
+          btn = paywallBtn;
+          console.log('✅ [home-boxing-tile] Buy now found in signup-paywall');
+        } else {
+          throw new Error(
+            '❌ [home-boxing-tile] Buy now button not found in #notification-layer or signup-paywall. ' +
+            'Will NOT search page-wide to avoid hitting wrong element.'
+          );
+        }
+      } else if (!btnSelector) {
+        btn = container.locator('button:has-text("Buy now")').first();
+      } else {
         btn = container.locator(btnSelector).first();
       }
     }
