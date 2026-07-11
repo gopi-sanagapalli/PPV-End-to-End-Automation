@@ -131,7 +131,11 @@ export async function stabilisePage(page: Page): Promise<void> {
 // ─────────────────────────────────────────────────────────────────
 // DISMISS MARKETING POPUP ("Unlock exclusive content")
 // ─────────────────────────────────────────────────────────────────
-export async function dismissMarketingPopup(page: Page, timeout: number = 0): Promise<void> {
+export async function dismissMarketingPopup(
+  page: Page,
+  timeout: number = 0,
+  options: { preservePpvPromo?: boolean } = {}
+): Promise<void> {
   if (page.isClosed()) return;
   try {
     const dismissSelectors = [
@@ -145,28 +149,89 @@ export async function dismissMarketingPopup(page: Page, timeout: number = 0): Pr
       'button:has-text("Not Now")',
       'button:has-text("Close")',
       'button:has-text("Dismiss")',
+      '[class*="content-promotion" i] [class*="close" i]',
+      '[class*="content-promotion" i] [data-test-id="SVG_ICON"]',
+      '[class*="content-promotion" i] button',
+      '[class*="modal-dialog" i] [class*="close" i]',
+      '[class*="modal" i] [class*="close" i]',
       '[aria-label="Close"]',
       '[aria-label="close"]',
       '[aria-label*="close" i]',
       '[data-testid*="close" i]',
     ].join(', ');
 
-    const popup = page.locator(dismissSelectors).first();
-    
+    const candidates = page.locator(dismissSelectors);
+    const hasVisibleCandidate = async () => {
+      const candidateCount = Math.min(await candidates.count().catch(() => 0), 10);
+      for (let index = 0; index < candidateCount; index++) {
+        const candidate = candidates.nth(index);
+        if (await candidate.isVisible({ timeout: 200 }).catch(() => false)) {
+          return true;
+        }
+      }
+      return false;
+    };
+
     let isVisible = false;
     if (timeout > 0) {
-      isVisible = await popup.waitFor({ state: 'visible', timeout })
-        .then(() => true)
-        .catch(() => false);
+      const deadline = Date.now() + timeout;
+      while (Date.now() < deadline) {
+        isVisible = await hasVisibleCandidate();
+        if (isVisible) break;
+        await page.waitForTimeout(250);
+      }
     } else {
-      isVisible = await popup.isVisible().catch(() => false);
+      isVisible = await hasVisibleCandidate();
     }
 
     if (isVisible) {
-      const btnText = await popup.textContent().catch(() => '');
-      console.log(`🔔 Marketing popup detected ("${btnText?.trim()}"). Dismissing...`);
-      await popup.click({ force: true }).catch(() => { });
-      console.log('✅ Dismissed marketing popup');
+      const candidateCount = Math.min(await candidates.count().catch(() => 0), 10);
+
+      for (let index = 0; index < candidateCount; index++) {
+        const candidate = candidates.nth(index);
+        const candidateVisible = await candidate.isVisible({ timeout: 500 }).catch(() => false);
+        if (!candidateVisible) continue;
+
+        if (options.preservePpvPromo) {
+          const isPpvPromoClose = await candidate.evaluate((el: Element) => {
+            let node: Element | null = el;
+            while (node) {
+              const classText = (node.getAttribute('class') || '').toLowerCase();
+              const role = (node.getAttribute('role') || '').toLowerCase();
+              const ariaModal = (node.getAttribute('aria-modal') || '').toLowerCase();
+              const isModal =
+                role === 'dialog' ||
+                ariaModal === 'true' ||
+                classText.includes('modal') ||
+                classText.includes('popup') ||
+                classText.includes('content-promotion');
+
+              if (isModal) {
+                const modalText = (node.textContent || '').toLowerCase();
+                return classText.includes('content-promotion') && modalText.includes('buy now');
+              }
+              node = node.parentElement;
+            }
+            return false;
+          }).catch(() => false);
+
+          if (isPpvPromoClose) {
+            console.log('ℹ️ PPV home-page-popup promo detected — preserving it for Buy Now flow');
+            continue;
+          }
+        }
+
+        const btnText = await candidate.textContent().catch(() => '');
+        if ((btnText || '').trim().toLowerCase().includes('buy now')) {
+          continue;
+        }
+        console.log(`🔔 Marketing popup detected ("${btnText?.trim()}"). Dismissing...`);
+        await candidate.click({ force: true }).catch(() => { });
+        console.log('✅ Dismissed marketing popup');
+        return;
+      }
+
+      console.log('ℹ️ Marketing popup controls found, but no safe dismiss button was clicked');
     }
   } catch (e) {
     console.warn('⚠️ Error in dismissMarketingPopup:', e);

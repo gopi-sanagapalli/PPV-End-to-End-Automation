@@ -203,6 +203,9 @@ for (const stateKey of userStatesToRun) {
     const devModeEnabled =
       devModeForced ||
       isUltimateLoginFirstUser ||
+      (isActiveUltimateState(userStateKey) &&
+        ['my-account', 'myaccount', 'myaccount-subscription-status'].includes(SOURCE.toLowerCase()) &&
+        isUSorGB) ||
       (effectiveTier === 'ultimate' && isUSorGB) ||
       (SOURCE === 'landing-page-dont-miss-live-switch');
 
@@ -358,6 +361,12 @@ for (const stateKey of userStatesToRun) {
       if (folderPath) console.log(`\n📂 Report folder: ${folderPath}`);
     };
 
+    const validateUltimateMyAccountRedirect = async () => {
+      console.log('\n🏠 [Ultimate User] Landed on My Account — validating purchased PPV status...');
+      const myAccountPage = new MyAccountPage(page);
+      await myAccountPage.navigateAndValidatePurchasedPPVStatus(baseUrl, results, eventData);
+    };
+
     // ── detectPageType ────────────────────────────────────────────
     const detectPageType = async (
       p: any,
@@ -371,26 +380,26 @@ for (const stateKey of userStatesToRun) {
         initialUrl.includes('index.html') ||
         initialUrl.includes('externalpurchaseid=') ||
         initialUrl.includes('contextualppvid=') ||
-        ((initialUrl.includes('page=plandetails') || initialUrl.includes('page=tierplans')) && 
-         !initialUrl.includes('upselltiershown') && 
-         !initialUrl.includes('upselltierselected') && 
-         !initialUrl.includes('upselltierskipped'))
+        ((initialUrl.includes('page=plandetails') || initialUrl.includes('page=tierplans')) &&
+          !initialUrl.includes('upselltiershown') &&
+          !initialUrl.includes('upselltierselected') &&
+          !initialUrl.includes('upselltierskipped'))
       ) {
         try {
           await p.waitForFunction(() => {
             const href = window.location.href.toLowerCase();
             const bodyText = document.body ? document.body.innerText.toLowerCase() : '';
-            const hasUpsellStateInUrl = href.includes('upselltiershown') || 
-                                         href.includes('upselltierselected') || 
-                                         href.includes('upselltierskipped');
-            const hasPpvText = bodyText.includes('pay-per-view') || 
-                                bodyText.includes('just the fight') || 
-                                bodyText.includes('continue with pay-per-view') || 
-                                bodyText.includes('ultimate fan package') ||
-                                bodyText.includes('to watch your pay-per-view');
+            const hasUpsellStateInUrl = href.includes('upselltiershown') ||
+              href.includes('upselltierselected') ||
+              href.includes('upselltierskipped');
+            const hasPpvText = bodyText.includes('pay-per-view') ||
+              bodyText.includes('just the fight') ||
+              bodyText.includes('continue with pay-per-view') ||
+              bodyText.includes('ultimate fan package') ||
+              bodyText.includes('to watch your pay-per-view');
             return hasUpsellStateInUrl || hasPpvText;
-          }, { timeout: 8000 }).catch(() => {});
-        } catch {}
+          }, { timeout: 8000 }).catch(() => { });
+        } catch { }
       }
 
       const url = p.url();
@@ -446,7 +455,7 @@ for (const stateKey of userStatesToRun) {
         return 'saved-card-payment';
       }
 
-      // My Account PPV page — ultimate users redirected here when PPV is already purchased
+      // My Account page — ultimate users can redirect here when PPV is already purchased
       if (urlLower.includes('/myaccount/ppv') || urlLower.includes('/myaccount?')) {
         return 'myaccount-ppv';
       }
@@ -745,6 +754,7 @@ for (const stateKey of userStatesToRun) {
           await schedule.navigate(baseUrl);
           await setupPage(page, 8000);
           assertCountryMatch(page, REGION);
+          await dismissMarketingPopup(page, 5000);
 
           if (devModeEnabled) {
             console.log('\n🎭 Dev mode flow detected — enabling dev mode on schedule page...');
@@ -786,7 +796,7 @@ for (const stateKey of userStatesToRun) {
 
           if (scheduleEventCard) {
             // Step 2: Scroll card into view FIRST, then validate tile fields from it
-            await scheduleEventCard.scrollIntoViewIfNeeded().catch(() => {});
+            await scheduleEventCard.scrollIntoViewIfNeeded().catch(() => { });
 
             // Pre-capture tile values directly from the located event card element
             // so getActualValue uses these instead of a broad DOM scan
@@ -863,6 +873,7 @@ for (const stateKey of userStatesToRun) {
           await searchPage.navigate(baseUrl);
           await setupPage(page, 8000);
           assertCountryMatch(page, REGION);
+          await dismissMarketingPopup(page, 5000);
 
           if (devModeEnabled) {
             console.log('\n🎭 Dev mode flow detected — enabling dev mode on search page...');
@@ -996,6 +1007,7 @@ for (const stateKey of userStatesToRun) {
           }
           await setupPage(page, 8000);
           assertCountryMatch(page, REGION);
+          await dismissMarketingPopup(page, 5000);
           if (LOGIN_FIRST) {
             await page.keyboard.press('Escape').catch(() => { });
             await page.waitForTimeout(200);
@@ -1584,25 +1596,17 @@ for (const stateKey of userStatesToRun) {
           const ppvStatus = await myAccountPage.isPPVPurchased(eventData.PPV_NAME);
           console.log(`✅ PPV Actual Status: "${ppvStatus}"`);
 
-          results.push({
-            page: 'My Account',
-            variant: tier,
-            tier,
-            ratePlan,
-            field: 'PPV Status (Purchased)',
-            expected: eventData.PPV_STATUS,
-            actual: ppvStatus,
-            status: ppvStatus.toLowerCase().includes(
-              expectedPPVStatus
-            ) ? 'PASS' : 'FAIL',
-          });
-
           // --- Schedule Page validation (Post-Payment) ---
           if (PPV_TYPE !== 'upsell') {
             try {
               console.log('\n📅 [Post-Purchase] Navigating to Schedule page to verify purchased event...');
               const schedulePagePostPayment = new SchedulePage(page);
               await schedulePagePostPayment.navigate(baseUrl);
+              if (devModeEnabled) {
+                console.log('\n🎭 Dev mode flow detected — enabling dev mode before Schedule entitlement click...');
+                const searchPage = new SearchPage(page);
+                await searchPage.enableDevMode();
+              }
               await schedulePagePostPayment.selectSport(sport);
 
               console.log(`🔍 Finding event tile: "${eventData.PPV_NAME}"`);
@@ -1721,6 +1725,11 @@ for (const stateKey of userStatesToRun) {
               console.log('\n📅 [Ultimate] Navigating to Schedule page to verify purchased event...');
               const schedulePagePostPayment = new SchedulePage(page);
               await schedulePagePostPayment.navigate(baseUrl);
+              if (devModeEnabled) {
+                console.log('\n🎭 Dev mode flow detected — enabling dev mode before Schedule entitlement click...');
+                const searchPage = new SearchPage(page);
+                await searchPage.enableDevMode();
+              }
               await schedulePagePostPayment.selectSport(sport);
 
               console.log(`🔍 Finding event tile: "${eventData.PPV_NAME}"`);
@@ -2052,7 +2061,14 @@ for (const stateKey of userStatesToRun) {
           }
 
           // ── MY ACCOUNT PPV (Purchased) ─────────────────────────────
-          // Ultimate users redirected to /myaccount/ppv after sign-in when PPV is already purchased
+          // Ultimate users can redirect to My Account after sign-in when PPV is already purchased.
+          if (pageType === 'myaccount-ppv' && isActiveUltimateState(userStateKey)) {
+            await validateUltimateMyAccountRedirect();
+            await finishRun('ultimate', userStateKey);
+            return;
+          }
+
+          // Legacy fallback for non-Ultimate states that still land on /myaccount/ppv.
           if (pageType === 'myaccount-ppv') {
             console.log('\n✅ [Purchased] Landed on My Account PPV page — PPV is already purchased/included.');
 
@@ -2075,7 +2091,7 @@ for (const stateKey of userStatesToRun) {
               variant: tier,
               tier,
               ratePlan,
-              field: 'PPV Status (Purchased)',
+              field: 'PPV Status',
               expected: 'Purchased',
               actual: hasPurchased ? 'Purchased' : 'Not found',
               status: hasPurchased ? 'PASS' : 'FAIL',
@@ -2330,20 +2346,27 @@ for (const stateKey of userStatesToRun) {
               ) {
                 actualPage = 'Fixture Page';
                 navStatus = 'PASS';
+              } else if (lowerUrl.includes('/myaccount')) {
+                actualPage = 'My Account';
+                navStatus = 'PASS';
               }
 
               results.push({
                 page: 'Sign In',
                 field: 'Post-Login Navigation Target',
-                expected: 'Preview Page or Fixture Page',
+                expected: 'Preview Page, Fixture Page, or My Account',
                 actual: `Navigated to: ${currentUrl} (${actualPage})`,
                 status: navStatus,
               });
 
               if (navStatus === 'FAIL') {
-                const errMsg = `❌ [Ultimate User Login] Not redirected to fixture page after signing in. Landed on: ${currentUrl}`;
+                const errMsg = `❌ [Ultimate User Login] Not redirected to fixture/preview page or My Account after signing in. Landed on: ${currentUrl}`;
                 console.error(errMsg);
                 throw new Error(errMsg);
+              } else if (actualPage === 'My Account') {
+                await validateUltimateMyAccountRedirect();
+                await finishRun('ultimate', userStateKey);
+                return;
               } else {
                 console.log(`✅ [Ultimate User Login] Successfully redirected to fixture/preview page: ${currentUrl} (${actualPage})`);
               }

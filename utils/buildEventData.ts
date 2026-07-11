@@ -168,11 +168,11 @@ export function buildEventData(
   const regional = deepMerge(deepMerge(GLOBAL_DEFAULTS, regionalBase), eventRegional);
 
   const base: Record<string, any> = {
-    PPV_NAME:      merged.PPV_NAME,
+    PPV_NAME: merged.PPV_NAME,
     PPV_FULL_NAME: merged.PPV_FULL_NAME || merged.PPV_NAME,
     PPV_DISPLAY_NAME: merged.PPV_DISPLAY_NAME || merged.PPV_NAME,
-    SPORT:         merged.SPORT,
-    PPV_TYPE:      merged.PPV_TYPE,
+    SPORT: merged.SPORT,
+    PPV_TYPE: merged.PPV_TYPE,
     SECONDARY_PPV: merged.SECONDARY_PPV,
     ...merged.global,
     ...regional,
@@ -231,7 +231,7 @@ export function buildEventData(
     console.log(`💡 Derived BASE_URL: https://${domain}/${locale} (region="${region}", env="${env}")`);
   }
 
-  base.TIER      = (tier || merged.TIER      || 'standard').toLowerCase();
+  base.TIER = (tier || merged.TIER || 'standard').toLowerCase();
   base.RATE_PLAN = (ratePlan || merged.RATE_PLAN || 'monthly').toLowerCase();
 
   console.log(`💎 Tier      : ${base.TIER}`);
@@ -264,7 +264,7 @@ export function buildEventData(
     }
   }
 
-   // Load DaznPlan.json dynamically to read plan-level offers
+  // Load DaznPlan.json dynamically to read plan-level offers
   const plansPath = path.resolve(process.cwd(), 'config/DaznPlan.json');
   let plans: any = {};
   try {
@@ -423,7 +423,7 @@ export function buildEventData(
   base['ULTIMATE_OFFER.CANCELLATION_TEXT'] = activeOffer && activeOffer.name === 'ultimate_offer' ? activeOffer.CANCELLATION_TEXT : '';
   // ──────────────────────────────────────────────────────────
 
-  if (regional.DAZN_TIER           ?? merged.DAZN_TIER)           base.DAZN_TIER           = regional.DAZN_TIER           ?? merged.DAZN_TIER;
+  if (regional.DAZN_TIER ?? merged.DAZN_TIER) base.DAZN_TIER = regional.DAZN_TIER ?? merged.DAZN_TIER;
 
   // Resolve userState values from central userstatus.json file.
   // USER_STATE is ONLY set by existing-user flows (existinguser.ppv.spec.ts sets
@@ -713,7 +713,7 @@ export function buildEventData(
   }
 
   if (!base.FIRST_NAME) base.FIRST_NAME = 'UAT';
-  if (!base.LAST_NAME)  base.LAST_NAME  = 'UAT';
+  if (!base.LAST_NAME) base.LAST_NAME = 'UAT';
 
   if (!base.NEXT_PAYMENT_PRICE) {
     base.NEXT_PAYMENT_PRICE = base.CURRENCY
@@ -727,7 +727,7 @@ export function buildEventData(
       const ultimateApmPlan = plans.ultimate_apm;
       const ultimateApmRegion = ultimateApmPlan?.regions?.[region.toUpperCase()] || {};
       const ultimatePlanOffers = ultimateApmRegion.offers || [];
-      
+
       // Merge with event-level overrides
       const combinedUltimateOffers = [...eventRegionalOffers];
       for (const planOffer of ultimatePlanOffers) {
@@ -735,7 +735,7 @@ export function buildEventData(
           combinedUltimateOffers.push(planOffer);
         }
       }
-      
+
       const ultimateOffer = combinedUltimateOffers.find(o => o.name === 'ultimate_offer' && o.enabled === true);
       if (ultimateOffer) {
         base.UPSELL_PRICE = getPriceWithCurrency(ultimateOffer.OFFER_PRICE);

@@ -1507,10 +1507,29 @@ export async function getActualValue(
       return found !== 'N/A' ? found : 'Not found';
     }
     case 'banner - buy now cta': {
+      const scopedContainer = await getScopedLandingPPVContainer(page, eventData);
+      if (scopedContainer) {
+        const found = await scopedContainer
+          .locator('a, button, [role="button"]')
+          .filter({ hasText: /^Buy now$/i })
+          .first()
+          .isVisible({ timeout: 1000 })
+          .catch(() => false);
+        return found ? 'Visible' : 'Not visible';
+      }
       const found = snapExists(n => (n.tag === 'button' || n.tag === 'a') && n.text.toLowerCase().includes('buy now'));
       return found === 'Yes' ? 'Visible' : 'Not visible';
     }
     case 'banner - purchased tag': {
+      const scopedContainer = await getScopedLandingPPVContainer(page, eventData);
+      if (scopedContainer) {
+        const found = await scopedContainer
+          .locator('text=/^Purchased$/i')
+          .first()
+          .isVisible({ timeout: 1000 })
+          .catch(() => false);
+        return found ? 'Visible' : 'Not visible';
+      }
       const found = snapExists(n =>
         n.text.toLowerCase().includes('purchased') &&
         n.text.length < 40
@@ -1518,11 +1537,31 @@ export async function getActualValue(
       return found === 'Yes' ? 'Visible' : 'Not visible';
     }
     case 'banner - fight card cta': {
+      const scopedContainer = await getScopedLandingPPVContainer(page, eventData);
+      if (scopedContainer) {
+        const found = await scopedContainer
+          .locator('a, button, [role="button"]')
+          .filter({ hasText: /^Fight card$/i })
+          .first()
+          .isVisible({ timeout: 1000 })
+          .catch(() => false);
+        return found ? 'Visible' : 'Not visible';
+      }
       const found = snapExists(n => (n.tag === 'button' || n.tag === 'a') && n.text.toLowerCase().includes('fight card'));
       return found === 'Yes' ? 'Visible' : 'Not visible';
     }
     case 'banner - set reminder cta':
     case 'banner - set remainder cta': {
+      const scopedContainer = await getScopedLandingPPVContainer(page, eventData);
+      if (scopedContainer) {
+        const found = await scopedContainer
+          .locator('a, button, [role="button"]')
+          .filter({ hasText: /set reminder|set remainder/i })
+          .first()
+          .isVisible({ timeout: 1000 })
+          .catch(() => false);
+        return found ? 'Visible' : 'Not visible';
+      }
       const found = snapExists(n => {
         const text = n.text.toLowerCase();
         return (n.tag === 'button' || n.tag === 'a') &&
@@ -8570,6 +8609,37 @@ export async function getActualValue(
         const scoped = await getScopedLandingPPVContainer(page, eventData);
         if (scoped) container = scoped;
       }
+      const expectedDate = eventData?.LANDING_BANNER_DATE || eventData?.PPV_DATE || '';
+      const expectedHasTime = /\d{1,2}:\d{2}/.test(expectedDate);
+      const fullDateTimeRegex = /\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)(?:day)?\b\s+\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)(?:\s+at\s+\d{1,2}:\d{2}(?:\s*[AP]M)?)?/i;
+      const dateWithTimeRegex = /\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)(?:day)?\b[^\n]{0,40}\d{1,2}:\d{2}(?:\s*[AP]M)?|\b\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)[^\n]{0,30}\d{1,2}:\d{2}(?:\s*[AP]M)?/i;
+
+      if (isLandingOrHome) {
+        const candidateEls = container.locator('time, span, p, div, button, [class*="badge" i], [class*="date" i]');
+        const candidateCount = Math.min(await candidateEls.count().catch(() => 0), 80);
+        const candidates: string[] = [];
+        for (let i = 0; i < candidateCount; i++) {
+          const candidate = candidateEls.nth(i);
+          if (!await candidate.isVisible({ timeout: 100 }).catch(() => false)) continue;
+          const text = clean(await candidate.innerText({ timeout: T }).catch(() => ''));
+          if (text && text.length <= 100) candidates.push(text);
+        }
+
+        if (expectedHasTime) {
+          for (const candidate of candidates) {
+            const matched = candidate.match(dateWithTimeRegex) || candidate.match(fullDateTimeRegex);
+            if (matched && /\d{1,2}:\d{2}/.test(matched[0])) {
+              return matched[0].trim();
+            }
+          }
+        }
+
+        for (const candidate of candidates) {
+          const matched = candidate.match(fullDateTimeRegex);
+          if (matched) return matched[0].trim();
+        }
+      }
+
       const text = clean(await container.textContent().catch(() => ''));
 
       // DAZN banners can show either:
@@ -8580,7 +8650,7 @@ export async function getActualValue(
 
       if (isLandingOrHome) {
         // Prefer full landing banner date + time (e.g. "Sat 25th Jul at 21:30" or "Sun 26th July at 5:00 AM")
-        const fullDateTime = text.match(/\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\b\s+\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)(?:\s+at\s+\d{1,2}:\d{2}(?:\s*[AP]M)?)?/i);
+        const fullDateTime = text.match(dateWithTimeRegex) || text.match(fullDateTimeRegex);
         if (fullDateTime) return fullDateTime[0].trim();
       }
 

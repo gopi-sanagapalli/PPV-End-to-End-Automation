@@ -675,9 +675,12 @@ export class BoxingPage extends LandingPage {
             'Will NOT search page-wide to avoid hitting wrong element.'
           );
         }
-      } else if (!btnSelector) {
-        btn = container.locator('button:has-text("Buy now")').first();
-      } else {
+      }
+      // Restore original fallback: guard with !btn to guarantee btn is always assigned
+      // for banner/generic sources (boxing-page-banner, boxing-buy, boxing-ultimate, etc.)
+      if (!btn || (source !== 'boxing-upcoming-fights' && source !== 'home-boxing-tile' && !btnSelector)) {
+        btn = container.locator(btnSelector || 'button:has-text("Buy now")').first();
+      } else if (source !== 'boxing-upcoming-fights' && source !== 'home-boxing-tile' && !btn) {
         btn = container.locator(btnSelector).first();
       }
     }

@@ -57,7 +57,11 @@ export function resolveExpected(
     }
   }
 
-  if (field === 'banner - fight card cta' && pageName.includes('landing')) {
+  if (
+    field === 'banner - fight card cta' &&
+    pageName.includes('landing') &&
+    !String(rule.Flow || rule.flow || '').toLowerCase().includes('ultimate')
+  ) {
     return 'N/A';
   }
 
@@ -447,6 +451,18 @@ export function resolveExpected(
     const popupDate = eventData.PPV_POPUP_DATE || '';
     if (popupDate) return popupDate;
   }
+
+  // ── home-biggest-fights popup date ───────────────────────────────────────────
+  // The biggest-fights popup shows PPV_POPUP_DATE format (e.g. "25 JUL 1:30PM").
+  // The Excel template resolves via LANDING_PAGE_PPV_DATE which only has the date
+  // ("25 July"), causing a mismatch. Return PPV_POPUP_DATE directly for this source.
+  if (field === 'popup - event date') {
+    const currentSrc = (eventData.SOURCE || eventData.source || '').trim().toLowerCase();
+    if (currentSrc === 'home-biggest-fights' && eventData.PPV_POPUP_DATE) {
+      return String(eventData.PPV_POPUP_DATE);
+    }
+  }
+
 
   if (field === 'popup date') {
     const pDate = eventData.PPV_DATE || '';

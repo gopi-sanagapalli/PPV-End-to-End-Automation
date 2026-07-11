@@ -140,8 +140,9 @@ export abstract class BaseLoginStrategy implements LoginStrategy {
   async dismissPostLoginPopups(page: Page): Promise<void> {
     if (page.isClosed()) return;
     try {
+      const preservePpvPromo = (process.env.SOURCE || '').toLowerCase() === 'home-page-popup';
       await handleCookies(page, 5000).catch(() => { });
-      await dismissMarketingPopup(page, 5000).catch(() => { });
+      await dismissMarketingPopup(page, 5000, { preservePpvPromo }).catch(() => { });
 
       const welcomeSelectors = [
         'button:has-text("Got it")',
@@ -149,8 +150,10 @@ export abstract class BaseLoginStrategy implements LoginStrategy {
         'button:has-text("Start watching")',
         'button:has-text("Continue")',
         '[data-test-id*="dismiss" i]',
-        '[data-test-id*="close" i]',
-        '[aria-label*="close" i]',
+        ...(preservePpvPromo ? [] : [
+          '[data-test-id*="close" i]',
+          '[aria-label*="close" i]',
+        ]),
       ].join(', ');
 
       const welcomeBtn = page.locator(welcomeSelectors).first();

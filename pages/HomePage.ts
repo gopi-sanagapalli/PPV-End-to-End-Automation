@@ -2,7 +2,7 @@ import { Page } from '@playwright/test';
 import { LandingPage } from './LandingPage';
 import { RailsInterceptor } from '../utils/railsInterceptor';
 import { pollForHomePagePopup, logoutForPopupRetry, clickAndWaitForNav } from '../utils/testHelpers';
-import { handleCookies, stabilisePage } from '../utils/helpers';
+import { dismissMarketingPopup, handleCookies, stabilisePage } from '../utils/helpers';
 import { validateVariant } from '../flows/validateVariant';
 import { getHomePageData } from '../utils/excelReader';
 
@@ -1464,6 +1464,7 @@ export class HomePage extends LandingPage {
     }
     await handleCookies(this.page, 5000);
     await stabilisePage(this.page);
+    await dismissMarketingPopup(this.page, 1000, { preservePpvPromo: true });
     console.log(`📍 [Home Page Popup] On home page: ${this.page.url()}`);
 
     // ── Attempt 1 — poll 40s for popup ──
@@ -1477,6 +1478,7 @@ export class HomePage extends LandingPage {
       await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });
       await handleCookies(this.page, 5000);
       await stabilisePage(this.page);
+      await dismissMarketingPopup(this.page, 1000, { preservePpvPromo: true });
       console.log(`📍 [Home Page Popup] After refresh: ${this.page.url()}`);
       popupModal = await pollForHomePagePopup(this.page, 40000);
     }
@@ -1532,6 +1534,7 @@ export class HomePage extends LandingPage {
       await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });
       await handleCookies(this.page, 5000);
       await stabilisePage(this.page);
+      await dismissMarketingPopup(this.page, 1000, { preservePpvPromo: true });
       console.log(`📍 [Home Page Popup] After re-login, on: ${this.page.url()}`);
 
       popupModal = await pollForHomePagePopup(this.page, 40000);

@@ -386,6 +386,14 @@ async function runFlow(
       await schedule.navigate(baseUrl);
       await setupPage(page, 8000);
       assertCountryMatch(page, region);
+      await dismissMarketingPopup(page, 5000);
+
+      if (devModeEnabled) {
+        console.log('\n🎭 Dev mode flow detected — enabling dev mode on schedule page...');
+        const searchPage = new SearchPage(page);
+        await searchPage.enableDevMode();
+        console.log('✅ dev mode enabled — continuing with ultimate flow');
+      }
 
       const sport = json.SPORT || 'Boxing';
       let scheduleEventCard: any;
@@ -477,6 +485,14 @@ async function runFlow(
       await searchPage.navigate(baseUrl);
       await setupPage(page, 8000);
       assertCountryMatch(page, region);
+      await dismissMarketingPopup(page, 5000);
+
+      if (devModeEnabled) {
+        console.log('\n🎭 Dev mode flow detected — enabling dev mode on search page...');
+        await searchPage.enableDevMode();
+        console.log('✅ dev mode enabled — continuing with ultimate flow');
+      }
+
       await searchPage.searchForPPVTileWithUpcomingFallback(eventData.PPV_NAME);
 
       console.log('\n📋 Validating Search page tile fields (before tile click)...');
@@ -524,6 +540,7 @@ async function runFlow(
       }
       await setupPage(page, 8000);
       assertCountryMatch(page, region);
+      await dismissMarketingPopup(page, 5000);
 
       // ── DEV MODE: If enabled, activate dev mode to bypass phone number ──
       if (devModeEnabled) {
