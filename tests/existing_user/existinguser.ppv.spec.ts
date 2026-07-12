@@ -3086,7 +3086,11 @@ for (const stateKey of userStatesToRun) {
               continue;
             }
 
-            if (!planValidated) {
+            // NOTE: For ultimate_upfront, plan page defaults to APM selected on load.
+            // Defer validateVariant to after the APU card click so DOM reflects correct state.
+            const shouldDeferPlanValidation = ratePlan === 'annual pay upfront';
+
+            if (!planValidated && !shouldDeferPlanValidation) {
               try {
                 await page.waitForSelector(
                   'input[type="radio"]',
@@ -3155,26 +3159,42 @@ for (const stateKey of userStatesToRun) {
               }
               await page.waitForTimeout(500);
 
-              // ── Post-selection: Validate upfront is selected ──
-              console.log('\n📋 Validating post-upfront-selection...');
-              const upfrontRadioCheck = await page.locator('input[type="radio"]').nth(1)
-                .isChecked().catch(() => false);
-              results.push({
-                page: 'DAZN Plan',
-                field: 'Annual Pay Upfront Selected (After Click)',
-                expected: 'Yes',
-                actual: upfrontRadioCheck ? 'Yes' : 'No',
-                status: upfrontRadioCheck ? 'PASS' : 'FAIL',
-              });
-              const apmRadioCheck = await page.locator('input[type="radio"]').first()
-                .isChecked().catch(() => true);
-              results.push({
-                page: 'DAZN Plan',
-                field: 'Annual Pay Monthly Deselected (After Upfront Click)',
-                expected: 'No',
-                actual: apmRadioCheck ? 'Yes' : 'No',
-                status: !apmRadioCheck ? 'PASS' : 'FAIL',
-              });
+              // ── Post-click: run deferred validateVariant now that APU card is selected ──
+              if (shouldDeferPlanValidation && !planValidated) {
+                try {
+                  const targetTier = (tier === 'ultimate' || purchaseOption === 'ultimate') ? 'ultimate' : 'standard';
+                  const originalTier = eventData.TIER;
+                  const originalPlanCta = eventData.PLAN_CTA_BUTTON;
+                  eventData.TIER = targetTier;
+                  eventData['TIER'] = targetTier;
+                  const isUpgradeFlow = page.url().includes('isUpgradeTierFlow') || userStateKey === 'active_standard';
+                  if (isUpgradeFlow && targetTier === 'ultimate') {
+                    eventData.PLAN_CTA_BUTTON = 'Continue';
+                    eventData['PLAN_CTA_BUTTON'] = 'Continue';
+                  }
+                  const planData = getPlanDataByTier(targetTier);
+                  const planFlow = [
+                    'boxing-banner-ultimate',
+                    'boxing-ultimate-subscription',
+                    'boxing-join-the-club',
+                  ].includes(SOURCE)
+                    ? 'boxing-ultimate-direct'
+                    : isMyAccount ? 'myaccount' : (isReturning ? 'returning' : undefined);
+                  console.log(`📊 Plan rows (deferred post-click): ${planData.length}`);
+                  await validateVariant(
+                    page, 'plan', planData, results, eventData, 'DAZN Plan', planFlow
+                  );
+                  eventData.TIER = originalTier;
+                  eventData['TIER'] = originalTier;
+                  eventData.PLAN_CTA_BUTTON = originalPlanCta;
+                  eventData['PLAN_CTA_BUTTON'] = originalPlanCta;
+                } catch (e: any) {
+                  console.warn('⚠️  Plan validation error (deferred):', e.message);
+                }
+                planValidated = true;
+              }
+
+
             } else if (ratePlan === 'annual pay monthly') {
               const annualCard = page.locator(
                 'label:has-text("Annual - pay over time"), ' +
@@ -3458,9 +3478,13 @@ for (const stateKey of userStatesToRun) {
             'boxing-join-the-club',
           ].includes(SOURCE) ? 'boxing-ultimate-direct' : undefined;
           console.log(`📊 Plan rows: ${planData.length}`);
-          await validateVariant(
-            page, 'plan', planData, results, eventData, 'DAZN Plan', planFlow
-          );
+          // NOTE: For ultimate_upfront, defer validateVariant to after APU card click.
+          const shouldDeferFlowBPlanValidation = ratePlan === 'annual pay upfront';
+          if (!shouldDeferFlowBPlanValidation) {
+            await validateVariant(
+              page, 'plan', planData, results, eventData, 'DAZN Plan', planFlow
+            );
+          }
 
           // Restore
           eventData.TIER = originalTier;
@@ -3485,26 +3509,29 @@ for (const stateKey of userStatesToRun) {
             }
             await page.waitForTimeout(500);
 
-            // ── Post-selection: Validate upfront is selected ──
-            console.log('\n📋 Validating post-upfront-selection (Flow B)...');
-            const upfrontChecked = await page.locator('input[type="radio"]').nth(1)
-              .isChecked().catch(() => false);
-            results.push({
-              page: 'DAZN Plan',
-              field: 'Annual Pay Upfront Selected (After Click)',
-              expected: 'Yes',
-              actual: upfrontChecked ? 'Yes' : 'No',
-              status: upfrontChecked ? 'PASS' : 'FAIL',
-            });
-            const apmChecked = await page.locator('input[type="radio"]').first()
-              .isChecked().catch(() => true);
-            results.push({
-              page: 'DAZN Plan',
-              field: 'Annual Pay Monthly Deselected (After Upfront Click)',
-              expected: 'No',
-              actual: apmChecked ? 'Yes' : 'No',
-              status: !apmChecked ? 'PASS' : 'FAIL',
-            });
+            // ── Post-click: run deferred validateVariant (Flow B) ──
+            if (shouldDeferFlowBPlanValidation) {
+              const restoreTier2 = eventData.TIER;
+              const restoreCta2 = eventData.PLAN_CTA_BUTTON;
+              eventData.TIER = 'ultimate';
+              eventData['TIER'] = 'ultimate';
+              eventData.PLAN_CTA_BUTTON = 'Continue';
+              eventData['PLAN_CTA_BUTTON'] = 'Continue';
+              try {
+                console.log(`📊 Plan rows (deferred post-click Flow B): ${planData.length}`);
+                await validateVariant(
+                  page, 'plan', planData, results, eventData, 'DAZN Plan', planFlow
+                );
+              } catch (e: any) {
+                console.warn('⚠️  Plan validation error (deferred Flow B):', e.message);
+              }
+              eventData.TIER = restoreTier2;
+              eventData['TIER'] = restoreTier2;
+              eventData.PLAN_CTA_BUTTON = restoreCta2;
+              eventData['PLAN_CTA_BUTTON'] = restoreCta2;
+            }
+
+
           }
 
           const planBtn = page.locator(

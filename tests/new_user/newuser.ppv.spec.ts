@@ -1692,7 +1692,13 @@ async function runFlow(
           }
         }
 
-        if (!planValidated && !page.url().includes('page=TierPlans')) {
+        // NOTE: For ultimate_upfront, plan page defaults to APM selected on load.
+        // validateVariant is deferred to after the card click (below) so that
+        // 'Annual Pay Monthly Selected' / 'Annual Pay Upfront Selected' fields
+        // are read from the DOM in the correct post-selection state.
+        const shouldDeferPlanValidation = tier === 'ultimate' && ratePlan === 'annual pay upfront';
+
+        if (!planValidated && !page.url().includes('page=TierPlans') && !shouldDeferPlanValidation) {
           try {
             const planData = getPlanDataByTier(tier);
             const planFlow = [
@@ -1778,6 +1784,24 @@ async function runFlow(
                 }
               }
             }
+          }
+
+          // ── Post-selection: Validate selected plan ──
+          // For ultimate_upfront: run full validateVariant now that the APU card is selected.
+          if (shouldDeferPlanValidation && !planValidated) {
+            try {
+              const planData = getPlanDataByTier(tier);
+              const planFlow = [
+                'boxing-banner-ultimate',
+                'boxing-ultimate-subscription',
+                'boxing-join-the-club',
+              ].includes(source) ? 'boxing-ultimate-direct' : undefined;
+              console.log(`📊 Plan rows (deferred post-click): ${planData.length}`);
+              await validateVariant(page, 'plan', planData, results, eventData, 'DAZN Plan', planFlow);
+            } catch (e: any) {
+              console.warn('⚠️  Plan validation error (deferred):', e.message);
+            }
+            planValidated = true;
           }
 
           // ── Post-selection: Validate selected plan ──
