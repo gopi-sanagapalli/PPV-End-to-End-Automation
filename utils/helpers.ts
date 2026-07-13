@@ -185,6 +185,26 @@ export async function dismissMarketingPopup(
     }
 
     if (isVisible) {
+      if (options.preservePpvPromo) {
+        const ppvPromoModal = page.locator(
+          [
+            '[role="dialog"]',
+            '[aria-modal="true"]',
+            '[class*="content-promotion" i]',
+            '[class*="modal" i]',
+            '[class*="popup" i]',
+            '[class*="Dialog" i]',
+          ].join(', ')
+        ).filter({
+          has: page.locator('button:has-text("Buy Now"), button:has-text("Buy now"), a:has-text("Buy Now"), a:has-text("Buy now")'),
+        }).first();
+
+        if (await ppvPromoModal.isVisible({ timeout: 500 }).catch(() => false)) {
+          console.log('ℹ️ PPV home-page-popup modal detected — preserving it for validation and Buy Now flow');
+          return;
+        }
+      }
+
       const candidateCount = Math.min(await candidates.count().catch(() => 0), 10);
 
       for (let index = 0; index < candidateCount; index++) {
@@ -208,7 +228,7 @@ export async function dismissMarketingPopup(
 
               if (isModal) {
                 const modalText = (node.textContent || '').toLowerCase();
-                return classText.includes('content-promotion') && modalText.includes('buy now');
+                return modalText.includes('buy now');
               }
               node = node.parentElement;
             }
@@ -217,7 +237,7 @@ export async function dismissMarketingPopup(
 
           if (isPpvPromoClose) {
             console.log('ℹ️ PPV home-page-popup promo detected — preserving it for Buy Now flow');
-            continue;
+            return;
           }
         }
 

@@ -463,7 +463,7 @@ export class SearchPage extends BasePage {
   // DEV MODE: Enable dev mode to bypass phone number page
   // Flow: Landing → Explore → Home → Search → dev_mode_on → Copy ID → Back 2x → Back to Landing
   // ═══════════════════════════════════════════════════════════════
-  async enableDevMode(): Promise<void> {
+  async enableDevMode(options: { preservePpvPromo?: boolean } = {}): Promise<void> {
     console.log('\n═══════════════════════════════════════════════════');
     console.log('  🎭 ENABLING DEV MODE to bypass phone number page');
     console.log('═══════════════════════════════════════════════════\n');
@@ -514,13 +514,13 @@ export class SearchPage extends BasePage {
       await searchInput.waitFor({ state: 'visible', timeout: 30000 });
 
       // Dismiss any marketing/promotion popup that is already visible
-      await dismissMarketingPopup(this.page).catch(() => {});
+      await dismissMarketingPopup(this.page, 5000, { preservePpvPromo: !!options.preservePpvPromo }).catch(() => {});
 
       try {
         await searchInput.click({ timeout: 5000 });
       } catch (clickError) {
         console.log('⚠️ Search input click was intercepted or failed. Attempting to dismiss popup and retry...');
-        await dismissMarketingPopup(this.page, 4000).catch(() => {});
+        await dismissMarketingPopup(this.page, 4000, { preservePpvPromo: !!options.preservePpvPromo }).catch(() => {});
         await searchInput.click({ timeout: 10000 });
       }
 
