@@ -145,7 +145,7 @@ async function runFlow(
   region: string,
   validateLanding: boolean
 ): Promise<{ results: any[]; reachedEndPage: boolean; skipped?: boolean; skipReason?: string; videoPath?: string | null }> {
-  const { name, source, tier, ratePlan: rawRatePlan, enableDevMode: devModeEnabled, noPpvClick: noPpvClickConfig } = flowConfig;
+  const { name, source, tier, ratePlan: rawRatePlan, enableDevMode: devModeEnabled, noPpvClick: noPpvClickConfig, requiresDefaultSignup } = flowConfig;
   let noPpvClick = !!(noPpvClickConfig);
   const ratePlan = (rawRatePlan || '').replace(/-/g, ' ').toLowerCase();
   if ((SOURCE === 'boxing-banner-ultimate' || SOURCE === 'boxing-ultimate-subscription' || SOURCE === 'boxing-join-the-club') && tier !== 'ultimate') {
@@ -168,6 +168,12 @@ async function runFlow(
 
   if (source.toLowerCase() === 'boxing-page-bundle' && json?.HAS_BUNDLE !== true) {
     const skipReason = `SOURCE "${source}" requires HAS_BUNDLE: true; selected event does not have a bundle configured.`;
+    console.log(`INFO: ${skipReason} Skipping flow.`);
+    return { results, reachedEndPage: false, skipped: true, skipReason };
+  }
+
+  if (requiresDefaultSignup && json?.HAS_DEFAULT_SIGNUP_PPV !== true) {
+    const skipReason = `SOURCE "${source}" requires HAS_DEFAULT_SIGNUP_PPV: true; selected event does not enable PPV in the default signup journey.`;
     console.log(`INFO: ${skipReason} Skipping flow.`);
     return { results, reachedEndPage: false, skipped: true, skipReason };
   }
@@ -2096,6 +2102,7 @@ for (const planKey of plansToRun) {
         enableDevMode: devMode,
         planKey: planKey,
         noPpvClick: !!(srcConfig.noPpvClick),
+        requiresDefaultSignup: !!srcConfig.defaultSignup,
       };
 
       console.log(`\n╔═══════════════════════════════════════════════════════╗`);
