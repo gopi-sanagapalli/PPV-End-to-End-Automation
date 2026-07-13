@@ -57,7 +57,7 @@ jobs:
 
     strategy:
       fail-fast: false
-      max-parallel: 8
+      max-parallel: 12
       matrix:
         dazn_env: [stag, prod]
         source:

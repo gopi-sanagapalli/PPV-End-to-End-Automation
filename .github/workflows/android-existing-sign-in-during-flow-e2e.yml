@@ -45,7 +45,7 @@ jobs:
 
     strategy:
       fail-fast: false
-      max-parallel: 2
+      max-parallel: 12
       matrix:
         # Android surfacing points that support existing users.
         # LOGIN_FIRST=true means the user signs in during the flow (app not pre-logged-in).
