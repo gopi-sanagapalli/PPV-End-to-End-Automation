@@ -1,10 +1,6 @@
 name: Web PPV New User Matrix
 
 on:
-  push:
-    branches: [main, master]
-  pull_request:
-    branches: [main, master]
   workflow_dispatch:
     inputs:
       DAZN_REGION:
