@@ -4,6 +4,7 @@
   "PPV_DISPLAY_NAME": "Joshua vs. Prenga",
   "SPORT": "Boxing",
   "PPV_TYPE": "normal",
+  "HAS_BUNDLE": false,
   "global": {
     "PPV_PROMOTER": "Matchroom Boxing",
     "PPV_ENTITLEMENT_ID": "1i6erxcyf2xxc1dgx4h6l0e1h7",

@@ -116,6 +116,12 @@ for (const stateKey of userStatesToRun) {
 
 
     const json = loadEventConfig(EVENT_CONFIG);
+    if (SOURCE.toLowerCase() === 'boxing-page-bundle' && json?.HAS_BUNDLE !== true) {
+      const skipReason = `SOURCE "${SOURCE}" requires HAS_BUNDLE: true; selected event does not have a bundle configured.`;
+      console.log(`INFO: ${skipReason} Skipping flow.`);
+      test.skip(true, skipReason);
+      return;
+    }
     const PPV_TYPE = (process.env.PPV_TYPE || json.PPV_TYPE || 'normal').toLowerCase();
     configureExcelPathForEvent(json.eventKey || '');
     const eventData = buildEventData(json, REGION);
