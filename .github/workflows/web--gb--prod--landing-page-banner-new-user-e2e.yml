@@ -37,7 +37,7 @@ jobs:
     name: landing-page-banner | ${{ matrix.plan }}
 
     environment:
-      name: Jira Details
+      name: prod
 
     runs-on:
       - self-hosted
