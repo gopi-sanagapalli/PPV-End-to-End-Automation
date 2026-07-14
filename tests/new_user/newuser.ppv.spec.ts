@@ -38,6 +38,7 @@ import { detectPageType, handleNoPpvClick } from '../../utils/flowHelpers';
 import { displayResultsTable } from '../../utils/resultsDisplay';
 import { writeResults } from '../../utils/excelWriter';
 import { generateReports } from '../../utils/reportGenerator';
+import { reportValidationFailuresToJira } from '../../utils/jiraValidationReporter';
 import { createTestUser } from '../../utils/testDataBuilder';
 import {
   sleep,
@@ -2182,6 +2183,19 @@ for (const planKey of plansToRun) {
       }
 
       if (failed > 0) {
+        await reportValidationFailuresToJira({
+          results,
+          htmlReportPath: htmlPath,
+          pdfReportPath: pdfPath,
+          context: {
+            region: REGION,
+            environment: process.env.DAZN_ENV || 'prod',
+            platform: 'web',
+            flow: flowConfig.name,
+            event: json.PPV_NAME,
+            source: flowConfig.source,
+          },
+        });
         const failMsgs = results
           .filter(r => r.status === 'FAIL')
           .map(r => `  - [${r.page}] ${r.field}: expected "${r.expected}", actual "${r.actual}"`)

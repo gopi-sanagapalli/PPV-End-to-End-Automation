@@ -1,4 +1,4 @@
-name: "AU PROD — Existing User — Sign In During Flow"
+name: "Web · GB · Prod · New user"
 
 on:
   workflow_dispatch:
@@ -87,106 +87,61 @@ jobs:
           const hasBundle = event.HAS_BUNDLE === true;
           const hasDefaultSignupPpv = event.HAS_DEFAULT_SIGNUP_PPV === true;
 
-          const allSources = [
-            'landing-page-banner',
-
-            'home-page-banner',
-            'home-page-dont-miss',
+          const sources = [
+            'boxing-banner-ultimate',
+            'boxing-join-the-club',
+            'boxing-page-banner',
+            'boxing-page-bundle',
+            'boxing-standard-subscription',
+            'boxing-upcoming-fights',
+            'boxing-ultimate-subscription',
             'home-biggest-fights',
-            'home-page-dazntile',
-
             'home-boxing-banner',
             'home-boxing-tile',
             'home-boxing-upcoming',
             'home-kickboxing-tile',
-
-            'boxing-page-banner',
-            'boxing-page-bundle',
-            'boxing-upcoming-fights',
-            'boxing-banner-ultimate',
-            'boxing-ultimate-subscription',
-            'boxing-standard-subscription',
-            'boxing-join-the-club',
-
-            'search',
+            'home-page-banner',
+            'home-page-dazntile',
+            'home-page-dont-miss',
+            'home-page-get-started',
+            'landing-page-banner',
+            'landing-page-dont-miss-live',
             'schedule',
-            'myaccount',
-          ];
-
-          const sources = allSources.filter((source) => {
+            'search',
+          ].filter((source) => {
             if (source === 'home-kickboxing-tile' && sport !== 'kickboxing') return false;
             if (source === 'boxing-page-bundle' && !hasBundle) return false;
             if (sourceConfig[source]?.defaultSignup && !hasDefaultSignupPpv) return false;
             return true;
           });
 
-          const allProfiles = [
-            'freemium/standard_monthly',
-            'freemium/standard_apm',
-            'freemium/ultimate_apm',
-            'freemium/ultimate_upfront',
-
-            'frozen/standard_monthly',
-            'frozen/standard_apm',
-            'frozen/ultimate_apm',
-            'frozen/ultimate_upfront',
-
-            'active_standard_monthly/standard_monthly',
-            'active_standard_monthly/ultimate_apm',
-            'active_standard_monthly/ultimate_upfront',
-
-            'active_standard_apm/standard_apm',
-            'active_standard_apm/ultimate_apm',
-
-            'active_ultimate_apm/ultimate_apm',
-            'active_ultimate_upfront/ultimate_upfront',
-          ];
-
+          const plans = ['standard_monthly', 'standard_apm', 'ultimate_apm', 'ultimate_upfront'];
           const ultimateOnlySources = new Set([
             'boxing-banner-ultimate',
-            'boxing-ultimate-subscription',
             'boxing-join-the-club',
+            'boxing-ultimate-subscription',
           ]);
-
-          const validUltimateProfiles = new Set([
-            'active_standard_monthly/ultimate_apm',
-            'active_standard_monthly/ultimate_upfront',
-            'active_standard_apm/ultimate_apm',
-          ]);
-
           const matrix = [];
           for (const source of sources) {
-            for (const profile of allProfiles) {
-              if (ultimateOnlySources.has(source) && !validUltimateProfiles.has(profile)) continue;
-              matrix.push({ source, profile });
+            for (const plan of plans) {
+              if (ultimateOnlySources.has(source) && plan.startsWith('standard_')) continue;
+              matrix.push({ source, plan });
             }
           }
 
-          if (sources.includes('home-page-banner') || sources.includes('home-page-dont-miss')) {
-            for (const plan of ['standard_monthly', 'standard_apm', 'ultimate_apm', 'ultimate_upfront']) {
-            }
-          }
-
-          if (sources.includes('myaccount')) {
-            for (const plan of ['standard_monthly', 'standard_apm', 'ultimate_apm', 'ultimate_upfront']) {
-            }
-          }
-
-          // landing-page-dont-miss-live-switch: freemium, standard plans only
-          if (sources.includes('landing-page-banner')) {
-            matrix.push({ source: 'landing-page-dont-miss-live-switch', profile: 'freemium/standard_monthly', switch: 'true' });
-            matrix.push({ source: 'landing-page-dont-miss-live-switch', profile: 'freemium/standard_apm', switch: 'true' });
-          }
+          matrix.push(
+            { source: 'landing-page-dont-miss-live-switch', plan: 'standard_monthly', switch: 'true' },
+            { source: 'landing-page-dont-miss-live-switch', plan: 'standard_apm', switch: 'true' },
+          );
 
           console.log(`Event: ${event.eventKey || event.PPV_NAME || configInput}`);
           console.log(`SPORT=${event.SPORT || 'not set'}, HAS_BUNDLE=${hasBundle}, HAS_DEFAULT_SIGNUP_PPV=${hasDefaultSignupPpv}`);
           console.log(`Scheduled sources (${sources.length}): ${sources.join(', ')}`);
-          console.log(`Total matrix jobs: ${matrix.length}`);
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `matrix=${JSON.stringify(matrix)}\n`);
           NODE
 
   prod:
-    name: ${{ matrix.source }} | ${{ matrix.profile }}
+    name: ${{ matrix.source }} | ${{ matrix.plan }}
 
     needs: prepare-matrix
 
@@ -206,14 +161,13 @@ jobs:
     env:
       CI: 'true'
       HEADLESS: 'true'
-      DAZN_REGION: AU
+      DAZN_REGION: GB
       DAZN_ENV: prod
-      LOGIN_FIRST: 'false'
       SOURCE: ${{ matrix.source }}
-      PROFILE: ${{ matrix.profile }}
+      PLAN: ${{ matrix.plan }}
       PPV_CONFIG: ${{ inputs.PPV_CONFIG }}
       PAYMENT_METHOD: ${{ inputs.PAYMENT_METHOD }}
-      SWITCH: ${{ matrix.switch || inputs.SWITCH }}
+      SWITCH: ${{ matrix.switch || 'false' }}
 
     steps:
       - name: Checkout repository
@@ -236,24 +190,28 @@ jobs:
       - name: Install Playwright Chromium browser
         run: npx playwright install chromium
 
-      - name: Set USER_STATE and PLAN from matrix profile
-        run: |
-          IFS='/' read -r _US _PL <<< "$PROFILE"
-          echo "USER_STATE=${_US}" >> $GITHUB_ENV
-          echo "PLAN=${_PL}"       >> $GITHUB_ENV
-
-      - name: Log matrix context
-        run: |
-          echo "=============================="
-          echo "SOURCE      = $SOURCE"
-          echo "USER_STATE  = $USER_STATE"
-          echo "PLAN        = $PLAN"
-          echo "LOGIN_FIRST = $LOGIN_FIRST"
-          echo "SWITCH      = $SWITCH"
-          echo "=============================="
-
       - name: Run PROD PPV Flow
-        run: npx playwright test tests/existing_user/existinguser.ppv.spec.ts --project=chromium
+        shell: bash
+        run: |
+          set +e
+
+          echo "===== Environment ====="
+          echo "Runner: $RUNNER_NAME"
+          echo "Workspace: $GITHUB_WORKSPACE"
+          pwd
+
+          npx playwright test tests/new_user/newuser.ppv.spec.ts --project=chromium
+
+          EXIT_CODE=$?
+
+          echo ""
+          echo "=================================="
+          echo "PLAYWRIGHT EXIT CODE = $EXIT_CODE"
+          echo "=================================="
+
+          ps -ef | grep -E "node|chrome|playwright" || true
+
+          exit $EXIT_CODE
 
       - name: Archive reports on runner disk
         if: always()
@@ -263,7 +221,7 @@ jobs:
           WORKFLOW_NAME="${{ github.workflow }}"
           RUN_ID="${{ github.run_id }}"
           RUN_NUMBER="${{ github.run_number }}"
-          JOB_NAME="${{ matrix.source }}-${{ matrix.profile }}"
+          JOB_NAME="${{ matrix.source }}-${{ matrix.plan }}"
           TIMESTAMP="$(date '+%Y-%m-%d_%H-%M-%S')"
 
           SAFE_WORKFLOW="$(echo "$WORKFLOW_NAME" | tr ' /:|' '_' | tr -cd '[:alnum:]_.-')"
@@ -298,7 +256,7 @@ jobs:
         if: ${{ false }}
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report-${{ matrix.source }}-${{ matrix.profile }}-${{ github.run_id }}
+          name: playwright-report-${{ matrix.plan }}-${{ github.run_id }}-${{ github.job }}
           path: playwright-report/
           if-no-files-found: ignore
 
@@ -306,7 +264,7 @@ jobs:
         if: ${{ false }}
         uses: actions/upload-artifact@v4
         with:
-          name: test-results-${{ matrix.source }}-${{ matrix.profile }}-${{ github.run_id }}
+          name: test-results-${{ matrix.plan }}-${{ github.run_id }}-${{ github.job }}
           path: |
             test-results/
             reports/

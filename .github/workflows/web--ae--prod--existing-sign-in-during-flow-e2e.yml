@@ -1,4 +1,4 @@
-name: "GB PROD — Existing User — Already Signed In"
+name: "Web · AE · Prod · Existing user — sign in during flow"
 
 on:
   workflow_dispatch:
@@ -87,8 +87,9 @@ jobs:
           const hasBundle = event.HAS_BUNDLE === true;
           const hasDefaultSignupPpv = event.HAS_DEFAULT_SIGNUP_PPV === true;
 
-          // All possible sources
           const allSources = [
+            'landing-page-banner',
+
             'home-page-banner',
             'home-page-dont-miss',
             'home-biggest-fights',
@@ -112,7 +113,6 @@ jobs:
             'myaccount',
           ];
 
-          // Filter sources based on event config
           const sources = allSources.filter((source) => {
             if (source === 'home-kickboxing-tile' && sport !== 'kickboxing') return false;
             if (source === 'boxing-page-bundle' && !hasBundle) return false;
@@ -120,7 +120,6 @@ jobs:
             return true;
           });
 
-          // All profiles: user_state/plan
           const allProfiles = [
             'freemium/standard_monthly',
             'freemium/standard_apm',
@@ -143,28 +142,40 @@ jobs:
             'active_ultimate_upfront/ultimate_upfront',
           ];
 
-          // Sources that require Ultimate upgrade journey
           const ultimateOnlySources = new Set([
             'boxing-banner-ultimate',
             'boxing-ultimate-subscription',
             'boxing-join-the-club',
           ]);
 
-          // Profiles that are valid for ultimate-only sources:
-          // Only active_standard_monthly/ultimate_* and active_standard_apm/ultimate_apm
           const validUltimateProfiles = new Set([
             'active_standard_monthly/ultimate_apm',
             'active_standard_monthly/ultimate_upfront',
             'active_standard_apm/ultimate_apm',
           ]);
 
-          // Build base matrix: source × profile
           const matrix = [];
           for (const source of sources) {
             for (const profile of allProfiles) {
               if (ultimateOnlySources.has(source) && !validUltimateProfiles.has(profile)) continue;
               matrix.push({ source, profile });
             }
+          }
+
+          if (sources.includes('home-page-banner') || sources.includes('home-page-dont-miss')) {
+            for (const plan of ['standard_monthly', 'standard_apm', 'ultimate_apm', 'ultimate_upfront']) {
+            }
+          }
+
+          if (sources.includes('myaccount')) {
+            for (const plan of ['standard_monthly', 'standard_apm', 'ultimate_apm', 'ultimate_upfront']) {
+            }
+          }
+
+          // landing-page-dont-miss-live-switch: freemium, standard plans only
+          if (sources.includes('landing-page-banner')) {
+            matrix.push({ source: 'landing-page-dont-miss-live-switch', profile: 'freemium/standard_monthly', switch: 'true' });
+            matrix.push({ source: 'landing-page-dont-miss-live-switch', profile: 'freemium/standard_apm', switch: 'true' });
           }
 
           console.log(`Event: ${event.eventKey || event.PPV_NAME || configInput}`);
@@ -184,7 +195,7 @@ jobs:
       - macOS
       - ARM64
 
-    timeout-minutes: 30
+    timeout-minutes: 20
 
     strategy:
       fail-fast: false
@@ -195,10 +206,9 @@ jobs:
     env:
       CI: 'true'
       HEADLESS: 'true'
-      DAZN_REGION: GB
+      DAZN_REGION: AE
       DAZN_ENV: prod
-      LOGIN_FIRST: 'true'
-      TEST_TIMEOUT_MS: '600000'
+      LOGIN_FIRST: 'false'
       SOURCE: ${{ matrix.source }}
       PROFILE: ${{ matrix.profile }}
       PPV_CONFIG: ${{ inputs.PPV_CONFIG }}
@@ -214,40 +224,6 @@ jobs:
           echo "Runner: $RUNNER_NAME"
           echo "OS: $RUNNER_OS"
           hostname
-          echo "Commit: $(git rev-parse HEAD)"
-
-      - name: Verify runner VPN and DAZN signin reachability
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "=============================="
-          echo "Runner network preflight"
-          echo "Runner : $RUNNER_NAME"
-          echo "Host   : $(hostname)"
-          echo "Region : $DAZN_REGION"
-          echo "=============================="
-
-          if command -v scutil >/dev/null 2>&1; then
-            echo "DNS:"
-            scutil --dns | grep -E 'nameserver\[[0-9]+\]' | head -5 || true
-          fi
-
-          echo "Default route:"
-          route -n get default 2>/dev/null | grep -E 'gateway|interface' || true
-
-          echo "Public IP check:"
-          IPINFO="$(curl -fsSL --max-time 15 https://ipinfo.io/json || true)"
-          echo "$IPINFO"
-
-          COUNTRY="$(printf '%s' "$IPINFO" | sed -n 's/.*"country"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
-          if [ "$COUNTRY" != "$DAZN_REGION" ]; then
-            echo "❌ Runner public IP country is '$COUNTRY', expected '$DAZN_REGION'. Check the VPN on this runner before running DAZN PROD."
-            exit 1
-          fi
-
-          echo "DAZN signin HTTP check:"
-          curl -fsSIL --max-time 30 "https://www.dazn.com/en-GB/signin" | sed -n '1,12p'
 
       - name: Verify Node
         run: |
@@ -277,7 +253,7 @@ jobs:
           echo "=============================="
 
       - name: Run PROD PPV Flow
-        run: npx playwright test tests/existing_user/existinguser.ppv.spec.ts --project=chromium --timeout=600000
+        run: npx playwright test tests/existing_user/existinguser.ppv.spec.ts --project=chromium
 
       - name: Archive reports on runner disk
         if: always()

@@ -1,4 +1,4 @@
-name: "US PROD — Existing User — Already Signed In"
+name: "Web · US · Prod · Existing user — sign in during flow"
 
 on:
   workflow_dispatch:
@@ -88,6 +88,8 @@ jobs:
           const hasDefaultSignupPpv = event.HAS_DEFAULT_SIGNUP_PPV === true;
 
           const allSources = [
+            'landing-page-banner',
+
             'home-page-banner',
             'home-page-dont-miss',
             'home-biggest-fights',
@@ -170,6 +172,12 @@ jobs:
             }
           }
 
+          // landing-page-dont-miss-live-switch: freemium, standard plans only
+          if (sources.includes('landing-page-banner')) {
+            matrix.push({ source: 'landing-page-dont-miss-live-switch', profile: 'freemium/standard_monthly', switch: 'true' });
+            matrix.push({ source: 'landing-page-dont-miss-live-switch', profile: 'freemium/standard_apm', switch: 'true' });
+          }
+
           console.log(`Event: ${event.eventKey || event.PPV_NAME || configInput}`);
           console.log(`SPORT=${event.SPORT || 'not set'}, HAS_BUNDLE=${hasBundle}, HAS_DEFAULT_SIGNUP_PPV=${hasDefaultSignupPpv}`);
           console.log(`Scheduled sources (${sources.length}): ${sources.join(', ')}`);
@@ -200,7 +208,7 @@ jobs:
       HEADLESS: 'true'
       DAZN_REGION: US
       DAZN_ENV: prod
-      LOGIN_FIRST: 'true'
+      LOGIN_FIRST: 'false'
       SOURCE: ${{ matrix.source }}
       PROFILE: ${{ matrix.profile }}
       PPV_CONFIG: ${{ inputs.PPV_CONFIG }}

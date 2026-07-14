@@ -1,4 +1,4 @@
-name: "AE PROD — New User"
+name: "Web · AE · Prod · New user"
 
 on:
   workflow_dispatch:

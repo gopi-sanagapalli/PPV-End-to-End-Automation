@@ -1,4 +1,4 @@
-name: "US PROD — Zayas vs Boots — Existing User — Already Signed In"
+name: "Web · BR · Prod · Existing user — sign in during flow"
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
       PPV_CONFIG:
         description: 'PPV config filename/key'
         required: true
-        default: 'zayas_boots.json'
+        default: 'aj_joshua_prenga.json'
 
       PAYMENT_METHOD:
         description: 'Payment method'
@@ -120,8 +120,27 @@ jobs:
             return true;
           });
 
-          const userStates = ['freemium', 'frozen', 'active_standard_monthly', 'active_standard_apm', 'active_ultimate_apm', 'active_ultimate_upfront'];
-          const plans = ['standard_monthly', 'standard_apm', 'ultimate_apm', 'ultimate_upfront'];
+          const allProfiles = [
+            'freemium/standard_monthly',
+            'freemium/standard_apm',
+            'freemium/ultimate_apm',
+            'freemium/ultimate_upfront',
+
+            'frozen/standard_monthly',
+            'frozen/standard_apm',
+            'frozen/ultimate_apm',
+            'frozen/ultimate_upfront',
+
+            'active_standard_monthly/standard_monthly',
+            'active_standard_monthly/ultimate_apm',
+            'active_standard_monthly/ultimate_upfront',
+
+            'active_standard_apm/standard_apm',
+            'active_standard_apm/ultimate_apm',
+
+            'active_ultimate_apm/ultimate_apm',
+            'active_ultimate_upfront/ultimate_upfront',
+          ];
 
           const ultimateOnlySources = new Set([
             'boxing-banner-ultimate',
@@ -129,37 +148,34 @@ jobs:
             'boxing-join-the-club',
           ]);
 
-          const validUltimateUserStates = new Set([
-            'active_standard_monthly',
-            'active_standard_apm',
+          const validUltimateProfiles = new Set([
+            'active_standard_monthly/ultimate_apm',
+            'active_standard_monthly/ultimate_upfront',
+            'active_standard_apm/ultimate_apm',
           ]);
 
           const matrix = [];
           for (const source of sources) {
-            for (const userState of userStates) {
-              for (const plan of plans) {
-                if (ultimateOnlySources.has(source) && !validUltimateUserStates.has(userState)) continue;
-                if (userState.startsWith('active_ultimate') && plan !== userState.replace('active_', '')) continue;
-                if (userState === 'active_standard_monthly' && plan === 'standard_apm') continue;
-                if (userState === 'active_standard_apm' && plan === 'standard_monthly') continue;
-                matrix.push({ source, user_state: userState, plan });
-              }
+            for (const profile of allProfiles) {
+              if (ultimateOnlySources.has(source) && !validUltimateProfiles.has(profile)) continue;
+              matrix.push({ source, profile });
             }
           }
 
           if (sources.includes('home-page-banner') || sources.includes('home-page-dont-miss')) {
-            for (const plan of plans) {
+            for (const plan of ['standard_monthly', 'standard_apm', 'ultimate_apm', 'ultimate_upfront']) {
             }
           }
 
           if (sources.includes('myaccount')) {
-            for (const plan of plans) {
+            for (const plan of ['standard_monthly', 'standard_apm', 'ultimate_apm', 'ultimate_upfront']) {
             }
           }
 
+          // landing-page-dont-miss-live-switch: freemium, standard plans only
           if (sources.includes('landing-page-banner')) {
-            matrix.push({ source: 'landing-page-dont-miss-live-switch', user_state: 'freemium', plan: 'standard_monthly', switch: 'true' });
-            matrix.push({ source: 'landing-page-dont-miss-live-switch', user_state: 'freemium', plan: 'standard_apm', switch: 'true' });
+            matrix.push({ source: 'landing-page-dont-miss-live-switch', profile: 'freemium/standard_monthly', switch: 'true' });
+            matrix.push({ source: 'landing-page-dont-miss-live-switch', profile: 'freemium/standard_apm', switch: 'true' });
           }
 
           console.log(`Event: ${event.eventKey || event.PPV_NAME || configInput}`);
@@ -170,7 +186,7 @@ jobs:
           NODE
 
   prod:
-    name: ${{ matrix.source }} | ${{ matrix.user_state }} | ${{ matrix.plan }}
+    name: ${{ matrix.source }} | ${{ matrix.profile }}
 
     needs: prepare-matrix
 
@@ -190,12 +206,11 @@ jobs:
     env:
       CI: 'true'
       HEADLESS: 'true'
-      DAZN_REGION: US
+      DAZN_REGION: BR
       DAZN_ENV: prod
       LOGIN_FIRST: 'false'
       SOURCE: ${{ matrix.source }}
-      USER_STATE: ${{ matrix.user_state }}
-      PLAN: ${{ matrix.plan }}
+      PROFILE: ${{ matrix.profile }}
       PPV_CONFIG: ${{ inputs.PPV_CONFIG }}
       PAYMENT_METHOD: ${{ inputs.PAYMENT_METHOD }}
       SWITCH: ${{ matrix.switch || inputs.SWITCH }}
@@ -221,6 +236,22 @@ jobs:
       - name: Install Playwright Chromium browser
         run: npx playwright install chromium
 
+      - name: Set USER_STATE and PLAN from matrix profile
+        run: |
+          IFS='/' read -r _US _PL <<< "$PROFILE"
+          echo "USER_STATE=${_US}" >> $GITHUB_ENV
+          echo "PLAN=${_PL}"       >> $GITHUB_ENV
+
+      - name: Log matrix context
+        run: |
+          echo "=============================="
+          echo "SOURCE      = $SOURCE"
+          echo "USER_STATE  = $USER_STATE"
+          echo "PLAN        = $PLAN"
+          echo "LOGIN_FIRST = $LOGIN_FIRST"
+          echo "SWITCH      = $SWITCH"
+          echo "=============================="
+
       - name: Run PROD PPV Flow
         run: npx playwright test tests/existing_user/existinguser.ppv.spec.ts --project=chromium
 
@@ -232,7 +263,7 @@ jobs:
           WORKFLOW_NAME="${{ github.workflow }}"
           RUN_ID="${{ github.run_id }}"
           RUN_NUMBER="${{ github.run_number }}"
-          JOB_NAME="${{ matrix.source }}-${{ matrix.user_state }}-${{ matrix.plan }}"
+          JOB_NAME="${{ matrix.source }}-${{ matrix.profile }}"
           TIMESTAMP="$(date '+%Y-%m-%d_%H-%M-%S')"
 
           SAFE_WORKFLOW="$(echo "$WORKFLOW_NAME" | tr ' /:|' '_' | tr -cd '[:alnum:]_.-')"
@@ -267,7 +298,7 @@ jobs:
         if: ${{ false }}
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report-${{ matrix.source }}-${{ matrix.user_state }}-${{ matrix.plan }}-${{ github.run_id }}
+          name: playwright-report-${{ matrix.source }}-${{ matrix.profile }}-${{ github.run_id }}
           path: playwright-report/
           if-no-files-found: ignore
 
@@ -275,7 +306,7 @@ jobs:
         if: ${{ false }}
         uses: actions/upload-artifact@v4
         with:
-          name: test-results-${{ matrix.source }}-${{ matrix.user_state }}-${{ matrix.plan }}-${{ github.run_id }}
+          name: test-results-${{ matrix.source }}-${{ matrix.profile }}-${{ github.run_id }}
           path: |
             test-results/
             reports/

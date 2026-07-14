@@ -1,4 +1,4 @@
-name: "BR PROD — Existing User — Sign In During Flow"
+name: "Web · AU · Prod · Existing user — sign in during flow"
 
 on:
   workflow_dispatch:
@@ -206,7 +206,7 @@ jobs:
     env:
       CI: 'true'
       HEADLESS: 'true'
-      DAZN_REGION: BR
+      DAZN_REGION: AU
       DAZN_ENV: prod
       LOGIN_FIRST: 'false'
       SOURCE: ${{ matrix.source }}
