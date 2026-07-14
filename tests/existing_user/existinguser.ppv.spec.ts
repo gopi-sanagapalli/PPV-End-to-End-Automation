@@ -41,6 +41,7 @@ import { buildEventData } from '../../utils/buildEventData';
 import { displayResultsTable } from '../../utils/resultsDisplay';
 import { writeResults } from '../../utils/excelWriter';
 import { generateReports } from '../../utils/reportGenerator';
+import { reportValidationFailuresToJira } from '../../utils/jiraValidationReporter';
 import {
   sleep,
   setupPage,
@@ -3858,6 +3859,20 @@ for (const stateKey of userStatesToRun) {
       }
 
       if (failed > 0) {
+        await reportValidationFailuresToJira({
+          results,
+          htmlReportPath: htmlPath,
+          pdfReportPath: pdfPath,
+          context: {
+            region: REGION,
+            environment: process.env.DAZN_ENV || 'prod',
+            platform: 'web',
+            flow: `${SOURCE} (${stateKey})`,
+            event: eventData.PPV_NAME,
+            userState: stateKey,
+            source: SOURCE,
+          },
+        });
         const failMsgs = results
           .filter(r => r.status === 'FAIL')
           .map(r => `  - [${r.page}] ${r.field}: expected "${r.expected}", actual "${r.actual}"`)
