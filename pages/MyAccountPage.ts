@@ -16,6 +16,16 @@ export class MyAccountPage {
     const myAccountUrl = `${baseUrl.replace(/\/$/, '')}/myaccount`;
     await this.page.goto(myAccountUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });
+
+    if (!this.isOnMyAccountPage()) {
+      const actualUrl = this.page.url();
+      const message =
+        `❌ [My Account] Navigation verification failed: expected My Account after navigating to "${myAccountUrl}", ` +
+        `but landed on "${actualUrl}". PPV status cannot be verified.`;
+      console.error(message);
+      throw new Error(message);
+    }
+
     await handleCookies(this.page, 8000);
     await this.scrollToPPVSection();
 
