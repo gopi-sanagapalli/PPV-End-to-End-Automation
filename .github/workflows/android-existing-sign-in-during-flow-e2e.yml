@@ -61,7 +61,6 @@ jobs:
           - schedule
           - search
           - myaccount
-          - myaccount-subscription-status
 
         profile:
           # Freemium — all four plans
