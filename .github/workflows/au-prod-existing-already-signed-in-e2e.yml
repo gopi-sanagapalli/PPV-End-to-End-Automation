@@ -162,14 +162,11 @@ jobs:
 
           if (sources.includes('home-page-banner') || sources.includes('home-page-dont-miss')) {
             for (const plan of ['standard_monthly', 'standard_apm', 'ultimate_apm', 'ultimate_upfront']) {
-              matrix.push({ source: 'home-page-subscribe', profile: `freemium/${plan}` });
             }
           }
 
           if (sources.includes('myaccount')) {
             for (const plan of ['standard_monthly', 'standard_apm', 'ultimate_apm', 'ultimate_upfront']) {
-              matrix.push({ source: 'myaccount-subscription-status', profile: `freemium/${plan}` });
-              matrix.push({ source: 'myaccount-subscription-status', profile: `frozen/${plan}` });
             }
           }
 
