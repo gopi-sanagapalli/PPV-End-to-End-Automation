@@ -167,22 +167,6 @@ jobs:
             }
           }
 
-          // Add include entries
-          // home-page-subscribe: freemium only, all four plans
-          if (sources.includes('home-page-banner') || sources.includes('home-page-dont-miss')) {
-            for (const plan of ['standard_monthly', 'standard_apm', 'ultimate_apm', 'ultimate_upfront']) {
-              matrix.push({ source: 'home-page-subscribe', profile: `freemium/${plan}` });
-            }
-          }
-
-          // myaccount-subscription-status: freemium and frozen, all four plans
-          if (sources.includes('myaccount')) {
-            for (const plan of ['standard_monthly', 'standard_apm', 'ultimate_apm', 'ultimate_upfront']) {
-              matrix.push({ source: 'myaccount-subscription-status', profile: `freemium/${plan}` });
-              matrix.push({ source: 'myaccount-subscription-status', profile: `frozen/${plan}` });
-            }
-          }
-
           console.log(`Event: ${event.eventKey || event.PPV_NAME || configInput}`);
           console.log(`SPORT=${event.SPORT || 'not set'}, HAS_BUNDLE=${hasBundle}, HAS_DEFAULT_SIGNUP_PPV=${hasDefaultSignupPpv}`);
           console.log(`Scheduled sources (${sources.length}): ${sources.join(', ')}`);
