@@ -43,6 +43,8 @@ jobs:
 
     timeout-minutes: 30
 
+
+    environment: prod
     strategy:
       fail-fast: false
       max-parallel: 12
@@ -64,6 +66,12 @@ jobs:
       PAYMENT_METHOD: ${{ inputs.PAYMENT_METHOD }}
       SWITCH: ${{ inputs.SWITCH }}
 
+
+      JIRA_BASE_URL: https://livesport.atlassian.net
+      JIRA_PROJECT_KEY: QAR
+      JIRA_ISSUE_TYPE: Bug
+      JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+      JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -161,3 +169,4 @@ jobs:
             test-results/
             reports/
           if-no-files-found: ignore
+     
