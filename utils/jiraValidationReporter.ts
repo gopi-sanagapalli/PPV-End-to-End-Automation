@@ -29,6 +29,34 @@ type JiraValidationReport = {
 };
 
 const MAX_ATTACHMENTS = 12;
+const QAR_CUSTOM_FIELDS = {
+  region: 'customfield_12151',
+  environment: 'customfield_12181',
+  platform: 'customfield_12387',
+} as const;
+
+const DAZN_ENVIRONMENT_OPTIONS: Record<string, string> = {
+  prod: 'Live Prod',
+  'internal-prod': 'Internal Prod',
+  stag: 'Stag',
+  'beta-stag': 'Beta Stag',
+  beta: 'Beta Stag',
+  'beta-prod': 'Beta Prod',
+};
+
+const PLATFORM_OPTIONS: Record<string, string> = {
+  web: 'Desktop Web',
+  'desktop-web': 'Desktop Web',
+  'mobile-web': 'Mobile Web',
+  'tablet-web': 'Tablet Web',
+  android: 'Android Native App - Mobile',
+  'android-mobile': 'Android Native App - Mobile',
+  'android-tablet': 'Android Native App - Tab',
+  'android-all': 'All Android Devices',
+  'ios-mobile': 'iOS Native App - Mobile',
+  'ios-tablet': 'iOS Native App - Pads',
+  'ios-all': 'All iOS Devices',
+};
 
 function jiraConfig() {
   const baseUrl = process.env.JIRA_BASE_URL?.replace(/\/+$/, '');
@@ -68,6 +96,16 @@ async function requestJira(
 
 function asText(value: unknown): string {
   return String(value ?? '').replace(/\s+/g, ' ').trim();
+}
+
+function jiraEnvironmentValue(environment: string): string {
+  return process.env.JIRA_DAZN_ENVIRONMENT_VALUE ||
+    DAZN_ENVIRONMENT_OPTIONS[environment.trim().toLowerCase()] || environment;
+}
+
+function jiraPlatformValue(platform: string): string {
+  return process.env.JIRA_PLATFORM_VALUE ||
+    PLATFORM_OPTIONS[platform.trim().toLowerCase()] || platform;
 }
 
 function paragraph(text: string) {
@@ -194,6 +232,9 @@ export async function reportValidationFailuresToJira(report: JiraValidationRepor
   const context = report.context;
   const runId = process.env.GITHUB_RUN_ID || 'unknown-run';
   const evidencePath = createEvidenceFile(failures, context, runId);
+  const jiraEnvironment = jiraEnvironmentValue(context.environment);
+  const jiraPlatform = jiraPlatformValue(context.platform);
+  const jiraRegion = process.env.JIRA_REGION_VALUE || context.region;
   const summary = `[Automation][${context.region}][${context.platform}] ${failures.length} validation failure(s) — ${context.flow}`
     .slice(0, 250);
   const runMetadata = [
@@ -207,6 +248,7 @@ export async function reportValidationFailuresToJira(report: JiraValidationRepor
 
   console.log(`🐞 [Jira] Validation-only failure detected; preparing QAR ticket for ${context.flow}.`);
   console.log(`🔎 [Jira] ${runMetadata}`);
+  console.log(`🧭 [Jira] QAR fields: Region="${jiraRegion}" | DAZN Environment="${jiraEnvironment}" | Platform="${jiraPlatform}"`);
   for (const failure of failures) {
     console.log(
       `❌ [Jira] [${asText(failure.page)}] ${asText(failure.field)} | ` +
@@ -236,6 +278,9 @@ export async function reportValidationFailuresToJira(report: JiraValidationRepor
         issuetype: { name: config.issueType },
         summary,
         description,
+        [QAR_CUSTOM_FIELDS.region]: { value: jiraRegion },
+        [QAR_CUSTOM_FIELDS.environment]: { value: jiraEnvironment },
+        [QAR_CUSTOM_FIELDS.platform]: { value: jiraPlatform },
         labels: [
           'automation',
           'validation-failure',
