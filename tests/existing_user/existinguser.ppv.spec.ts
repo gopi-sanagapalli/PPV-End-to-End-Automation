@@ -116,6 +116,12 @@ for (const stateKey of userStatesToRun) {
 
 
     const json = loadEventConfig(EVENT_CONFIG);
+    if (SOURCE.toLowerCase() === 'boxing-page-bundle' && json?.HAS_BUNDLE !== true) {
+      const skipReason = `SOURCE "${SOURCE}" requires HAS_BUNDLE: true; selected event does not have a bundle configured.`;
+      console.log(`INFO: ${skipReason} Skipping flow.`);
+      test.skip(true, skipReason);
+      return;
+    }
     const PPV_TYPE = (process.env.PPV_TYPE || json.PPV_TYPE || 'normal').toLowerCase();
     configureExcelPathForEvent(json.eventKey || '');
     const eventData = buildEventData(json, REGION);
@@ -133,6 +139,12 @@ for (const stateKey of userStatesToRun) {
     const sourcesPath = path.resolve(process.cwd(), 'config/surfacingpoint.json');
     if (fs.existsSync(sourcesPath)) {
       const sources = JSON.parse(fs.readFileSync(sourcesPath, 'utf-8'));
+      if (sources[SOURCE]?.defaultSignup && json?.HAS_DEFAULT_SIGNUP_PPV !== true) {
+        const skipReason = `SOURCE "${SOURCE}" requires HAS_DEFAULT_SIGNUP_PPV: true; selected event does not enable PPV in the default signup journey.`;
+        console.log(`INFO: ${skipReason} Skipping flow.`);
+        test.skip(true, skipReason);
+        return;
+      }
       if (sources[SOURCE]?.defaultSignup) {
         process.env.DEFAULT_SIGNUP = 'true';
       }

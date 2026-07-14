@@ -144,8 +144,8 @@ async function runFlow(
   flowConfig: any,
   region: string,
   validateLanding: boolean
-): Promise<{ results: any[]; reachedEndPage: boolean; skipped?: boolean; videoPath?: string | null }> {
-  const { name, source, tier, ratePlan: rawRatePlan, enableDevMode: devModeEnabled, noPpvClick: noPpvClickConfig } = flowConfig;
+): Promise<{ results: any[]; reachedEndPage: boolean; skipped?: boolean; skipReason?: string; videoPath?: string | null }> {
+  const { name, source, tier, ratePlan: rawRatePlan, enableDevMode: devModeEnabled, noPpvClick: noPpvClickConfig, requiresDefaultSignup } = flowConfig;
   let noPpvClick = !!(noPpvClickConfig);
   const ratePlan = (rawRatePlan || '').replace(/-/g, ' ').toLowerCase();
   if ((SOURCE === 'boxing-banner-ultimate' || SOURCE === 'boxing-ultimate-subscription' || SOURCE === 'boxing-join-the-club') && tier !== 'ultimate') {
@@ -157,6 +157,25 @@ async function runFlow(
   if (source === 'boxing-standard-subscription' && tier === 'ultimate') {
     console.log(`INFO: SOURCE "${source}" is a Standard-only surfacing point — skipping Ultimate plan "${rawRatePlan}".`);
     return { results, reachedEndPage: false, skipped: true };
+  }
+
+  const eventSport = String(json?.SPORT || '').trim().toLowerCase();
+  if (source.toLowerCase() === 'home-kickboxing-tile' && eventSport !== 'kickboxing') {
+    const skipReason = `SOURCE "${source}" only applies to Kickboxing events; selected event SPORT is "${json?.SPORT || 'not set'}".`;
+    console.log(`INFO: ${skipReason} Skipping flow.`);
+    return { results, reachedEndPage: false, skipped: true, skipReason };
+  }
+
+  if (source.toLowerCase() === 'boxing-page-bundle' && json?.HAS_BUNDLE !== true) {
+    const skipReason = `SOURCE "${source}" requires HAS_BUNDLE: true; selected event does not have a bundle configured.`;
+    console.log(`INFO: ${skipReason} Skipping flow.`);
+    return { results, reachedEndPage: false, skipped: true, skipReason };
+  }
+
+  if (requiresDefaultSignup && json?.HAS_DEFAULT_SIGNUP_PPV !== true) {
+    const skipReason = `SOURCE "${source}" requires HAS_DEFAULT_SIGNUP_PPV: true; selected event does not enable PPV in the default signup journey.`;
+    console.log(`INFO: ${skipReason} Skipping flow.`);
+    return { results, reachedEndPage: false, skipped: true, skipReason };
   }
 
   // One identity for the entire journey.
@@ -571,7 +590,7 @@ async function runFlow(
 
       // If it's a bundle flow, check if the bundle section/product is present on the page.
       // Staging or certain environments/configurations may not have the bundle product active/configured.
-      if (source.startsWith('boxing-bundle')) {
+      if (source === 'boxing-page-bundle') {
         const bundleHeading = page.locator('text=/Save with a fight bundle/i').first();
         const getStartedBtn = page.locator('button:has-text("Get Started"), a:has-text("Get Started")').first();
 
@@ -1064,7 +1083,7 @@ async function runFlow(
         const payment = new PaymentPage(page);
         if (await payment.isPaymentPage()) {
           console.log('✅ Payment page detected');
-          const planKey = source.startsWith('boxing-bundle') ? `${ratePlan} bundle` : ratePlan;
+          const planKey = source === 'boxing-page-bundle' ? `${ratePlan} bundle` : ratePlan;
           const paymentData = getPaymentDataByTierAndPlan(tier, planKey);
           console.log(`📊 Payment rows: ${paymentData.length}`);
           await payment.validate(paymentData, results, eventData, 'newuser');
@@ -1575,7 +1594,7 @@ async function runFlow(
 
         if (!ppvValidated) {
           try {
-            if (source.startsWith('boxing-bundle')) {
+            if (source === 'boxing-page-bundle') {
               console.log('📋 Validating Bundle PPV page (Boxing page sheet)...');
               const bundlePpvData = readSheet('Boxing page');
               await validateVariant(page, variant, bundlePpvData, results, eventData, 'Bundle PPV', 'boxing-bundle-ppv');
@@ -2001,7 +2020,7 @@ async function runFlow(
         );
         reachedEndPage = true;
 
-        const planKey = flowConfig.source.startsWith('boxing-bundle')
+        const planKey = flowConfig.source === 'boxing-page-bundle'
           ? `${ratePlan} bundle`
           : ratePlan;
         const paymentData = getPaymentDataByTierAndPlan(tier, planKey);
@@ -2083,6 +2102,7 @@ for (const planKey of plansToRun) {
         enableDevMode: devMode,
         planKey: planKey,
         noPpvClick: !!(srcConfig.noPpvClick),
+        requiresDefaultSignup: !!srcConfig.defaultSignup,
       };
 
       console.log(`\n╔═══════════════════════════════════════════════════════╗`);
@@ -2092,13 +2112,13 @@ for (const planKey of plansToRun) {
 
       const currentJson = loadEventConfig(EVENT_CONFIG, planKey);
 
-      const { results, reachedEndPage, skipped, videoPath: capturedVideo } = await runFlow(
+      const { results, reachedEndPage, skipped, skipReason, videoPath: capturedVideo } = await runFlow(
         browser, currentJson, flowConfig, REGION, true
       );
 
       if (skipped) {
-        console.log(`⚠️ Flow "${flowConfig.name}" was dynamically skipped (bundle not configured on page)`);
-        test.skip(true, 'Bundle not configured on this page');
+        console.log(`⚠️ Flow "${flowConfig.name}" was dynamically skipped${skipReason ? `: ${skipReason}` : ''}`);
+        test.skip(true, skipReason || 'Flow is not applicable to this configuration');
         return;
       }
 

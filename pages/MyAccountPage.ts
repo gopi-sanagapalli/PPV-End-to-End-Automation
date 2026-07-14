@@ -803,22 +803,29 @@ export class MyAccountPage {
     }
 
     const myAccountUrl = `${base}/myaccount`;
-    console.log(`🔗 [Post-Payment] Navigating to: ${myAccountUrl}`);
+    const isMobileWeb = String(eventData?.MOBILE_WEB_HANDOFF || '').toLowerCase() === 'true';
 
-    // STEP 2: Navigate to My Account
-    try {
-      await this.page.goto(myAccountUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    // STEP 2: Skip navigation only when a mobile handoff has already redirected to My Account.
+    const currentUrlLower = this.page.url().toLowerCase();
+    if (isMobileWeb && (currentUrlLower.includes('myaccount') || currentUrlLower.includes('/account'))) {
+      console.log('✅ [Post-Payment] Already on My Account page (Mobile Handoff) — skipping navigation');
       await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });
-    } catch (e: any) {
-      console.log(`⚠️ [Post-Payment] Navigation to My Account failed: ${e.message}`);
-      results.push({
-        page: 'My Account (Post-Payment)',
-        field: 'PPV Status After Purchase',
-        expected: 'Purchased',
-        actual: `Navigation failed: ${e.message}`,
-        status: 'FAIL',
-      });
-      return;
+    } else {
+      console.log(`🔗 [Post-Payment] Navigating to: ${myAccountUrl}`);
+      try {
+        await this.page.goto(myAccountUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });
+      } catch (e: any) {
+        console.log(`⚠️ [Post-Payment] Navigation to My Account failed: ${e.message}`);
+        results.push({
+          page: 'My Account (Post-Payment)',
+          field: 'PPV Status After Purchase',
+          expected: 'Purchased',
+          actual: `Navigation failed: ${e.message}`,
+          status: 'FAIL',
+        });
+        return;
+      }
     }
 
     console.log(`✅ [Post-Payment] On My Account: ${this.page.url()}`);

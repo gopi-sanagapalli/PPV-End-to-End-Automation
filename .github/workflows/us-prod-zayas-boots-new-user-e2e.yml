@@ -33,8 +33,117 @@ env:
   ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
 
 jobs:
+  prepare-matrix:
+    name: Prepare source matrix
+
+    runs-on:
+      - self-hosted
+      - macOS
+      - ARM64
+
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build applicable source matrix
+        id: matrix
+        env:
+          PPV_CONFIG: ${{ inputs.PPV_CONFIG }}
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+
+          const configInput = process.env.PPV_CONFIG;
+          const filename = path.basename(configInput).endsWith('.json')
+            ? path.basename(configInput)
+            : `${path.basename(configInput)}.json`;
+
+          const findConfig = (dir) => {
+            for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+              const fullPath = path.join(dir, entry.name);
+              if (entry.isFile() && entry.name === filename) return fullPath;
+              if (entry.isDirectory()) {
+                const found = findConfig(fullPath);
+                if (found) return found;
+              }
+            }
+            return null;
+          };
+
+          const directPath = path.resolve(configInput);
+          const eventPath = fs.existsSync(directPath)
+            ? directPath
+            : findConfig(path.resolve('config'));
+          if (!eventPath) throw new Error(`PPV config not found: ${configInput}`);
+
+          const event = JSON.parse(fs.readFileSync(eventPath, 'utf8'));
+          const sourceConfig = JSON.parse(fs.readFileSync('config/surfacingpoint.json', 'utf8'));
+          const sport = String(event.SPORT || '').trim().toLowerCase();
+          const hasBundle = event.HAS_BUNDLE === true;
+          const hasDefaultSignupPpv = event.HAS_DEFAULT_SIGNUP_PPV === true;
+
+          const sources = [
+            'boxing-banner-ultimate',
+            'boxing-join-the-club',
+            'boxing-page-banner',
+            'boxing-page-bundle',
+            'boxing-standard-subscription',
+            'boxing-upcoming-fights',
+            'boxing-ultimate-subscription',
+            'home-biggest-fights',
+            'home-boxing-banner',
+            'home-boxing-tile',
+            'home-boxing-upcoming',
+            'home-kickboxing-tile',
+            'home-page-banner',
+            'home-page-dazntile',
+            'home-page-dont-miss',
+            'home-page-get-started',
+            'landing-page-banner',
+            'landing-page-dont-miss-live',
+            'schedule',
+            'search',
+          ].filter((source) => {
+            if (source === 'home-kickboxing-tile' && sport !== 'kickboxing') return false;
+            if (source === 'boxing-page-bundle' && !hasBundle) return false;
+            if (sourceConfig[source]?.defaultSignup && !hasDefaultSignupPpv) return false;
+            return true;
+          });
+
+          const plans = ['standard_monthly', 'standard_apm', 'ultimate_apm', 'ultimate_upfront'];
+          const ultimateOnlySources = new Set([
+            'boxing-banner-ultimate',
+            'boxing-join-the-club',
+            'boxing-ultimate-subscription',
+          ]);
+          const matrix = [];
+          for (const source of sources) {
+            for (const plan of plans) {
+              if (ultimateOnlySources.has(source) && plan.startsWith('standard_')) continue;
+              matrix.push({ source, plan });
+            }
+          }
+
+          matrix.push(
+            { source: 'landing-page-dont-miss-live-switch', plan: 'standard_monthly', switch: 'true' },
+            { source: 'landing-page-dont-miss-live-switch', plan: 'standard_apm', switch: 'true' },
+          );
+
+          console.log(`Event: ${event.eventKey || event.PPV_NAME || configInput}`);
+          console.log(`SPORT=${event.SPORT || 'not set'}, HAS_BUNDLE=${hasBundle}, HAS_DEFAULT_SIGNUP_PPV=${hasDefaultSignupPpv}`);
+          console.log(`Scheduled sources (${sources.length}): ${sources.join(', ')}`);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `matrix=${JSON.stringify(matrix)}\n`);
+          NODE
+
   prod:
     name: ${{ matrix.source }} | ${{ matrix.plan }}
+
+    needs: prepare-matrix
 
     runs-on:
       - self-hosted
@@ -45,59 +154,9 @@ jobs:
 
     strategy:
       fail-fast: false
-      max-parallel: 8
+      max-parallel: 12
       matrix:
-        source:
-          - boxing-banner-ultimate
-          - boxing-join-the-club
-          - boxing-page-banner
-          - boxing-page-bundle
-          - boxing-standard-subscription
-          - boxing-upcoming-fights
-          - boxing-ultimate-subscription
-          - home-biggest-fights
-          - home-boxing-banner
-          - home-boxing-tile
-          - home-boxing-upcoming
-          - home-kickboxing-tile
-          - home-page-banner
-          - home-page-dazntile
-          - home-page-dont-miss
-          - home-page-get-started
-          - landing-page-banner
-          - landing-page-dont-miss-live
-          - schedule
-          - search
-
-        plan:
-          - standard_monthly
-          - standard_apm
-          - ultimate_apm
-          - ultimate_upfront
-
-        include:
-          # Switch route: explicit standard-plan jobs only
-          - source: landing-page-dont-miss-live-switch
-            plan: standard_monthly
-            switch: 'true'
-          - source: landing-page-dont-miss-live-switch
-            plan: standard_apm
-            switch: 'true'
-
-        exclude:
-          # Ultimate-only boxing sources
-          - source: boxing-banner-ultimate
-            plan: standard_monthly
-          - source: boxing-banner-ultimate
-            plan: standard_apm
-          - source: boxing-join-the-club
-            plan: standard_monthly
-          - source: boxing-join-the-club
-            plan: standard_apm
-          - source: boxing-ultimate-subscription
-            plan: standard_monthly
-          - source: boxing-ultimate-subscription
-            plan: standard_apm
+        include: ${{ fromJSON(needs.prepare-matrix.outputs.matrix) }}
 
     env:
       CI: 'true'
@@ -133,7 +192,6 @@ jobs:
 
       - name: Run PROD PPV Flow
         run: npx playwright test tests/new_user/newuser.ppv.spec.ts --project=chromium
-
 
       - name: Archive reports on runner disk
         if: always()
