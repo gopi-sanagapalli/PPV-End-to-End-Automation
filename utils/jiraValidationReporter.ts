@@ -35,8 +35,12 @@ type JiraCreateField = {
   key?: string;
   id?: string;
   name?: string;
+  schema?: { type?: string; items?: string };
   allowedValues?: Array<{ id?: string; value?: string; name?: string }>;
 };
+
+type JiraFieldOption = { id?: string; value?: string };
+type JiraFieldValue = JiraFieldOption | JiraFieldOption[];
 
 type JiraMetadataPage<T> = {
   issueTypes?: T[];
@@ -152,7 +156,7 @@ async function loadJiraMetadataPages<T>(
 async function resolveJiraCreateFields(
   config: NonNullable<ReturnType<typeof jiraConfig>>,
   context: JiraContext
-): Promise<Record<string, { id?: string; value?: string }>> {
+): Promise<Record<string, JiraFieldValue>> {
   const issueTypes = await loadJiraMetadataPages<{ id?: string; name?: string }>(
     `${config.baseUrl}/rest/api/3/issue/createmeta/${encodeURIComponent(config.projectKey)}/issuetypes`,
     'issueTypes',
@@ -168,7 +172,7 @@ async function resolveJiraCreateFields(
     'field',
     config
   );
-  const resolved: Record<string, { id?: string; value?: string }> = {};
+  const resolved: Record<string, JiraFieldValue> = {};
 
   for (const configured of configuredJiraFields(context)) {
     const field = availableFields.find(candidate => normalise(candidate.name || '') === normalise(configured.fieldName));
@@ -181,7 +185,10 @@ async function resolveJiraCreateFields(
     if (field.allowedValues?.length && !option) {
       throw new Error(`"${configured.value}" is not a valid option for Jira field "${configured.fieldName}"`);
     }
-    resolved[fieldKey] = option?.id ? { id: option.id } : { value: configured.value };
+    const selection = option?.id ? { id: option.id } : { value: configured.value };
+    // Jira's metadata explicitly tells us whether a custom dropdown accepts
+    // one option or an array of options; do not hardcode per-field behavior.
+    resolved[fieldKey] = field.schema?.type === 'array' ? [selection] : selection;
   }
   return resolved;
 }
@@ -347,7 +354,10 @@ export async function reportValidationFailuresToJira(report: JiraValidationRepor
 
   try {
     const jiraFields = await resolveJiraCreateFields(config, context);
-    console.log(`🧭 [Jira] Workflow Jira fields: ${Object.entries(jiraFields).map(([key, value]) => `${key}="${value.id || value.value}"`).join(' | ')}`);
+    console.log(`🧭 [Jira] Workflow Jira fields: ${Object.entries(jiraFields).map(([key, value]) => {
+      const selections = Array.isArray(value) ? value : [value];
+      return `${key}="${selections.map(selection => selection.id || selection.value).join(',')}"`;
+    }).join(' | ')}`);
     const payload = Buffer.from(JSON.stringify({
       fields: {
         project: { key: config.projectKey },
