@@ -122,6 +122,24 @@ function createEvidenceFile(
   }
 }
 
+function publishJiraIssueLink(issueKey: string, baseUrl: string): void {
+  const issueUrl = `${baseUrl}/browse/${encodeURIComponent(issueKey)}`;
+  // GitHub renders URLs in job logs as clickable links.
+  console.log(`🔗 [Jira] Ticket: ${issueUrl}`);
+
+  // Also make the ticket prominent in the workflow run's Summary tab.
+  const summaryPath = process.env.GITHUB_STEP_SUMMARY;
+  if (!summaryPath) return;
+  try {
+    fs.appendFileSync(
+      summaryPath,
+      `\n## Jira validation failure\n\n[${issueKey}](${issueUrl}) — ${issueKey} was created automatically for validation failures.\n`
+    );
+  } catch (error: any) {
+    console.warn(`⚠️ [Jira] Could not add ticket link to GitHub job summary: ${error?.message || error}`);
+  }
+}
+
 async function attachFile(
   issueKey: string,
   filePath: string,
@@ -245,6 +263,7 @@ export async function reportValidationFailuresToJira(report: JiraValidationRepor
     const issue = JSON.parse(response.body) as { key?: string };
     if (!issue.key) throw new Error('issue creation response did not include an issue key');
     console.log(`🐞 [Jira] Created ${issue.key} for ${failures.length} validation failure(s).`);
+    publishJiraIssueLink(issue.key, config.baseUrl);
 
     const attachmentPaths = [
       report.htmlReportPath,
