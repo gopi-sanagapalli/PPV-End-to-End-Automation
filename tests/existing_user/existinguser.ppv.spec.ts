@@ -1092,6 +1092,25 @@ for (const stateKey of userStatesToRun) {
             : SOURCE;
           let container: any;
 
+          const isBoxingSubscriptionSource =
+            SOURCE === 'boxing-banner-ultimate' ||
+            SOURCE === 'boxing-ultimate-subscription' ||
+            SOURCE === 'boxing-standard-subscription' ||
+            SOURCE === 'boxing-join-the-club';
+          const isUltimateLoginFirstEntitlement =
+            LOGIN_FIRST &&
+            isActiveUltimateState(userStateKey) &&
+            !isBoxingSubscriptionSource;
+          const isUltimateUpcomingEntitlement =
+            isUltimateLoginFirstEntitlement &&
+            SOURCE.toLowerCase() === 'home-boxing-upcoming';
+
+          // The purchased upcoming card has no Buy now CTA. Tell the page and
+          // field resolvers to locate it by its remaining Fight card CTA instead.
+          if (isUltimateUpcomingEntitlement) {
+            eventData.__ALLOW_NO_BUY_NOW = 'true';
+          }
+
           if (SOURCE === 'home-page-dazntile') {
             // home-page-dazntile is a DAZN entitlement tile flow. The tile click
             // happens inside HomePage.findPPVContainer(), then a subscription
@@ -1132,17 +1151,6 @@ for (const stateKey of userStatesToRun) {
             }
           }
 
-          const isBoxingSubscriptionSource =
-            SOURCE === 'boxing-banner-ultimate' ||
-            SOURCE === 'boxing-ultimate-subscription' ||
-            SOURCE === 'boxing-standard-subscription' ||
-            SOURCE === 'boxing-join-the-club';
-
-          const isUltimateLoginFirstEntitlement =
-            LOGIN_FIRST &&
-            isActiveUltimateState(userStateKey) &&
-            !isBoxingSubscriptionSource;
-
           if (isUltimateLoginFirstEntitlement && SOURCE.toLowerCase().includes('banner')) {
             await landing.validateUltimatePurchasedBannerAndFightCard(
               container,
@@ -1151,6 +1159,22 @@ for (const stateKey of userStatesToRun) {
               eventData,
               pageName,
               flowParam
+            );
+            await finishRun('ultimate', userStateKey);
+            return;
+          }
+
+          if (isUltimateUpcomingEntitlement) {
+            console.log('\n💎 [Login First Ultimate] Validating purchased Upcoming Fights card (no Buy now CTA)...');
+            const ultimateUpcomingFlow = 'home-boxing-upcoming-ultimate-login-first';
+            await validateVariant(
+              page,
+              'home-boxing',
+              getHomeOfBoxingData(ultimateUpcomingFlow),
+              results,
+              eventData,
+              pageName,
+              ultimateUpcomingFlow
             );
             await finishRun('ultimate', userStateKey);
             return;
