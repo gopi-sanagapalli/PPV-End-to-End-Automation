@@ -31,10 +31,19 @@ type JiraValidationReport = {
 const MAX_ATTACHMENTS = 12;
 
 type JiraCreateField = {
+  fieldId?: string;
   key?: string;
   id?: string;
   name?: string;
   allowedValues?: Array<{ id?: string; value?: string; name?: string }>;
+};
+
+type JiraMetadataPage<T> = {
+  issueTypes?: T[];
+  fields?: T[];
+  values?: T[];
+  startAt?: number;
+  total?: number;
 };
 
 function jiraConfig() {
@@ -107,37 +116,63 @@ function configuredJiraFields(context: JiraContext) {
   return fields as Array<{ label: string; fieldName: string; value: string }>;
 }
 
+async function loadJiraMetadataPages<T>(
+  url: string,
+  responseField: keyof Pick<JiraMetadataPage<T>, 'issueTypes' | 'fields' | 'values'>,
+  label: string,
+  config: NonNullable<ReturnType<typeof jiraConfig>>
+): Promise<T[]> {
+  const results: T[] = [];
+  const pageSize = 50;
+
+  for (let startAt = 0; startAt < 10000; startAt += pageSize) {
+    const separator = url.includes('?') ? '&' : '?';
+    const response = await requestJira(
+      `${url}${separator}startAt=${startAt}&maxResults=${pageSize}`,
+      'GET',
+      { Authorization: config.auth, Accept: 'application/json' }
+    );
+    if (response.statusCode !== 200) {
+      const details = response.body.replace(/\s+/g, ' ').slice(0, 500);
+      throw new Error(`could not load Jira ${label} metadata (HTTP ${response.statusCode}): ${details || 'no response body'}`);
+    }
+
+    const page = JSON.parse(response.body) as JiraMetadataPage<T>;
+    const entries = page[responseField] || [];
+    results.push(...entries);
+
+    if (!entries.length || (typeof page.total === 'number' && results.length >= page.total) || entries.length < pageSize) {
+      return results;
+    }
+  }
+
+  throw new Error(`could not load all Jira ${label} metadata: pagination limit reached`);
+}
+
 async function resolveJiraCreateFields(
   config: NonNullable<ReturnType<typeof jiraConfig>>,
   context: JiraContext
 ): Promise<Record<string, { id?: string; value?: string }>> {
-  const issueTypesResponse = await requestJira(
-    `${config.baseUrl}/rest/api/3/issue/createmeta/${encodeURIComponent(config.projectKey)}/issuetypes?maxResults=1000`,
-    'GET',
-    { Authorization: config.auth, Accept: 'application/json' }
+  const issueTypes = await loadJiraMetadataPages<{ id?: string; name?: string }>(
+    `${config.baseUrl}/rest/api/3/issue/createmeta/${encodeURIComponent(config.projectKey)}/issuetypes`,
+    'issueTypes',
+    'issue type',
+    config
   );
-  if (issueTypesResponse.statusCode !== 200) {
-    throw new Error(`could not load Jira issue metadata (HTTP ${issueTypesResponse.statusCode})`);
-  }
-  const issueTypes = JSON.parse(issueTypesResponse.body) as { values?: Array<{ id?: string; name?: string }> };
-  const issueType = issueTypes.values?.find(type => normalise(type.name || '') === normalise(config.issueType));
+  const issueType = issueTypes.find(type => normalise(type.name || '') === normalise(config.issueType));
   if (!issueType?.id) throw new Error(`Jira issue type "${config.issueType}" was not found for ${config.projectKey}`);
 
-  const fieldsResponse = await requestJira(
-    `${config.baseUrl}/rest/api/3/issue/createmeta/${encodeURIComponent(config.projectKey)}/issuetypes/${encodeURIComponent(issueType.id)}?maxResults=1000`,
-    'GET',
-    { Authorization: config.auth, Accept: 'application/json' }
+  const availableFields = await loadJiraMetadataPages<JiraCreateField>(
+    `${config.baseUrl}/rest/api/3/issue/createmeta/${encodeURIComponent(config.projectKey)}/issuetypes/${encodeURIComponent(issueType.id)}`,
+    'fields',
+    'field',
+    config
   );
-  if (fieldsResponse.statusCode !== 200) {
-    throw new Error(`could not load Jira field metadata (HTTP ${fieldsResponse.statusCode})`);
-  }
-  const metadata = JSON.parse(fieldsResponse.body) as { values?: JiraCreateField[]; fields?: Record<string, JiraCreateField> };
-  const availableFields = metadata.values || Object.values(metadata.fields || {});
   const resolved: Record<string, { id?: string; value?: string }> = {};
 
   for (const configured of configuredJiraFields(context)) {
     const field = availableFields.find(candidate => normalise(candidate.name || '') === normalise(configured.fieldName));
-    const fieldKey = field?.key || field?.id;
+    const fieldKey = field?.fieldId || field?.key || field?.id;
     if (!fieldKey) throw new Error(`Jira create field "${configured.fieldName}" was not found`);
 
     const option = field.allowedValues?.find(candidate =>
