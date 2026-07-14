@@ -29,33 +29,12 @@ type JiraValidationReport = {
 };
 
 const MAX_ATTACHMENTS = 12;
-const QAR_CUSTOM_FIELDS = {
-  region: 'customfield_12151',
-  environment: 'customfield_12181',
-  platform: 'customfield_12387',
-} as const;
 
-const DAZN_ENVIRONMENT_OPTIONS: Record<string, string> = {
-  prod: 'Live Prod',
-  'internal-prod': 'Internal Prod',
-  stag: 'Stag',
-  'beta-stag': 'Beta Stag',
-  beta: 'Beta Stag',
-  'beta-prod': 'Beta Prod',
-};
-
-const PLATFORM_OPTIONS: Record<string, string> = {
-  web: 'Desktop Web',
-  'desktop-web': 'Desktop Web',
-  'mobile-web': 'Mobile Web',
-  'tablet-web': 'Tablet Web',
-  android: 'Android Native App - Mobile',
-  'android-mobile': 'Android Native App - Mobile',
-  'android-tablet': 'Android Native App - Tab',
-  'android-all': 'All Android Devices',
-  'ios-mobile': 'iOS Native App - Mobile',
-  'ios-tablet': 'iOS Native App - Pads',
-  'ios-all': 'All iOS Devices',
+type JiraCreateField = {
+  key?: string;
+  id?: string;
+  name?: string;
+  allowedValues?: Array<{ id?: string; value?: string; name?: string }>;
 };
 
 function jiraConfig() {
@@ -98,14 +77,78 @@ function asText(value: unknown): string {
   return String(value ?? '').replace(/\s+/g, ' ').trim();
 }
 
-function jiraEnvironmentValue(environment: string): string {
-  return process.env.JIRA_DAZN_ENVIRONMENT_VALUE ||
-    DAZN_ENVIRONMENT_OPTIONS[environment.trim().toLowerCase()] || environment;
+function normalise(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
-function jiraPlatformValue(platform: string): string {
-  return process.env.JIRA_PLATFORM_VALUE ||
-    PLATFORM_OPTIONS[platform.trim().toLowerCase()] || platform;
+function configuredJiraFields(context: JiraContext) {
+  const fields = [
+    {
+      label: 'region',
+      fieldName: process.env.JIRA_REGION_FIELD_NAME,
+      value: process.env.JIRA_REGION || context.region,
+    },
+    {
+      label: 'environment',
+      fieldName: process.env.JIRA_DAZN_ENVIRONMENT_FIELD_NAME,
+      value: process.env.JIRA_DAZN_ENVIRONMENT,
+    },
+    {
+      label: 'platform',
+      fieldName: process.env.JIRA_PLATFORM_FIELD_NAME,
+      value: process.env.JIRA_PLATFORM,
+    },
+  ];
+
+  const missing = fields.filter(field => !field.fieldName || !field.value).map(field => field.label);
+  if (missing.length) {
+    throw new Error(`workflow Jira configuration is missing: ${missing.join(', ')}`);
+  }
+  return fields as Array<{ label: string; fieldName: string; value: string }>;
+}
+
+async function resolveJiraCreateFields(
+  config: NonNullable<ReturnType<typeof jiraConfig>>,
+  context: JiraContext
+): Promise<Record<string, { id?: string; value?: string }>> {
+  const issueTypesResponse = await requestJira(
+    `${config.baseUrl}/rest/api/3/issue/createmeta/${encodeURIComponent(config.projectKey)}/issuetypes?maxResults=1000`,
+    'GET',
+    { Authorization: config.auth, Accept: 'application/json' }
+  );
+  if (issueTypesResponse.statusCode !== 200) {
+    throw new Error(`could not load Jira issue metadata (HTTP ${issueTypesResponse.statusCode})`);
+  }
+  const issueTypes = JSON.parse(issueTypesResponse.body) as { values?: Array<{ id?: string; name?: string }> };
+  const issueType = issueTypes.values?.find(type => normalise(type.name || '') === normalise(config.issueType));
+  if (!issueType?.id) throw new Error(`Jira issue type "${config.issueType}" was not found for ${config.projectKey}`);
+
+  const fieldsResponse = await requestJira(
+    `${config.baseUrl}/rest/api/3/issue/createmeta/${encodeURIComponent(config.projectKey)}/issuetypes/${encodeURIComponent(issueType.id)}?maxResults=1000`,
+    'GET',
+    { Authorization: config.auth, Accept: 'application/json' }
+  );
+  if (fieldsResponse.statusCode !== 200) {
+    throw new Error(`could not load Jira field metadata (HTTP ${fieldsResponse.statusCode})`);
+  }
+  const metadata = JSON.parse(fieldsResponse.body) as { values?: JiraCreateField[]; fields?: Record<string, JiraCreateField> };
+  const availableFields = metadata.values || Object.values(metadata.fields || {});
+  const resolved: Record<string, { id?: string; value?: string }> = {};
+
+  for (const configured of configuredJiraFields(context)) {
+    const field = availableFields.find(candidate => normalise(candidate.name || '') === normalise(configured.fieldName));
+    const fieldKey = field?.key || field?.id;
+    if (!fieldKey) throw new Error(`Jira create field "${configured.fieldName}" was not found`);
+
+    const option = field.allowedValues?.find(candidate =>
+      normalise(candidate.value || candidate.name || '') === normalise(configured.value)
+    );
+    if (field.allowedValues?.length && !option) {
+      throw new Error(`"${configured.value}" is not a valid option for Jira field "${configured.fieldName}"`);
+    }
+    resolved[fieldKey] = option?.id ? { id: option.id } : { value: configured.value };
+  }
+  return resolved;
 }
 
 function paragraph(text: string) {
@@ -232,9 +275,6 @@ export async function reportValidationFailuresToJira(report: JiraValidationRepor
   const context = report.context;
   const runId = process.env.GITHUB_RUN_ID || 'unknown-run';
   const evidencePath = createEvidenceFile(failures, context, runId);
-  const jiraEnvironment = jiraEnvironmentValue(context.environment);
-  const jiraPlatform = jiraPlatformValue(context.platform);
-  const jiraRegion = process.env.JIRA_REGION_VALUE || context.region;
   const summary = `[Automation][${context.region}][${context.platform}] ${failures.length} validation failure(s) — ${context.flow}`
     .slice(0, 250);
   const runMetadata = [
@@ -248,7 +288,6 @@ export async function reportValidationFailuresToJira(report: JiraValidationRepor
 
   console.log(`🐞 [Jira] Validation-only failure detected; preparing QAR ticket for ${context.flow}.`);
   console.log(`🔎 [Jira] ${runMetadata}`);
-  console.log(`🧭 [Jira] QAR fields: Region="${jiraRegion}" | DAZN Environment="${jiraEnvironment}" | Platform="${jiraPlatform}"`);
   for (const failure of failures) {
     console.log(
       `❌ [Jira] [${asText(failure.page)}] ${asText(failure.field)} | ` +
@@ -272,15 +311,15 @@ export async function reportValidationFailuresToJira(report: JiraValidationRepor
   };
 
   try {
+    const jiraFields = await resolveJiraCreateFields(config, context);
+    console.log(`🧭 [Jira] Workflow Jira fields: ${Object.entries(jiraFields).map(([key, value]) => `${key}="${value.id || value.value}"`).join(' | ')}`);
     const payload = Buffer.from(JSON.stringify({
       fields: {
         project: { key: config.projectKey },
         issuetype: { name: config.issueType },
         summary,
         description,
-        [QAR_CUSTOM_FIELDS.region]: { value: jiraRegion },
-        [QAR_CUSTOM_FIELDS.environment]: { value: jiraEnvironment },
-        [QAR_CUSTOM_FIELDS.platform]: { value: jiraPlatform },
+        ...jiraFields,
         labels: [
           'automation',
           'validation-failure',

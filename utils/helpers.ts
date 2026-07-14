@@ -131,7 +131,11 @@ export async function stabilisePage(page: Page): Promise<void> {
 // ─────────────────────────────────────────────────────────────────
 // DISMISS MARKETING POPUP ("Unlock exclusive content")
 // ─────────────────────────────────────────────────────────────────
-export async function dismissMarketingPopup(page: Page, timeout: number = 0): Promise<void> {
+export async function dismissMarketingPopup(
+  page: Page,
+  timeout: number = 0,
+  options: { preservePpvPromo?: boolean } = {}
+): Promise<void> {
   if (page.isClosed()) return;
   try {
     const dismissSelectors = [
@@ -152,7 +156,7 @@ export async function dismissMarketingPopup(page: Page, timeout: number = 0): Pr
     ].join(', ');
 
     const popup = page.locator(dismissSelectors).first();
-    
+
     let isVisible = false;
     if (timeout > 0) {
       isVisible = await popup.waitFor({ state: 'visible', timeout })
@@ -163,6 +167,15 @@ export async function dismissMarketingPopup(page: Page, timeout: number = 0): Pr
     }
 
     if (isVisible) {
+      if (options.preservePpvPromo) {
+        const ppvPromo = page.locator(
+          '[role="dialog"], [aria-modal="true"], [class*="content-promotion" i], [class*="modal" i], [class*="popup" i]'
+        ).filter({ hasText: /buy now/i }).first();
+        if (await ppvPromo.isVisible({ timeout: 500 }).catch(() => false)) {
+          console.log('ℹ️ PPV promo detected — preserving it for validation and Buy Now flow');
+          return;
+        }
+      }
       const btnText = await popup.textContent().catch(() => '');
       console.log(`🔔 Marketing popup detected ("${btnText?.trim()}"). Dismissing...`);
       await popup.click({ force: true }).catch(() => { });

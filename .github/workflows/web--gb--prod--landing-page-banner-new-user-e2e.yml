@@ -36,6 +36,9 @@ jobs:
   prod:
     name: landing-page-banner | ${{ matrix.plan }}
 
+    environment:
+      name: Jira Details
+
     runs-on:
       - self-hosted
       - macOS
@@ -60,6 +63,11 @@ jobs:
       HEADLESS: 'true'
       DAZN_REGION: GB
       DAZN_ENV: prod
+      JIRA_REGION_FIELD_NAME: Region
+      JIRA_DAZN_ENVIRONMENT_FIELD_NAME: DAZN Environment
+      JIRA_PLATFORM_FIELD_NAME: Platform - required
+      JIRA_DAZN_ENVIRONMENT: Live Prod
+      JIRA_PLATFORM: Desktop Web
       SOURCE: landing-page-banner
       PLAN: ${{ matrix.plan }}
       PPV_CONFIG: ${{ inputs.PPV_CONFIG }}
@@ -169,4 +177,3 @@ jobs:
             test-results/
             reports/
           if-no-files-found: ignore
-     
