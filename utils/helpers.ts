@@ -131,7 +131,11 @@ export async function stabilisePage(page: Page): Promise<void> {
 // ─────────────────────────────────────────────────────────────────
 // DISMISS MARKETING POPUP ("Unlock exclusive content")
 // ─────────────────────────────────────────────────────────────────
-export async function dismissMarketingPopup(page: Page, timeout: number = 0): Promise<void> {
+export async function dismissMarketingPopup(
+  page: Page,
+  timeout: number = 0,
+  options: { preservePpvPromo?: boolean } = {}
+): Promise<void> {
   if (page.isClosed()) return;
   try {
     const dismissSelectors = [
@@ -164,6 +168,22 @@ export async function dismissMarketingPopup(page: Page, timeout: number = 0): Pr
 
     if (isVisible) {
       const btnText = await popup.textContent().catch(() => '');
+
+      // When preservePpvPromo is set, skip dismissing PPV purchase prompts
+      // so the home-page-popup flow can interact with the Buy Now CTA.
+      if (options.preservePpvPromo && btnText) {
+        const lower = btnText.toLowerCase();
+        const isPpvPopup =
+          lower.includes('buy now') ||
+          lower.includes('get it now') ||
+          lower.includes('ppv') ||
+          lower.includes('pay-per-view');
+        if (isPpvPopup) {
+          console.log(`🛡️ PPV promo popup preserved ("${btnText.trim().substring(0, 80)}")`);
+          return;
+        }
+      }
+
       console.log(`🔔 Marketing popup detected ("${btnText?.trim()}"). Dismissing...`);
       await popup.click({ force: true }).catch(() => { });
       console.log('✅ Dismissed marketing popup');
