@@ -177,6 +177,22 @@ export async function dismissMarketingPopup(
         }
       }
       const btnText = await popup.textContent().catch(() => '');
+
+      // When preservePpvPromo is set, skip dismissing PPV purchase prompts
+      // so the home-page-popup flow can interact with the Buy Now CTA.
+      if (options.preservePpvPromo && btnText) {
+        const lower = btnText.toLowerCase();
+        const isPpvPopup =
+          lower.includes('buy now') ||
+          lower.includes('get it now') ||
+          lower.includes('ppv') ||
+          lower.includes('pay-per-view');
+        if (isPpvPopup) {
+          console.log(`🛡️ PPV promo popup preserved ("${btnText.trim().substring(0, 80)}")`);
+          return;
+        }
+      }
+
       console.log(`🔔 Marketing popup detected ("${btnText?.trim()}"). Dismissing...`);
       await popup.click({ force: true }).catch(() => { });
       console.log('✅ Dismissed marketing popup');

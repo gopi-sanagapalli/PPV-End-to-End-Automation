@@ -80,6 +80,25 @@ const LOGIN_FIRST_INVALID_LANDING_SOURCES = new Set<string>([
   'landing-page-banner',
   'landing-page-dont-miss-live',
 ]);
+// These signed-in Ultimate boxing sources deliberately retain their purchase CTA.
+// Their entitlement is verified in My Account after the CTA click, rather than from
+// a Purchased tag or a Fight Card modal on the Boxing page.
+const ULTIMATE_LOGIN_FIRST_BOXING_MY_ACCOUNT_SOURCES = new Set<string>([
+  'boxing-page-banner',
+  'boxing-upcoming-fights',
+]);
+
+function isMyAccountDestination(url: string): boolean {
+  const lower = url.toLowerCase();
+  return lower.includes('/myaccount') || (
+    lower.includes('/account') &&
+    !lower.includes('/signup') &&
+    !lower.includes('/signin') &&
+    !lower.includes('/personaldetails') &&
+    !lower.includes('/emaildetails') &&
+    !lower.includes('/content/')
+  );
+}
 const ENV = (process.env.DAZN_ENV || 'stag').toLowerCase();
 const PAYMENT_METHOD = (process.env.PAYMENT_METHOD || 'credit_card').toLowerCase();
 
@@ -211,6 +230,9 @@ for (const stateKey of userStatesToRun) {
         ? 'ultimate'
         : 'standard';
     const isUltimateLoginFirstUser = LOGIN_FIRST && isActiveUltimateState(userStateKey);
+    const isUltimateLoginFirstBoxingMyAccountFlow =
+      isUltimateLoginFirstUser &&
+      ULTIMATE_LOGIN_FIRST_BOXING_MY_ACCOUNT_SOURCES.has(SOURCE.toLowerCase());
 
     // Bypass phone number for every effective Ultimate journey in GB/US,
     // including Active Standard → Ultimate upgrades.
@@ -689,7 +711,7 @@ for (const stateKey of userStatesToRun) {
           console.log(`ℹ️ [Login First] Existing-user landing page source enabled: ${SOURCE}`);
         }
 
-        if (LOGIN_FIRST && isActiveUltimateState(userStateKey) && !isMyAccount) {
+        if (LOGIN_FIRST && isActiveUltimateState(userStateKey) && !isMyAccount && !isUltimateLoginFirstBoxingMyAccountFlow) {
           console.log('\n💎 [Login First Ultimate] Validating My Account purchased status before source click...');
           const myAccountPage = new MyAccountPage(page);
           await myAccountPage.navigateAndValidatePurchasedPPVStatus(baseUrl, results, eventData);
@@ -1164,7 +1186,12 @@ for (const stateKey of userStatesToRun) {
             }
           }
 
-          if (isUltimateLoginFirstEntitlement && SOURCE.toLowerCase().includes('banner')) {
+          if (isUltimateLoginFirstBoxingMyAccountFlow) {
+            console.log(
+              `\n💎 [Login First Ultimate] ${SOURCE}: skipping Purchased/Fight Card validations. ` +
+              'The selected Buy CTA will be verified through My Account PPV status.'
+            );
+          } else if (isUltimateLoginFirstEntitlement && SOURCE.toLowerCase().includes('banner')) {
             await landing.validateUltimatePurchasedBannerAndFightCard(
               container,
               SOURCE,
@@ -1201,7 +1228,7 @@ for (const stateKey of userStatesToRun) {
               src.includes('biggest-fights');
           })();
 
-          if (isUltimateLoginFirstEntitlement && ultimateTileSource) {
+          if (!isUltimateLoginFirstBoxingMyAccountFlow && isUltimateLoginFirstEntitlement && ultimateTileSource) {
             await landing.clickUltimateTileAndValidateNavigation(
               container,
               SOURCE,
@@ -1229,11 +1256,20 @@ for (const stateKey of userStatesToRun) {
               if ((sheetName === 'Home of Boxing' || sheetName === 'Home page') && (isStandalone || onOnboarding)) {
                 console.log('ℹ️ Standalone flow or direct navigation — skipping popup modal validations');
               } else {
-                const landingData = sheetName === 'Home page'
+                let landingData = sheetName === 'Home page'
                   ? getHomePageData(flowParam)
                   : sheetName === 'Home of Boxing'
                     ? getHomeOfBoxingData(flowParam)
                     : readSheet(sheetName);
+                if (isUltimateLoginFirstBoxingMyAccountFlow) {
+                  // The boxing banner/upcoming-fights CTA flow does not use a
+                  // Purchased tag or Fight Card. Keep every other Boxing page
+                  // validation in place so this exception cannot weaken other checks.
+                  landingData = landingData.filter((row: any) => {
+                    const field = String(row.Field || '').trim().toLowerCase();
+                    return !field.includes('purchased') && !field.includes('fight card');
+                  });
+                }
                 const variantName = sheetName === 'Home of Boxing'
                   ? 'home-boxing'
                   : sheetName === 'Home page'
@@ -1253,6 +1289,50 @@ for (const stateKey of userStatesToRun) {
             await landing.clickBuyNow(container, clickBuyNowSource);
           } else {
             console.log('ℹ️ [DAZN Tile] Generic Buy Now click skipped; subscription modal Subscribe was already clicked');
+          }
+
+          if (isUltimateLoginFirstBoxingMyAccountFlow) {
+            try {
+              // The CTA itself must take the signed-in Ultimate user to My Account.
+              // Do not mask an invalid destination (for example /home) by issuing
+              // a second, explicit navigation before checking the result.
+              const ctaDestination = page.url();
+              if (!isMyAccountDestination(ctaDestination)) {
+                const message =
+                  `❌ [Login First Ultimate][${SOURCE}] Buy CTA redirection failed: ` +
+                  `expected My Account but landed on "${ctaDestination}". ` +
+                  'PPV status verification was not attempted.';
+                console.error(message);
+                throw new Error(message);
+              }
+
+              console.log('\n🏠 [Login First Ultimate] CTA redirected to My Account — verifying PPV status...');
+              await handleCookies(page, 8000);
+              const myAccountPage = new MyAccountPage(page);
+              await myAccountPage.scrollToPPVSection();
+              const rows = getMyAccountData().filter((row: any) =>
+                String(row.Field || '').trim().toLowerCase() === 'ppv status'
+              );
+              await validateVariant(page, 'myaccount', rows, results, eventData, 'My Account', 'myaccount');
+              const statusResult = results
+                .slice()
+                .reverse()
+                .find((r: any) => r.page === 'My Account' && r.field === 'PPV Status');
+              if (statusResult?.status === 'FAIL') {
+                throw new Error(
+                  `❌ [My Account] PPV Status validation failed. expected="${statusResult.expected}" actual="${statusResult.actual}"`
+                );
+              }
+            } catch (error: any) {
+              const message =
+                `❌ [Login First Ultimate][${SOURCE}] Flow could not be completed after clicking the PPV CTA: ` +
+                `${error?.message || error}`;
+              console.error(message);
+              throw new Error(message);
+            }
+
+            await finishRun('ultimate', userStateKey);
+            return;
           }
         }
 
