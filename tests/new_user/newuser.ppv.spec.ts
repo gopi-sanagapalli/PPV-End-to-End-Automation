@@ -56,6 +56,7 @@ import {
   waitForHomePageAuthRedirect,
 } from '../../utils/testHelpers';
 import { AuthenticationManager } from '../../auth/AuthenticationManager';
+import { validatePpvBannerImage } from '../../utils/geminiBannerValidator';
 
 
 const REGION = process.env.DAZN_REGION || 'GB';
@@ -648,6 +649,13 @@ async function runFlow(
       }
 
       if (validateLanding) {
+        if (source === 'landing-page-banner' && container) {
+          await validatePpvBannerImage(container, {
+            region: REGION,
+            flow: 'landing-page-banner',
+          });
+        }
+
         if (isHomeSport || isHomePageSource) {
           console.log('ℹ️  Home of Sport/Home page flow — skipping Step 1 validation (handled in Step 2)');
         } else {
