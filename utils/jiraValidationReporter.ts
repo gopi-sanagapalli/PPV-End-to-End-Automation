@@ -200,6 +200,54 @@ function paragraph(text: string) {
   };
 }
 
+function heading(text: string) {
+  return {
+    type: 'heading',
+    attrs: { level: 2 },
+    content: [{ type: 'text', text }],
+  };
+}
+
+function bulletList(items: string[]) {
+  return {
+    type: 'bulletList',
+    content: items.map(item => ({
+      type: 'listItem',
+      content: [paragraph(item)],
+    })),
+  };
+}
+
+function orderedList(items: string[]) {
+  return {
+    type: 'orderedList',
+    content: items.map(item => ({
+      type: 'listItem',
+      content: [paragraph(item)],
+    })),
+  };
+}
+
+function describeFailure(failure: ValidationResult): string {
+  const page = asText(failure.page) || 'PPV page';
+  const field = asText(failure.field) || 'PPV content';
+  return `${page} — ${field}`;
+}
+
+function buildIssueSummary(context: JiraContext, failures: ValidationResult[]): string {
+  const ppvName = asText(context.event) || 'PPV';
+  const first = failures[0];
+  if (!first) return `${ppvName} | ${context.flow} — validation failure`.slice(0, 250);
+
+  const expected = asText(first.expected);
+  const actual = asText(first.actual);
+  const mismatch = expected && actual
+    ? `${describeFailure(first)} incorrect: expected "${expected}", shown "${actual}"`
+    : `${describeFailure(first)} validation failed`;
+  const suffix = failures.length > 1 ? ` (+${failures.length - 1} more)` : '';
+  return `${ppvName} | ${mismatch}${suffix}`.slice(0, 250);
+}
+
 function createEvidenceFile(
   failures: ValidationResult[],
   context: JiraContext,
@@ -317,8 +365,7 @@ export async function reportValidationFailuresToJira(report: JiraValidationRepor
   const context = report.context;
   const runId = process.env.GITHUB_RUN_ID || 'unknown-run';
   const evidencePath = createEvidenceFile(failures, context, runId);
-  const summary = `[Automation][${context.region}][${context.platform}] ${failures.length} validation failure(s) — ${context.flow}`
-    .slice(0, 250);
+  const summary = buildIssueSummary(context, failures);
   const runMetadata = [
     `Repository: ${process.env.GITHUB_REPOSITORY || 'unknown'}`,
     `Workflow: ${process.env.GITHUB_WORKFLOW || 'unknown'}`,
@@ -336,19 +383,44 @@ export async function reportValidationFailuresToJira(report: JiraValidationRepor
       `expected="${asText(failure.expected)}" | actual="${asText(failure.actual)}"`
     );
   }
+  const firstFailure = failures[0];
   const description = {
     type: 'doc',
     version: 1,
     content: [
-      paragraph('Created automatically from a completed GitHub Actions validation run.'),
-      paragraph(`Region: ${context.region} | Environment: ${context.environment} | Platform: ${context.platform}`),
-      paragraph(`Flow: ${context.flow}${context.event ? ` | Event: ${context.event}` : ''}${context.userState ? ` | User state: ${context.userState}` : ''}${context.source ? ` | Source: ${context.source}` : ''}`),
-      paragraph(runMetadata),
-      paragraph(`Validation failures (${failures.length}):`),
+      heading('Issue'),
+      paragraph(
+        firstFailure
+          ? `${describeFailure(firstFailure)} is incorrect for ${asText(context.event) || 'this PPV'}.`
+          : 'A PPV validation failed.'
+      ),
+      heading('Environment'),
+      bulletList([
+        `PPV: ${asText(context.event) || 'Unknown'}`,
+        `Region: ${context.region}`,
+        `DAZN environment: ${context.environment}`,
+        `Platform: ${context.platform}`,
+        `Flow: ${context.flow}`,
+        `Source: ${context.source || 'Unknown'}`,
+        `User state: ${context.userState || 'New user'}`,
+      ]),
+      heading('Steps to reproduce'),
+      orderedList([
+        `Open DAZN ${context.environment} on ${context.platform} for region ${context.region}.`,
+        `Navigate to the ${context.source || 'PPV'} surface for ${asText(context.event) || 'the PPV'}.`,
+        `Inspect ${firstFailure ? describeFailure(firstFailure) : 'the validated PPV content'}.`,
+      ]),
+      heading('Expected result'),
+      paragraph(firstFailure ? `Display "${asText(firstFailure.expected)}".` : 'All PPV validations pass.'),
+      heading('Actual result'),
+      paragraph(firstFailure ? `Displayed "${asText(firstFailure.actual)}".` : 'A PPV validation failed.'),
+      heading(`Validation details (${failures.length})`),
       ...failures.map(result => paragraph(
         `[${asText(result.page)}] ${asText(result.field)} — expected: "${asText(result.expected)}"; actual: "${asText(result.actual)}"`
       )),
-      paragraph('Reports and available failure screenshots are attached to this issue.'),
+      heading('Evidence'),
+      paragraph('The validation evidence JSON, available failure screenshot(s), and generated report files are attached to this issue.'),
+      paragraph(runMetadata),
     ],
   };
 
