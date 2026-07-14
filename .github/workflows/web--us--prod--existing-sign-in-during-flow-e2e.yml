@@ -6,7 +6,7 @@ on:
       PPV_CONFIG:
         description: 'PPV config filename/key'
         required: true
-        default: 'aj_joshua_prenga.json'
+        default: 'ppv_t_joshua_prenga.json'
 
       PAYMENT_METHOD:
         description: 'Payment method'
