@@ -1,0 +1,243 @@
+import fs from 'fs';
+import https from 'https';
+import path from 'path';
+
+type BannerAssessment = {
+  imageLoaded: 'pass' | 'fail' | 'uncertain';
+  imageQuality: 'pass' | 'fail' | 'uncertain';
+
+  heroSubjectVisible: 'pass' | 'fail' | 'uncertain';
+  secondarySubjectVisible: 'pass' | 'fail' | 'uncertain';
+
+  cropping: 'pass' | 'fail' | 'uncertain';
+  distortion: 'pass' | 'fail' | 'uncertain';
+  overlay: 'pass' | 'fail' | 'uncertain';
+
+  confidence: number;
+
+  findings: string[];
+};
+
+function requestGemini(url: string, apiKey: string, body: Buffer): Promise<{ statusCode: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const request = https.request(url, {
+      method: 'POST',
+      headers: {
+        'x-goog-api-key': apiKey,
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        'Content-Length': String(body.length),
+      },
+    }, response => {
+      const chunks: Buffer[] = [];
+      response.on('data', chunk => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+      response.on('end', () => resolve({
+        statusCode: response.statusCode || 0,
+        body: Buffer.concat(chunks).toString('utf8'),
+      }));
+    });
+    request.setTimeout(30_000, () => request.destroy(new Error('Gemini request timed out after 30 seconds')));
+    request.on('error', reject);
+    request.write(body);
+    request.end();
+  });
+}
+
+function parseAssessment(responseBody: string): BannerAssessment {
+  const response = JSON.parse(responseBody) as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
+  const text = response.candidates?.[0]?.content?.parts?.find(part => part.text)?.text;
+  if (!text) throw new Error('Gemini returned no text assessment');
+
+  const assessment = JSON.parse(text) as BannerAssessment;
+if (
+    !assessment.imageLoaded ||
+    !assessment.imageQuality ||
+    !assessment.heroSubjectVisible ||
+    !assessment.secondarySubjectVisible ||
+    !assessment.cropping ||
+    !assessment.distortion ||
+    !assessment.overlay ||
+    typeof assessment.confidence !== 'number' ||
+    !Array.isArray(assessment.findings)
+) {
+    throw new Error('Gemini returned an invalid banner assessment');
+}
+  return assessment;
+}
+
+/**
+ * Checks only the rendered PPV banner image in GitHub Actions. Gemini findings
+ * are initially warn-only so visual-model uncertainty cannot block PPV flows.
+ */
+export async function validatePpvBannerImage(
+  banner: { screenshot(options: { path: string; type: 'png' }): Promise<Buffer> },
+  context: { region: string; flow: string }
+): Promise<void> {
+  if (process.env.GITHUB_ACTIONS !== 'true') return;
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    console.log('ℹ️ [Gemini Banner] GEMINI_API_KEY is not configured; visual check skipped.');
+    return;
+  }
+
+  try {
+    const evidenceDir = path.resolve(process.cwd(), 'test-results', 'gemini-banner');
+    fs.mkdirSync(evidenceDir, { recursive: true });
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const imagePath = path.join(evidenceDir, `ppv-banner-${context.region}-${timestamp}.png`);
+    await banner.screenshot({ path: imagePath, type: 'png' });
+
+    const image = fs.readFileSync(imagePath).toString('base64');
+ const schema = {
+  type: 'object',
+
+  properties: {
+
+    imageLoaded: {
+      type: 'string',
+      enum: ['pass', 'fail', 'uncertain']
+    },
+
+    imageQuality: {
+      type: 'string',
+      enum: ['pass', 'fail', 'uncertain']
+    },
+
+    heroSubjectVisible: {
+      type: 'string',
+      enum: ['pass', 'fail', 'uncertain']
+    },
+
+    secondarySubjectVisible: {
+      type: 'string',
+      enum: ['pass', 'fail', 'uncertain']
+    },
+
+    cropping: {
+      type: 'string',
+      enum: ['pass', 'fail', 'uncertain']
+    },
+
+    distortion: {
+      type: 'string',
+      enum: ['pass', 'fail', 'uncertain']
+    },
+
+    overlay: {
+      type: 'string',
+      enum: ['pass', 'fail', 'uncertain']
+    },
+
+    confidence: {
+      type: 'number'
+    },
+
+    findings: {
+      type: 'array',
+      items: {
+        type: 'string'
+      }
+    }
+  },
+
+  required: [
+    'imageLoaded',
+    'imageQuality',
+    'heroSubjectVisible',
+    'secondarySubjectVisible',
+    'cropping',
+    'distortion',
+    'overlay',
+    'confidence',
+    'findings'
+  ]
+};
+   const prompt = [
+  'You are a senior visual QA engineer reviewing a DAZN promotional banner.',
+
+  'Ignore ALL text on the page.',
+
+  'Do NOT validate:',
+
+  '- event title',
+  '- date',
+  '- price',
+  '- CTA buttons',
+  '- logos',
+  '- plans',
+
+  'Those are validated separately by automation.',
+
+  'Evaluate ONLY the rendered promotional artwork.',
+
+  'Determine whether:',
+
+  '- the banner image has fully loaded',
+  '- the artwork is sharp and not blurry',
+  '- there is no visible distortion or stretching',
+  '- there are no missing image sections',
+  '- no placeholder, skeleton or broken image is visible',
+  '- the hero promotional subject is clearly visible',
+  '- the secondary promotional subject is visible if one exists',
+  '- there is no unintended cropping caused by rendering',
+  '- no overlay or popup obscures the artwork',
+
+  'Treat intentional marketing artwork cropping as PASS.',
+
+  'Return ONLY valid JSON matching the supplied schema.',
+
+  'Do not explain your reasoning outside the findings array.'
+].join(' ');
+    const payload = Buffer.from(JSON.stringify({
+      contents: [{ parts: [
+        { inline_data: { mime_type: 'image/png', data: image } },
+        { text: prompt },
+      ] }],
+      generationConfig: {
+        responseMimeType: 'application/json',
+        responseSchema: schema,
+        temperature: 0,
+      },
+    }));
+    const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+    const response = await requestGemini(
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+      apiKey,
+      payload
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw new Error(`Gemini returned HTTP ${response.statusCode}: ${response.body.slice(0, 500)}`);
+    }
+
+    const assessment = parseAssessment(response.body);
+    fs.writeFileSync(`${imagePath}.json`, `${JSON.stringify(assessment, null, 2)}\n`);
+ const passed =
+    assessment.imageLoaded === 'pass' &&
+    assessment.imageQuality === 'pass' &&
+    assessment.heroSubjectVisible === 'pass' &&
+    assessment.secondarySubjectVisible !== 'fail' &&
+    assessment.cropping === 'pass' &&
+    assessment.distortion === 'pass' &&
+    assessment.overlay === 'pass';
+
+const icon = passed ? '✅' : '⚠️';
+
+console.log(
+`${icon} [Gemini Banner] ${
+    passed ? 'PASS' : 'WARNING'
+} | loaded=${assessment.imageLoaded}` +
+` | quality=${assessment.imageQuality}` +
+` | hero=${assessment.heroSubjectVisible}` +
+` | secondary=${assessment.secondarySubjectVisible}` +
+` | crop=${assessment.cropping}` +
+` | distortion=${assessment.distortion}` +
+` | overlay=${assessment.overlay}` +
+` | confidence=${assessment.confidence}%`
+);
+    for (const finding of assessment.findings) console.log(`   [Gemini Banner] ${finding}`);
+  } catch (error: any) {
+    // Gemini is supplementary QA; an API/quota/model issue must not hide the E2E result.
+    console.warn(`⚠️ [Gemini Banner] Visual check could not run: ${error?.message || error}`);
+  }
+}

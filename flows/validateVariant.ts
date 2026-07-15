@@ -509,5 +509,5 @@ export const validateVariant = async (
   }
 
   // ── Capture red-boxed screenshots for any failed fields ──────────
-  await captureFailures(page, results, pageName);
+  await captureFailures(page, results, pageName, eventData);
 };

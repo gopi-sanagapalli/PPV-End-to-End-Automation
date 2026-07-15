@@ -23,6 +23,7 @@ async function getScopedLandingPPVContainer(
   const isTileSource = source.includes('dont-miss') || source.includes('tile') || source.includes('upcoming') || source.includes('rail') || source === 'home-biggest-fights';
 
   if (source.includes('upcoming')) {
+    const allowNoBuyNow = String(eventData?.__ALLOW_NO_BUY_NOW || '').toLowerCase() === 'true';
     const cleanStr = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
     const nameParts = (eventData?.PPV_NAME || '')
       .split(/[:\-–]/)
@@ -55,7 +56,7 @@ async function getScopedLandingPPVContainer(
         if (!await el.isVisible().catch(() => false)) continue;
         const text = (await el.textContent().catch(() => '')) || '';
         const lower = text.toLowerCase();
-        if (!matchesCard(text) || !lower.includes('buy now')) continue;
+        if (!matchesCard(text) || (!lower.includes('buy now') && !(allowNoBuyNow && lower.includes('fight card')))) continue;
 
         const box = await el.boundingBox().catch(() => null);
         if (!box || box.width <= 50 || box.height <= 50 || box.width >= 1800 || box.height >= 700) continue;
@@ -1507,10 +1508,29 @@ export async function getActualValue(
       return found !== 'N/A' ? found : 'Not found';
     }
     case 'banner - buy now cta': {
+      const scopedContainer = await getScopedLandingPPVContainer(page, eventData);
+      if (scopedContainer) {
+        const found = await scopedContainer
+          .locator('a, button, [role="button"]')
+          .filter({ hasText: /^Buy now$/i })
+          .first()
+          .isVisible({ timeout: 1000 })
+          .catch(() => false);
+        return found ? 'Visible' : 'Not visible';
+      }
       const found = snapExists(n => (n.tag === 'button' || n.tag === 'a') && n.text.toLowerCase().includes('buy now'));
       return found === 'Yes' ? 'Visible' : 'Not visible';
     }
     case 'banner - purchased tag': {
+      const scopedContainer = await getScopedLandingPPVContainer(page, eventData);
+      if (scopedContainer) {
+        const found = await scopedContainer
+          .locator('text=/^Purchased$/i')
+          .first()
+          .isVisible({ timeout: 1000 })
+          .catch(() => false);
+        return found ? 'Visible' : 'Not visible';
+      }
       const found = snapExists(n =>
         n.text.toLowerCase().includes('purchased') &&
         n.text.length < 40
@@ -1518,11 +1538,31 @@ export async function getActualValue(
       return found === 'Yes' ? 'Visible' : 'Not visible';
     }
     case 'banner - fight card cta': {
+      const scopedContainer = await getScopedLandingPPVContainer(page, eventData);
+      if (scopedContainer) {
+        const found = await scopedContainer
+          .locator('a, button, [role="button"]')
+          .filter({ hasText: /^Fight card$/i })
+          .first()
+          .isVisible({ timeout: 1000 })
+          .catch(() => false);
+        return found ? 'Visible' : 'Not visible';
+      }
       const found = snapExists(n => (n.tag === 'button' || n.tag === 'a') && n.text.toLowerCase().includes('fight card'));
       return found === 'Yes' ? 'Visible' : 'Not visible';
     }
     case 'banner - set reminder cta':
     case 'banner - set remainder cta': {
+      const scopedContainer = await getScopedLandingPPVContainer(page, eventData);
+      if (scopedContainer) {
+        const found = await scopedContainer
+          .locator('a, button, [role="button"]')
+          .filter({ hasText: /set reminder|set remainder/i })
+          .first()
+          .isVisible({ timeout: 1000 })
+          .catch(() => false);
+        return found ? 'Visible' : 'Not visible';
+      }
       const found = snapExists(n => {
         const text = n.text.toLowerCase();
         return (n.tag === 'button' || n.tag === 'a') &&
@@ -1538,12 +1578,19 @@ export async function getActualValue(
         .replace(/[^a-z0-9]+/g, ' ')
         .split(/\s+/)
         .filter(w => w.length > 2 && !['the', 'and', 'for', 'with', 'from'].includes(w));
-      const found = snapFind(n => {
+      // Find the shortest matching modal node to avoid picking a parent container
+      // that includes promoter + title + date concatenated together
+      const allMatches = snapFindAll(n => {
         if (!n.isInModal) return false;
         const text = n.text.toLowerCase().replace(/\bv(?:s)?\.?\b/g, ' vs ');
         return words.every(w => text.includes(w)) && n.text.length < 120;
       }, true);
-      return found !== 'N/A' ? found : 'Not found';
+      if (allMatches.length > 0) {
+        // Pick the shortest match — the most specific element (e.g. just the title, not the whole modal)
+        allMatches.sort((a, b) => a.length - b.length);
+        return allMatches[0];
+      }
+      return 'Not found';
     }
     case 'fight card modal - event date': {
       let found = snapFind(n => n.isInModal && isDateText(n.text) && n.text.length < 80, true);
@@ -1893,10 +1940,33 @@ export async function getActualValue(
         });
       }
       if (found === 'No') {
-        // Final fallback: Playwright locator check for the actual DAZN popup close button
+        // Playwright fallback 1: common DAZN modal close selectors
         try {
           const closeEl = page.locator(
-            '[class*="modal-close"], [class*="content-promotion"] [class*="close"], [data-test-id="SVG_ICON"]'
+            '[class*="modal-close"], [class*="content-promotion"] [class*="close"], ' +
+            '[class*="modal-dialog"] [class*="close"], [data-test-id="SVG_ICON"]'
+          ).first();
+          const isVisible = await closeEl.isVisible().catch(() => false);
+          if (isVisible) found = 'Yes';
+        } catch { /* ignore */ }
+      }
+      if (found === 'No') {
+        // Playwright fallback 2: aria-label based close / dismiss buttons (SVG icon-only buttons)
+        try {
+          const closeEl = page.locator(
+            '[aria-label*="close" i], [aria-label*="dismiss" i], [aria-label*="Close"]'
+          ).first();
+          const isVisible = await closeEl.isVisible().catch(() => false);
+          if (isVisible) found = 'Yes';
+        } catch { /* ignore */ }
+      }
+      if (found === 'No') {
+        // Playwright fallback 3: any button inside role=dialog / aria-modal popup
+        try {
+          const closeEl = page.locator(
+            '[role="dialog"] button:not([class*="buy" i]):not([class*="cta" i]), ' +
+            '[aria-modal="true"] button:not([class*="buy" i]):not([class*="cta" i]), ' +
+            '[class*="content-promotion"] button:not([class*="buy" i]):not([class*="cta" i])'
           ).first();
           const isVisible = await closeEl.isVisible().catch(() => false);
           if (isVisible) found = 'Yes';
@@ -2350,6 +2420,20 @@ export async function getActualValue(
       if (isLandingOrHomeContext()) {
         const container = await getScopedLandingPPVContainer(page, eventData);
         if (container) {
+          // Purchased Ultimate cards still contain a bell/bookmark and a time
+          // badge. Neither is a PPV lock. Use only explicit lock identifiers
+          // for this entitlement-specific absence validation.
+          if (String(eventData?.__ALLOW_NO_BUY_NOW || '').toLowerCase() === 'true') {
+            const explicitLock = container.locator([
+              '[class*="lock" i]',
+              '[aria-label*="lock" i]',
+              '[data-testid*="lock" i]',
+              'svg[class*="lock" i]',
+              'use[href*="lock" i]'
+            ].join(', ')).first();
+            return await explicitLock.isVisible({ timeout: 2000 }).catch(() => false) ? 'Yes' : 'No';
+          }
+
           const scopedLock = container.locator([
             '[class*="lock" i]',
             '[class*="premium" i]',
@@ -2379,7 +2463,8 @@ export async function getActualValue(
       );
     }
 
-    case 'ppv time on tile': {
+    case 'ppv time on tile':
+    case 'ppv image time': {
       // ── Use pre-captured value from the located event card (set in spec after scrollIntoViewIfNeeded) ──
       if (eventData?.__SCHEDULE_TILE_TIME) return eventData.__SCHEDULE_TILE_TIME;
 
@@ -7304,8 +7389,8 @@ export async function getActualValue(
     }
 
     case 'ppv description': {
-      const ppvDesc = (eventData?.PPV_DESCRIPTION || '').toLowerCase();
-      const firstWord = ppvDesc.split(' ')[0];
+      const bannerDesc = (eventData?.BANNER_DESCRIPTION || eventData?.PPV_DESCRIPTION || '').toLowerCase();
+      const firstWord = bannerDesc.split(' ')[0];
 
       const found = snapFind(n =>
         n.tag === 'p' &&
@@ -7315,7 +7400,7 @@ export async function getActualValue(
         !isPriceText(n.text) &&
         (firstWord ? n.text.toLowerCase().includes(firstWord) : true)
       );
-      return found !== 'N/A' ? 'Yes' : 'No';
+      return found !== 'N/A' ? found : 'N/A';
     }
 
     case 'order summary ppv name': {
@@ -8132,6 +8217,9 @@ export async function getActualValue(
         n.text.length < 80
       );
       if (copy1) {
+        // Prefer full landing banner date + time (e.g. "Sat 25th Jul at 21:30" or "Sun 26th July at 5:00 AM")
+        const fullDateTime = copy1.text.match(/\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\b\s+\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)(?:\s+at\s+\d{1,2}:\d{2}(?:\s*[AP]M)?)?/i);
+        if (fullDateTime) return fullDateTime[0].trim();
         const copy2 = flexSnap.find(n =>
           n.childCount === 0 &&
           n.text.toLowerCase().includes('monthly subscription') &&
@@ -8544,6 +8632,37 @@ export async function getActualValue(
         const scoped = await getScopedLandingPPVContainer(page, eventData);
         if (scoped) container = scoped;
       }
+      const expectedDate = eventData?.LANDING_BANNER_DATE || eventData?.PPV_DATE || '';
+      const expectedHasTime = /\d{1,2}:\d{2}/.test(expectedDate);
+      const fullDateTimeRegex = /\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)(?:day)?\b\s+\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)(?:\s+at\s+\d{1,2}:\d{2}(?:\s*[AP]M)?)?/i;
+      const dateWithTimeRegex = /\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)(?:day)?\b[^\n]{0,40}\d{1,2}:\d{2}(?:\s*[AP]M)?|\b\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)[^\n]{0,30}\d{1,2}:\d{2}(?:\s*[AP]M)?/i;
+
+      if (isLandingOrHome) {
+        const candidateEls = container.locator('time, span, p, div, button, [class*="badge" i], [class*="date" i]');
+        const candidateCount = Math.min(await candidateEls.count().catch(() => 0), 80);
+        const candidates: string[] = [];
+        for (let i = 0; i < candidateCount; i++) {
+          const candidate = candidateEls.nth(i);
+          if (!await candidate.isVisible({ timeout: 100 }).catch(() => false)) continue;
+          const text = clean(await candidate.innerText({ timeout: T }).catch(() => ''));
+          if (text && text.length <= 100) candidates.push(text);
+        }
+
+        if (expectedHasTime) {
+          for (const candidate of candidates) {
+            const matched = candidate.match(dateWithTimeRegex) || candidate.match(fullDateTimeRegex);
+            if (matched && /\d{1,2}:\d{2}/.test(matched[0])) {
+              return matched[0].trim();
+            }
+          }
+        }
+
+        for (const candidate of candidates) {
+          const matched = candidate.match(fullDateTimeRegex);
+          if (matched) return matched[0].trim();
+        }
+      }
+
       const text = clean(await container.textContent().catch(() => ''));
 
       // DAZN banners can show either:
@@ -8553,8 +8672,8 @@ export async function getActualValue(
         /\b(?:today|tomorrow|yesterday)\b(?:\s+at\s+\d{1,2}:\d{2}(?:\s*[AP]M)?)?|\b(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*\b(?:\s+at\s+\d{1,2}:\d{2}(?:\s*[AP]M)?)?|\b\d{1,2}(?:st|nd|rd|th)?\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/i;
 
       if (isLandingOrHome) {
-        // Prefer full landing banner date + time (e.g. "Sat 25th Jul at 21:30")
-        const fullDateTime = text.match(/\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\b\s+\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)(?:\s+at\s+\d{1,2}:\d{2})?/i);
+        // Prefer full landing banner date + time (e.g. "Sat 25th Jul at 21:30" or "Sun 26th July at 5:00 AM")
+        const fullDateTime = text.match(dateWithTimeRegex) || text.match(fullDateTimeRegex);
         if (fullDateTime) return fullDateTime[0].trim();
       }
 

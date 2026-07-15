@@ -2,6 +2,7 @@ import { Page } from '@playwright/test';
 import { BasePage } from './BasePage';
 import { compare } from '../utils/compare';
 import { resolveExpected } from '../utils/resolveExpected';
+import { captureFailures } from '../utils/failureCapture';
 
 /**
  * PPVUpsellSuccessPage — Generic page object for post-payment success pages
@@ -135,6 +136,9 @@ export class PPVUpsellSuccessPage extends BasePage {
       console.log(`  ${icon} [${field}] expected="${expected}" actual="${actual}"`);
       results.push({ page: pageName, field, expected, actual, status });
     }
+
+    // Capture red-boxed screenshots for any failed fields
+    await captureFailures(this.page, results, pageName);
   }
 
   // ─────────────────────────────
@@ -230,6 +234,9 @@ export class PPVUpsellSuccessPage extends BasePage {
       console.log(`  ${icon} [${field}] expected="${expected}" actual="${actual}"`);
       results.push({ page: pageName, field, expected, actual, status });
     }
+
+    // Capture red-boxed screenshots for any failed fields
+    await captureFailures(this.page, results, pageName);
   }
 
   // ─────────────────────────────

@@ -105,7 +105,7 @@ if (!USER_EMAIL || !USER_PASSWORD) {
 
     const { buildEventData } = require('../../../utils/buildEventData');
     const { loadEventConfig } = require('../../../utils/testHelpers');
-    const eventConfig = process.env.PPV_CONFIG || 'aj_joshua_prenga.json';
+    const eventConfig = process.env.PPV_CONFIG || 'ppv_t_joshua_prenga.json';
     const eventJson = loadEventConfig(eventConfig);
     const eventData = buildEventData(eventJson, REGION, 'standard', 'monthly', SOURCE);
     USER_EMAIL = eventData.USER_EMAIL || '';
@@ -292,7 +292,7 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
       const path = require('path');
       const { buildEventData } = require('../../../utils/buildEventData');
       const { loadEventConfig } = require('../../../utils/testHelpers');
-      const EVENT_CONFIG = process.env.PPV_CONFIG || 'aj_joshua_prenga.json';
+      const EVENT_CONFIG = process.env.PPV_CONFIG || 'ppv_t_joshua_prenga.json';
       const PLAN = process.env.PLAN || 'standard_monthly';
 
       const json = loadEventConfig(EVENT_CONFIG, PLAN);
@@ -362,7 +362,7 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
         try {
           const fs = require('fs');
           const path = require('path');
-          const configFileName = process.env.PPV_CONFIG || 'aj_joshua_prenga.json';
+          const configFileName = process.env.PPV_CONFIG || 'ppv_t_joshua_prenga.json';
           const configPath = path.resolve(__dirname, '../../..', 'config/events', configFileName);
           if (fs.existsSync(configPath)) {
             const configData = JSON.parse(fs.readFileSync(configPath, 'utf8'));
@@ -623,7 +623,7 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
 
 
         const REGION = process.env.DAZN_REGION || 'GB';
-        const EVENT_CONFIG = process.env.PPV_CONFIG || 'aj_joshua_prenga.json';
+        const EVENT_CONFIG = process.env.PPV_CONFIG || 'ppv_t_joshua_prenga.json';
         const PLAN = process.env.PLAN || 'standard_monthly';
         const PPV_TYPE = (process.env.PPV_TYPE || 'normal').toLowerCase();
         const SWITCH_TO_ULTIMATE = (process.env.SWITCH || '').toLowerCase() === 'true';

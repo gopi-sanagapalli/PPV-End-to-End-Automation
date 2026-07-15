@@ -57,7 +57,11 @@ export function resolveExpected(
     }
   }
 
-  if (field === 'banner - fight card cta' && pageName.includes('landing')) {
+  if (
+    field === 'banner - fight card cta' &&
+    pageName.includes('landing') &&
+    !String(rule.Flow || rule.flow || '').toLowerCase().includes('ultimate')
+  ) {
     return 'N/A';
   }
 
@@ -179,8 +183,9 @@ export function resolveExpected(
 
     switch ((pageName || "").toLowerCase()) {
       case 'boxing':
-        if (eventData.BOXING_BANNER_DATE) return String(eventData.BOXING_BANNER_DATE);
-        break;
+        // The upcoming-fight card uses the date format specified by its Excel
+        // row ({{LANDING_PAGE_PPV_DATE}}), not the hero banner's date tag.
+        return replacePlaceholders(String(raw ?? ''), eventData);
 
       case 'landing':
       case 'landing page':
@@ -448,6 +453,18 @@ export function resolveExpected(
     if (popupDate) return popupDate;
   }
 
+  // ── home-biggest-fights popup date ───────────────────────────────────────────
+  // The biggest-fights popup shows PPV_POPUP_DATE format (e.g. "25 JUL 1:30PM").
+  // The Excel template resolves via LANDING_PAGE_PPV_DATE which only has the date
+  // ("25 July"), causing a mismatch. Return PPV_POPUP_DATE directly for this source.
+  if (field === 'popup - event date') {
+    const currentSrc = (eventData.SOURCE || eventData.source || '').trim().toLowerCase();
+    if (currentSrc === 'home-biggest-fights' && eventData.PPV_POPUP_DATE) {
+      return String(eventData.PPV_POPUP_DATE);
+    }
+  }
+
+
   if (field === 'popup date') {
     const pDate = eventData.PPV_DATE || '';
     const lpDate = eventData.LANDING_PAGE_PPV_DATE || '';
@@ -461,9 +478,13 @@ export function resolveExpected(
     // Let those template rows resolve naturally.
     const currentSrc = (eventData.SOURCE || eventData.source || '').trim().toLowerCase();
     if (currentSrc !== 'home-page-popup') {
-      if (isActiveStandardUser) {
+      const isLoginFirst = String(eventData.LOGIN_FIRST ?? process.env.LOGIN_FIRST ?? process.env.LOGIN ?? '').toLowerCase() === 'true';
+
+      if (isActiveStandardUser && isLoginFirst) {
+        // User is already logged in — app knows they're active standard
         raw = ACTIVE_STANDARD_PPV_POPUP_DESCRIPTION;
       } else {
+        // User not logged in yet (mid-signup) OR freemium/frozen — app shows generic text
         raw = eventData.PPV_DESCRIPTION || DEFAULT_PPV_POPUP_DESCRIPTION;
       }
     }
@@ -777,12 +798,10 @@ export function resolveExpected(
     'ppv date badge',
     'date badge',
     'banner date badge',
-    'banner - event date',
     'upsell date badge',
     'tile date badge',
     'ppv date',
     'popup date',
-    'popup - event date',
     'welcome tile date',
     'event date',
     'fury payment date',

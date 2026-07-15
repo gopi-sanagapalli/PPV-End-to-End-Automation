@@ -6,6 +6,79 @@ import { Page, BrowserContext } from '@playwright/test';
 export const sleep = (ms: number): Promise<void> =>
   new Promise(r => setTimeout(r, ms));
 
+// ─────────────────────────────────────────────────────────────────
+// DAZN OPENING ERROR PAGE
+// Some VPN/network/session failures still return a 200 response and keep the
+// requested DAZN URL, but render only a `.protected` page saying that DAZN
+// cannot be opened.  Detect it before a later selector assertion turns it
+// into a misleading PPV/UI failure.  A single reload is worthwhile because
+// this page is often transient on shared runners.
+// ─────────────────────────────────────────────────────────────────
+type DaznOpeningErrorSnapshot = {
+  isOpeningError: boolean;
+  message: string;
+};
+
+async function getDaznOpeningErrorSnapshot(page: Page): Promise<DaznOpeningErrorSnapshot> {
+  if (page.isClosed()) return { isOpeningError: false, message: '' };
+
+  return page.evaluate(() => {
+    const bodyText = (document.body?.innerText || '').replace(/\s+/g, ' ').trim();
+    const protectedText = (document.querySelector('body > .protected, body .protected')?.textContent || '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const text = `${bodyText} ${protectedText}`.toLowerCase();
+    const hasProtectedRoot = Boolean(document.querySelector('body > .protected, body .protected'));
+    const hasKnownMessage =
+      /there'?s a problem opening dazn just now/i.test(text) ||
+      /try opening (?:the )?(?:application|app) or (?:the )?browser again later/i.test(text);
+    const isOpeningError = hasKnownMessage || (
+      hasProtectedRoot && /(?:problem|error).*opening dazn|opening dazn.*(?:problem|error)/i.test(text)
+    );
+
+    return {
+      isOpeningError,
+      message: (protectedText || bodyText).slice(0, 500),
+    };
+  }).catch(() => ({ isOpeningError: false, message: '' }));
+}
+
+/**
+ * Reloads the known DAZN "problem opening" page once, then throws a precise
+ * access failure if it persists. Safe to call after any DAZN navigation.
+ */
+export async function assertDaznPageAvailable(
+  page: Page,
+  stage: string = 'page load'
+): Promise<void> {
+  const initial = await getDaznOpeningErrorSnapshot(page);
+  if (!initial.isOpeningError) return;
+
+  console.warn(
+    `⚠️ [DAZN Access Error] Detected DAZN's "There's a problem opening DAZN just now" page during ${stage}. ` +
+    'Refreshing once before failing…'
+  );
+
+  await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch((error: Error) => {
+    console.warn(`⚠️ [DAZN Access Error] Refresh did not complete cleanly: ${error.message}`);
+  });
+  await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => { });
+
+  const afterRefresh = await getDaznOpeningErrorSnapshot(page);
+  if (!afterRefresh.isOpeningError) {
+    console.log(`✅ [DAZN Access Error] Page recovered after one refresh during ${stage}. URL: ${page.url()}`);
+    return;
+  }
+
+  const renderedMessage = afterRefresh.message || initial.message;
+  throw new Error(
+    `❌ [DAZN Access Error] DAZN still displays "There's a problem opening DAZN just now" after one refresh during ${stage}. ` +
+    'This is a DAZN/VPN/network access issue, not a PPV or selector validation failure. ' +
+    `URL: ${page.url()}` +
+    (renderedMessage ? `\nRendered error: ${renderedMessage}` : '')
+  );
+}
+
 
 // ─────────────────────────────────────────────────────────────────
 // HANDLE COOKIES — dismiss cookie banner via UI click
@@ -17,6 +90,10 @@ const _dismissedContexts = new WeakSet<BrowserContext>();
 
 export async function handleCookies(page: Page, timeout: number = 8000): Promise<void> {
   if (page.isClosed()) return;
+
+  // This is called immediately after DAZN navigations throughout new-user,
+  // existing-user, login-first, and sign-in-during-flow journeys.
+  await assertDaznPageAvailable(page, 'post-navigation cookie check');
 
   const context = page.context();
 
@@ -131,7 +208,11 @@ export async function stabilisePage(page: Page): Promise<void> {
 // ─────────────────────────────────────────────────────────────────
 // DISMISS MARKETING POPUP ("Unlock exclusive content")
 // ─────────────────────────────────────────────────────────────────
-export async function dismissMarketingPopup(page: Page, timeout: number = 0): Promise<void> {
+export async function dismissMarketingPopup(
+  page: Page,
+  timeout: number = 0,
+  options: { preservePpvPromo?: boolean } = {}
+): Promise<void> {
   if (page.isClosed()) return;
   try {
     const dismissSelectors = [
@@ -152,7 +233,7 @@ export async function dismissMarketingPopup(page: Page, timeout: number = 0): Pr
     ].join(', ');
 
     const popup = page.locator(dismissSelectors).first();
-    
+
     let isVisible = false;
     if (timeout > 0) {
       isVisible = await popup.waitFor({ state: 'visible', timeout })
@@ -163,7 +244,32 @@ export async function dismissMarketingPopup(page: Page, timeout: number = 0): Pr
     }
 
     if (isVisible) {
+      if (options.preservePpvPromo) {
+        const ppvPromo = page.locator(
+          '[role="dialog"], [aria-modal="true"], [class*="content-promotion" i], [class*="modal" i], [class*="popup" i]'
+        ).filter({ hasText: /buy now/i }).first();
+        if (await ppvPromo.isVisible({ timeout: 500 }).catch(() => false)) {
+          console.log('ℹ️ PPV promo detected — preserving it for validation and Buy Now flow');
+          return;
+        }
+      }
       const btnText = await popup.textContent().catch(() => '');
+
+      // When preservePpvPromo is set, skip dismissing PPV purchase prompts
+      // so the home-page-popup flow can interact with the Buy Now CTA.
+      if (options.preservePpvPromo && btnText) {
+        const lower = btnText.toLowerCase();
+        const isPpvPopup =
+          lower.includes('buy now') ||
+          lower.includes('get it now') ||
+          lower.includes('ppv') ||
+          lower.includes('pay-per-view');
+        if (isPpvPopup) {
+          console.log(`🛡️ PPV promo popup preserved ("${btnText.trim().substring(0, 80)}")`);
+          return;
+        }
+      }
+
       console.log(`🔔 Marketing popup detected ("${btnText?.trim()}"). Dismissing...`);
       await popup.click({ force: true }).catch(() => { });
       console.log('✅ Dismissed marketing popup');
