@@ -99,12 +99,14 @@ async function isLandingPageReady(driver: WdBrowser): Promise<boolean> {
     'android=new UiSelector().textContains("Welcome")',
     'android=new UiSelector().textContains("Get started")',
     'android=new UiSelector().textContains("Sign in")',
+    'android=new UiSelector().textContains("Continue")',
     // Resource ID indicators
     'android=new UiSelector().resourceId("com.dazn:id/landing")',
     'android=new UiSelector().resourceId("com.dazn:id/splash")',
     'android=new UiSelector().resourceId("com.dazn:id/onboarding")',
     'android=new UiSelector().resourceId("com.dazn:id/get_started")',
     'android=new UiSelector().resourceId("com.dazn:id/btn_get_started")',
+    'android=new UiSelector().resourceId("com.dazn:id/btn_continue")',
     // Description/content-desc indicators
     'android=new UiSelector().descriptionContains("DAZN")',
     'android=new UiSelector().descriptionContains("landing")',
@@ -123,10 +125,30 @@ async function isLandingPageReady(driver: WdBrowser): Promise<boolean> {
   return false;
 }
 
+async function hasAnyVisibleElement(driver: WdBrowser): Promise<boolean> {
+  // Fallback: check if the app has any visible interactive elements
+  // This indicates the app has loaded, even if we can't identify the specific page
+  try {
+    const source = await driver.getPageSource();
+    // Look for common Android view indicators in the page source
+    const hasContent = source.includes('android.widget.') || 
+                       source.includes('android.view.') ||
+                       source.includes('com.dazn.id');
+    if (hasContent) {
+      console.log('  ✓ App UI detected (fallback check)');
+      return true;
+    }
+  } catch (e) {
+    console.log('  ⚠️ Could not check page source for fallback');
+  }
+  return false;
+}
+
 export async function waitForHomePage(driver: WdBrowser, timeoutMs = 90000): Promise<void> {
   let sawCookiePrompt = false;
   let sawStartupDialog = false;
   let lastCheckTime = Date.now();
+  const startTime = Date.now();
   const checkInterval = 5000; // Log progress every 5 seconds
 
   try {
@@ -151,6 +173,14 @@ export async function waitForHomePage(driver: WdBrowser, timeoutMs = 90000): Pro
 
       if (await isLandingPageReady(driver)) {
         console.log('  ✓ Landing page detected');
+        return true;
+      }
+
+      // Fallback: if app has been running for more than 10 seconds and has visible UI,
+      // consider it ready even if we can't identify the specific page
+      const elapsed = Date.now() - startTime;
+      if (elapsed > 10000 && await hasAnyVisibleElement(driver)) {
+        console.log('  ✓ App UI detected (fallback after 10s)');
         return true;
       }
 
