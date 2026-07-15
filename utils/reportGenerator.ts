@@ -207,7 +207,6 @@ function buildHtml(results: ReportResult[], meta: ReportMeta, hasGeminiEvidence 
         ? `
         <tr class="shot-row">
           <td colspan="4">
-            <div class="shot-label">FAILED: ${esc(r.field)} — expected "${esc(r.expected)}", actual "${esc(r.actual)}"</div>
             <img class="shot" src="${img}" alt="Screenshot for ${esc(r.field)}"/>
           </td>
         </tr>`
@@ -326,7 +325,6 @@ function buildHtml(results: ReportResult[], meta: ReportMeta, hasGeminiEvidence 
   .st-pass { background: #dcfce7; color: #15803d; } .st-fail { background: #fee2e2; color: #b91c1c; }
   .foot { margin-top: 30px; color: #94a3b8; font-size: 11px; text-align: center; }
   .shot-row td { padding: 4px 12px 12px; background: #fff7f7; text-align: center; }
-  .shot-label { font-size: 11px; color: #dc2626; font-weight: 600; margin-bottom: 6px; }
   .shot { max-width: 100%; width: auto; max-height: 480px; object-fit: contain; border-radius: 6px; 
           margin: 4px auto 0; border: 2px solid #fca5a5; display: block; }
   table.report-files th { width: 30%; }

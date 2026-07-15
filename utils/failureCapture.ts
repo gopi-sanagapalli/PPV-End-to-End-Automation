@@ -208,43 +208,31 @@ export async function captureFailures(
         const box = await target.boundingBox().catch(() => null);
         if (box && box.width > 0 && box.height > 0) {
           overlayId = `ppv-failure-marker-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-          await page.evaluate(({ id, rect, label }: {
+          await page.evaluate(({ id, rect }: {
             id: string;
             rect: { x: number; y: number; width: number; height: number };
-            label: string;
           }) => {
             document.getElementById(id)?.remove();
             const marker = document.createElement('div');
             marker.id = id;
             marker.setAttribute('data-ppv-failure-marker', 'true');
-            marker.textContent = label;
             Object.assign(marker.style, {
               position: 'fixed',
               left: `${Math.max(0, rect.x - 4)}px`,
-              top: `${Math.max(0, rect.y - 28)}px`,
+              top: `${Math.max(0, rect.y - 4)}px`,
               width: `${Math.max(24, rect.width + 8)}px`,
-              height: `${Math.max(24, rect.height + 32)}px`,
+              height: `${Math.max(24, rect.height + 8)}px`,
               border: '4px solid #ff1744',
               borderRadius: '4px',
               boxSizing: 'border-box',
               background: 'rgba(255, 23, 68, 0.18)',
-              color: '#ffffff',
-              fontFamily: 'Arial, sans-serif',
-              fontSize: '12px',
-              fontWeight: '700',
-              lineHeight: '20px',
-              textAlign: 'left',
-              textShadow: '0 1px 2px #000',
               zIndex: '2147483647',
               pointerEvents: 'none',
-              padding: '1px 4px',
-              overflow: 'visible',
             });
             document.body.appendChild(marker);
           }, {
             id: overlayId,
             rect: box,
-            label: `FAILED: ${field}`.slice(0, 90),
           }).catch(() => { });
           await page.waitForTimeout(100);
         }

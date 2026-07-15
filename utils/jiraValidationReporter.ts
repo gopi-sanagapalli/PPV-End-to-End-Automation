@@ -502,8 +502,6 @@ export async function reportValidationFailuresToJira(report: JiraValidationRepor
 
   const context = report.context;
   const runId = process.env.GITHUB_RUN_ID || 'unknown-run';
-  const evidencePath = createEvidenceFile(failures, context, runId);
-  const summary = buildIssueSummary(context, failures);
   const runMetadata = [
     `Repository: ${process.env.GITHUB_REPOSITORY || 'unknown'}`,
     `Workflow: ${process.env.GITHUB_WORKFLOW || 'unknown'}`,
@@ -521,6 +519,20 @@ export async function reportValidationFailuresToJira(report: JiraValidationRepor
       `expected="${asText(failure.expected)}" | actual="${asText(failure.actual)}"`
     );
   }
+  const failureGroups = new Map<string, ValidationResult[]>();
+  for (const failure of failures) {
+    const fingerprint = validationFingerprint(context, [failure]);
+    const group = failureGroups.get(fingerprint) || [];
+    group.push(failure);
+    failureGroups.set(fingerprint, group);
+  }
+
+  for (const [fingerprint, groupFailures] of failureGroups) {
+    // Each Jira ticket represents one underlying mismatch. Multiple occurrences
+    // of that exact mismatch share the same ticket and evidence trail.
+    const failures = groupFailures;
+    const evidencePath = createEvidenceFile(failures, context, runId);
+    const summary = buildIssueSummary(context, failures);
   const firstFailure = failures[0];
   const description = {
     type: 'doc',
@@ -563,14 +575,13 @@ export async function reportValidationFailuresToJira(report: JiraValidationRepor
   };
 
   try {
-    const fingerprint = validationFingerprint(context, failures);
     const existingIssueKey = await findOpenIssueByFingerprint(fingerprint, config);
     if (existingIssueKey) {
       console.log(`♻️ [Jira] Matching open issue ${existingIssueKey} found (fingerprint ${fingerprint}); adding this occurrence instead of creating a duplicate.`);
       await addDuplicateOccurrenceComment(existingIssueKey, context, failures, runMetadata, config);
       await attachEvidence(existingIssueKey, report, evidencePath, failures, config);
       publishJiraIssueLink(existingIssueKey, config.baseUrl);
-      return;
+      continue;
     }
 
     const jiraFields = await resolveJiraCreateFields(config, context);
@@ -617,5 +628,6 @@ export async function reportValidationFailuresToJira(report: JiraValidationRepor
     await attachEvidence(issue.key, report, evidencePath, failures, config);
   } catch (error: any) {
     console.warn(`⚠️ [Jira] Could not create validation issue: ${error?.message || error}`);
+  }
   }
 }
