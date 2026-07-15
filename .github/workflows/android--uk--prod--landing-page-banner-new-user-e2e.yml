@@ -1,4 +1,4 @@
-name: "Android · UK · Prod · New user — landing page banner"
+name: "Android · GB · Prod · New user — landing page banner"
 
 on:
   workflow_dispatch:
@@ -121,7 +121,7 @@ jobs:
 
     env:
       CI: 'true'
-      DAZN_REGION: UK
+      DAZN_REGION: GB
       DAZN_ENV: prod
       SOURCE: ${{ matrix.source }}
       PLAN: ${{ matrix.plan }}
