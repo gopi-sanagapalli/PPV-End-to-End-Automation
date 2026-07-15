@@ -3,10 +3,18 @@ import https from 'https';
 import path from 'path';
 
 type BannerAssessment = {
-  pass: boolean;
+  imageLoaded: 'pass' | 'fail' | 'uncertain';
   imageQuality: 'pass' | 'fail' | 'uncertain';
-  playersVisible: 'pass' | 'fail' | 'uncertain';
-  playersCutOff: 'pass' | 'fail' | 'uncertain';
+
+  heroSubjectVisible: 'pass' | 'fail' | 'uncertain';
+  secondarySubjectVisible: 'pass' | 'fail' | 'uncertain';
+
+  cropping: 'pass' | 'fail' | 'uncertain';
+  distortion: 'pass' | 'fail' | 'uncertain';
+  overlay: 'pass' | 'fail' | 'uncertain';
+
+  confidence: number;
+
   findings: string[];
 };
 
@@ -41,9 +49,19 @@ function parseAssessment(responseBody: string): BannerAssessment {
   if (!text) throw new Error('Gemini returned no text assessment');
 
   const assessment = JSON.parse(text) as BannerAssessment;
-  if (typeof assessment.pass !== 'boolean' || !Array.isArray(assessment.findings)) {
+if (
+    !assessment.imageLoaded ||
+    !assessment.imageQuality ||
+    !assessment.heroSubjectVisible ||
+    !assessment.secondarySubjectVisible ||
+    !assessment.cropping ||
+    !assessment.distortion ||
+    !assessment.overlay ||
+    typeof assessment.confidence !== 'number' ||
+    !Array.isArray(assessment.findings)
+) {
     throw new Error('Gemini returned an invalid banner assessment');
-  }
+}
   return assessment;
 }
 
@@ -71,26 +89,106 @@ export async function validatePpvBannerImage(
     await banner.screenshot({ path: imagePath, type: 'png' });
 
     const image = fs.readFileSync(imagePath).toString('base64');
-    const schema = {
-      type: 'object',
-      properties: {
-        pass: { type: 'boolean', description: 'True only when every requested visual check passes.' },
-        imageQuality: { type: 'string', enum: ['pass', 'fail', 'uncertain'] },
-        playersVisible: { type: 'string', enum: ['pass', 'fail', 'uncertain'] },
-        playersCutOff: { type: 'string', enum: ['pass', 'fail', 'uncertain'] },
-        findings: { type: 'array', items: { type: 'string' } },
-      },
-      required: ['pass', 'imageQuality', 'playersVisible', 'playersCutOff', 'findings'],
-    };
-    const prompt = [
-      'You are a strict visual QA reviewer for a DAZN pay-per-view banner.',
-      'Assess only what is visibly present in this screenshot; do not infer missing details.',
-      'Check: (1) the banner image is not materially blurry, pixelated, broken, or obscured;',
-      '(2) the featured fighter/player subjects are visibly recognisable when people are present;',
-      '(3) no featured subject has a materially unintended crop such as a face or main body being cut off at a banner edge.',
-      'Normal intentional design cropping is acceptable. If the banner contains no person, set playersVisible and playersCutOff to "uncertain" and do not fail solely for that reason.',
-      'Return concise findings suitable for developers.',
-    ].join(' ');
+ const schema = {
+  type: 'object',
+
+  properties: {
+
+    imageLoaded: {
+      type: 'string',
+      enum: ['pass', 'fail', 'uncertain']
+    },
+
+    imageQuality: {
+      type: 'string',
+      enum: ['pass', 'fail', 'uncertain']
+    },
+
+    heroSubjectVisible: {
+      type: 'string',
+      enum: ['pass', 'fail', 'uncertain']
+    },
+
+    secondarySubjectVisible: {
+      type: 'string',
+      enum: ['pass', 'fail', 'uncertain']
+    },
+
+    cropping: {
+      type: 'string',
+      enum: ['pass', 'fail', 'uncertain']
+    },
+
+    distortion: {
+      type: 'string',
+      enum: ['pass', 'fail', 'uncertain']
+    },
+
+    overlay: {
+      type: 'string',
+      enum: ['pass', 'fail', 'uncertain']
+    },
+
+    confidence: {
+      type: 'number'
+    },
+
+    findings: {
+      type: 'array',
+      items: {
+        type: 'string'
+      }
+    }
+  },
+
+  required: [
+    'imageLoaded',
+    'imageQuality',
+    'heroSubjectVisible',
+    'secondarySubjectVisible',
+    'cropping',
+    'distortion',
+    'overlay',
+    'confidence',
+    'findings'
+  ]
+};
+   const prompt = [
+  'You are a senior visual QA engineer reviewing a DAZN promotional banner.',
+
+  'Ignore ALL text on the page.',
+
+  'Do NOT validate:',
+
+  '- event title',
+  '- date',
+  '- price',
+  '- CTA buttons',
+  '- logos',
+  '- plans',
+
+  'Those are validated separately by automation.',
+
+  'Evaluate ONLY the rendered promotional artwork.',
+
+  'Determine whether:',
+
+  '- the banner image has fully loaded',
+  '- the artwork is sharp and not blurry',
+  '- there is no visible distortion or stretching',
+  '- there are no missing image sections',
+  '- no placeholder, skeleton or broken image is visible',
+  '- the hero promotional subject is clearly visible',
+  '- the secondary promotional subject is visible if one exists',
+  '- there is no unintended cropping caused by rendering',
+  '- no overlay or popup obscures the artwork',
+
+  'Treat intentional marketing artwork cropping as PASS.',
+
+  'Return ONLY valid JSON matching the supplied schema.',
+
+  'Do not explain your reasoning outside the findings array.'
+].join(' ');
     const payload = Buffer.from(JSON.stringify({
       contents: [{ parts: [
         { inline_data: { mime_type: 'image/png', data: image } },
@@ -114,8 +212,29 @@ export async function validatePpvBannerImage(
 
     const assessment = parseAssessment(response.body);
     fs.writeFileSync(`${imagePath}.json`, `${JSON.stringify(assessment, null, 2)}\n`);
-    const icon = assessment.pass ? '✅' : '⚠️';
-    console.log(`${icon} [Gemini Banner] ${assessment.pass ? 'PASS' : 'WARNING'} | quality=${assessment.imageQuality} | players=${assessment.playersVisible} | crop=${assessment.playersCutOff}`);
+ const passed =
+    assessment.imageLoaded === 'pass' &&
+    assessment.imageQuality === 'pass' &&
+    assessment.heroSubjectVisible === 'pass' &&
+    assessment.secondarySubjectVisible !== 'fail' &&
+    assessment.cropping === 'pass' &&
+    assessment.distortion === 'pass' &&
+    assessment.overlay === 'pass';
+
+const icon = passed ? '✅' : '⚠️';
+
+console.log(
+`${icon} [Gemini Banner] ${
+    passed ? 'PASS' : 'WARNING'
+} | loaded=${assessment.imageLoaded}` +
+` | quality=${assessment.imageQuality}` +
+` | hero=${assessment.heroSubjectVisible}` +
+` | secondary=${assessment.secondarySubjectVisible}` +
+` | crop=${assessment.cropping}` +
+` | distortion=${assessment.distortion}` +
+` | overlay=${assessment.overlay}` +
+` | confidence=${assessment.confidence}%`
+);
     for (const finding of assessment.findings) console.log(`   [Gemini Banner] ${finding}`);
   } catch (error: any) {
     // Gemini is supplementary QA; an API/quota/model issue must not hide the E2E result.
