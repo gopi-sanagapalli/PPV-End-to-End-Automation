@@ -9,7 +9,10 @@ permissions:
 jobs:
   visual-validation:
     name: Gemini banner validation
-    runs-on: macos-14
+    runs-on:
+      - self-hosted
+      - macOS
+      - ARM64
     # This provides the approved Gemini secret; the page under test remains staging.
     environment:
       name: prod
