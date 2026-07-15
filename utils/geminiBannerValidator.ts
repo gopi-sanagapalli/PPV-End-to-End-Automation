@@ -145,33 +145,39 @@ export async function validateBannerImage(
     ]
   };
   const prompt = [
-    'You are a strict QA visual-test engineer auditing a DAZN promotional banner for defects. Be honest and critical.',
+    'You are an adversarial QA inspector. Your job is to FIND defects in this DAZN banner screenshot. Default assumption: the banner is DEGRADED until proven otherwise.',
 
-    'Check each of the following. Be specific about what you see.',
+    'FIRST: Describe in 1-2 sentences exactly what part of the page is visible in the screenshot. Be specific about what you see — error text, players, artwork, background, etc.',
 
-    '1. **Image Load** – Did the banner image fully load? If you see "403 Forbidden", "404 Not Found", a grey box, skeleton, broken-image icon, or any error text, it has FAILED.',
-    '2. **Image Quality** – Is the artwork sharp or is it blurry, pixelated, or low-resolution?',
-    '3. **Hero Subject Visibility** – Is the main promotional subject (athlete/event artwork) clearly visible and centred?',
-    '4. **Secondary Subject Visibility** – If a secondary subject exists, is it visible? If no secondary subject exists, set "pass".',
-    '5. **Cropping** – Is any artwork unintentionally cut off? Intentional designed cropping is pass.',
-    '6. **Distortion / Stretching** – Are images or text stretched, squeezed, or incorrectly proportioned?',
-    '7. **Overlap / Obscuring** – Is any overlay, popup, or cookie banner covering the artwork?',
-    '8. **Colour & Brand Consistency** – Do colours appear correct and not washed out?',
-    '9. **Text Readability** – Is any text (fight date, event name) clearly readable, not truncated or overlapping?',
-    '10. **Broken / Missing Elements** – Are there any broken images, missing icons, or elements that failed to render?',
-    '11. **Spacing & Alignment** – Are elements well-spaced and properly aligned? No awkward gaps?',
-    '12. **Responsive Fit** – Does the banner fit the viewport correctly? No horizontal scroll or squeezed content?',
-    '13. **CTA Visibility** – Is the call-to-action button (e.g. "Watch Now", "Get Access") visually present and unobscured?',
+    'THEN: Assign pass/fail for each check below. You MUST be honest and critical. If ANYTHING looks wrong (blurry, cropped, low quality, distorted, bad colours, missing parts, broken elements), mark it FAIL.',
 
-    'IMPORTANT RULES:',
-    '- Do NOT use "uncertain" as an escape. You are looking at a screenshot — you CAN see it. Decide: pass or fail.',
-    '- Only use "uncertain" if the element is genuinely not visible or cut off from the screenshot itself.',
-    '- Be critical: if anything looks wrong (blurry, broken, error page, misaligned), mark it as "fail".',
-    '- Set confidence high (80-100%) when you are sure. Set low (0-30%) when the screenshot is unclear.',
-    '- OverallVerdict: "pass" only if ALL checks pass. "fail" if any critical check fails. "review" if minor issues found.',
-    '- Findings array: list each specific defect clearly.',
+    'Checks:',
+    '1. imageLoaded — Did the banner fully load? FAIL if: you see "403", "404", error text, grey/white placeholder, broken image icon, skeleton. PASS only if real artwork is visible.',
+    '2. imageQuality — Is the artwork sharp? FAIL if: blurry, pixelated, low resolution, artifacts, grainy.',
+    '3. heroSubjectVisible — Is the main subject (e.g. athlete) clearly visible? FAIL if: cut off, partially hidden, too small, or not visible.',
+    '4. secondarySubjectVisible — Is a secondary subject (like opponent) visible? FAIL only if a second subject clearly should be there but is missing.',
+    '5. cropping — Is artwork unintentionally cut? FAIL if: players/faces/important content are cut off at edges. PASS if cropping is intentional/designed.',
+    '6. distortion — Are images/text stretched/squeezed/wrong aspect ratio? FAIL if distorted.',
+    '7. overlay — Is a cookie banner, popup, or UI element covering the artwork? FAIL if obscured.',
+    '8. colorsMatchBrand — Do colours look correct (DAZN dark/navy palette)? FAIL if: washed out, wrong colours, looks like a placeholder/default.',
+    '9. textReadable — Is text on the artwork readable? FAIL if: truncated, overlapping, too small to read, or missing.',
+    '10. noBrokenElements — Any broken images, missing icons, empty spaces where content should be? FAIL if broken.',
+    '11. spacingAligned — Are elements well-spaced? FAIL if: misaligned, awkward gaps, crammed.',
+    '12. responsiveFit — Does the banner fit the viewport? FAIL if: content squeezed to one side, horizontal scroll, empty space.',
+    '13. ctaVisible — Is the CTA button (e.g. "Watch Now") visible and unobscured? FAIL if: not visible or partially covered.',
 
-    'Return ONLY valid JSON matching the schema. Each check must be exactly "pass" or "fail" (not "uncertain" unless unavoidable).',
+    'FATAL DEFAULTS — if ANY of these are true, mark ALL 13 checks as "fail":',
+    '- Error page (403, 404, 500) is visible',
+    '- Only a grey/white background with no artwork',
+    '- Banner area is completely blank',
+
+    'Findings: REQUIRED. You MUST list at least 1 specific finding describing what is wrong or what you see. If the banner looks perfect, still describe what you see ("Banner shows NFL artwork with players visible, sharp quality"). Empty findings array is NOT ALLOWED.',
+
+    'overallVerdict: "pass" only if artwork is clearly correct and high quality. "fail" if ANY single check is fail. "review" if borderline.',
+
+    'confidence: 0-100. 90-100 only if banner is pristine. 0-30 if there are clear defects.',
+
+    'Return ONLY valid JSON matching the schema. Do NOT use "uncertain" — force yourself to pick pass or fail.',
   ].join(' ');
     const payload = Buffer.from(JSON.stringify({
       contents: [{ parts: [
@@ -195,8 +201,10 @@ export async function validateBannerImage(
     }
 
     const assessment = parseAssessment(response.body);
-  const MIN_CONFIDENCE = 50;
+  const MIN_CONFIDENCE = 60;
+  const hasFindings = Array.isArray(assessment.findings) && assessment.findings.length > 0;
   const passed =
+    hasFindings &&
     assessment.overallVerdict === 'pass' &&
     assessment.confidence >= MIN_CONFIDENCE &&
     assessment.imageLoaded === 'pass' &&
