@@ -91,9 +91,8 @@ jobs:
           const plans = ['standard_monthly', 'standard_apm', 'ultimate_apm', 'ultimate_upfront'];
 
           const matrix = [];
-          const runners = ['runner-1', 'runner-2'];
-          for (let i = 0; i < plans.length; i++) {
-            matrix.push({ source, plan: plans[i], runner: runners[i] });
+          for (const plan of plans) {
+            matrix.push({ source, plan });
           }
 
           console.log(`Source: ${source}`);
@@ -111,13 +110,12 @@ jobs:
       - self-hosted
       - macOS
       - ARM64
-      - ${{ matrix.runner }}
 
     timeout-minutes: 30
 
     strategy:
       fail-fast: false
-      max-parallel: 2
+      max-parallel: 1
       matrix:
         include: ${{ fromJSON(needs.prepare-matrix.outputs.matrix) }}
 
