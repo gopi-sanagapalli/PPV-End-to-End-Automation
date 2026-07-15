@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { validateBannerImage } from '../../utils/geminiBannerValidator';
+import { handleCookies } from '../../utils/helpers';
 
 const nflWelcomeUrl = 'https://stag.dazn.com/en-GB/welcome/nfl';
 
@@ -14,7 +15,8 @@ test('Gemini rejects degraded NFL welcome banner artwork on staging', async ({ p
   await page.goto(nflWelcomeUrl, { waitUntil: 'domcontentloaded' });
   await page.locator('body').waitFor({ state: 'visible', timeout: 30_000 });
   await page.waitForLoadState('networkidle', { timeout: 10_000 }).catch(() => undefined);
-  await page.waitForTimeout(5_000);
+  await handleCookies(page, 5000);
+  await page.waitForTimeout(2_000);
 
   const result = await validateBannerImage(page, {
     region: 'GB',

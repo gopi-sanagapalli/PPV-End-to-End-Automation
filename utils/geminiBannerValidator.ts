@@ -140,10 +140,10 @@ export async function validateBannerImage(
       'Fail if any featured subject cannot be clearly identified.',
 
       '• fighterCropping',
-      'Determine whether any featured fighter is unintentionally cropped.',
-      'This includes the head, face, shoulders, arms, torso or legs being cut off by the visible edge of the banner.',
-      'Creative zooming is acceptable.',
-      'However, if part of the fighter extends outside the visible banner area, mark this as FAIL.',
+      'CRITICAL RULE: If ANY part of a fighter is cut off by the edge of the banner image, this is a FAIL.',
+      'This includes: head, hair, face, ears, shoulders, arms, hands, torso, legs, feet being cut off at the top, bottom, left, or right edge.',
+      'Even if the cropping looks intentional or artistic, if the fighter is not 100% fully within the frame, mark as FAIL.',
+      'PASS only if every fighter is completely inside the banner with no part extending beyond the visible edge.',
 
       '• imageDistortion',
       'Fail if the artwork appears stretched, squashed, warped or rendered with an incorrect aspect ratio.',
