@@ -70,7 +70,7 @@ function parseAssessment(responseBody: string): BannerAssessment {
  */
 export async function validateBannerImage(
   banner: { screenshot(options: { path: string; type: 'png' }): Promise<Buffer> },
-  context: { region: string; flow: string; url?: string }
+  context: { region: string; flow: string; url?: string; fighterNames?: string[] }
 ): Promise<BannerValidationResult | null> {
   if (process.env.GITHUB_ACTIONS !== 'true' && process.env.GEMINI_BANNER_VALIDATION !== 'true') return null;
 
@@ -107,12 +107,18 @@ export async function validateBannerImage(
         'confidence', 'findings'
       ]
     };
+    const fighterNames = context.fighterNames?.length ? context.fighterNames : [];
+    const fighterNamesText = fighterNames.length
+      ? ` The featured fighters for this event are: ${fighterNames.join(' and ')}.`
+      : '';
+
     const prompt = [
       'You are a senior QA engineer reviewing a DAZN promotional banner.',
 
       'Your responsibility is to judge ONLY the promotional artwork.',
       'Ignore all marketing copy, event names, dates, prices, logos, CTAs and UI text.',
       'Those are validated separately by automation.',
+      fighterNamesText,
 
       'If the screenshot does not contain the expected promotional banner artwork, treat the validation as failed.',
       'Examples include:',
@@ -138,6 +144,8 @@ export async function validateBannerImage(
       '• fightersVisible',
       'Are all featured fighters or promotional subjects clearly visible?',
       'Fail if any featured subject cannot be clearly identified.',
+      'CRITICAL: If you can only see a partial face (e.g., just the nose, one eye, or a chin), mark as FAIL.',
+      'A fighter is only "visible" if their complete face and head are clearly identifiable.',
 
       '• fighterCropping',
       'CRITICAL RULE: If ANY part of a fighter is cut off by the edge of the banner image, this is a FAIL.',
