@@ -30,6 +30,19 @@ type JiraValidationReport = {
 
 const MAX_ATTACHMENTS = 12;
 
+function attachmentMimeType(filePath: string): string {
+  switch (path.extname(filePath).toLowerCase()) {
+    case '.html': return 'text/html; charset=utf-8';
+    case '.pdf': return 'application/pdf';
+    case '.json': return 'application/json';
+    case '.png': return 'image/png';
+    case '.jpg':
+    case '.jpeg': return 'image/jpeg';
+    case '.webm': return 'video/webm';
+    default: return 'application/octet-stream';
+  }
+}
+
 type JiraCreateField = {
   fieldId?: string;
   key?: string;
@@ -320,9 +333,10 @@ async function attachFile(
 
   const content = await fs.promises.readFile(filePath);
   const filename = path.basename(filePath).replace(/[\r\n"]/g, '_');
+  const mimeType = attachmentMimeType(filePath);
   const boundary = `----dazn-jira-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const body = Buffer.concat([
-    Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: application/octet-stream\r\n\r\n`),
+    Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: ${mimeType}\r\n\r\n`),
     content,
     Buffer.from(`\r\n--${boundary}--\r\n`),
   ]);

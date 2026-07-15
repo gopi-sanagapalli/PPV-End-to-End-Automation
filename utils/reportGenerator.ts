@@ -207,6 +207,7 @@ function buildHtml(results: ReportResult[], meta: ReportMeta, hasGeminiEvidence 
         ? `
         <tr class="shot-row">
           <td colspan="4">
+            <div class="shot-label">FAILED: ${esc(r.field)} — expected "${esc(r.expected)}", actual "${esc(r.actual)}"</div>
             <img class="shot" src="${img}" alt="Screenshot for ${esc(r.field)}"/>
           </td>
         </tr>`

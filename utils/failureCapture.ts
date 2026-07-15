@@ -58,12 +58,21 @@ async function findTarget(page: any, candidates: string[]): Promise<any | null> 
     try {
       const locator = page.getByText(text, { exact: false });
       const count = await locator.count().catch(() => 0);
+      let best: any = null;
+      let bestArea = Infinity;
       for (let i = 0; i < count; i++) {
         const item = locator.nth(i);
-        if (await item.isVisible().catch(() => false)) {
-          return item;
+        if (!await item.isVisible().catch(() => false)) continue;
+        // getByText can match both a small date tag and its whole banner parent.
+        // Prefer the smallest visible match so the marker surrounds the field.
+        const box = await item.boundingBox().catch(() => null);
+        const area = box ? box.width * box.height : Infinity;
+        if (area > 0 && area < bestArea) {
+          best = item;
+          bestArea = area;
         }
       }
+      if (best) return best;
     } catch { /* try next candidate */ }
   }
   return null;
@@ -169,6 +178,7 @@ export async function captureFailures(
     );
 
     let handle: any = null;
+    let overlayId: string | null = null;
     try {
       const candidates = matchCandidates(r);
       const isPopupField = String(field).toLowerCase().replace(/\s+/g, ' ').trim().startsWith('popup');
@@ -193,6 +203,50 @@ export async function captureFailures(
             el.scrollIntoView({ block: 'center', inline: 'center' });
           }, handle).catch(() => { });
           await page.waitForTimeout(150);
+        }
+
+        const box = await target.boundingBox().catch(() => null);
+        if (box && box.width > 0 && box.height > 0) {
+          overlayId = `ppv-failure-marker-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+          await page.evaluate(({ id, rect, label }: {
+            id: string;
+            rect: { x: number; y: number; width: number; height: number };
+            label: string;
+          }) => {
+            document.getElementById(id)?.remove();
+            const marker = document.createElement('div');
+            marker.id = id;
+            marker.setAttribute('data-ppv-failure-marker', 'true');
+            marker.textContent = label;
+            Object.assign(marker.style, {
+              position: 'fixed',
+              left: `${Math.max(0, rect.x - 4)}px`,
+              top: `${Math.max(0, rect.y - 28)}px`,
+              width: `${Math.max(24, rect.width + 8)}px`,
+              height: `${Math.max(24, rect.height + 32)}px`,
+              border: '4px solid #ff1744',
+              borderRadius: '4px',
+              boxSizing: 'border-box',
+              background: 'rgba(255, 23, 68, 0.18)',
+              color: '#ffffff',
+              fontFamily: 'Arial, sans-serif',
+              fontSize: '12px',
+              fontWeight: '700',
+              lineHeight: '20px',
+              textAlign: 'left',
+              textShadow: '0 1px 2px #000',
+              zIndex: '2147483647',
+              pointerEvents: 'none',
+              padding: '1px 4px',
+              overflow: 'visible',
+            });
+            document.body.appendChild(marker);
+          }, {
+            id: overlayId,
+            rect: box,
+            label: `FAILED: ${field}`.slice(0, 90),
+          }).catch(() => { });
+          await page.waitForTimeout(100);
         }
       }
 
@@ -219,6 +273,9 @@ export async function captureFailures(
           el.style.outlineOffset = (el as any).__prevOffset || '';
           el.style.backgroundColor = (el as any).__prevBackground || '';
         }, handle).catch(() => { });
+      }
+      if (overlayId) {
+        await page.evaluate((id: string) => document.getElementById(id)?.remove(), overlayId).catch(() => { });
       }
     }
   }
