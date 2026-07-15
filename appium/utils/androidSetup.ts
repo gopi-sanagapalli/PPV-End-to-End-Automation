@@ -10,6 +10,7 @@ type WdElement = any;
 
 type PrepareAndroidAppOptions = {
   clearAppData?: boolean;
+  waitForHome?: boolean;
 };
 
 function adb(cmd: string): string {
@@ -137,6 +138,30 @@ export async function prepareAndroidApp(driver: WdBrowser, options: PrepareAndro
   console.log('📱 Preparing Android app');
   console.log('═══════════════════════════════════════');
 
+  // Set device timezone to match region
+  const REGION = (process.env.DAZN_REGION || 'GB').toUpperCase();
+  const tzMap: Record<string, string> = {
+    GB:  'Europe/London',
+    UK:  'Europe/London',
+    US:  'America/New_York',
+    UAE: 'Asia/Dubai',
+    AU:  'Australia/Sydney',
+    BR:  'America/Sao_Paulo',
+    DE:  'Europe/Berlin',
+    IT:  'Europe/Rome',
+    ES:  'Europe/Madrid',
+    FR:  'Europe/Paris',
+    CA:  'America/Toronto',
+    JP:  'Asia/Tokyo',
+  };
+  const targetTz = tzMap[REGION] || 'Europe/London';
+  try {
+    adb(`shell setprop persist.sys.timezone ${targetTz}`);
+    console.log(`✅ Set Android device timezone to: ${targetTz}`);
+  } catch (err: any) {
+    console.warn(`⚠️ Failed to set device timezone via ADB: ${err.message}`);
+  }
+
   // Kill app if already running
   try {
     await driver.terminateApp(APP_PACKAGE);
@@ -158,7 +183,11 @@ export async function prepareAndroidApp(driver: WdBrowser, options: PrepareAndro
   await driver.activateApp(APP_PACKAGE);
   console.log('🚀 App launched');
 
-  await waitForHomePage(driver);
+  if (options.waitForHome !== false) {
+    await waitForHomePage(driver);
+  } else {
+    console.log('ℹ️ Skipping waiting for Home page');
+  }
 
   console.log('✅ Android app ready');
   console.log('═══════════════════════════════════════');

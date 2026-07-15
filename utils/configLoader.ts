@@ -76,7 +76,7 @@ export function loadEventConfig(eventConfigOrKey?: string, planKeyOverride?: str
     if (!filename.toLowerCase().endsWith('.json')) {
       filename += '.json';
     }
-    const configDir = path.resolve(process.cwd(), 'config');
+    const configDir = path.resolve(__dirname, '../config');
     filePath = findConfig(configDir, filename);
   }
 
@@ -95,7 +95,7 @@ export function loadEventConfig(eventConfigOrKey?: string, planKeyOverride?: str
 
   // Load plan data if needed
   const planKey = planKeyOverride || process.env.PLAN || 'standard_monthly';
-  const configDir = path.resolve(process.cwd(), 'config');
+  const configDir = path.resolve(__dirname, '../config');
   const plansPath = path.join(configDir, 'DaznPlan.json');
   let planData: any = {};
 
