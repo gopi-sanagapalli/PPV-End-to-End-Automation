@@ -12,6 +12,19 @@ import path from 'path';
 // ─────────────────────────────────────────────────────────────────
 
 const SHOTS_DIR = path.resolve(process.cwd(), 'test-results', 'failure-shots');
+const FAILURE_BANNER_MARKER = 'data-ppv-failure-banner';
+const BANNER_ROOT_SELECTORS = [
+  'main [class*="hero-banner" i]',
+  'main [class*="heroBanner" i]',
+  'main [class*="herobanner" i]',
+  'main div.heroBannerSlider',
+  'main [class*="bannersContainer" i]',
+  'main [class*="hero-slider" i]',
+  'main [class*="heroSlider" i]',
+  'main [class*="hero" i] .swiper',
+  'main [class*="banner" i] .swiper',
+  'main .swiper-container',
+].join(', ');
 
 // Values that are not real on-screen text and so can't be boxed directly
 const NON_TEXT = new Set(['n/a', 'na', 'yes', 'no', 'true', 'false', '', '—']);
@@ -76,6 +89,68 @@ async function findTarget(page: any, candidates: string[]): Promise<any | null> 
     } catch { /* try next candidate */ }
   }
   return null;
+}
+
+/**
+ * Banner carousels may rotate after validation but before a failure screenshot
+ * is taken. Re-select the PPV slide and mark it so evidence is scoped to the
+ * content that was actually validated, not the currently active promotion.
+ */
+async function activatePpvBannerForEvidence(page: any, ppvName: string): Promise<any | null> {
+  const activated = await page.evaluate(({ marker, name, selector }: {
+    marker: string;
+    name: string;
+    selector: string;
+  }) => {
+    const words = name
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, ' ')
+      .split(/\s+/)
+      .filter(word => word.length > 2);
+    if (!words.length) return false;
+
+    document.querySelectorAll(`[${marker}]`).forEach(node => node.removeAttribute(marker));
+    const roots = Array.from(document.querySelectorAll(selector)) as HTMLElement[];
+
+    for (const root of roots) {
+      const slides = Array.from(
+        root.querySelectorAll('.swiper-slide:not(.swiper-slide-duplicate)')
+      ) as HTMLElement[];
+      const target = slides.find(slide => {
+        const text = (slide.innerText || slide.textContent || '')
+          .toLowerCase()
+          .replace(/[^a-z0-9]/g, ' ')
+          .replace(/\s+/g, ' ');
+        return words.every(word => text.includes(word));
+      });
+      if (!target) continue;
+
+      try { (root as any).swiper?.autoplay?.stop(); } catch { }
+      try { (root.querySelector('.swiper') as any)?.swiper?.autoplay?.stop(); } catch { }
+      const wrapper = root.querySelector('.swiper-wrapper') as HTMLElement | null;
+      if (wrapper) wrapper.style.transitionDuration = '0ms';
+
+      root.querySelectorAll('.swiper-slide').forEach(node => {
+        const slide = node as HTMLElement;
+        slide.classList.remove('swiper-slide-active', 'swiper-slide-next', 'swiper-slide-prev');
+        slide.style.opacity = '0';
+        slide.style.pointerEvents = 'none';
+      });
+      target.classList.add('swiper-slide-active');
+      target.style.opacity = '1';
+      target.style.pointerEvents = 'auto';
+      target.setAttribute(marker, 'true');
+      return true;
+    }
+    return false;
+  }, { marker: FAILURE_BANNER_MARKER, name: ppvName, selector: BANNER_ROOT_SELECTORS }).catch(() => false);
+
+  if (!activated) return null;
+
+  const target = page.locator(`[${FAILURE_BANNER_MARKER}]`).last();
+  await target.waitFor({ state: 'visible', timeout: 3000 }).catch(() => { });
+  console.log(`✅ [Fail Shot] Re-activated PPV banner "${ppvName}" before evidence capture.`);
+  return target;
 }
 
 async function findPopupContainer(page: any): Promise<any | null> {
@@ -158,7 +233,8 @@ async function findPopupTarget(page: any, candidates: string[]): Promise<any | n
 export async function captureFailures(
   page: any,
   results: any[],
-  pageName: string
+  pageName: string,
+  context?: Record<string, any>
 ): Promise<void> {
   if (!page || page.isClosed()) return;
 
@@ -182,7 +258,14 @@ export async function captureFailures(
     try {
       const candidates = matchCandidates(r);
       const isPopupField = String(field).toLowerCase().replace(/\s+/g, ' ').trim().startsWith('popup');
+      const isBannerField = String(field).toLowerCase().includes('banner');
+      const source = String(context?.SOURCE || context?.source || '').toLowerCase();
+      const ppvName = String(context?.PPV_NAME || context?.PPV_DISPLAY_NAME || '').trim();
+      const banner = isBannerField && source.includes('banner') && ppvName
+        ? await activatePpvBannerForEvidence(page, ppvName)
+        : null;
       const target = (isPopupField ? await findPopupTarget(page, candidates) : null) ||
+        (banner ? await findTarget(banner, candidates) : null) ||
         await findTarget(page, candidates);
 
       if (target) {
@@ -265,6 +348,9 @@ export async function captureFailures(
       if (overlayId) {
         await page.evaluate((id: string) => document.getElementById(id)?.remove(), overlayId).catch(() => { });
       }
+      await page.locator(`[${FAILURE_BANNER_MARKER}]`).evaluateAll((nodes: Element[]) => {
+        nodes.forEach((node: Element) => node.removeAttribute(FAILURE_BANNER_MARKER));
+      }).catch(() => { });
     }
   }
 }
