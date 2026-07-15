@@ -112,63 +112,82 @@ export async function validateBannerImage(
       ? ` The featured fighters for this event are: ${fighterNames.join(' and ')}.`
       : '';
 
-    const prompt = [
-      'You are a senior QA engineer reviewing a DAZN promotional banner.',
+const prompt = [
+  'You are a senior QA engineer reviewing a DAZN promotional banner.',
 
-      'Your responsibility is to judge ONLY the promotional artwork.',
-      'Ignore all marketing copy, event names, dates, prices, logos, CTAs and UI text.',
-      'Those are validated separately by automation.',
-      fighterNamesText,
+  'Your responsibility is to validate ONLY the promotional artwork.',
+  'Ignore all marketing copy, event names, dates, prices, logos, CTA buttons and UI text.',
+  'These are validated separately by automation.',
 
-      'If the screenshot does not contain the expected promotional banner artwork, treat the validation as failed.',
-      'Examples include:',
-      '- VPN warning',
-      '- cookie wall covering the banner',
-      '- login page',
-      '- 403/404 error',
-      '- placeholder',
-      '- skeleton loader',
-      '- broken image',
+  fighterNamesText,
 
-      'Review the artwork exactly as a human QA engineer would.',
+  'Use the expected promotional subjects only to determine who should appear in the artwork.',
+  'Mention the expected subject names in the findings whenever possible.',
 
-      'Evaluate the following:',
+  'If the screenshot does not show the expected promotional artwork, mark the validation as failed.',
+  'Examples include:',
+  '- VPN warning',
+  '- Cookie consent page covering the banner',
+  '- Login page',
+  '- 403/404 error page',
+  '- Placeholder image',
+  '- Skeleton loader',
+  '- Broken or missing image',
 
-      '• imageLoaded',
-      'Is the promotional artwork actually present and completely rendered?',
+  'Review the artwork exactly as an experienced QA engineer would.',
 
-      '• imageQuality',
-      'Is the artwork visually sharp and production quality?',
-      'Fail if it is blurry, heavily compressed, pixelated or low resolution.',
+  'Evaluate the following:',
 
-      '• fightersVisible',
-      'Are all featured fighters or promotional subjects clearly visible?',
-      'Fail if any featured subject cannot be clearly identified.',
-      'CRITICAL: If you can only see a partial face (e.g., just the nose, one eye, or a chin), mark as FAIL.',
-      'A fighter is only "visible" if their complete face and head are clearly identifiable.',
+  '• imageLoaded',
+  'pass only if the promotional artwork has loaded completely.',
+  'fail if the artwork is missing, replaced by an error page, placeholder, skeleton loader or other non-promotional content.',
 
-      '• fighterCropping',
-      'CRITICAL RULE: If ANY part of a fighter is cut off by the edge of the banner image, this is a FAIL.',
-      'This includes: head, hair, face, ears, shoulders, arms, hands, torso, legs, feet being cut off at the top, bottom, left, or right edge.',
-      'Even if the cropping looks intentional or artistic, if the fighter is not 100% fully within the frame, mark as FAIL.',
-      'PASS only if every fighter is completely inside the banner with no part extending beyond the visible edge.',
+  '• imageQuality',
+  'pass if the artwork is visually sharp and suitable for production.',
+  'fail if the artwork is blurry, pixelated, heavily compressed or noticeably low resolution.',
 
-      '• imageDistortion',
-      'Fail if the artwork appears stretched, squashed, warped or rendered with an incorrect aspect ratio.',
+  '• fightersVisible',
+  'Determine whether every expected promotional subject can be confidently identified.',
+  'pass if each expected subject is clearly recognizable.',
+  'fail if any expected subject is missing, cannot be confidently identified or the image quality prevents identification.',
+  'A subject does NOT fail simply because only the upper body is shown.',
+  'Chest-up or waist-up promotional artwork is acceptable.',
 
-      '• overlayObstructingArtwork',
-      'Fail if any popup, modal, cookie banner, VPN warning or other overlay blocks a meaningful portion of the promotional artwork.',
+  '• fighterCropping',
+  'Determine whether the visible upper-body portrait is unintentionally cropped.',
+  'For DAZN promotional artwork, evaluate only the visible portrait area (typically chest-up or waist-up).',
+  'pass if the portrait is naturally framed and no unintended clipping is present.',
+  'fail if the banner edge cuts through the head, hair, forehead, face, chin, ears, neck, shoulders or upper chest.',
+  'Do NOT fail simply because the lower body, waist or legs are not shown.',
 
-      'Provide findings exactly as a QA engineer would describe them.',
-      'Describe only what you actually observe.',
-      'Do not speculate.',
+  '• imageDistortion',
+  'pass if the artwork maintains the correct proportions.',
+  'fail if the artwork appears stretched, squashed, warped or displayed with an incorrect aspect ratio.',
 
-      'Confidence should be between 0 and 100.',
-      '100 means you are completely certain.',
-      '0 means you cannot reliably assess the artwork.',
+  '• overlayObstructingArtwork',
+  'fail if a popup, cookie banner, VPN warning, modal or other overlay blocks a significant portion of the promotional artwork.',
 
-      'Return ONLY JSON matching the supplied schema.',
-    ].join(' ');
+  'Findings:',
+  'Write concise QA observations describing only what is visible.',
+  'Do not speculate.',
+  'Mention the expected subject names whenever possible.',
+  'Examples:',
+  '- Joshua is clearly visible.',
+  '- Prenga is clearly visible.',
+  '- Joshua is unintentionally cropped at the head.',
+  '- The promotional artwork is heavily pixelated.',
+  '- A cookie banner obscures the lower portion of the artwork.',
+
+  'Confidence:',
+  'Return a value between 0 and 100.',
+  '95-99 = Very confident.',
+  '80-94 = Confident.',
+  '50-79 = Moderate confidence.',
+  '0-49 = Unable to reliably assess.',
+  'Use 100 only when absolutely no ambiguity exists.',
+
+  'Return ONLY valid JSON matching the supplied schema.',
+].join(' ');
     const payload = Buffer.from(JSON.stringify({
       contents: [{ parts: [
         { inline_data: { mime_type: 'image/png', data: image } },
