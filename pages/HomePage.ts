@@ -2,7 +2,7 @@ import { Page } from '@playwright/test';
 import { LandingPage } from './LandingPage';
 import { RailsInterceptor } from '../utils/railsInterceptor';
 import { pollForHomePagePopup, logoutForPopupRetry, clickAndWaitForNav } from '../utils/testHelpers';
-import { dismissMarketingPopup, handleCookies, stabilisePage } from '../utils/helpers';
+import { assertDaznPageAvailable, dismissMarketingPopup, handleCookies, stabilisePage } from '../utils/helpers';
 import { validateVariant } from '../flows/validateVariant';
 import { getHomePageData } from '../utils/excelReader';
 
@@ -24,6 +24,7 @@ export class HomePage extends LandingPage {
 
     console.log(`✅ [HomePage] Welcome page loaded: ${this.page.url()}`);
     await this.clickExplore();
+    await assertDaznPageAvailable(this.page, 'home page navigation');
 
     console.log(`✅ [HomePage] Home page loaded: ${this.page.url()}`);
 

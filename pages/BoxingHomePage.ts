@@ -1,6 +1,7 @@
 import { Page } from '@playwright/test';
 import { HomePage } from './HomePage';
 import selectors from '../config/selectors.json';
+import { assertDaznPageAvailable } from '../utils/helpers';
 
 /**
  * BoxingHomePage — Page object to dynamically handle navigation and checkout flow
@@ -64,6 +65,7 @@ export class BoxingHomePage extends HomePage {
     }
 
     await this.waitForSportPageContent(targetSport);
+    await assertDaznPageAvailable(this.page, `${targetSport} sport page navigation`);
     const validated = await this.validateSportCompetitionPage(targetSport);
     if (!validated) {
       console.log(`⚠️ "Best of ${targetSport}" section not found — but continuing`);
@@ -80,6 +82,7 @@ export class BoxingHomePage extends HomePage {
     console.log(`🌍 Navigating to Welcome page: ${welcomeUrl}`);
     await this.page.goto(welcomeUrl, { waitUntil: 'domcontentloaded' });
     await this.page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => { });
+    await assertDaznPageAvailable(this.page, 'welcome page navigation');
     await this.dismissConsentIfPresent();
 
     console.log(`✅ Welcome page loaded: ${this.page.url()}`);

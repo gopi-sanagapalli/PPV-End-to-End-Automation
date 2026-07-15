@@ -47,10 +47,10 @@
   "regions": {
     "GB": {
       "LANDING_PAGE_PPV_DATE": "25 July",
-      "PPV_DATE": "Sat 25th Jul at 20:00",
+      "PPV_DATE": "Sat 25th Jul at 00:00",
       "PPV_PAGE_DATE": "Sat 25th Jul at 20:00",
       "PPV_TIME": "20:00",
-      "LANDING_BANNER_DATE": "SAT 25TH JUL AT 20:00",
+      "LANDING_BANNER_DATE": "SAT 25TH JUL AT 0:00",
       "HOME_POPUP_DATE": "SAT 25TH JUL AT 20:00",
       "PPV_POPUP_DATE": "25 JUL 2:00PM",
       "SEARCH_PPV_DATE_TIME": "25 JUL 2:00PM",

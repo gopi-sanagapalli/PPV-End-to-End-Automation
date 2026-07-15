@@ -6,6 +6,79 @@ import { Page, BrowserContext } from '@playwright/test';
 export const sleep = (ms: number): Promise<void> =>
   new Promise(r => setTimeout(r, ms));
 
+// ─────────────────────────────────────────────────────────────────
+// DAZN OPENING ERROR PAGE
+// Some VPN/network/session failures still return a 200 response and keep the
+// requested DAZN URL, but render only a `.protected` page saying that DAZN
+// cannot be opened.  Detect it before a later selector assertion turns it
+// into a misleading PPV/UI failure.  A single reload is worthwhile because
+// this page is often transient on shared runners.
+// ─────────────────────────────────────────────────────────────────
+type DaznOpeningErrorSnapshot = {
+  isOpeningError: boolean;
+  message: string;
+};
+
+async function getDaznOpeningErrorSnapshot(page: Page): Promise<DaznOpeningErrorSnapshot> {
+  if (page.isClosed()) return { isOpeningError: false, message: '' };
+
+  return page.evaluate(() => {
+    const bodyText = (document.body?.innerText || '').replace(/\s+/g, ' ').trim();
+    const protectedText = (document.querySelector('body > .protected, body .protected')?.textContent || '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const text = `${bodyText} ${protectedText}`.toLowerCase();
+    const hasProtectedRoot = Boolean(document.querySelector('body > .protected, body .protected'));
+    const hasKnownMessage =
+      /there'?s a problem opening dazn just now/i.test(text) ||
+      /try opening (?:the )?(?:application|app) or (?:the )?browser again later/i.test(text);
+    const isOpeningError = hasKnownMessage || (
+      hasProtectedRoot && /(?:problem|error).*opening dazn|opening dazn.*(?:problem|error)/i.test(text)
+    );
+
+    return {
+      isOpeningError,
+      message: (protectedText || bodyText).slice(0, 500),
+    };
+  }).catch(() => ({ isOpeningError: false, message: '' }));
+}
+
+/**
+ * Reloads the known DAZN "problem opening" page once, then throws a precise
+ * access failure if it persists. Safe to call after any DAZN navigation.
+ */
+export async function assertDaznPageAvailable(
+  page: Page,
+  stage: string = 'page load'
+): Promise<void> {
+  const initial = await getDaznOpeningErrorSnapshot(page);
+  if (!initial.isOpeningError) return;
+
+  console.warn(
+    `⚠️ [DAZN Access Error] Detected DAZN's "There's a problem opening DAZN just now" page during ${stage}. ` +
+    'Refreshing once before failing…'
+  );
+
+  await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch((error: Error) => {
+    console.warn(`⚠️ [DAZN Access Error] Refresh did not complete cleanly: ${error.message}`);
+  });
+  await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => { });
+
+  const afterRefresh = await getDaznOpeningErrorSnapshot(page);
+  if (!afterRefresh.isOpeningError) {
+    console.log(`✅ [DAZN Access Error] Page recovered after one refresh during ${stage}. URL: ${page.url()}`);
+    return;
+  }
+
+  const renderedMessage = afterRefresh.message || initial.message;
+  throw new Error(
+    `❌ [DAZN Access Error] DAZN still displays "There's a problem opening DAZN just now" after one refresh during ${stage}. ` +
+    'This is a DAZN/VPN/network access issue, not a PPV or selector validation failure. ' +
+    `URL: ${page.url()}` +
+    (renderedMessage ? `\nRendered error: ${renderedMessage}` : '')
+  );
+}
+
 
 // ─────────────────────────────────────────────────────────────────
 // HANDLE COOKIES — dismiss cookie banner via UI click
@@ -17,6 +90,10 @@ const _dismissedContexts = new WeakSet<BrowserContext>();
 
 export async function handleCookies(page: Page, timeout: number = 8000): Promise<void> {
   if (page.isClosed()) return;
+
+  // This is called immediately after DAZN navigations throughout new-user,
+  // existing-user, login-first, and sign-in-during-flow journeys.
+  await assertDaznPageAvailable(page, 'post-navigation cookie check');
 
   const context = page.context();
 
