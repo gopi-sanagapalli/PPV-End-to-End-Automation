@@ -10,7 +10,6 @@ type WdElement = any;
 
 type PrepareAndroidAppOptions = {
   clearAppData?: boolean;
-  waitForHome?: boolean;
 };
 
 function adb(cmd: string): string {
@@ -159,11 +158,7 @@ export async function prepareAndroidApp(driver: WdBrowser, options: PrepareAndro
   await driver.activateApp(APP_PACKAGE);
   console.log('🚀 App launched');
 
-  if (options.waitForHome !== false) {
-    await waitForHomePage(driver);
-  } else {
-    console.log('ℹ️ Skipping waitForHomePage as requested by options');
-  }
+  await waitForHomePage(driver);
 
   console.log('✅ Android app ready');
   console.log('═══════════════════════════════════════');
