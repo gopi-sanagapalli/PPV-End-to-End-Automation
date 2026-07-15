@@ -145,30 +145,33 @@ export async function validateBannerImage(
     ]
   };
   const prompt = [
-    'You are an expert senior QA visual-test engineer. Review the DAZN promotional banner screenshot below and give a thorough, human-quality assessment.',
+    'You are a strict QA visual-test engineer auditing a DAZN promotional banner for defects. Be honest and critical.',
 
-    'Evaluate ALL of the following aspects as if you were a QA tester manually verifying the banner:',
+    'Check each of the following. Be specific about what you see.',
 
-    '1. **Image Load** – Has the banner image fully loaded? Is there any skeleton, placeholder, grey box, broken-image icon, or text like "403 Forbidden" / "404 Not Found"?',
-    '2. **Image Quality** – Is the artwork sharp and crisp, or is it blurry, pixelated, or low-resolution?',
-    '3. **Hero Subject Visibility** – Is the main promotional subject (e.g. the athlete/event artwork) clearly visible and centred?',
-    '4. **Secondary Subject Visibility** – If a secondary subject exists, is it visible too? If there is no secondary subject, set to "pass".',
-    '5. **Cropping** – Is any part of the artwork unintentionally cut off at the edges? Intentional, designed cropping is fine — mark as "pass".',
-    '6. **Distortion / Stretching** – Do the images and text look stretched, squeezed, or incorrectly proportioned?',
-    '7. **Overlap / Obscuring** – Is any overlay, popup, cookie banner, or other UI element obscuring the promotional artwork?',
-    '8. **Colour & Brand Consistency** – Do the colours match DAZN\'s expected brand palette? Are they vibrant or washed out? No colour mismatch?',
-    '9. **Text Readability** – Is any text on the artwork (e.g. fight date, event name) clearly readable, not truncated or overlapping?',
+    '1. **Image Load** – Did the banner image fully load? If you see "403 Forbidden", "404 Not Found", a grey box, skeleton, broken-image icon, or any error text, it has FAILED.',
+    '2. **Image Quality** – Is the artwork sharp or is it blurry, pixelated, or low-resolution?',
+    '3. **Hero Subject Visibility** – Is the main promotional subject (athlete/event artwork) clearly visible and centred?',
+    '4. **Secondary Subject Visibility** – If a secondary subject exists, is it visible? If no secondary subject exists, set "pass".',
+    '5. **Cropping** – Is any artwork unintentionally cut off? Intentional designed cropping is pass.',
+    '6. **Distortion / Stretching** – Are images or text stretched, squeezed, or incorrectly proportioned?',
+    '7. **Overlap / Obscuring** – Is any overlay, popup, or cookie banner covering the artwork?',
+    '8. **Colour & Brand Consistency** – Do colours appear correct and not washed out?',
+    '9. **Text Readability** – Is any text (fight date, event name) clearly readable, not truncated or overlapping?',
     '10. **Broken / Missing Elements** – Are there any broken images, missing icons, or elements that failed to render?',
-    '11. **Spacing & Alignment** – Are the promotional elements well-spaced and properly aligned? No awkward gaps or misalignment?',
-    '12. **Responsive Fit** – Does the banner look correctly fitted to the viewport? No horizontal scroll, no content squeezed into a corner?',
-    '13. **CTA Visibility** – Is the call-to-action button (e.g. "Watch Now", "Get Access") visible and unobscured? Do not validate the CTA text content, only its visual presence and rendering.',
+    '11. **Spacing & Alignment** – Are elements well-spaced and properly aligned? No awkward gaps?',
+    '12. **Responsive Fit** – Does the banner fit the viewport correctly? No horizontal scroll or squeezed content?',
+    '13. **CTA Visibility** – Is the call-to-action button (e.g. "Watch Now", "Get Access") visually present and unobscured?',
 
-    'Ignore the rest of the page outside the promotional banner area.',
-    'Do NOT validate event title, date, price, or plan details — those are checked by separate automated tests.',
+    'IMPORTANT RULES:',
+    '- Do NOT use "uncertain" as an escape. You are looking at a screenshot — you CAN see it. Decide: pass or fail.',
+    '- Only use "uncertain" if the element is genuinely not visible or cut off from the screenshot itself.',
+    '- Be critical: if anything looks wrong (blurry, broken, error page, misaligned), mark it as "fail".',
+    '- Set confidence high (80-100%) when you are sure. Set low (0-30%) when the screenshot is unclear.',
+    '- OverallVerdict: "pass" only if ALL checks pass. "fail" if any critical check fails. "review" if minor issues found.',
+    '- Findings array: list each specific defect clearly.',
 
-    'Use your best judgement like a real QA engineer. If you cannot determine a particular check, set it to "uncertain".',
-
-    'Return ONLY valid JSON conforming to the supplied schema. Each check must be exactly "pass", "fail", or "uncertain". The "findings" array must contain specific, actionable descriptions of any defects found. Supply an "overallVerdict" of "pass", "fail", or "review".',
+    'Return ONLY valid JSON matching the schema. Each check must be exactly "pass" or "fail" (not "uncertain" unless unavoidable).',
   ].join(' ');
     const payload = Buffer.from(JSON.stringify({
       contents: [{ parts: [
@@ -192,11 +195,14 @@ export async function validateBannerImage(
     }
 
     const assessment = parseAssessment(response.body);
+  const MIN_CONFIDENCE = 50;
   const passed =
+    assessment.overallVerdict === 'pass' &&
+    assessment.confidence >= MIN_CONFIDENCE &&
     assessment.imageLoaded === 'pass' &&
     assessment.imageQuality === 'pass' &&
     assessment.heroSubjectVisible === 'pass' &&
-    assessment.secondarySubjectVisible !== 'fail' &&
+    assessment.secondarySubjectVisible === 'pass' &&
     assessment.cropping === 'pass' &&
     assessment.distortion === 'pass' &&
     assessment.overlay === 'pass' &&
