@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as https from 'https';
 import * as path from 'path';
+import { createHash } from 'crypto';
 
 type ValidationResult = {
   page?: string;
@@ -261,6 +262,129 @@ function buildIssueSummary(context: JiraContext, failures: ValidationResult[]): 
   return `${ppvName} | ${mismatch}${suffix}`.slice(0, 250);
 }
 
+function validationFingerprint(context: JiraContext, failures: ValidationResult[]): string {
+  // A defect is identified by its displayed mismatch, independent of which
+  // PPV surface, plan, or user flow discovered it.
+  const signature = failures
+    .map(failure => [
+      normalise(asText(failure.field)),
+      normalise(asText(failure.expected)),
+      normalise(asText(failure.actual)),
+    ].join('|'))
+    .sort()
+    .join('||');
+  const identity = [
+    normalise(asText(context.event)),
+    normalise(context.region),
+    normalise(context.environment),
+    normalise(context.platform),
+    signature,
+  ].join('||');
+  return createHash('sha256').update(identity).digest('hex').slice(0, 24);
+}
+
+async function findOpenIssueByFingerprint(
+  fingerprint: string,
+  config: NonNullable<ReturnType<typeof jiraConfig>>
+): Promise<string | null> {
+  const label = `ppv-fingerprint-${fingerprint}`;
+  const jql = `project = ${config.projectKey} AND labels = "${label}" AND statusCategory != Done ORDER BY created DESC`;
+  const payload = Buffer.from(JSON.stringify({ jql, maxResults: 1, fields: ['key'] }));
+  const endpoints = [
+    `${config.baseUrl}/rest/api/3/search/jql`,
+    `${config.baseUrl}/rest/api/3/search`,
+  ];
+  let lastError = '';
+
+  for (const endpoint of endpoints) {
+    const response = await requestJira(endpoint, 'POST', {
+      Authorization: config.auth,
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      'Content-Length': String(payload.length),
+    }, payload);
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      const body = JSON.parse(response.body) as { issues?: Array<{ key?: string }>; values?: Array<{ key?: string }> };
+      return body.issues?.[0]?.key || body.values?.[0]?.key || null;
+    }
+    // Jira Cloud search API availability differs by tenant. Try both versions;
+    // if neither is available, preserve the original ticket-creation path.
+    lastError = `HTTP ${response.statusCode}: ${response.body.slice(0, 300)}`;
+  }
+  console.warn(`⚠️ [Jira] Duplicate search unavailable (${lastError}); creating a new ticket so the validation failure is not lost.`);
+  return null;
+}
+
+async function addDuplicateOccurrenceComment(
+  issueKey: string,
+  context: JiraContext,
+  failures: ValidationResult[],
+  runMetadata: string,
+  config: NonNullable<ReturnType<typeof jiraConfig>>
+): Promise<void> {
+  const payload = Buffer.from(JSON.stringify({
+    body: {
+      type: 'doc',
+      version: 1,
+      content: [
+        heading('Additional automated occurrence'),
+        paragraph(`The same PPV validation mismatch was found again via ${context.source || 'an unknown source'}.`),
+        bulletList([
+          `Flow: ${context.flow}`,
+          `Source: ${context.source || 'Unknown'}`,
+          `User state: ${context.userState || 'New user'}`,
+          runMetadata,
+        ]),
+        heading(`Validation details (${failures.length})`),
+        ...failures.map(failure => paragraph(
+          `[${asText(failure.page)}] ${asText(failure.field)} — expected: "${asText(failure.expected)}"; actual: "${asText(failure.actual)}"`
+        )),
+        paragraph('Current run evidence is attached to this existing issue.'),
+      ],
+    },
+  }));
+  const response = await requestJira(
+    `${config.baseUrl}/rest/api/3/issue/${encodeURIComponent(issueKey)}/comment`,
+    'POST',
+    {
+      Authorization: config.auth,
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      'Content-Length': String(payload.length),
+    },
+    payload
+  );
+  if (response.statusCode < 200 || response.statusCode >= 300) {
+    throw new Error(`could not add duplicate occurrence comment (HTTP ${response.statusCode}): ${response.body.slice(0, 300)}`);
+  }
+}
+
+function evidenceAttachmentPaths(report: JiraValidationReport, evidencePath: string | null, failures: ValidationResult[]): string[] {
+  return [
+    report.htmlReportPath,
+    report.pdfReportPath,
+    evidencePath,
+    ...failures.map(result => result.screenshot),
+  ].filter((filePath): filePath is string => Boolean(filePath && fs.existsSync(filePath)));
+}
+
+async function attachEvidence(
+  issueKey: string,
+  report: JiraValidationReport,
+  evidencePath: string | null,
+  failures: ValidationResult[],
+  config: NonNullable<ReturnType<typeof jiraConfig>>
+): Promise<void> {
+  for (const filePath of [...new Set(evidenceAttachmentPaths(report, evidencePath, failures))].slice(0, MAX_ATTACHMENTS)) {
+    try {
+      await attachFile(issueKey, filePath, config);
+      console.log(`📎 [Jira] Attached ${path.basename(filePath)} to ${issueKey}.`);
+    } catch (error: any) {
+      console.warn(`⚠️ [Jira] Could not attach ${path.basename(filePath)}: ${error?.message || error}`);
+    }
+  }
+}
+
 function createEvidenceFile(
   failures: ValidationResult[],
   context: JiraContext,
@@ -439,6 +563,16 @@ export async function reportValidationFailuresToJira(report: JiraValidationRepor
   };
 
   try {
+    const fingerprint = validationFingerprint(context, failures);
+    const existingIssueKey = await findOpenIssueByFingerprint(fingerprint, config);
+    if (existingIssueKey) {
+      console.log(`♻️ [Jira] Matching open issue ${existingIssueKey} found (fingerprint ${fingerprint}); adding this occurrence instead of creating a duplicate.`);
+      await addDuplicateOccurrenceComment(existingIssueKey, context, failures, runMetadata, config);
+      await attachEvidence(existingIssueKey, report, evidencePath, failures, config);
+      publishJiraIssueLink(existingIssueKey, config.baseUrl);
+      return;
+    }
+
     const jiraFields = await resolveJiraCreateFields(config, context);
     console.log(`🧭 [Jira] Workflow Jira fields: ${Object.entries(jiraFields).map(([key, value]) => {
       const selections = Array.isArray(value) ? value : [value];
@@ -455,6 +589,7 @@ export async function reportValidationFailuresToJira(report: JiraValidationRepor
           'automation',
           'validation-failure',
           'github-actions',
+          `ppv-fingerprint-${fingerprint}`,
           `github-run-${runId}`.replace(/[^a-zA-Z0-9_-]/g, '-'),
         ],
       },
@@ -479,22 +614,7 @@ export async function reportValidationFailuresToJira(report: JiraValidationRepor
     if (!issue.key) throw new Error('issue creation response did not include an issue key');
     console.log(`🐞 [Jira] Created ${issue.key} for ${failures.length} validation failure(s).`);
     publishJiraIssueLink(issue.key, config.baseUrl);
-
-    const attachmentPaths = [
-      report.htmlReportPath,
-      report.pdfReportPath,
-      evidencePath,
-      ...failures.map(result => result.screenshot),
-    ].filter((filePath): filePath is string => Boolean(filePath && fs.existsSync(filePath)));
-
-    for (const filePath of [...new Set(attachmentPaths)].slice(0, MAX_ATTACHMENTS)) {
-      try {
-        await attachFile(issue.key, filePath, config);
-        console.log(`📎 [Jira] Attached ${path.basename(filePath)} to ${issue.key}.`);
-      } catch (error: any) {
-        console.warn(`⚠️ [Jira] Could not attach ${path.basename(filePath)}: ${error?.message || error}`);
-      }
-    }
+    await attachEvidence(issue.key, report, evidencePath, failures, config);
   } catch (error: any) {
     console.warn(`⚠️ [Jira] Could not create validation issue: ${error?.message || error}`);
   }
