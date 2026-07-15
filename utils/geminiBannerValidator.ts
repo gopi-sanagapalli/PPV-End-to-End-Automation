@@ -116,7 +116,11 @@ export async function validateBannerImage(
       '1. imageLoaded — Did the banner image fully load? PASS if real artwork is visible. FAIL if error, placeholder, skeleton, or modal.',
       '2. imageQuality — Is the artwork sharp and clear? FAIL if blurry, pixelated, or low resolution.',
       '3. fightersVisible — Are the fighters/subjects clearly visible in the artwork? FAIL if cut off, partially hidden, or not visible.',
-      '4. fighterCropping — Is any fighter unintentionally cut off at the edges? PASS if cropping is intentional/designed.',
+      '4. fighterCropping — CRITICAL: Is any fighter unintentionally cut off at the edges?',
+      '   FAIL if: a fighters head/hair/helmet/body is cut off at the top, bottom, left, or right of the banner image.',
+      '   FAIL if: part of a fighters face, shoulder, or body is outside the visible frame.',
+      '   FAIL if: you can see only half of a fighters body or a fighter is truncated by the edge.',
+      '   PASS only if: all fighters are fully within the frame. Intentional artwork/dynamic cropping for effect is still FAIL if it cuts off fighter body parts.',
       '5. imageDistortion — Is the image stretched, squeezed, or wrong aspect ratio? FAIL if distorted.',
       '6. overlayObstructingArtwork — Is a modal, popup, cookie banner, or VPN warning covering the artwork? FAIL if obstructed.',
 
