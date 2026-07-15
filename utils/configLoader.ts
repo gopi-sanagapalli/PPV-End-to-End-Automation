@@ -76,7 +76,9 @@ export function loadEventConfig(eventConfigOrKey?: string, planKeyOverride?: str
     if (!filename.toLowerCase().endsWith('.json')) {
       filename += '.json';
     }
-    const configDir = path.resolve(process.cwd(), 'config');
+    // Resolve config/ relative to this file's location (project root),
+    // not process.cwd(), so it works even when tests run from appium/ or other subdirs.
+    const configDir = path.resolve(__dirname, '..', 'config');
     filePath = findConfig(configDir, filename);
   }
 
