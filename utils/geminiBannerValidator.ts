@@ -5,28 +5,12 @@ import path from 'path';
 type BannerAssessment = {
   imageLoaded: 'pass' | 'fail' | 'uncertain';
   imageQuality: 'pass' | 'fail' | 'uncertain';
-
-  heroSubjectVisible: 'pass' | 'fail' | 'uncertain';
-  secondarySubjectVisible: 'pass' | 'fail' | 'uncertain';
-
-  cropping: 'pass' | 'fail' | 'uncertain';
-  distortion: 'pass' | 'fail' | 'uncertain';
-  overlay: 'pass' | 'fail' | 'uncertain';
-
-  /** New QA fields for comprehensive banner validation */
-  colorsMatchBrand: 'pass' | 'fail' | 'uncertain';
-  textReadable: 'pass' | 'fail' | 'uncertain';
-  noBrokenElements: 'pass' | 'fail' | 'uncertain';
-  spacingAligned: 'pass' | 'fail' | 'uncertain';
-  responsiveFit: 'pass' | 'fail' | 'uncertain';
-  ctaVisible: 'pass' | 'fail' | 'uncertain';
-
+  fightersVisible: 'pass' | 'fail' | 'uncertain';
+  fighterCropping: 'pass' | 'fail' | 'uncertain';
+  imageDistortion: 'pass' | 'fail' | 'uncertain';
+  overlayObstructingArtwork: 'pass' | 'fail' | 'uncertain';
   confidence: number;
-
   findings: string[];
-
-  /** Human-readable summary of QA judgement */
-  overallVerdict: 'pass' | 'fail' | 'review';
 };
 
 export type BannerValidationResult = {
@@ -68,18 +52,10 @@ function parseAssessment(responseBody: string): BannerAssessment {
   if (
     !assessment.imageLoaded ||
     !assessment.imageQuality ||
-    !assessment.heroSubjectVisible ||
-    !assessment.secondarySubjectVisible ||
-    !assessment.cropping ||
-    !assessment.distortion ||
-    !assessment.overlay ||
-    !assessment.colorsMatchBrand ||
-    !assessment.textReadable ||
-    !assessment.noBrokenElements ||
-    !assessment.spacingAligned ||
-    !assessment.responsiveFit ||
-    !assessment.ctaVisible ||
-    !assessment.overallVerdict ||
+    !assessment.fightersVisible ||
+    !assessment.fighterCropping ||
+    !assessment.imageDistortion ||
+    !assessment.overlayObstructingArtwork ||
     typeof assessment.confidence !== 'number' ||
     !Array.isArray(assessment.findings)
   ) {
@@ -113,70 +89,42 @@ export async function validateBannerImage(
     await banner.screenshot({ path: imagePath, type: 'png' });
 
     const image = fs.readFileSync(imagePath).toString('base64');
-  const schema = {
-    type: 'object',
+    const schema = {
+      type: 'object',
+      properties: {
+        imageLoaded: { type: 'string', enum: ['pass', 'fail', 'uncertain'] },
+        imageQuality: { type: 'string', enum: ['pass', 'fail', 'uncertain'] },
+        fightersVisible: { type: 'string', enum: ['pass', 'fail', 'uncertain'] },
+        fighterCropping: { type: 'string', enum: ['pass', 'fail', 'uncertain'] },
+        imageDistortion: { type: 'string', enum: ['pass', 'fail', 'uncertain'] },
+        overlayObstructingArtwork: { type: 'string', enum: ['pass', 'fail', 'uncertain'] },
+        confidence: { type: 'number' },
+        findings: { type: 'array', items: { type: 'string' } },
+      },
+      required: [
+        'imageLoaded', 'imageQuality', 'fightersVisible',
+        'fighterCropping', 'imageDistortion', 'overlayObstructingArtwork',
+        'confidence', 'findings'
+      ]
+    };
+    const prompt = [
+      'You are a QA visual-test engineer reviewing a DAZN promotional banner screenshot.',
 
-    properties: {
-      imageLoaded: { type: 'string', enum: ['pass', 'fail', 'uncertain'] },
-      imageQuality: { type: 'string', enum: ['pass', 'fail', 'uncertain'] },
-      heroSubjectVisible: { type: 'string', enum: ['pass', 'fail', 'uncertain'] },
-      secondarySubjectVisible: { type: 'string', enum: ['pass', 'fail', 'uncertain'] },
-      cropping: { type: 'string', enum: ['pass', 'fail', 'uncertain'] },
-      distortion: { type: 'string', enum: ['pass', 'fail', 'uncertain'] },
-      overlay: { type: 'string', enum: ['pass', 'fail', 'uncertain'] },
-      colorsMatchBrand: { type: 'string', enum: ['pass', 'fail', 'uncertain'] },
-      textReadable: { type: 'string', enum: ['pass', 'fail', 'uncertain'] },
-      noBrokenElements: { type: 'string', enum: ['pass', 'fail', 'uncertain'] },
-      spacingAligned: { type: 'string', enum: ['pass', 'fail', 'uncertain'] },
-      responsiveFit: { type: 'string', enum: ['pass', 'fail', 'uncertain'] },
-      ctaVisible: { type: 'string', enum: ['pass', 'fail', 'uncertain'] },
-      confidence: { type: 'number' },
-      findings: { type: 'array', items: { type: 'string' } },
-      overallVerdict: { type: 'string', enum: ['pass', 'fail', 'review'] }
-    },
+      'CRITICAL: If the screenshot shows a VPN warning modal, error page (403/404), login page, grey placeholder, or anything other than the actual promotional banner artwork, mark ALL checks as "fail".',
 
-    required: [
-      'imageLoaded', 'imageQuality',
-      'heroSubjectVisible', 'secondarySubjectVisible',
-      'cropping', 'distortion', 'overlay',
-      'colorsMatchBrand', 'textReadable', 'noBrokenElements',
-      'spacingAligned', 'responsiveFit', 'ctaVisible',
-      'confidence', 'findings', 'overallVerdict'
-    ]
-  };
-  const prompt = [
-    'You are an adversarial QA inspector. Your job is to FIND defects in this DAZN banner screenshot. Default assumption: the banner is DEGRADED until proven otherwise.',
+      'Evaluate the promotional banner artwork for these checks:',
+      '1. imageLoaded — Did the banner image fully load? PASS if real artwork is visible. FAIL if error, placeholder, skeleton, or modal.',
+      '2. imageQuality — Is the artwork sharp and clear? FAIL if blurry, pixelated, or low resolution.',
+      '3. fightersVisible — Are the fighters/subjects clearly visible in the artwork? FAIL if cut off, partially hidden, or not visible.',
+      '4. fighterCropping — Is any fighter unintentionally cut off at the edges? PASS if cropping is intentional/designed.',
+      '5. imageDistortion — Is the image stretched, squeezed, or wrong aspect ratio? FAIL if distorted.',
+      '6. overlayObstructingArtwork — Is a modal, popup, cookie banner, or VPN warning covering the artwork? FAIL if obstructed.',
 
-    'CRITICAL FIRST CHECK: Is the actual NFL welcome promotional banner artwork visible?',
-    'IMMEDIATELY FAIL ALL CHECKS IF:',
-    '- You see a modal/popup/dialog (e.g. VPN warning, adblock warning, cookie consent) instead of the banner',
-    '- You see a login page, error page, or any page other than the NFL welcome banner',
-    '- The banner area contains a placeholder, grey box, or empty space instead of athlete/event artwork',
-    '- The page is blocked by a geo/VPN restriction message',
-    '',
-    'Describe in 1-2 sentences exactly what is visible in the screenshot.',
-    '',
-    'Then assign pass/fail for each check:',
-    '1. imageLoaded — Did the banner fully load? FAIL if: "403"/"404", error text, placeholder, skeleton, VPN modal, or no artwork.',
-    '2. imageQuality — Is the artwork sharp? FAIL if: blurry, pixelated, artifacts.',
-    '3. heroSubjectVisible — Is the main subject (athlete) visible in the artwork? FAIL if: cut off, partial, not visible.',
-    '4. secondarySubjectVisible — FAIL if a second subject is missing but should be there.',
-    '5. cropping — Is artwork unintentionally cut? FAIL if players/faces cut at edges.',
-    '6. distortion — FAIL if stretched/squeezed/wrong aspect ratio.',
-    '7. overlay — FAIL if modal/cookie banner/popup covers the artwork.',
-    '8. colorsMatchBrand — FAIL if washed out or wrong colours.',
-    '9. textReadable — FAIL if truncated, overlapping, or unclear.',
-    '10. noBrokenElements — FAIL if broken images, missing icons.',
-    '11. spacingAligned — FAIL if misaligned or awkward gaps.',
-    '12. responsiveFit — FAIL if squeezed or empty space.',
-    '13. ctaVisible — FAIL if CTA button not visible.',
-    '',
-    'Findings: REQUIRED. Describe exactly what you see and what defects exist.',
-    'overallVerdict: "fail" unless artwork is clearly correct.',
-    'confidence: 0-100. Low if defects exist.',
+      'Findings: REQUIRED. List specific observations about what you see. At least 1 finding required.',
+      'confidence: 0-100. High (80-100) if artwork looks correct. Low (0-30) if defects found.',
 
-    'Return ONLY valid JSON matching the schema. Do NOT use "uncertain" — force yourself to pick pass or fail.',
-  ].join(' ');
+      'Return ONLY valid JSON matching the schema. Do NOT use "uncertain" unless unavoidable.',
+    ].join(' ');
     const payload = Buffer.from(JSON.stringify({
       contents: [{ parts: [
         { inline_data: { mime_type: 'image/png', data: image } },
@@ -199,27 +147,19 @@ export async function validateBannerImage(
     }
 
     const assessment = parseAssessment(response.body);
-  const MIN_CONFIDENCE = 60;
-  const hasFindings = Array.isArray(assessment.findings) && assessment.findings.length > 0;
-  const passed =
-    hasFindings &&
-    assessment.overallVerdict === 'pass' &&
-    assessment.confidence >= MIN_CONFIDENCE &&
-    assessment.imageLoaded === 'pass' &&
-    assessment.imageQuality === 'pass' &&
-    assessment.heroSubjectVisible === 'pass' &&
-    assessment.secondarySubjectVisible === 'pass' &&
-    assessment.cropping === 'pass' &&
-    assessment.distortion === 'pass' &&
-    assessment.overlay === 'pass' &&
-    assessment.colorsMatchBrand === 'pass' &&
-    assessment.textReadable === 'pass' &&
-    assessment.noBrokenElements === 'pass' &&
-    assessment.spacingAligned === 'pass' &&
-    assessment.responsiveFit === 'pass' &&
-    assessment.ctaVisible === 'pass';
+    const MIN_CONFIDENCE = 60;
+    const hasFindings = Array.isArray(assessment.findings) && assessment.findings.length > 0;
+    const passed =
+      hasFindings &&
+      assessment.confidence >= MIN_CONFIDENCE &&
+      assessment.imageLoaded === 'pass' &&
+      assessment.imageQuality === 'pass' &&
+      assessment.fightersVisible === 'pass' &&
+      assessment.fighterCropping === 'pass' &&
+      assessment.imageDistortion === 'pass' &&
+      assessment.overlayObstructingArtwork === 'pass';
 
-const icon = passed ? '✅' : '⚠️';
+    const icon = passed ? '✅' : '⚠️';
 
     fs.writeFileSync(`${imagePath}.json`, `${JSON.stringify({
       url: context.url,
@@ -230,24 +170,16 @@ const icon = passed ? '✅' : '⚠️';
       assessment,
     }, null, 2)}\n`);
 
-  console.log(
-    `${icon} [Gemini Banner] ${passed ? 'PASS' : 'WARN'} | ` +
-    `loaded=${assessment.imageLoaded}` +
-    ` | quality=${assessment.imageQuality}` +
-    ` | hero=${assessment.heroSubjectVisible}` +
-    ` | secondary=${assessment.secondarySubjectVisible}` +
-    ` | crop=${assessment.cropping}` +
-    ` | distortion=${assessment.distortion}` +
-    ` | overlay=${assessment.overlay}` +
-    ` | colors=${assessment.colorsMatchBrand}` +
-    ` | text=${assessment.textReadable}` +
-    ` | broken=${assessment.noBrokenElements}` +
-    ` | spacing=${assessment.spacingAligned}` +
-    ` | responsive=${assessment.responsiveFit}` +
-    ` | cta=${assessment.ctaVisible}` +
-    ` | verdict=${assessment.overallVerdict}` +
-    ` | confidence=${assessment.confidence}%`
-  );
+    console.log(
+      `${icon} [Gemini Banner] ${passed ? 'PASS' : 'WARN'} | ` +
+      `loaded=${assessment.imageLoaded}` +
+      ` | quality=${assessment.imageQuality}` +
+      ` | fighters=${assessment.fightersVisible}` +
+      ` | crop=${assessment.fighterCropping}` +
+      ` | distortion=${assessment.imageDistortion}` +
+      ` | overlay=${assessment.overlayObstructingArtwork}` +
+      ` | confidence=${assessment.confidence}%`
+    );
     for (const finding of assessment.findings) console.log(`   [Gemini Banner] ${finding}`);
     return { passed, assessment };
   } catch (error: any) {
