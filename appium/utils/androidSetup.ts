@@ -63,9 +63,41 @@ async function dismissOneStartupDialog(driver: WdBrowser): Promise<boolean> {
     'android=new UiSelector().resourceId("android:id/button1")',
     'android=new UiSelector().descriptionContains("Close")',
     'android=new UiSelector().descriptionContains("Dismiss")',
-    'android=new UiSelector().textMatches("(?i)^(Continue|Start watching|Done|OK|Allow)$")',
+    'android=new UiSelector().textMatches("(?i)^(Explore|Continue|Start watching|Done|OK|Allow)$")',
     'android=new UiSelector().textMatches("(?i)^(Not now|No thanks|Maybe later|Skip|Cancel|Remind me later)$")',
   ], 'Startup dialog dismissed');
+}
+
+async function dismissLandingPage(driver: WdBrowser): Promise<boolean> {
+  // Try to dismiss landing page by tapping Explore or swiping
+  const exploredTapped = await tapFirstVisible(driver, [
+    'android=new UiSelector().textMatches("(?i)^Explore$")',
+    'android=new UiSelector().textMatches("(?i)^Get started$")',
+    'android=new UiSelector().textMatches("(?i)^Continue$")',
+    'android=new UiSelector().resourceId("com.dazn:id/btn_get_started")',
+    'android=new UiSelector().resourceId("com.dazn:id/btn_continue")',
+  ], 'Landing page dismissed');
+  
+  if (exploredTapped) {
+    await driver.pause(2000); // Wait for navigation
+    return true;
+  }
+  
+  // If no button found, try swiping left
+  try {
+    const { width, height } = await driver.getWindowSize();
+    await driver.action('pointer')
+      .move({ x: Math.round(width * 0.8), y: Math.round(height * 0.5) })
+      .down()
+      .move({ x: Math.round(width * 0.2), y: Math.round(height * 0.5) })
+      .up()
+      .perform();
+    await driver.pause(2000);
+    console.log('  ✓ Landing page dismissed (swipe)');
+    return true;
+  } catch (e) {
+    return false;
+  }
 }
 
 async function isHomeReady(driver: WdBrowser): Promise<boolean> {
@@ -183,8 +215,10 @@ export async function waitForHomePage(driver: WdBrowser, timeoutMs = 120000): Pr
       }
 
       if (await isLandingPageReady(driver)) {
-        console.log('  ✓ Landing page detected');
-        return true;
+        console.log('  ✓ Landing page detected - dismissing to reach home');
+        await dismissLandingPage(driver);
+        // Don't return true yet - wait for home to appear after dismissal
+        return false;
       }
 
       // Fallback: if app has been running for more than 5 seconds and has visible UI,
