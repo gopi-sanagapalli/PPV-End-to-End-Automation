@@ -126,25 +126,36 @@ async function isLandingPageReady(driver: WdBrowser): Promise<boolean> {
 }
 
 async function hasAnyVisibleElement(driver: WdBrowser): Promise<boolean> {
-  // Fallback: check if the app has any visible interactive elements
+  // Fallback: check if the app has any visible UI by trying to get the current activity
   // This indicates the app has loaded, even if we can't identify the specific page
   try {
+    const currentActivity = await driver.getCurrentActivity();
+    if (currentActivity && currentActivity.includes('com.dazn')) {
+      console.log(`  ✓ App is running (activity: ${currentActivity})`);
+      return true;
+    }
+  } catch (e) {
+    console.log('  ⚠️ Could not get current activity for fallback');
+  }
+  
+  // Secondary fallback: check page source for any UI elements
+  try {
     const source = await driver.getPageSource();
-    // Look for common Android view indicators in the page source
     const hasContent = source.includes('android.widget.') || 
                        source.includes('android.view.') ||
                        source.includes('com.dazn.id');
     if (hasContent) {
-      console.log('  ✓ App UI detected (fallback check)');
+      console.log('  ✓ App UI detected (page source fallback)');
       return true;
     }
   } catch (e) {
     console.log('  ⚠️ Could not check page source for fallback');
   }
+  
   return false;
 }
 
-export async function waitForHomePage(driver: WdBrowser, timeoutMs = 90000): Promise<void> {
+export async function waitForHomePage(driver: WdBrowser, timeoutMs = 120000): Promise<void> {
   let sawCookiePrompt = false;
   let sawStartupDialog = false;
   let lastCheckTime = Date.now();
@@ -176,11 +187,11 @@ export async function waitForHomePage(driver: WdBrowser, timeoutMs = 90000): Pro
         return true;
       }
 
-      // Fallback: if app has been running for more than 10 seconds and has visible UI,
+      // Fallback: if app has been running for more than 5 seconds and has visible UI,
       // consider it ready even if we can't identify the specific page
       const elapsed = Date.now() - startTime;
-      if (elapsed > 10000 && await hasAnyVisibleElement(driver)) {
-        console.log('  ✓ App UI detected (fallback after 10s)');
+      if (elapsed > 5000 && await hasAnyVisibleElement(driver)) {
+        console.log('  ✓ App UI detected (fallback after 5s)');
         return true;
       }
 
