@@ -393,7 +393,7 @@ export class AndroidValidationPage extends AndroidBasePage {
 
     const cleanStr = (s: string) =>
       (s || '').replace(/[\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]/g, ' ')
-               .replace(/\s+/g, ' ').trim().toLowerCase();
+        .replace(/\s+/g, ' ').trim().toLowerCase();
     const isPresent = texts.some(
       t => cleanStr(t).includes(cleanStr(titleExpected)) || cleanStr(titleExpected).includes(cleanStr(t))
     );
@@ -534,21 +534,40 @@ export class AndroidValidationPage extends AndroidBasePage {
             actualValue = expectedValue;
             isMatch = true;
           }
-        } else if (fieldName === 'Banner - Event Date') {
+        } else if (fieldName === 'Banner - Event Date' || fieldName === 'Date and Time') {
           // The date on the mobile banner may be one joined string or split across parts.
           // Try exact/includes match on the full expected string first, then try part-based matching.
-          const normalizeTime = (s: string) => s.replace(/a\.\s*m\./gi, 'am').replace(/p\.\s*m\./gi, 'pm');
-          const expClean = normalizeTime(expectedValue.replace(/[\u200b\u200c\u200d\ufeff]/g, '').trim().toLowerCase());
+          const normalizeDateString = (s: string) => {
+            let clean = String(s || '').toLowerCase()
+              .replace(/[\u200b\u200c\u200d\ufeff]/g, '')
+              .replace(/a\.\s*m\./gi, 'am')
+              .replace(/p\.\s*m\./gi, 'pm')
+              .replace(/\b(\d+)(?:st|nd|rd|th)\b/gi, '$1')
+              .replace(/january/g, 'jan')
+              .replace(/february/g, 'feb')
+              .replace(/march/g, 'mar')
+              .replace(/april/g, 'apr')
+              .replace(/june/g, 'jun')
+              .replace(/july/g, 'jul')
+              .replace(/august/g, 'aug')
+              .replace(/september/g, 'sep')
+              .replace(/october/g, 'oct')
+              .replace(/november/g, 'nov')
+              .replace(/december/g, 'dec');
+            return clean.replace(/\s+/g, ' ').trim();
+          };
+          const expClean = normalizeDateString(expectedValue);
           console.log(`  🔎 [Banner - Event Date] Looking for: "${expClean}"`);
           console.log(`  🔎 [Banner - Event Date] texts array (${texts.length} items):`, JSON.stringify(texts.slice(0, 30)));
-          console.log(`  🔎 [Banner - Event Date] pageSource includes expected? ${normalizeTime(pageSource.toLowerCase()).includes(expClean)}`);
-          // Also check for date parts in pageSource for debugging
+          console.log(`  🔎 [Banner - Event Date] pageSource includes expected? ${normalizeDateString(pageSource).includes(expClean)}`);
+          
           const debugParts = expClean.split(/\s+/);
           for (const dp of debugParts) {
-            console.log(`  🔎 [Banner - Event Date] pageSource includes "${dp}"? ${normalizeTime(pageSource.toLowerCase()).includes(dp)}`);
+            console.log(`  🔎 [Banner - Event Date] pageSource includes "${dp}"? ${normalizeDateString(pageSource).includes(dp)}`);
           }
+
           const directMatch = texts.find(t => {
-            const tc = normalizeTime(t.replace(/[\u200b\u200c\u200d\ufeff]/g, '').trim().toLowerCase());
+            const tc = normalizeDateString(t);
             return tc === expClean || tc.includes(expClean) || expClean.includes(tc);
           });
           if (directMatch) {
@@ -556,22 +575,39 @@ export class AndroidValidationPage extends AndroidBasePage {
             isMatch = true;
           } else {
             // Try combining adjacent text pieces that together form the date
-            const joined = texts.join(' ').replace(/\s+/g, ' ').toLowerCase();
+            const joined = normalizeDateString(texts.join(' '));
             if (joined.includes(expClean)) {
               actualValue = expectedValue;
               isMatch = true;
-            } else if (pageSource.toLowerCase().includes(expClean)) {
+            } else if (normalizeDateString(pageSource).includes(expClean)) {
               actualValue = expectedValue;
               isMatch = true;
             } else {
               // Try partial component checks: day + month components all present
-              const dateParts = expClean.split(/\s+/).filter(p => p.length > 1);
+              const dateParts = expClean.split(/\s+/).filter(p => p.length > 1 && p !== 'at' && p !== '•');
               const allPartsFound = dateParts.length > 0 && dateParts.every(part =>
-                joined.includes(part) || pageSource.toLowerCase().includes(part)
+                joined.includes(part) || normalizeDateString(pageSource).includes(part)
               );
               if (allPartsFound) {
                 actualValue = expectedValue;
                 isMatch = true;
+              } else {
+                // FALLBACK: Find a date-like text element to show in actualValue on fail
+                const dateLike = texts.find(t => 
+                  /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|sun|mon|tue|wed|thu|fri|sat)\b/i.test(t) ||
+                  /\d{1,2}(st|nd|rd|th)?\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i.test(t) ||
+                  /\d{1,2}:\d{2}/.test(t)
+                );
+                if (dateLike) {
+                  actualValue = dateLike;
+                } else if (texts.length > 0) {
+                  const titleClean = String(titleExpected || '').toLowerCase();
+                  const fallback = texts.find(t => {
+                    const tl = t.toLowerCase();
+                    return tl !== titleClean && !tl.includes('boxing') && !tl.includes('matchroom');
+                  });
+                  if (fallback) actualValue = fallback;
+                }
               }
             }
           }
@@ -585,8 +621,8 @@ export class AndroidValidationPage extends AndroidBasePage {
             const refDateStr = eventData.HOME_BOXING_UPCOMING_DATE || eventData.LANDING_PAGE_PPV_DATE || eventData.PPV_DATE || '';
             const refTimeStr = eventData.HOME_BOXING_UPCOMING_TIME || eventData.PPV_TIME || '';
             if (refDateStr) {
-              const days = ['SUN','MON','TUE','WED','THU','FRI','SAT'];
-              const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+              const days = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+              const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
               const cleanRefStr = refDateStr.toUpperCase().replace(/,/g, '');
               const tokens = cleanRefStr.split(/\s+/);
               let parsedDay = '', parsedMonth = '', parsedDate = '';
@@ -607,11 +643,11 @@ export class AndroidValidationPage extends AndroidBasePage {
 
           let extractedVal = '';
           if (effectiveField === 'Day') {
-            const daysList = ['sun','mon','tue','wed','thu','fri','sat','sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
+            const daysList = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
             const matched = texts.find(t => daysList.includes(t.toLowerCase().trim()));
             if (matched) extractedVal = matched.trim().toUpperCase();
           } else if (effectiveField === 'Month') {
-            const monthsList = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec','january','february','march','april','june','july','august','september','october','november','december'];
+            const monthsList = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec', 'january', 'february', 'march', 'april', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
             const matched = texts.find(t => monthsList.includes(t.toLowerCase().trim()));
             if (matched) extractedVal = matched.trim().toUpperCase();
           } else if (effectiveField === 'Date') {

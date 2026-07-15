@@ -97,10 +97,10 @@ export function loadEventConfig(eventConfigOrKey?: string, planKeyOverride?: str
 
   // Load plan data if needed
   const planKey = planKeyOverride || process.env.PLAN || 'standard_monthly';
-  const configDir = fs.existsSync(path.resolve(process.cwd(), 'config/DaznPlan.json'))
+  const configDirPlan = fs.existsSync(path.resolve(process.cwd(), 'config/DaznPlan.json'))
     ? path.resolve(process.cwd(), 'config')
     : path.resolve(__dirname, '..', 'config');
-  const plansPath = path.join(configDir, 'DaznPlan.json');
+  const plansPath = path.join(configDirPlan, 'DaznPlan.json');
   let planData: any = {};
 
   if (fs.existsSync(plansPath)) {

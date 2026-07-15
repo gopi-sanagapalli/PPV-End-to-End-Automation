@@ -673,11 +673,29 @@ describe('DAZN Android PPV → Web Handoff', () => {
       await device.shell(`am force-stop ${MOBILE_BROWSER_PACKAGE}`);
       await sleep(1000);
 
-      console.log('Launching Chrome browser on Android device...');
+      const regionLocaleMap: Record<string, { locale: string; timezoneId: string }> = {
+        GB: { locale: 'en-GB', timezoneId: 'Europe/London' },
+        UK: { locale: 'en-GB', timezoneId: 'Europe/London' },
+        US: { locale: 'en-US', timezoneId: 'America/New_York' },
+        AE: { locale: 'en-AE', timezoneId: 'Asia/Dubai' },
+        AU: { locale: 'en-AU', timezoneId: 'Australia/Sydney' },
+        BR: { locale: 'pt-BR', timezoneId: 'America/Sao_Paulo' },
+        DE: { locale: 'de-DE', timezoneId: 'Europe/Berlin' },
+        IT: { locale: 'it-IT', timezoneId: 'Europe/Rome' },
+        ES: { locale: 'es-ES', timezoneId: 'Europe/Madrid' },
+        FR: { locale: 'fr-FR', timezoneId: 'Europe/Paris' },
+        CA: { locale: 'en-CA', timezoneId: 'America/Toronto' },
+        JP: { locale: 'ja-JP', timezoneId: 'Asia/Tokyo' },
+      };
+      const REGION_KEY = (process.env.DAZN_REGION || 'GB').toUpperCase();
+      const { locale: activeLocale, timezoneId: activeTz } =
+        regionLocaleMap[REGION_KEY] ?? { locale: 'en-GB', timezoneId: 'Europe/London' };
+
+      console.log(`Launching Chrome browser on Android device with timezone "${activeTz}" and locale "${activeLocale}"...`);
       context = await device.launchBrowser({
         viewport: { width: 375, height: 667 },
-        timezoneId: 'Asia/Kolkata',
-        locale: 'en-IN',
+        timezoneId: activeTz,
+        locale: activeLocale,
         args: ['--incognito', '--no-first-run', '--disable-first-run-ui']
       });
 
