@@ -18,6 +18,11 @@ type BannerAssessment = {
   findings: string[];
 };
 
+export type BannerValidationResult = {
+  passed: boolean;
+  assessment: BannerAssessment;
+};
+
 function requestGemini(url: string, apiKey: string, body: Buffer): Promise<{ statusCode: number; body: string }> {
   return new Promise((resolve, reject) => {
     const request = https.request(url, {
@@ -72,13 +77,13 @@ if (
 export async function validatePpvBannerImage(
   banner: { screenshot(options: { path: string; type: 'png' }): Promise<Buffer> },
   context: { region: string; flow: string }
-): Promise<void> {
-  if (process.env.GITHUB_ACTIONS !== 'true') return;
+): Promise<BannerValidationResult | null> {
+  if (process.env.GITHUB_ACTIONS !== 'true' && process.env.GEMINI_BANNER_VALIDATION !== 'true') return null;
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     console.log('ℹ️ [Gemini Banner] GEMINI_API_KEY is not configured; visual check skipped.');
-    return;
+    return null;
   }
 
   try {
@@ -236,8 +241,10 @@ console.log(
 ` | confidence=${assessment.confidence}%`
 );
     for (const finding of assessment.findings) console.log(`   [Gemini Banner] ${finding}`);
+    return { passed, assessment };
   } catch (error: any) {
     // Gemini is supplementary QA; an API/quota/model issue must not hide the E2E result.
     console.warn(`⚠️ [Gemini Banner] Visual check could not run: ${error?.message || error}`);
+    return null;
   }
 }
