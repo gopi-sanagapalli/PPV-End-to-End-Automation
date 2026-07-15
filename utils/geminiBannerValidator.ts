@@ -5,16 +5,11 @@ import path from 'path';
 type BannerAssessment = {
   imageLoaded: 'pass' | 'fail' | 'uncertain';
   imageQuality: 'pass' | 'fail' | 'uncertain';
-
-  heroSubjectVisible: 'pass' | 'fail' | 'uncertain';
-  secondarySubjectVisible: 'pass' | 'fail' | 'uncertain';
-
-  cropping: 'pass' | 'fail' | 'uncertain';
-  distortion: 'pass' | 'fail' | 'uncertain';
-  overlay: 'pass' | 'fail' | 'uncertain';
-
+  fightersVisible: 'pass' | 'fail' | 'uncertain';
+  fighterCropping: 'pass' | 'fail' | 'uncertain';
+  imageDistortion: 'pass' | 'fail' | 'uncertain';
+  overlayObstructingArtwork: 'pass' | 'fail' | 'uncertain';
   confidence: number;
-
   findings: string[];
 };
 
@@ -54,29 +49,28 @@ function parseAssessment(responseBody: string): BannerAssessment {
   if (!text) throw new Error('Gemini returned no text assessment');
 
   const assessment = JSON.parse(text) as BannerAssessment;
-if (
+  if (
     !assessment.imageLoaded ||
     !assessment.imageQuality ||
-    !assessment.heroSubjectVisible ||
-    !assessment.secondarySubjectVisible ||
-    !assessment.cropping ||
-    !assessment.distortion ||
-    !assessment.overlay ||
+    !assessment.fightersVisible ||
+    !assessment.fighterCropping ||
+    !assessment.imageDistortion ||
+    !assessment.overlayObstructingArtwork ||
     typeof assessment.confidence !== 'number' ||
     !Array.isArray(assessment.findings)
-) {
-    throw new Error('Gemini returned an invalid banner assessment');
-}
+  ) {
+    throw new Error('Gemini returned an invalid or incomplete banner assessment');
+  }
   return assessment;
 }
 
 /**
- * Checks only the rendered PPV banner image in GitHub Actions. Gemini findings
- * are initially warn-only so visual-model uncertainty cannot block PPV flows.
+ * Checks a rendered promotional banner image. Existing PPV callers use this as
+ * supplementary, warn-only QA; standalone callers can assert the result.
  */
-export async function validatePpvBannerImage(
+export async function validateBannerImage(
   banner: { screenshot(options: { path: string; type: 'png' }): Promise<Buffer> },
-  context: { region: string; flow: string }
+  context: { region: string; flow: string; url?: string; fighterNames?: string[] }
 ): Promise<BannerValidationResult | null> {
   if (process.env.GITHUB_ACTIONS !== 'true' && process.env.GEMINI_BANNER_VALIDATION !== 'true') return null;
 
@@ -90,109 +84,109 @@ export async function validatePpvBannerImage(
     const evidenceDir = path.resolve(process.cwd(), 'test-results', 'gemini-banner');
     fs.mkdirSync(evidenceDir, { recursive: true });
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const imagePath = path.join(evidenceDir, `ppv-banner-${context.region}-${timestamp}.png`);
+    const safeFlow = context.flow.replace(/[^a-zA-Z0-9_-]/g, '-');
+    const imagePath = path.join(evidenceDir, `banner-${safeFlow}-${context.region}-${timestamp}.png`);
     await banner.screenshot({ path: imagePath, type: 'png' });
 
     const image = fs.readFileSync(imagePath).toString('base64');
- const schema = {
-  type: 'object',
+    const schema = {
+      type: 'object',
+      properties: {
+        imageLoaded: { type: 'string', enum: ['pass', 'fail', 'uncertain'] },
+        imageQuality: { type: 'string', enum: ['pass', 'fail', 'uncertain'] },
+        fightersVisible: { type: 'string', enum: ['pass', 'fail', 'uncertain'] },
+        fighterCropping: { type: 'string', enum: ['pass', 'fail', 'uncertain'] },
+        imageDistortion: { type: 'string', enum: ['pass', 'fail', 'uncertain'] },
+        overlayObstructingArtwork: { type: 'string', enum: ['pass', 'fail', 'uncertain'] },
+        confidence: { type: 'number' },
+        findings: { type: 'array', items: { type: 'string' } },
+      },
+      required: [
+        'imageLoaded', 'imageQuality', 'fightersVisible',
+        'fighterCropping', 'imageDistortion', 'overlayObstructingArtwork',
+        'confidence', 'findings'
+      ]
+    };
+    const fighterNames = context.fighterNames?.length ? context.fighterNames : [];
+    const fighterNamesText = fighterNames.length
+      ? ` The featured fighters for this event are: ${fighterNames.join(' and ')}.`
+      : '';
 
-  properties: {
+const prompt = [
+  'You are a senior QA engineer reviewing a DAZN promotional banner.',
 
-    imageLoaded: {
-      type: 'string',
-      enum: ['pass', 'fail', 'uncertain']
-    },
+  'Your responsibility is to validate ONLY the promotional artwork.',
+  'Ignore all marketing copy, event names, dates, prices, logos, CTA buttons and UI text.',
+  'These are validated separately by automation.',
 
-    imageQuality: {
-      type: 'string',
-      enum: ['pass', 'fail', 'uncertain']
-    },
+  fighterNamesText,
 
-    heroSubjectVisible: {
-      type: 'string',
-      enum: ['pass', 'fail', 'uncertain']
-    },
+  'Use the expected promotional subjects only to determine who should appear in the artwork.',
+  'Mention the expected subject names in the findings whenever possible.',
 
-    secondarySubjectVisible: {
-      type: 'string',
-      enum: ['pass', 'fail', 'uncertain']
-    },
+  'If the screenshot does not show the expected promotional artwork, mark the validation as failed.',
+  'Examples include:',
+  '- VPN warning',
+  '- Cookie consent page covering the banner',
+  '- Login page',
+  '- 403/404 error page',
+  '- Placeholder image',
+  '- Skeleton loader',
+  '- Broken or missing image',
 
-    cropping: {
-      type: 'string',
-      enum: ['pass', 'fail', 'uncertain']
-    },
+  'Review the artwork exactly as an experienced QA engineer would.',
 
-    distortion: {
-      type: 'string',
-      enum: ['pass', 'fail', 'uncertain']
-    },
+  'Evaluate the following:',
 
-    overlay: {
-      type: 'string',
-      enum: ['pass', 'fail', 'uncertain']
-    },
+  '• imageLoaded',
+  'pass only if the promotional artwork has loaded completely.',
+  'fail if the artwork is missing, replaced by an error page, placeholder, skeleton loader or other non-promotional content.',
 
-    confidence: {
-      type: 'number'
-    },
+  '• imageQuality',
+  'pass if the artwork is visually sharp and suitable for production.',
+  'fail if the artwork is blurry, pixelated, heavily compressed or noticeably low resolution.',
 
-    findings: {
-      type: 'array',
-      items: {
-        type: 'string'
-      }
-    }
-  },
+  '• fightersVisible',
+  'Determine whether every expected promotional subject can be confidently identified.',
+  'pass if each expected subject is clearly recognizable.',
+  'fail if any expected subject is missing, cannot be confidently identified or the image quality prevents identification.',
+  'A subject does NOT fail simply because only the upper body is shown.',
+  'Chest-up or waist-up promotional artwork is acceptable.',
 
-  required: [
-    'imageLoaded',
-    'imageQuality',
-    'heroSubjectVisible',
-    'secondarySubjectVisible',
-    'cropping',
-    'distortion',
-    'overlay',
-    'confidence',
-    'findings'
-  ]
-};
-   const prompt = [
-  'You are a senior visual QA engineer reviewing a DAZN promotional banner.',
+  '• fighterCropping',
+  'Determine whether the visible upper-body portrait is unintentionally cropped.',
+  'For DAZN promotional artwork, evaluate only the visible portrait area (typically chest-up or waist-up).',
+  'pass if the portrait is naturally framed and no unintended clipping is present.',
+  'fail if the banner edge cuts through the head, hair, forehead, face, chin, ears, neck, shoulders or upper chest.',
+  'Do NOT fail simply because the lower body, waist or legs are not shown.',
 
-  'Ignore ALL text on the page.',
+  '• imageDistortion',
+  'pass if the artwork maintains the correct proportions.',
+  'fail if the artwork appears stretched, squashed, warped or displayed with an incorrect aspect ratio.',
 
-  'Do NOT validate:',
+  '• overlayObstructingArtwork',
+  'fail if a popup, cookie banner, VPN warning, modal or other overlay blocks a significant portion of the promotional artwork.',
 
-  '- event title',
-  '- date',
-  '- price',
-  '- CTA buttons',
-  '- logos',
-  '- plans',
+  'Findings:',
+  'Write concise QA observations describing only what is visible.',
+  'Do not speculate.',
+  'Mention the expected subject names whenever possible.',
+  'Examples:',
+  '- Joshua is clearly visible.',
+  '- Prenga is clearly visible.',
+  '- Joshua is unintentionally cropped at the head.',
+  '- The promotional artwork is heavily pixelated.',
+  '- A cookie banner obscures the lower portion of the artwork.',
 
-  'Those are validated separately by automation.',
-
-  'Evaluate ONLY the rendered promotional artwork.',
-
-  'Determine whether:',
-
-  '- the banner image has fully loaded',
-  '- the artwork is sharp and not blurry',
-  '- there is no visible distortion or stretching',
-  '- there are no missing image sections',
-  '- no placeholder, skeleton or broken image is visible',
-  '- the hero promotional subject is clearly visible',
-  '- the secondary promotional subject is visible if one exists',
-  '- there is no unintended cropping caused by rendering',
-  '- no overlay or popup obscures the artwork',
-
-  'Treat intentional marketing artwork cropping as PASS.',
+  'Confidence:',
+  'Return a value between 0 and 100.',
+  '95-99 = Very confident.',
+  '80-94 = Confident.',
+  '50-79 = Moderate confidence.',
+  '0-49 = Unable to reliably assess.',
+  'Use 100 only when absolutely no ambiguity exists.',
 
   'Return ONLY valid JSON matching the supplied schema.',
-
-  'Do not explain your reasoning outside the findings array.'
 ].join(' ');
     const payload = Buffer.from(JSON.stringify({
       contents: [{ parts: [
@@ -216,30 +210,39 @@ export async function validatePpvBannerImage(
     }
 
     const assessment = parseAssessment(response.body);
-    fs.writeFileSync(`${imagePath}.json`, `${JSON.stringify(assessment, null, 2)}\n`);
- const passed =
-    assessment.imageLoaded === 'pass' &&
-    assessment.imageQuality === 'pass' &&
-    assessment.heroSubjectVisible === 'pass' &&
-    assessment.secondarySubjectVisible !== 'fail' &&
-    assessment.cropping === 'pass' &&
-    assessment.distortion === 'pass' &&
-    assessment.overlay === 'pass';
+    const MIN_CONFIDENCE = 60;
+    const hasFindings = Array.isArray(assessment.findings) && assessment.findings.length > 0;
+    const passed =
+      hasFindings &&
+      assessment.confidence >= MIN_CONFIDENCE &&
+      assessment.imageLoaded === 'pass' &&
+      assessment.imageQuality === 'pass' &&
+      assessment.fightersVisible === 'pass' &&
+      assessment.fighterCropping === 'pass' &&
+      assessment.imageDistortion === 'pass' &&
+      assessment.overlayObstructingArtwork === 'pass';
 
-const icon = passed ? '✅' : '⚠️';
+    const icon = passed ? '✅' : '⚠️';
 
-console.log(
-`${icon} [Gemini Banner] ${
-    passed ? 'PASS' : 'WARNING'
-} | loaded=${assessment.imageLoaded}` +
-` | quality=${assessment.imageQuality}` +
-` | hero=${assessment.heroSubjectVisible}` +
-` | secondary=${assessment.secondarySubjectVisible}` +
-` | crop=${assessment.cropping}` +
-` | distortion=${assessment.distortion}` +
-` | overlay=${assessment.overlay}` +
-` | confidence=${assessment.confidence}%`
-);
+    fs.writeFileSync(`${imagePath}.json`, `${JSON.stringify({
+      url: context.url,
+      flow: context.flow,
+      region: context.region,
+      image: path.basename(imagePath),
+      passed,
+      assessment,
+    }, null, 2)}\n`);
+
+    console.log(
+      `${icon} [Gemini Banner] ${passed ? 'PASS' : 'WARN'} | ` +
+      `loaded=${assessment.imageLoaded}` +
+      ` | quality=${assessment.imageQuality}` +
+      ` | fighters=${assessment.fightersVisible}` +
+      ` | crop=${assessment.fighterCropping}` +
+      ` | distortion=${assessment.imageDistortion}` +
+      ` | overlay=${assessment.overlayObstructingArtwork}` +
+      ` | confidence=${assessment.confidence}%`
+    );
     for (const finding of assessment.findings) console.log(`   [Gemini Banner] ${finding}`);
     return { passed, assessment };
   } catch (error: any) {
@@ -248,3 +251,6 @@ console.log(
     return null;
   }
 }
+
+// Kept for existing PPV flows, where the result remains warn-only.
+export const validatePpvBannerImage = validateBannerImage;

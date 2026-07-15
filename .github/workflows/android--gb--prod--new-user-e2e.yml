@@ -41,6 +41,7 @@ jobs:
       - macOS
       - ARM64
 
+
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
 
@@ -159,7 +160,7 @@ jobs:
 
     strategy:
       fail-fast: false
-      max-parallel: 2
+      max-parallel: 1
       matrix:
         include: ${{ fromJSON(needs.prepare-matrix.outputs.matrix) }}
 
@@ -240,6 +241,25 @@ jobs:
           echo "SWITCH      = $SWITCH"
           echo "=============================="
 
+      - name: Verify Android Device
+        shell: bash
+        run: |
+          echo "===== USER ====="
+          whoami
+
+          echo "===== WHICH ADB ====="
+          which adb
+
+          echo "===== ADB VERSION ====="
+          adb version
+
+          echo "===== RESTART ADB ====="
+          adb kill-server
+          adb start-server
+
+          echo "===== CONNECTED DEVICES ====="
+          adb devices -l
+
       - name: Run Android New User PPV Flow
         shell: bash
         run: |
@@ -300,3 +320,5 @@ jobs:
             test-results/
             reports/
           if-no-files-found: ignore
+
+          
