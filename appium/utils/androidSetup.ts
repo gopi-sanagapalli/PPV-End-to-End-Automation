@@ -63,7 +63,7 @@ async function dismissOneStartupDialog(driver: WdBrowser): Promise<boolean> {
     'android=new UiSelector().resourceId("android:id/button1")',
     'android=new UiSelector().descriptionContains("Close")',
     'android=new UiSelector().descriptionContains("Dismiss")',
-    'android=new UiSelector().textMatches("(?i)^(Explore|Continue|Start watching|Done|OK|Allow)$")',
+    'android=new UiSelector().textMatches("(?i)^(Continue|Start watching|Done|OK|Allow)$")',
     'android=new UiSelector().textMatches("(?i)^(Not now|No thanks|Maybe later|Skip|Cancel|Remind me later)$")',
   ], 'Startup dialog dismissed');
 }
