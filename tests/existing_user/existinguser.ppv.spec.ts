@@ -236,14 +236,30 @@ for (const stateKey of userStatesToRun) {
 
     // Bypass phone number for every effective Ultimate journey in GB/US,
     // including Active Standard → Ultimate upgrades.
+    // Boxing subscription sources (boxing-banner-ultimate, boxing-ultimate-subscription,
+    // boxing-join-the-club) redirect signed-in Ultimate users to /home — they never
+    // go through the phone number page, so dev mode is not needed for them.
+    // The exclusion is a top-level gate so that no condition (effectiveTier,
+    // isUltimateLoginFirstUser, etc.) can accidentally re-enable dev mode.
+    const BOXING_HOME_REDIRECT_SOURCES = new Set<string>([
+      'boxing-banner-ultimate',
+      'boxing-ultimate-subscription',
+      'boxing-join-the-club',
+    ]);
+    const isBoxingHomeRedirect =
+      LOGIN_FIRST &&
+      isActiveUltimateState(userStateKey) &&
+      BOXING_HOME_REDIRECT_SOURCES.has(SOURCE.toLowerCase());
     const devModeEnabled =
       devModeForced ||
-      isUltimateLoginFirstUser ||
-      (isActiveUltimateState(userStateKey) &&
-        ['my-account', 'myaccount', 'myaccount-subscription-status'].includes(SOURCE.toLowerCase()) &&
-        isUSorGB) ||
-      (effectiveTier === 'ultimate' && isUSorGB) ||
-      (SOURCE === 'landing-page-dont-miss-live-switch');
+      (!isBoxingHomeRedirect && (
+        isUltimateLoginFirstUser ||
+        (isActiveUltimateState(userStateKey) &&
+          ['my-account', 'myaccount', 'myaccount-subscription-status'].includes(SOURCE.toLowerCase()) &&
+          isUSorGB) ||
+        (effectiveTier === 'ultimate' && isUSorGB) ||
+        (SOURCE === 'landing-page-dont-miss-live-switch')
+      ));
 
     console.log(`🎯 Requested PLAN : ${requestedPlan || '(none -> PPV only)'}`);
     console.log(`🛒 Purchase route : ${purchaseOption}`);
@@ -1008,10 +1024,8 @@ for (const stateKey of userStatesToRun) {
               console.log(`🧭 [Login First] Navigating via All Sports dropdown for source: ${SOURCE}`);
               await (landing as BoxingHomePage).navigateToSportViaAllSports(SOURCE, eventData);
             } else if (isBoxingSource) {
-              const targetUrl = `${baseNoSlash}/p/boxing`;
-              console.log(`🧭 [Login First] Navigating directly to Boxing page: ${targetUrl}`);
-              await page.goto(targetUrl, { waitUntil: 'domcontentloaded' });
-              await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });
+              console.log(`🧭 [Login First] Navigating directly to Boxing page via BoxingPage.navigate()`);
+              await (landing as BoxingPage).navigate(baseUrl, SOURCE);
             } else {
               // HomePage: we are already on /home. Strip the DAZN onboarding
               // step param before touching banner carousel DOM.
@@ -1365,6 +1379,58 @@ for (const stateKey of userStatesToRun) {
 
         // ── STRICT VALIDATION FOR ULTIMATE USER PRE-LOGGED IN ──
         if (isActiveUltimateState(userStateKey) && requiresPreLogin) {
+          // These boxing subscription sources redirect ultimate users to /home,
+          // not to a fixture/preview page — accept /home as a valid destination.
+          const ULTIMATE_HOME_REDIRECT_SOURCES = new Set<string>([
+            'boxing-banner-ultimate',
+            'boxing-ultimate-subscription',
+            'boxing-join-the-club',
+          ]);
+          const expectsHomeRedirect = ULTIMATE_HOME_REDIRECT_SOURCES.has(SOURCE.toLowerCase());
+
+          if (expectsHomeRedirect) {
+            console.log(`⏳ [Ultimate User] Source "${SOURCE}" — expecting /home redirect...`);
+            await page.waitForURL(
+              (url: URL) =>
+                !url.href.includes('/welcome') &&
+                !url.href.includes('PlanDetails') &&
+                !url.href.includes('TierPlans') &&
+                !url.href.includes('signup') &&
+                !url.href.includes('signin') &&
+                !url.href.includes('payment') &&
+                !url.href.includes('checkout'),
+              { timeout: 15000 }
+            ).catch(() => { });
+
+            const currentUrl = page.url();
+            const lowerUrl = currentUrl.toLowerCase();
+            let navStatus: 'PASS' | 'FAIL' = 'FAIL';
+            let actualPage = 'Unknown Page';
+
+            if (lowerUrl.includes('/home')) {
+              actualPage = 'Home Page';
+              navStatus = 'PASS';
+            }
+
+            results.push({
+              page: 'Home Page',
+              field: 'Ultimate User Navigation Target',
+              expected: 'Home Page (subscription source)',
+              actual: `Navigated to: ${currentUrl} (${actualPage})`,
+              status: navStatus,
+            });
+
+            if (navStatus === 'FAIL') {
+              const errMsg = `❌ [Ultimate User] Unexpected redirect after clicking "${SOURCE}" CTA. Landed on: ${currentUrl}`;
+              console.error(errMsg);
+              throw new Error(errMsg);
+            } else {
+              console.log(`✅ [Ultimate User] Successfully redirected to ${actualPage}: ${currentUrl}`);
+            }
+            reachedEndPage = true;
+            return;
+          }
+
           console.log('⏳ [Ultimate User] Waiting for redirection to fixture page...');
           await page.waitForURL(
             (url: URL) =>

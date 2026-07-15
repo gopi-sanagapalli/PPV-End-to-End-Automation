@@ -7389,8 +7389,8 @@ export async function getActualValue(
     }
 
     case 'ppv description': {
-      const ppvDesc = (eventData?.PPV_DESCRIPTION || '').toLowerCase();
-      const firstWord = ppvDesc.split(' ')[0];
+      const bannerDesc = (eventData?.BANNER_DESCRIPTION || eventData?.PPV_DESCRIPTION || '').toLowerCase();
+      const firstWord = bannerDesc.split(' ')[0];
 
       const found = snapFind(n =>
         n.tag === 'p' &&
@@ -7400,7 +7400,7 @@ export async function getActualValue(
         !isPriceText(n.text) &&
         (firstWord ? n.text.toLowerCase().includes(firstWord) : true)
       );
-      return found !== 'N/A' ? 'Yes' : 'No';
+      return found !== 'N/A' ? found : 'N/A';
     }
 
     case 'order summary ppv name': {
