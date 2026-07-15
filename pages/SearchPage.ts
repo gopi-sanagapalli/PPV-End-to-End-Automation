@@ -513,25 +513,19 @@ export class SearchPage extends BasePage {
         return;
       }
 
-      // ── Step 1: Navigate to search page ───────────
-      const searchLink = this.page.locator('header a[href*="/search"], a[href*="/search"]').first();
-      const searchVisible = await searchLink.isVisible({ timeout: 2000 }).catch(() => false);
-
-      if (searchVisible) {
-        console.log('✅ Found search link — navigating via client-side click');
-        await Promise.all([
-          this.page.waitForURL('**/search', { timeout: 10000 }).catch(() => { }),
-          searchLink.click({ force: true })
-        ]);
-
-        await this.page.waitForLoadState('domcontentloaded').catch(() => { });
-      } else {
-        const baseUrl = this.page.url().match(/https:\/\/[^\/]+\/en-[A-Z]+/i)?.[0] || 'https://www.dazn.com/en-GB';
-        const searchUrl = `${baseUrl}/search`;
-        console.log(`🧭 Search link not visible — navigating directly to: ${searchUrl}`);
-        await this.page.goto(searchUrl, { waitUntil: 'domcontentloaded' });
-        await this.waitForConsentAndDismiss().catch(() => { });
-      }
+      // ── Step 1: Navigate to search page via direct URL ───────────
+      // Always use page.goto() to navigate to /search. The boxing page
+      // has no search icon in its header, and SPA click-based navigation
+      // can get intercepted on certain pages (e.g. /p/boxing). Deriving
+      // the search URL from the current URL is reliable in all cases.
+      const localeBase = this.page.url().match(/https:\/\/[^/]+\/en-[A-Z]+/i)?.[0]
+        || originalUrl.match(/https:\/\/[^/]+\/en-[A-Z]+/i)?.[0]
+        || 'https://www.dazn.com/en-GB';
+      const searchUrl = `${localeBase}/search`;
+      console.log(`🧭 Navigating directly to search page: ${searchUrl}`);
+      await this.page.goto(searchUrl, { waitUntil: 'commit', timeout: 15000 });
+      await this.page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => { });
+      await this.waitForConsentAndDismiss().catch(() => { });
       console.log(`✅ On search page: ${this.page.url()}`);
 
       // ── Step 2: Type [dev_mode_on] and press Enter ────────────
@@ -547,13 +541,13 @@ export class SearchPage extends BasePage {
       await searchInput.waitFor({ state: 'visible', timeout: 30000 });
 
       // Dismiss any marketing/promotion popup that is already visible
-      await dismissMarketingPopup(this.page, 5000, { preservePpvPromo: !!options.preservePpvPromo }).catch(() => {});
+      await dismissMarketingPopup(this.page, 5000, { preservePpvPromo: !!options.preservePpvPromo }).catch(() => { });
 
       try {
         await searchInput.click({ timeout: 5000 });
       } catch (clickError) {
         console.log('⚠️ Search input click was intercepted or failed. Attempting to dismiss popup and retry...');
-        await dismissMarketingPopup(this.page, 4000, { preservePpvPromo: !!options.preservePpvPromo }).catch(() => {});
+        await dismissMarketingPopup(this.page, 4000, { preservePpvPromo: !!options.preservePpvPromo }).catch(() => { });
         await searchInput.click({ timeout: 10000 });
       }
 

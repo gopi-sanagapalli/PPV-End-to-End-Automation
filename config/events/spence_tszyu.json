@@ -32,8 +32,8 @@
   "regions": {
     "GB": {
       "LANDING_PAGE_PPV_DATE": "26 July",
-      "PPV_PRICE": "24.99",
-      "TODAY_YOU_PAY_PRICE": "24.99",
+      "PPV_PRICE": "£24.99",
+      "TODAY_YOU_PAY_PRICE": "£24.99",
       "UPSELL_PRICE_LENGTH": "/month for 12 months",
       "PPV1_UPSELL_TILE_DATE": "",
       "HOME_BOXING_UPCOMING_TIME": "4:00AM",

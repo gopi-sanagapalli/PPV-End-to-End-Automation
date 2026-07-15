@@ -76,7 +76,9 @@ export function loadEventConfig(eventConfigOrKey?: string, planKeyOverride?: str
     if (!filename.toLowerCase().endsWith('.json')) {
       filename += '.json';
     }
-    const configDir = path.resolve(__dirname, '../config');
+    // Resolve config/ relative to this file's location (project root),
+    // not process.cwd(), so it works even when tests run from appium/ or other subdirs.
+    const configDir = path.resolve(__dirname, '..', 'config');
     filePath = findConfig(configDir, filename);
   }
 
@@ -95,8 +97,10 @@ export function loadEventConfig(eventConfigOrKey?: string, planKeyOverride?: str
 
   // Load plan data if needed
   const planKey = planKeyOverride || process.env.PLAN || 'standard_monthly';
-  const configDir = path.resolve(__dirname, '../config');
-  const plansPath = path.join(configDir, 'DaznPlan.json');
+  const configDirPlan = fs.existsSync(path.resolve(process.cwd(), 'config/DaznPlan.json'))
+    ? path.resolve(process.cwd(), 'config')
+    : path.resolve(__dirname, '..', 'config');
+  const plansPath = path.join(configDirPlan, 'DaznPlan.json');
   let planData: any = {};
 
   if (fs.existsSync(plansPath)) {

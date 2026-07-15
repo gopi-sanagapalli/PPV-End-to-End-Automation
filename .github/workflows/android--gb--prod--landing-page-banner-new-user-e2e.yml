@@ -1,4 +1,4 @@
-name: "Android · GB · Prod · New user — all surfacing points"
+name: "Android · GB · Prod · New user — landing page banner"
 
 on:
   workflow_dispatch:
@@ -34,13 +34,12 @@ env:
 
 jobs:
   prepare-matrix:
-    name: Prepare source matrix
+    name: Prepare landing page matrix
 
     runs-on:
       - self-hosted
       - macOS
       - ARM64
-
 
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
@@ -49,7 +48,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Build applicable source matrix
+      - name: Build landing page matrix
         id: matrix
         env:
           PPV_CONFIG: ${{ inputs.PPV_CONFIG }}
@@ -83,70 +82,27 @@ jobs:
           if (!eventPath) throw new Error(`PPV config not found: ${configInput}`);
 
           const event = JSON.parse(fs.readFileSync(eventPath, 'utf8'));
-          const sourceConfig = JSON.parse(fs.readFileSync('config/surfacingpoint.json', 'utf8'));
-          const sport = String(event.SPORT || '').trim().toLowerCase();
-          const hasBundle = event.HAS_BUNDLE === true;
-          const hasDefaultSignupPpv = event.HAS_DEFAULT_SIGNUP_PPV === true;
-
-          const sources = [
-            'landing-page-banner',
-            'home-page-banner',
-            'home-page-dont-miss',
-            'home-page-tile',
-            'home-boxing-banner',
-            'home-boxing-upcoming',
-            'home-boxing-tile',
-            'boxing-page-banner',
-            'boxing-upcoming-fights',
-            'schedule',
-            'search',
-            'myaccount',
-          ].filter((source) => {
-            if (source === 'home-kickboxing-tile' && sport !== 'kickboxing') return false;
-            if (source === 'boxing-page-bundle' && !hasBundle) return false;
-            if (sourceConfig[source]?.defaultSignup && !hasDefaultSignupPpv) return false;
-            return true;
-          });
-
-          const plans = ['standard_monthly', 'standard_apm', 'ultimate_apm', 'ultimate_upfront'];
-          const ultimateOnlySources = new Set([
-            'boxing-banner-ultimate',
-            'boxing-ultimate-subscription',
-            'boxing-join-the-club',
-          ]);
-          const matrix = [];
-          for (const source of sources) {
-            for (const plan of plans) {
-              if (ultimateOnlySources.has(source) && plan.startsWith('standard_')) continue;
-              matrix.push({ source, plan });
-            }
-          }
-
-          if (sources.includes('home-page-banner') || sources.includes('home-page-dont-miss')) {
-            for (const plan of plans) {
-              matrix.push({ source: 'home-page-subscribe', plan });
-            }
-          }
-
-          if (sources.includes('myaccount')) {
-            for (const plan of plans) {
-              matrix.push({ source: 'myaccount-subscription-status', plan });
-            }
-          }
-
-          matrix.push(
-            { source: 'landing-page-dont-miss-live-switch', plan: 'standard_monthly', switch: 'true' },
-            { source: 'landing-page-dont-miss-live-switch', plan: 'standard_apm', switch: 'true' },
-          );
-
           console.log(`Event: ${event.eventKey || event.PPV_NAME || configInput}`);
-          console.log(`SPORT=${event.SPORT || 'not set'}, HAS_BUNDLE=${hasBundle}, HAS_DEFAULT_SIGNUP_PPV=${hasDefaultSignupPpv}`);
-          console.log(`Scheduled sources (${sources.length}): ${sources.join(', ')}`);
+
+          // Landing page banner only
+          const source = 'landing-page-banner';
+          
+          // All 4 rate plans
+          const plans = ['standard_monthly', 'standard_apm', 'ultimate_apm', 'ultimate_upfront'];
+
+          const matrix = [];
+          const runners = ['runner-1', 'runner-2'];
+          for (let i = 0; i < plans.length; i++) {
+            matrix.push({ source, plan: plans[i], runner: runners[i] });
+          }
+
+          console.log(`Source: ${source}`);
+          console.log(`Plans: ${plans.join(', ')}`);
           console.log(`Total matrix jobs: ${matrix.length}`);
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `matrix=${JSON.stringify(matrix)}\n`);
           NODE
 
-  prod:
+  test-landing-page:
     name: ${{ matrix.source }} | ${{ matrix.plan }}
 
     needs: prepare-matrix
@@ -155,6 +111,7 @@ jobs:
       - self-hosted
       - macOS
       - ARM64
+      - ${{ matrix.runner }}
 
     timeout-minutes: 30
 
@@ -239,6 +196,7 @@ jobs:
           echo "PLAN        = $PLAN"
           echo "PPV_CONFIG  = $PPV_CONFIG"
           echo "SWITCH      = $SWITCH"
+          echo "REGION      = $DAZN_REGION"
           echo "=============================="
 
       - name: Verify Android Device
@@ -260,7 +218,7 @@ jobs:
           echo "===== CONNECTED DEVICES ====="
           adb devices -l
 
-      - name: Run Android New User PPV Flow
+      - name: Run Android Landing Page Banner Test
         shell: bash
         run: |
           set +e
@@ -320,5 +278,3 @@ jobs:
             test-results/
             reports/
           if-no-files-found: ignore
-
-          

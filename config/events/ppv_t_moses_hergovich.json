@@ -5,6 +5,7 @@
   "SPORT": "Boxing",
   "PPV_TYPE": "normal",
   "HAS_BUNDLE": false,
+  "PPV_DEV_MODE": true,
   "HAS_DEFAULT_SIGNUP_PPV": false,
   "global": {
     "PPV_PROMOTER": "Matchroom Boxing",

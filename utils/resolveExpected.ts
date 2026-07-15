@@ -813,6 +813,13 @@ export function resolveExpected(
     if (pageName.toLowerCase().includes('mobile') || pageName.toLowerCase().includes('paywall')) {
       return template;
     }
+    // My Account shows the full date+time (e.g. "Sat 29th Aug at 17:00") — do not
+    // strip it down to date-only candidates; use the date+time badge instead.
+    // Prepend the raw value so the report displays the full expected format first.
+    if (field === 'ppv date' && pageName.toLowerCase().includes('my account')) {
+      const candidates = getDynamicDateTimeBadge(template);
+      return candidates ? `${template}|${candidates}` : template;
+    }
     return getDynamicDateBadge(template);
   }
 

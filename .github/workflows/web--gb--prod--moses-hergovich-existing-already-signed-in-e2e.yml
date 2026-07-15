@@ -1,4 +1,4 @@
-name: "Android · GB · Prod · New user — all surfacing points"
+name: "Web · GB · Prod · Moses vs. Hrgovic · Existing user — already signed in"
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
       PPV_CONFIG:
         description: 'PPV config filename/key'
         required: true
-        default: 'ppv_t_joshua_prenga.json'
+        default: 'ppv_t_moses_hergovich.json'
 
       PAYMENT_METHOD:
         description: 'Payment method'
@@ -41,9 +41,11 @@ jobs:
       - macOS
       - ARM64
 
+    timeout-minutes: 10
 
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
+      dev_mode_on: ${{ steps.matrix.outputs.dev_mode_on }}
 
     steps:
       - name: Checkout repository
@@ -84,70 +86,106 @@ jobs:
 
           const event = JSON.parse(fs.readFileSync(eventPath, 'utf8'));
           const sourceConfig = JSON.parse(fs.readFileSync('config/surfacingpoint.json', 'utf8'));
+
           const sport = String(event.SPORT || '').trim().toLowerCase();
           const hasBundle = event.HAS_BUNDLE === true;
           const hasDefaultSignupPpv = event.HAS_DEFAULT_SIGNUP_PPV === true;
+          const ppvDevMode = event.PPV_DEV_MODE === true;
 
-          const sources = [
-            'landing-page-banner',
+          const MY_ACCOUNT_SOURCES = new Set(['my-account', 'myaccount', 'myaccount-subscription-status']);
+
+          // All possible sources for this workflow
+          const allSources = [
             'home-page-banner',
             'home-page-dont-miss',
-            'home-page-tile',
+            'home-biggest-fights',
+            'home-page-dazntile',
+
             'home-boxing-banner',
-            'home-boxing-upcoming',
             'home-boxing-tile',
+            'home-boxing-upcoming',
+            'home-kickboxing-tile',
+
             'boxing-page-banner',
+            'boxing-page-bundle',
             'boxing-upcoming-fights',
-            'schedule',
+            'boxing-banner-ultimate',
+            'boxing-ultimate-subscription',
+            'boxing-standard-subscription',
+            'boxing-join-the-club',
+
             'search',
+            'schedule',
             'myaccount',
-          ].filter((source) => {
+          ];
+
+          // Filter sources based on event config
+          const sources = allSources.filter((source) => {
+            // PPV_DEV_MODE: restrict to myaccount only
+            if (ppvDevMode && !MY_ACCOUNT_SOURCES.has(source)) return false;
             if (source === 'home-kickboxing-tile' && sport !== 'kickboxing') return false;
             if (source === 'boxing-page-bundle' && !hasBundle) return false;
             if (sourceConfig[source]?.defaultSignup && !hasDefaultSignupPpv) return false;
             return true;
           });
 
-          const plans = ['standard_monthly', 'standard_apm', 'ultimate_apm', 'ultimate_upfront'];
+          // All profiles: user_state/plan
+          const allProfiles = [
+            'freemium/standard_monthly',
+            'freemium/standard_apm',
+            'freemium/ultimate_apm',
+            'freemium/ultimate_upfront',
+
+            'frozen/standard_monthly',
+            'frozen/standard_apm',
+            'frozen/ultimate_apm',
+            'frozen/ultimate_upfront',
+
+            'active_standard_monthly/standard_monthly',
+            'active_standard_monthly/ultimate_apm',
+            'active_standard_monthly/ultimate_upfront',
+
+            'active_standard_apm/standard_apm',
+            'active_standard_apm/ultimate_apm',
+
+            'active_ultimate_apm/ultimate_apm',
+            'active_ultimate_upfront/ultimate_upfront',
+          ];
+
+          // Sources that require Ultimate upgrade journey
           const ultimateOnlySources = new Set([
             'boxing-banner-ultimate',
             'boxing-ultimate-subscription',
             'boxing-join-the-club',
           ]);
+
+          // Profiles that are valid for ultimate-only sources
+          const validUltimateProfiles = new Set([
+            'active_standard_monthly/ultimate_apm',
+            'active_standard_monthly/ultimate_upfront',
+            'active_standard_apm/ultimate_apm',
+          ]);
+
+          // Build base matrix: source × profile
           const matrix = [];
           for (const source of sources) {
-            for (const plan of plans) {
-              if (ultimateOnlySources.has(source) && plan.startsWith('standard_')) continue;
-              matrix.push({ source, plan });
+            for (const profile of allProfiles) {
+              if (ultimateOnlySources.has(source) && !validUltimateProfiles.has(profile)) continue;
+              matrix.push({ source, profile });
             }
           }
-
-          if (sources.includes('home-page-banner') || sources.includes('home-page-dont-miss')) {
-            for (const plan of plans) {
-              matrix.push({ source: 'home-page-subscribe', plan });
-            }
-          }
-
-          if (sources.includes('myaccount')) {
-            for (const plan of plans) {
-              matrix.push({ source: 'myaccount-subscription-status', plan });
-            }
-          }
-
-          matrix.push(
-            { source: 'landing-page-dont-miss-live-switch', plan: 'standard_monthly', switch: 'true' },
-            { source: 'landing-page-dont-miss-live-switch', plan: 'standard_apm', switch: 'true' },
-          );
 
           console.log(`Event: ${event.eventKey || event.PPV_NAME || configInput}`);
-          console.log(`SPORT=${event.SPORT || 'not set'}, HAS_BUNDLE=${hasBundle}, HAS_DEFAULT_SIGNUP_PPV=${hasDefaultSignupPpv}`);
+          console.log(`SPORT=${event.SPORT || 'not set'}, HAS_BUNDLE=${hasBundle}, HAS_DEFAULT_SIGNUP_PPV=${hasDefaultSignupPpv}, PPV_DEV_MODE=${ppvDevMode}`);
           console.log(`Scheduled sources (${sources.length}): ${sources.join(', ')}`);
           console.log(`Total matrix jobs: ${matrix.length}`);
+
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `matrix=${JSON.stringify(matrix)}\n`);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `dev_mode_on=${ppvDevMode ? 'on' : 'off'}\n`);
           NODE
 
   prod:
-    name: ${{ matrix.source }} | ${{ matrix.plan }}
+    name: ${{ matrix.source }} | ${{ matrix.profile }}
 
     needs: prepare-matrix
 
@@ -160,16 +198,20 @@ jobs:
 
     strategy:
       fail-fast: false
-      max-parallel: 2
+      max-parallel: 4
       matrix:
         include: ${{ fromJSON(needs.prepare-matrix.outputs.matrix) }}
 
     env:
       CI: 'true'
+      HEADLESS: 'true'
       DAZN_REGION: GB
       DAZN_ENV: prod
+      LOGIN_FIRST: 'true'
+      TEST_TIMEOUT_MS: '600000'
+      DEV_MODE_ON: ${{ needs.prepare-matrix.outputs.dev_mode_on }}
       SOURCE: ${{ matrix.source }}
-      PLAN: ${{ matrix.plan }}
+      PROFILE: ${{ matrix.profile }}
       PPV_CONFIG: ${{ inputs.PPV_CONFIG }}
       PAYMENT_METHOD: ${{ inputs.PAYMENT_METHOD }}
       SWITCH: ${{ matrix.switch || inputs.SWITCH }}
@@ -223,59 +265,31 @@ jobs:
           node -v
           npm -v
 
-      - name: Install root dependencies
+      - name: Install dependencies
         run: npm ci
 
       - name: Install Playwright Chromium browser
         run: npx playwright install chromium
 
-      - name: Install Appium dependencies
-        run: cd appium && npm ci
+      - name: Set USER_STATE and PLAN from matrix profile
+        run: |
+          IFS='/' read -r _US _PL <<< "$PROFILE"
+          echo "USER_STATE=${_US}" >> $GITHUB_ENV
+          echo "PLAN=${_PL}"       >> $GITHUB_ENV
 
       - name: Log matrix context
         run: |
           echo "=============================="
           echo "SOURCE      = $SOURCE"
+          echo "USER_STATE  = $USER_STATE"
           echo "PLAN        = $PLAN"
-          echo "PPV_CONFIG  = $PPV_CONFIG"
+          echo "LOGIN_FIRST = $LOGIN_FIRST"
+          echo "DEV_MODE_ON = $DEV_MODE_ON"
           echo "SWITCH      = $SWITCH"
           echo "=============================="
 
-      - name: Verify Android Device
-        shell: bash
-        run: |
-          echo "===== USER ====="
-          whoami
-
-          echo "===== WHICH ADB ====="
-          which adb
-
-          echo "===== ADB VERSION ====="
-          adb version
-
-          echo "===== RESTART ADB ====="
-          adb kill-server
-          adb start-server
-
-          echo "===== CONNECTED DEVICES ====="
-          adb devices -l
-
-      - name: Run Android New User PPV Flow
-        shell: bash
-        run: |
-          set +e
-
-          cd appium
-          npx wdio run config/wdio.android.conf.ts --spec tests/android/ppv.handoff.spec.ts
-
-          EXIT_CODE=$?
-
-          echo ""
-          echo "=================================="
-          echo "WDIO EXIT CODE = $EXIT_CODE"
-          echo "=================================="
-
-          exit $EXIT_CODE
+      - name: Run PROD PPV Flow
+        run: npx playwright test tests/existing_user/existinguser.ppv.spec.ts --project=chromium --timeout=600000
 
       - name: Archive reports on runner disk
         if: always()
@@ -285,7 +299,7 @@ jobs:
           WORKFLOW_NAME="${{ github.workflow }}"
           RUN_ID="${{ github.run_id }}"
           RUN_NUMBER="${{ github.run_number }}"
-          JOB_NAME="${{ matrix.source }}-${{ matrix.plan }}"
+          JOB_NAME="${{ matrix.source }}-${{ matrix.profile }}"
           TIMESTAMP="$(date '+%Y-%m-%d_%H-%M-%S')"
 
           SAFE_WORKFLOW="$(echo "$WORKFLOW_NAME" | tr ' /:|' '_' | tr -cd '[:alnum:]_.-')"
@@ -305,20 +319,31 @@ jobs:
             cp -R test-results/. "$DEST/test-results/"
           fi
 
+          if [ -d playwright-report ]; then
+            mkdir -p "$DEST/playwright-report"
+            cp -R playwright-report/. "$DEST/playwright-report/"
+          fi
+
           echo "=================================================="
           echo "LOCAL REPORT ARCHIVE SAVED"
           echo "Runner machine : $(hostname)"
           echo "Folder         : $DEST"
           echo "=================================================="
 
+      - name: Upload Playwright Report
+        if: ${{ false }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ matrix.source }}-${{ matrix.profile }}-${{ github.run_id }}
+          path: playwright-report/
+          if-no-files-found: ignore
+
       - name: Upload Results
         if: ${{ false }}
         uses: actions/upload-artifact@v4
         with:
-          name: test-results-${{ matrix.source }}-${{ matrix.plan }}-${{ github.run_id }}
+          name: test-results-${{ matrix.source }}-${{ matrix.profile }}-${{ github.run_id }}
           path: |
             test-results/
             reports/
           if-no-files-found: ignore
-
-          

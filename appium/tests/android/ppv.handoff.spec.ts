@@ -181,7 +181,7 @@ describe('DAZN Android PPV → Web Handoff', () => {
 
     const json = loadEventConfig(EVENT_CONFIG);
 
-    const plansPath = path.resolve(__dirname, '../../../config/DaznPlan.json');
+    const plansPath = path.resolve(__dirname, '../../..', 'config/DaznPlan.json');
     const plans = JSON.parse(fs.readFileSync(plansPath, 'utf-8'));
     const planData = plans[PLAN];
     if (!planData) {
@@ -656,7 +656,17 @@ describe('DAZN Android PPV → Web Handoff', () => {
       if (devices.length === 0) {
         throw new Error('❌ No Android devices found by Playwright!');
       }
-      const device = devices[0];
+      const targetSerial = process.env.DEVICE_SERIAL;
+      let device = devices[0];
+      if (targetSerial) {
+        const matched = devices.find(d => d.serial() === targetSerial);
+        if (matched) {
+          device = matched;
+          console.log(`🎯 Playwright matched device serial: ${targetSerial}`);
+        } else {
+          console.warn(`⚠️ Playwright could not find device with serial ${targetSerial}. Defaulting to first device.`);
+        }
+      }
       console.log(`📱 Connected to device: ${device.model()} (${device.serial()})`);
 
       console.log('Force-stopping Chrome on device...');
