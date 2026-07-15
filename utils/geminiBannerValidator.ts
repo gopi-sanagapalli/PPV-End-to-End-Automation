@@ -71,12 +71,12 @@ if (
 }
 
 /**
- * Checks only the rendered PPV banner image in GitHub Actions. Gemini findings
- * are initially warn-only so visual-model uncertainty cannot block PPV flows.
+ * Checks a rendered promotional banner image. Existing PPV callers use this as
+ * supplementary, warn-only QA; standalone callers can assert the result.
  */
-export async function validatePpvBannerImage(
+export async function validateBannerImage(
   banner: { screenshot(options: { path: string; type: 'png' }): Promise<Buffer> },
-  context: { region: string; flow: string }
+  context: { region: string; flow: string; url?: string }
 ): Promise<BannerValidationResult | null> {
   if (process.env.GITHUB_ACTIONS !== 'true' && process.env.GEMINI_BANNER_VALIDATION !== 'true') return null;
 
@@ -90,7 +90,8 @@ export async function validatePpvBannerImage(
     const evidenceDir = path.resolve(process.cwd(), 'test-results', 'gemini-banner');
     fs.mkdirSync(evidenceDir, { recursive: true });
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const imagePath = path.join(evidenceDir, `ppv-banner-${context.region}-${timestamp}.png`);
+    const safeFlow = context.flow.replace(/[^a-zA-Z0-9_-]/g, '-');
+    const imagePath = path.join(evidenceDir, `banner-${safeFlow}-${context.region}-${timestamp}.png`);
     await banner.screenshot({ path: imagePath, type: 'png' });
 
     const image = fs.readFileSync(imagePath).toString('base64');
@@ -216,7 +217,6 @@ export async function validatePpvBannerImage(
     }
 
     const assessment = parseAssessment(response.body);
-    fs.writeFileSync(`${imagePath}.json`, `${JSON.stringify(assessment, null, 2)}\n`);
  const passed =
     assessment.imageLoaded === 'pass' &&
     assessment.imageQuality === 'pass' &&
@@ -227,6 +227,15 @@ export async function validatePpvBannerImage(
     assessment.overlay === 'pass';
 
 const icon = passed ? '✅' : '⚠️';
+
+    fs.writeFileSync(`${imagePath}.json`, `${JSON.stringify({
+      url: context.url,
+      flow: context.flow,
+      region: context.region,
+      image: path.basename(imagePath),
+      passed,
+      assessment,
+    }, null, 2)}\n`);
 
 console.log(
 `${icon} [Gemini Banner] ${
@@ -248,3 +257,6 @@ console.log(
     return null;
   }
 }
+
+// Kept for existing PPV flows, where the result remains warn-only.
+export const validatePpvBannerImage = validateBannerImage;

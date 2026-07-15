@@ -9,10 +9,7 @@ permissions:
 jobs:
   visual-validation:
     name: Gemini banner validation
-    runs-on:
-      - self-hosted
-      - macOS
-      - ARM64
+    runs-on: macos-14
     timeout-minutes: 15
     env:
       CI: 'true'
@@ -32,6 +29,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install chromium
 
       - name: Validate NFL welcome banner artwork
         run: npx playwright test tests/visual/nflWelcomeBanner.gemini.spec.ts --project=chromium
