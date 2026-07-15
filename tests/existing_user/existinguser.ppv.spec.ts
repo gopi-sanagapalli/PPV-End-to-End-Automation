@@ -142,6 +142,17 @@ for (const stateKey of userStatesToRun) {
       test.skip(true, skipReason);
       return;
     }
+
+    // PPV_DEV_MODE: when true, the PPV is only accessible via My Account + Dev Mode.
+    // All non-myaccount sources are skipped automatically.
+    const PPV_DEV_MODE = json?.PPV_DEV_MODE === true;
+    const MY_ACCOUNT_SOURCES = new Set(['my-account', 'myaccount', 'myaccount-subscription-status']);
+    if (PPV_DEV_MODE && !MY_ACCOUNT_SOURCES.has(SOURCE.toLowerCase())) {
+      const skipReason = `PPV_DEV_MODE is true — only myaccount flows are supported for this event. SOURCE "${SOURCE}" is skipped.`;
+      console.log(`INFO: ${skipReason}`);
+      test.skip(true, skipReason);
+      return;
+    }
     const PPV_TYPE = (process.env.PPV_TYPE || json.PPV_TYPE || 'normal').toLowerCase();
     configureExcelPathForEvent(json.eventKey || '');
     const eventData = buildEventData(json, REGION);
@@ -201,8 +212,9 @@ for (const stateKey of userStatesToRun) {
     }
 
     const isUSorGB = REGION === 'GB' || REGION === 'US';
-    // Dev mode can be forced via DEV_MODE_ON=on for prod verification.
-    const devModeForced = (process.env.DEV_MODE_ON || '').toLowerCase() === 'on';
+    // Dev mode can be forced via DEV_MODE_ON=on for prod verification,
+    // or automatically when PPV_DEV_MODE: true is set in the event config.
+    const devModeForced = (process.env.DEV_MODE_ON || '').toLowerCase() === 'on' || PPV_DEV_MODE;
     let ratePlan = (process.env.RATE_PLAN || json.RATE_PLAN || 'monthly').toLowerCase();
     const userEmail = eventData.USER_EMAIL || json.USER_EMAIL || '';
     const userPassword = eventData.USER_PASSWORD || json.USER_PASSWORD || '';
@@ -411,6 +423,17 @@ for (const stateKey of userStatesToRun) {
         paymentMethod: PAYMENT_METHOD === 'gpay' ? 'Google Pay' : 'Credit Card',
       });
       if (folderPath) console.log(`\n📂 Report folder: ${folderPath}`);
+
+      const failed = results.filter(r => r.status === 'FAIL').length;
+      if (failed > 0) {
+        const failMsgs = results
+          .filter(r => r.status === 'FAIL')
+          .map(r => `  - [${r.page}] ${r.field}: expected "${r.expected}", actual "${r.actual}"`)
+          .join('\n');
+        const errMsg = `❌ Flow "${SOURCE} (${userStateKey})" completed navigation but had ${failed} validation failure(s):\n${failMsgs}`;
+        console.log(errMsg);
+        throw new Error(errMsg);
+      }
     };
 
     const validateUltimateMyAccountRedirect = async () => {
@@ -1932,6 +1955,17 @@ for (const stateKey of userStatesToRun) {
             paymentMethod: PAYMENT_METHOD === 'gpay' ? 'Google Pay' : 'Credit Card',
           });
           if (folderPath) console.log(`\n📂 Report folder: ${folderPath}`);
+
+          const failedEarly = results.filter(r => r.status === 'FAIL').length;
+          if (failedEarly > 0) {
+            const failMsgsEarly = results
+              .filter(r => r.status === 'FAIL')
+              .map(r => `  - [${r.page}] ${r.field}: expected "${r.expected}", actual "${r.actual}"`)
+              .join('\n');
+            const errMsgEarly = `❌ Flow "${SOURCE} (${userStateKey})" completed navigation but had ${failedEarly} validation failure(s):\n${failMsgsEarly}`;
+            console.log(errMsgEarly);
+            throw new Error(errMsgEarly);
+          }
           return; // ← Exit early — no purchase flow needed
         }
 
