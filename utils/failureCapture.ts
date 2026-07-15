@@ -146,53 +146,6 @@ async function findPopupTarget(page: any, candidates: string[]): Promise<any | n
   return null;
 }
 
-/**
- * A validation can correctly identify text in one Swiper slide while the
- * carousel advances during screenshot capture.  Temporarily expose the slide
- * containing that exact failed value, so the evidence matches the validation.
- * This is generic: it applies to any carousel field, not a landing-page flow.
- */
-async function focusCarouselSlideForCapture(page: any, target: any): Promise<boolean> {
-  const handle = await target.elementHandle().catch(() => null);
-  if (!handle) return false;
-
-  return page.evaluate((el: HTMLElement) => {
-    try {
-      const selectedSlide = el.closest('.swiper-slide, [class*="swiper-slide"]') as HTMLElement | null;
-      if (!selectedSlide) return false;
-
-      const swiper = selectedSlide.closest('.swiper, .swiper-container, [class*="swiper"]');
-      if (!swiper) return false;
-
-      const styleId = '__ppv_failure_capture_swiper_focus__';
-      if (!document.getElementById(styleId)) {
-        const style = document.createElement('style');
-        style.id = styleId;
-        style.textContent = `
-          [data-ppv-failure-slide="selected"] { opacity: 1 !important; visibility: visible !important; z-index: 10 !important; pointer-events: auto !important; }
-          [data-ppv-failure-slide="other"] { opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; }
-        `;
-        document.head.appendChild(style);
-      }
-
-      swiper.querySelectorAll('.swiper-slide, [class*="swiper-slide"]').forEach((slide) => {
-        slide.setAttribute('data-ppv-failure-slide', slide === selectedSlide ? 'selected' : 'other');
-      });
-      return true;
-    } catch {
-      return false;
-    }
-  }, handle).catch(() => false);
-}
-
-async function clearCarouselSlideFocus(page: any): Promise<void> {
-  await page.evaluate(() => {
-    document.querySelectorAll('[data-ppv-failure-slide]').forEach((slide) => {
-      slide.removeAttribute('data-ppv-failure-slide');
-    });
-  }).catch(() => { });
-}
-
 export async function captureFailures(
   page: any,
   results: any[],
@@ -216,7 +169,6 @@ export async function captureFailures(
     );
 
     let handle: any = null;
-    let carouselFocused = false;
     try {
       const candidates = matchCandidates(r);
       const isPopupField = String(field).toLowerCase().replace(/\s+/g, ' ').trim().startsWith('popup');
@@ -225,7 +177,6 @@ export async function captureFailures(
 
       if (target) {
         console.log(`🎯 [Fail Shot] Highlight target found for field "${field}": "${(await target.textContent().catch(() => '')).trim().substring(0, 50)}"`);
-        carouselFocused = await focusCarouselSlideForCapture(page, target);
         await target.scrollIntoViewIfNeeded({ timeout: 2000 }).catch(() => { });
         handle = await target.elementHandle().catch(() => null);
         if (handle) {
@@ -268,9 +219,6 @@ export async function captureFailures(
           el.style.outlineOffset = (el as any).__prevOffset || '';
           el.style.backgroundColor = (el as any).__prevBackground || '';
         }, handle).catch(() => { });
-      }
-      if (carouselFocused) {
-        await clearCarouselSlideFocus(page);
       }
     }
   }
