@@ -23,6 +23,7 @@ jobs:
       DAZN_REGION: GB
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       GEMINI_MODEL: gemini-2.5-flash
+      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
