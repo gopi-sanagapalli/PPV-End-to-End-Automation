@@ -92,10 +92,18 @@ async function isHomeReady(driver: WdBrowser): Promise<boolean> {
 
 async function isLandingPageReady(driver: WdBrowser): Promise<boolean> {
   const landingIndicators = [
+    // Text-based indicators
     'android=new UiSelector().textContains("DAZN")',
     'android=new UiSelector().textContains("Explore")',
+    'android=new UiSelector().textContains("Start watching")',
+    'android=new UiSelector().textContains("Welcome")',
+    // Resource ID indicators
     'android=new UiSelector().resourceId("com.dazn:id/landing")',
     'android=new UiSelector().resourceId("com.dazn:id/splash")',
+    'android=new UiSelector().resourceId("com.dazn:id/onboarding")',
+    // Description/content-desc indicators
+    'android=new UiSelector().descriptionContains("DAZN")',
+    'android=new UiSelector().descriptionContains("landing")',
   ];
 
   for (const selector of landingIndicators) {
@@ -140,7 +148,7 @@ export async function waitForHomePage(driver: WdBrowser, timeoutMs = 90000): Pro
     }, {
       timeout: timeoutMs,
       interval: 1000,
-      timeoutMsg: 'Android app did not reach Home page after startup cleanup',
+      timeoutMsg: 'Android app did not reach Home or Landing page after startup cleanup',
     });
   } catch (error) {
     await driver.saveScreenshot('./test-results/android_startup_not_ready.png').catch(() => {});
@@ -149,7 +157,7 @@ export async function waitForHomePage(driver: WdBrowser, timeoutMs = 90000): Pro
 
   if (!sawCookiePrompt) console.log('ℹ️ Cookie popup not shown');
   if (!sawStartupDialog) console.log('ℹ️ Startup dialogs not shown');
-  console.log('✅ Home page detected');
+  console.log('✅ App ready (Home or Landing page detected)');
 }
 
 export async function prepareAndroidApp(driver: WdBrowser, options: PrepareAndroidAppOptions = {}) {
