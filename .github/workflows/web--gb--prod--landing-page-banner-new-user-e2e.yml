@@ -53,9 +53,6 @@ jobs:
       matrix:
         plan:
           - standard_monthly
-          - standard_apm
-          - ultimate_apm
-          - ultimate_upfront
 
     env:
       CI: 'true'
