@@ -90,6 +90,24 @@ async function isHomeReady(driver: WdBrowser): Promise<boolean> {
   return false;
 }
 
+async function isLandingPageReady(driver: WdBrowser): Promise<boolean> {
+  const landingIndicators = [
+    'android=new UiSelector().textContains("DAZN")',
+    'android=new UiSelector().textContains("Explore")',
+    'android=new UiSelector().resourceId("com.dazn:id/landing")',
+    'android=new UiSelector().resourceId("com.dazn:id/splash")',
+  ];
+
+  for (const selector of landingIndicators) {
+    try {
+      const el = await driver.$(selector);
+      if (await el.isDisplayed()) return true;
+    } catch {}
+  }
+
+  return false;
+}
+
 export async function waitForHomePage(driver: WdBrowser, timeoutMs = 90000): Promise<void> {
   let sawCookiePrompt = false;
   let sawStartupDialog = false;
@@ -104,6 +122,10 @@ export async function waitForHomePage(driver: WdBrowser, timeoutMs = 90000): Pro
       }
 
       if (await isHomeReady(driver)) {
+        return true;
+      }
+
+      if (await isLandingPageReady(driver)) {
         return true;
       }
 
