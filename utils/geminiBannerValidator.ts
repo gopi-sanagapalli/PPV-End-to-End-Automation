@@ -108,26 +108,58 @@ export async function validateBannerImage(
       ]
     };
     const prompt = [
-      'You are a QA visual-test engineer reviewing a DAZN promotional banner screenshot.',
+      'You are a senior QA engineer reviewing a DAZN promotional banner.',
 
-      'CRITICAL: If the screenshot shows a VPN warning modal, error page (403/404), login page, grey placeholder, or anything other than the actual promotional banner artwork, mark ALL checks as "fail".',
+      'Your responsibility is to judge ONLY the promotional artwork.',
+      'Ignore all marketing copy, event names, dates, prices, logos, CTAs and UI text.',
+      'Those are validated separately by automation.',
 
-      'Evaluate the promotional banner artwork for these checks:',
-      '1. imageLoaded — Did the banner image fully load? PASS if real artwork is visible. FAIL if error, placeholder, skeleton, or modal.',
-      '2. imageQuality — Is the artwork sharp and clear? FAIL if blurry, pixelated, or low resolution.',
-      '3. fightersVisible — Are the fighters/subjects clearly visible in the artwork? FAIL if cut off, partially hidden, or not visible.',
-      '4. fighterCropping — CRITICAL: Is any fighter unintentionally cut off at the edges?',
-      '   FAIL if: a fighters head/hair/helmet/body is cut off at the top, bottom, left, or right of the banner image.',
-      '   FAIL if: part of a fighters face, shoulder, or body is outside the visible frame.',
-      '   FAIL if: you can see only half of a fighters body or a fighter is truncated by the edge.',
-      '   PASS only if: all fighters are fully within the frame. Intentional artwork/dynamic cropping for effect is still FAIL if it cuts off fighter body parts.',
-      '5. imageDistortion — Is the image stretched, squeezed, or wrong aspect ratio? FAIL if distorted.',
-      '6. overlayObstructingArtwork — Is a modal, popup, cookie banner, or VPN warning covering the artwork? FAIL if obstructed.',
+      'If the screenshot does not contain the expected promotional banner artwork, treat the validation as failed.',
+      'Examples include:',
+      '- VPN warning',
+      '- cookie wall covering the banner',
+      '- login page',
+      '- 403/404 error',
+      '- placeholder',
+      '- skeleton loader',
+      '- broken image',
 
-      'Findings: REQUIRED. List specific observations about what you see. At least 1 finding required.',
-      'confidence: 0-100. High (80-100) if artwork looks correct. Low (0-30) if defects found.',
+      'Review the artwork exactly as a human QA engineer would.',
 
-      'Return ONLY valid JSON matching the schema. Do NOT use "uncertain" unless unavoidable.',
+      'Evaluate the following:',
+
+      '• imageLoaded',
+      'Is the promotional artwork actually present and completely rendered?',
+
+      '• imageQuality',
+      'Is the artwork visually sharp and production quality?',
+      'Fail if it is blurry, heavily compressed, pixelated or low resolution.',
+
+      '• fightersVisible',
+      'Are all featured fighters or promotional subjects clearly visible?',
+      'Fail if any featured subject cannot be clearly identified.',
+
+      '• fighterCropping',
+      'Determine whether any featured fighter is unintentionally cropped.',
+      'This includes the head, face, shoulders, arms, torso or legs being cut off by the visible edge of the banner.',
+      'Creative zooming is acceptable.',
+      'However, if part of the fighter extends outside the visible banner area, mark this as FAIL.',
+
+      '• imageDistortion',
+      'Fail if the artwork appears stretched, squashed, warped or rendered with an incorrect aspect ratio.',
+
+      '• overlayObstructingArtwork',
+      'Fail if any popup, modal, cookie banner, VPN warning or other overlay blocks a meaningful portion of the promotional artwork.',
+
+      'Provide findings exactly as a QA engineer would describe them.',
+      'Describe only what you actually observe.',
+      'Do not speculate.',
+
+      'Confidence should be between 0 and 100.',
+      '100 means you are completely certain.',
+      '0 means you cannot reliably assess the artwork.',
+
+      'Return ONLY JSON matching the supplied schema.',
     ].join(' ');
     const payload = Buffer.from(JSON.stringify({
       contents: [{ parts: [
