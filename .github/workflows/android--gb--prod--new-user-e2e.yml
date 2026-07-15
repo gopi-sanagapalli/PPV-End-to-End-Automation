@@ -153,7 +153,8 @@ jobs:
 
     runs-on:
       - self-hosted
-      - android-device
+      - macOS
+      - ARM64
 
     timeout-minutes: 30
 
