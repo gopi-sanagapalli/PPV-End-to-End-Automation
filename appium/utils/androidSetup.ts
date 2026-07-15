@@ -97,10 +97,14 @@ async function isLandingPageReady(driver: WdBrowser): Promise<boolean> {
     'android=new UiSelector().textContains("Explore")',
     'android=new UiSelector().textContains("Start watching")',
     'android=new UiSelector().textContains("Welcome")',
+    'android=new UiSelector().textContains("Get started")',
+    'android=new UiSelector().textContains("Sign in")',
     // Resource ID indicators
     'android=new UiSelector().resourceId("com.dazn:id/landing")',
     'android=new UiSelector().resourceId("com.dazn:id/splash")',
     'android=new UiSelector().resourceId("com.dazn:id/onboarding")',
+    'android=new UiSelector().resourceId("com.dazn:id/get_started")',
+    'android=new UiSelector().resourceId("com.dazn:id/btn_get_started")',
     // Description/content-desc indicators
     'android=new UiSelector().descriptionContains("DAZN")',
     'android=new UiSelector().descriptionContains("landing")',
@@ -109,7 +113,10 @@ async function isLandingPageReady(driver: WdBrowser): Promise<boolean> {
   for (const selector of landingIndicators) {
     try {
       const el = await driver.$(selector);
-      if (await el.isDisplayed()) return true;
+      if (await el.isDisplayed()) {
+        console.log(`  ✓ Landing page indicator found: ${selector}`);
+        return true;
+      }
     } catch {}
   }
 
@@ -119,9 +126,17 @@ async function isLandingPageReady(driver: WdBrowser): Promise<boolean> {
 export async function waitForHomePage(driver: WdBrowser, timeoutMs = 90000): Promise<void> {
   let sawCookiePrompt = false;
   let sawStartupDialog = false;
+  let lastCheckTime = Date.now();
+  const checkInterval = 5000; // Log progress every 5 seconds
 
   try {
     await driver.waitUntil(async () => {
+      const now = Date.now();
+      if (now - lastCheckTime >= checkInterval) {
+        lastCheckTime = now;
+        console.log(`  ⏳ Still waiting for app to be ready... (${Math.floor((now - (lastCheckTime - checkInterval)) / 1000)}s elapsed)`);
+      }
+
       if (await acceptCookiesIfPresent(driver)) {
         sawCookiePrompt = true;
         // Pause briefly after cookie dismissal so the app can transition to home
@@ -130,10 +145,12 @@ export async function waitForHomePage(driver: WdBrowser, timeoutMs = 90000): Pro
       }
 
       if (await isHomeReady(driver)) {
+        console.log('  ✓ Home page detected');
         return true;
       }
 
       if (await isLandingPageReady(driver)) {
+        console.log('  ✓ Landing page detected');
         return true;
       }
 
@@ -148,10 +165,21 @@ export async function waitForHomePage(driver: WdBrowser, timeoutMs = 90000): Pro
     }, {
       timeout: timeoutMs,
       interval: 1000,
-      timeoutMsg: 'Android app did not reach Home or Landing page after startup cleanup',
+      timeoutMsg: `Android app did not reach Home or Landing page after ${Math.floor(timeoutMs / 1000)}s`,
     });
   } catch (error) {
     await driver.saveScreenshot('./test-results/android_startup_not_ready.png').catch(() => {});
+    
+    // Dump page source for debugging
+    try {
+      const pageSource = await driver.getPageSource();
+      const debugFile = './test-results/android_startup_page_source.xml';
+      require('fs').writeFileSync(debugFile, pageSource);
+      console.log(`📄 Page source saved to: ${debugFile}`);
+    } catch (e) {
+      console.log('⚠️ Could not capture page source for debugging');
+    }
+    
     throw error;
   }
 
