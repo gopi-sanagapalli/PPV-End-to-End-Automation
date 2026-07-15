@@ -1,6 +1,7 @@
 import fs from 'fs';
 
 import path from 'path';
+import { assertDaznPageAvailable } from './helpers';
 
 // ─────────────────────────────────────────────────────────────────
 // FIND CONFIG FILE recursively under config/
@@ -78,6 +79,7 @@ export async function clickAndWaitForNav(
     await page.waitForLoadState('domcontentloaded', { timeout: 3000 }).catch(() => { });
     console.log(`navigated to: ${page.url()}`);
   }
+  await assertDaznPageAvailable(page, `after clicking ${label}`);
 }
 
 // ─────────────────────────────────────────────────────────────────

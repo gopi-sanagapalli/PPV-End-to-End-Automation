@@ -1,5 +1,5 @@
 import { Page, BrowserContext } from '@playwright/test';
-import { handleCookies, dismissMarketingPopup, stabilisePage } from '../utils/helpers';
+import { assertDaznPageAvailable, handleCookies, dismissMarketingPopup, stabilisePage } from '../utils/helpers';
 import { clickAndWaitForNav } from '../utils/testHelpers';
 
 export enum AuthMethod {
@@ -589,6 +589,7 @@ export class AuthenticationManager {
     const credentials = CredentialResolver.getCredentials(this.method, eventData);
     console.log(`🔐 [AuthManager] Authenticating via: ${this.method}`);
     await strategy.login(this.page, this.context, credentials);
+    await assertDaznPageAvailable(this.page, 'authentication completion');
   }
 
   async verifySession(): Promise<boolean> {

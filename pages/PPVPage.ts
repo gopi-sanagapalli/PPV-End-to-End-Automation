@@ -1,6 +1,7 @@
 import { Page, Locator } from '@playwright/test';
 import selectors from '../config/selectors.json';
 import { compare } from '../utils/compare';
+import { captureFailures } from '../utils/failureCapture';
 
 export class PPVPage {
   constructor(private page: Page) { }
@@ -81,6 +82,9 @@ export class PPVPage {
 
       results.push({ page: pageName, field, expected, actual, status });
     }
+
+    // Capture red-boxed screenshots for any failed fields
+    await captureFailures(this.page, results, pageName);
   }
 
   // ─────────────────────────────

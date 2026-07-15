@@ -3,6 +3,7 @@ import { BasePage } from './BasePage';
 import selectors from '../config/selectors.json';
 import { validateVariant } from '../flows/validateVariant';
 import { readSheet } from '../utils/excelReader';
+import { assertDaznPageAvailable } from '../utils/helpers';
 
 export class LandingPage extends BasePage {
   constructor(page: Page) {
@@ -157,6 +158,7 @@ export class LandingPage extends BasePage {
     console.log(`⏱️ [T+${Date.now() - t0}ms] goto done`);
     await this.page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => { });
     console.log(`⏱️ [T+${Date.now() - t0}ms] networkidle done`);
+    await assertDaznPageAvailable(this.page, 'landing page navigation');
     await this.dismissConsentIfPresent();
     console.log(`⏱️ [T+${Date.now() - t0}ms] consent done`);
 
@@ -400,6 +402,7 @@ export class LandingPage extends BasePage {
       console.log('🔄 [Banner] Carousel not found — reloading page and retrying...');
       await this.page.reload({ waitUntil: 'domcontentloaded' });
       await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });
+      await assertDaznPageAvailable(this.page, 'landing banner retry');
       await this.dismissConsentIfPresent().catch(() => { });
       await stopAllAutoSlide();
       carousel = this.bannerCarousel();
