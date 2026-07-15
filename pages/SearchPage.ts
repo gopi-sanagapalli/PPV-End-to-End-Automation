@@ -541,13 +541,13 @@ export class SearchPage extends BasePage {
       await searchInput.waitFor({ state: 'visible', timeout: 30000 });
 
       // Dismiss any marketing/promotion popup that is already visible
-      await dismissMarketingPopup(this.page, 5000, { preservePpvPromo: !!options.preservePpvPromo }).catch(() => {});
+      await dismissMarketingPopup(this.page, 5000, { preservePpvPromo: !!options.preservePpvPromo }).catch(() => { });
 
       try {
         await searchInput.click({ timeout: 5000 });
       } catch (clickError) {
         console.log('⚠️ Search input click was intercepted or failed. Attempting to dismiss popup and retry...');
-        await dismissMarketingPopup(this.page, 4000, { preservePpvPromo: !!options.preservePpvPromo }).catch(() => {});
+        await dismissMarketingPopup(this.page, 4000, { preservePpvPromo: !!options.preservePpvPromo }).catch(() => { });
         await searchInput.click({ timeout: 10000 });
       }
 
