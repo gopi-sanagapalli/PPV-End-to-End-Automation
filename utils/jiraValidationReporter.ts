@@ -249,9 +249,10 @@ function describeFailure(failure: ValidationResult): string {
 }
 
 function buildIssueSummary(context: JiraContext, failures: ValidationResult[]): string {
+  const summaryPrefix = '[Automation] ';
   const ppvName = asText(context.event) || 'PPV';
   const first = failures[0];
-  if (!first) return `${ppvName} | ${context.flow} — validation failure`.slice(0, 250);
+  if (!first) return `${summaryPrefix}${ppvName} | ${context.flow} — validation failure`.slice(0, 250);
 
   const expected = asText(first.expected);
   const actual = asText(first.actual);
@@ -259,7 +260,7 @@ function buildIssueSummary(context: JiraContext, failures: ValidationResult[]): 
     ? `${describeFailure(first)} incorrect: expected "${expected}", shown "${actual}"`
     : `${describeFailure(first)} validation failed`;
   const suffix = failures.length > 1 ? ` (+${failures.length - 1} more)` : '';
-  return `${ppvName} | ${mismatch}${suffix}`.slice(0, 250);
+  return `${summaryPrefix}${ppvName} | ${mismatch}${suffix}`.slice(0, 250);
 }
 
 function validationFingerprint(context: JiraContext, failures: ValidationResult[]): string {
@@ -597,6 +598,7 @@ export async function reportValidationFailuresToJira(report: JiraValidationRepor
         description,
         ...jiraFields,
         labels: [
+          'AI_AUTOMATION',
           'automation',
           'validation-failure',
           'github-actions',
