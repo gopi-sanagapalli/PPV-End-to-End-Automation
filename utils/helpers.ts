@@ -230,6 +230,7 @@ export async function dismissMarketingPopup(
       '[aria-label="close"]',
       '[aria-label*="close" i]',
       '[data-testid*="close" i]',
+      'div[class*="content-promotion__modal-close"]',
     ].join(', ');
 
     const popup = page.locator(dismissSelectors).first();
