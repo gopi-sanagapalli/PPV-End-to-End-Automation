@@ -39,10 +39,10 @@ jobs:
       - name: Validate NFL welcome banner artwork
         run: npx playwright test tests/visual/nflWelcomeBanner.gemini.spec.ts --project=chromium
 
-      - name: Upload Gemini evidence
+      - name: Upload visual validation evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: gemini-banner-evidence
-          path: test-results/gemini-banner/
+          name: nfl-welcome-gemini-evidence
+          path: test-results/
           if-no-files-found: warn

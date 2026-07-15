@@ -12,7 +12,8 @@ test('Gemini rejects degraded NFL welcome banner artwork on staging', async ({ p
   }
 
   await page.goto(nflWelcomeUrl, { waitUntil: 'domcontentloaded' });
-  await page.locator('main').waitFor({ state: 'visible', timeout: 30_000 });
+  await page.locator('body').waitFor({ state: 'visible', timeout: 30_000 });
+  await page.waitForLoadState('networkidle', { timeout: 10_000 }).catch(() => undefined);
   await page.waitForTimeout(5_000);
 
   const result = await validateBannerImage(page, {
