@@ -478,9 +478,13 @@ export function resolveExpected(
     // Let those template rows resolve naturally.
     const currentSrc = (eventData.SOURCE || eventData.source || '').trim().toLowerCase();
     if (currentSrc !== 'home-page-popup') {
-      if (isActiveStandardUser) {
+      const isLoginFirst = String(eventData.LOGIN_FIRST ?? process.env.LOGIN_FIRST ?? process.env.LOGIN ?? '').toLowerCase() === 'true';
+
+      if (isActiveStandardUser && isLoginFirst) {
+        // User is already logged in — app knows they're active standard
         raw = ACTIVE_STANDARD_PPV_POPUP_DESCRIPTION;
       } else {
+        // User not logged in yet (mid-signup) OR freemium/frozen — app shows generic text
         raw = eventData.PPV_DESCRIPTION || DEFAULT_PPV_POPUP_DESCRIPTION;
       }
     }

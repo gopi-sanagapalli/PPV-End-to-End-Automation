@@ -1,6 +1,7 @@
 import { Page, Locator } from '@playwright/test';
 import { BasePage } from './BasePage';
 import selectors from '../config/selectors.json';
+import { assertDaznPageAvailable } from '../utils/helpers';
 
 export class SignupPage extends BasePage {
   constructor(page: Page) {
@@ -69,6 +70,7 @@ export class SignupPage extends BasePage {
 
     // Wait for SPA transition
     await this.page.waitForLoadState('domcontentloaded').catch(() => {});
+    await assertDaznPageAvailable(this.page, 'after submitting email');
   }
 
   // ─────────────────────────────
@@ -237,6 +239,7 @@ export class SignupPage extends BasePage {
     await btn.click({ force: true });
 
     await this.page.waitForLoadState('domcontentloaded').catch(() => {});
+    await assertDaznPageAvailable(this.page, 'after submitting personal details');
     console.log('✅ Personal details Continue clicked');
   }
 
@@ -269,6 +272,7 @@ export class SignupPage extends BasePage {
     await signInBtn.waitFor({ state: 'visible', timeout: 5000 });
     await signInBtn.click({ force: true });
     await this.page.waitForLoadState('domcontentloaded').catch(() => {});
+    await assertDaznPageAvailable(this.page, 'after signing in');
     console.log('✅ Sign in clicked');
   }
-} 
+}

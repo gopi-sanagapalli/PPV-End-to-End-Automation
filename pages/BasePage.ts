@@ -1,5 +1,5 @@
 import { Page } from '@playwright/test';
-import { handleCookies, stabilisePage } from '../utils/helpers';
+import { assertDaznPageAvailable, handleCookies, stabilisePage } from '../utils/helpers';
 
 /**
  * BasePage — shared page object methods
@@ -18,6 +18,7 @@ export class BasePage {
       console.log(`⚠️  Navigation timeout — continuing anyway`);
     });
     await this.page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => { });
+    await assertDaznPageAvailable(this.page, 'navigation');
     if (options?.waitForSelector) {
       await this.page.waitForSelector(options.waitForSelector, {
         state: 'visible',
@@ -155,9 +156,11 @@ export class BasePage {
         (url: URL) => url.toString() !== before,
         { timeout: 8000 }
       );
+      await assertDaznPageAvailable(this.page, `after clicking ${label}`);
       console.log(`navigated to: ${this.page.url()}`);
     } catch {
       await this.page.waitForLoadState('domcontentloaded', { timeout: 3000 }).catch(() => { });
+      await assertDaznPageAvailable(this.page, `after clicking ${label}`);
       console.log(`navigated to: ${this.page.url()}`);
     }
   }

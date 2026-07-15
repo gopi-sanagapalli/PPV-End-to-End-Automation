@@ -1,5 +1,6 @@
 import { Page } from '@playwright/test';
 import { LandingPage } from './LandingPage';
+import { assertDaznPageAvailable } from '../utils/helpers';
 
 export class BoxingPage extends LandingPage {
   constructor(page: Page) {
@@ -14,6 +15,7 @@ export class BoxingPage extends LandingPage {
     console.log(`🌍 Navigating to Boxing page: ${url}`);
     await this.page.goto(url, { waitUntil: 'domcontentloaded' });
     await this.page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => { });
+    await assertDaznPageAvailable(this.page, 'boxing page navigation');
     await this.dismissConsentIfPresent();
     const isStag = url.includes('stag') || (process.env.DAZN_ENV || '').toLowerCase() === 'stag';
     const waitTimeout = isStag ? 2000 : 15000;
