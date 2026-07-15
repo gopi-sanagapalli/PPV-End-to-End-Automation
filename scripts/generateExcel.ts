@@ -569,15 +569,6 @@ const homePageData = [
   { Flow: 'home-biggest-fights', Field: 'Popup - Buy Now CTA', Expected: 'Visible' },
   { Flow: 'home-biggest-fights', Field: 'Popup - Event Description', Expected: 'Catch the biggest moment of the year. Select a DAZN plan to pair with your pay-per-view.' },
   { Flow: 'home-biggest-fights', Field: 'Popup - Close Button', Expected: 'Visible' },
-  // ── Home Page Auto-Popup (home-page-popup) validations ──────
-  // Note: This popup uses HOME_POPUP_DATE (full date badge, e.g. "SUN 26TH JUL AT 00:30")
-  //       and HOME_POPUP_DESCRIPTION (event-specific text, different from the generic PPV_DESCRIPTION).
-  //       No Promoter field — it is not shown in this popup.
-  { Flow: 'home-page-popup', Field: 'Popup - Image Present', Expected: 'Yes' },
-  { Flow: 'home-page-popup', Field: 'Popup - Event Title', Expected: '{{PPV_NAME}}' },
-  { Flow: 'home-page-popup', Field: 'Popup - Event Date', Expected: '{{HOME_POPUP_DATE}}' },
-  { Flow: 'home-page-popup', Field: 'Popup - Event Description', Expected: '{{HOME_POPUP_DESCRIPTION}}' },
-  { Flow: 'home-page-popup', Field: 'Popup - Buy Now CTA', Expected: 'Visible' },
 ];
 
 // ═══════════════════════════════════════════════════════════
