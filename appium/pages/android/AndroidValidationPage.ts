@@ -7,6 +7,17 @@ import {
 } from './AndroidBasePage';
 import { getAndroidValidationSheet } from './AndroidSurfacingPoint';
 
+// Timezone-aware date utilities loaded dynamically to avoid tsconfig rootDir restrictions
+let getDynamicDateTimeBadge: ((template: string, region?: string) => string) | undefined;
+let getNowForRegion: ((region?: string) => Date) | undefined;
+try {
+  const dateUtils = require('../../../../utils/dateUtils');
+  getDynamicDateTimeBadge = dateUtils.getDynamicDateTimeBadge;
+  getNowForRegion = dateUtils.getNowForRegion;
+} catch (e) {
+  console.warn('⚠️ Failed to load timezone utilities, date validation will use device timezone');
+}
+
 export interface AndroidValidationResult {
   page: string;
   field: string;
@@ -767,7 +778,16 @@ export class AndroidValidationPage extends AndroidBasePage {
           results.push({ page: surface, field: fieldName, expected: expectedValue, actual: actualVal, status });
         };
         checkFieldLegacy('Title', titleExpected);
-        checkFieldLegacy('Date and Time', eventData.MOBILE_BANNER_DATE_TIME || eventData.MOBILE_BANNER_DATE || eventData.PPV_DATE);
+        
+        // Use timezone-aware date generation for Android validation (matches web test behavior)
+        const region = (eventData.DAZN_REGION || process.env.DAZN_REGION || 'GB').toUpperCase();
+        const dateTimeTemplate = eventData.MOBILE_BANNER_DATE_TIME || eventData.MOBILE_BANNER_DATE || eventData.PPV_DATE;
+        const timezoneAwareDateTime = getDynamicDateTimeBadge 
+          ? getDynamicDateTimeBadge(dateTimeTemplate, region) 
+          : dateTimeTemplate;
+        console.log(`  🌍 [Date and Time] Region: ${region}, Template: ${dateTimeTemplate}, Timezone-aware: ${timezoneAwareDateTime}`);
+        checkFieldLegacy('Date and Time', timezoneAwareDateTime);
+        
         if (surface === 'PPV Banner') {
           checkFieldLegacy('Description', eventData.MOBILE_BANNER_DESCRIPTION || eventData.BANNER_DESCRIPTION);
         }
