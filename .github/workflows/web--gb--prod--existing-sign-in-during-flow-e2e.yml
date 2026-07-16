@@ -41,8 +41,6 @@ jobs:
       - macOS
       - ARM64
 
-    timeout-minutes: 10
-
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
 
@@ -201,7 +199,7 @@ jobs:
 
     strategy:
       fail-fast: false
-      max-parallel: 12
+      max-parallel:12
       matrix:
         include: ${{ fromJSON(needs.prepare-matrix.outputs.matrix) }}
 
