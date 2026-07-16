@@ -4025,6 +4025,7 @@ for (const stateKey of userStatesToRun) {
 
       console.log(`\n✅ Flow "${SOURCE} (${stateKey})" complete: ${passed}/${total} passed (${total > 0 ? ((passed / total) * 100).toFixed(1) : 0}%)`);
       console.log(`${'─'.repeat(55)}`);
+      console.log('__DEMO_FLOW_COMPLETE__');
 
       if (total === 0) {
         const errMsg = `❌ Flow "${SOURCE} (${stateKey})" had 0 validation checks`;
