@@ -148,11 +148,11 @@ export class AndroidBasePage {
 
   async findPPVBanner(ppvName = this.ppvName): Promise<boolean> {
     if (await this.isVisible(ppvName, 4000)) return true;
-    if (await this.scrollToText(ppvName)) return true;
     for (let i = 0; i < 5; i++) {
       await this.swipeLeft();
       if (await this.isVisible(ppvName, 1500)) return true;
     }
+    if (await this.scrollToText(ppvName)) return true;
     for (let i = 0; i < 8; i++) {
       await this.scrollDown();
       if (await this.isVisible(ppvName, 1500)) return true;
