@@ -407,37 +407,6 @@ export class AndroidValidationPage extends AndroidBasePage {
     eventData.CURRENT_PAGE = 'mobile';
 
     const titleExpected = eventData.MOBILE_BANNER_TITLE || eventData.PPV_DISPLAY_NAME || eventData.PPV_NAME;
-    
-    // Pause carousel for landing page banner before gathering texts
-    let bannerElement: any = null;
-    if (source === 'landing-page-banner') {
-      try {
-        // Find banner element dynamically - no hardcoded selectors
-        const bannerSelectors = [
-          '//android.widget.ImageView[@content-desc="Banner image"]',
-          '//android.widget.ImageView[contains(@content-desc, "banner")]',
-          '//android.view.ViewGroup[.//android.widget.ImageView]//android.widget.ImageView',
-        ];
-        
-        for (const selector of bannerSelectors) {
-          const els = await this.driver.$$(selector);
-          if (els.length > 0) {
-            bannerElement = els[0];
-            console.log(`  🎯 Found banner element using selector: ${selector}`);
-            break;
-          }
-        }
-        
-        if (bannerElement) {
-          await this.pauseCarousel(bannerElement, 20000);
-        } else {
-          console.log('  ⚠️ Banner element not found, skipping carousel pause');
-        }
-      } catch (e: any) {
-        console.warn(`  ⚠️ Failed to pause carousel: ${e.message}`);
-      }
-    }
-    
     const { texts, pageSource, targetXml } = await this.gatherTextsFromSurface(surface, titleExpected);
 
     const cleanStr = (s: string) =>
