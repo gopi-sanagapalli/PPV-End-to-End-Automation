@@ -4,6 +4,7 @@ import {
   AndroidPPVSurface,
   WdBrowser,
 } from './AndroidBasePage';
+import { holdBannerCarousel } from '../../utils/bannerInteraction';
 
 export interface AndroidBannerFlowOptions {
   label: string;
@@ -13,6 +14,7 @@ export interface AndroidBannerFlowOptions {
   buyMissingScreenshot: string;
   validateSurface?: AndroidPPVSurface;
   immediatePaywall?: boolean;
+  keepCarouselLockedForCopy?: boolean;
   recordPage?: string;
 }
 
@@ -25,7 +27,9 @@ export class AndroidLandingPage extends AndroidBasePage {
     if (!found) {
       const shot = hooks.saveScreenshot
         ? await hooks.saveScreenshot(options.missingScreenshot)
-        : undefined;
+        : await this.driver.saveScreenshot(options.missingScreenshot)
+          .then(() => options.missingScreenshot)
+          .catch(() => undefined);
       hooks.recordAvailability?.(false, shot, options.recordPage);
       await hooks.generateAvailabilityFailureReport?.(`PPV banner "${this.ppvName}" not found on ${options.pageName || options.label}`);
       throw new Error(`PPV banner "${this.ppvName}" not found. See ${options.missingScreenshot}`);
@@ -49,6 +53,12 @@ export class AndroidLandingPage extends AndroidBasePage {
     if (!options.immediatePaywall) {
       await this.driver.pause(3000);
       console.log('  On paywall screen - will capture URL via Copy button');
+    } else if (buyTapped && options.keepCarouselLockedForCopy) {
+      // The landing CTA exposes its checkout URL on the same auto-advancing
+      // carousel. Keep that PPV card active until AndroidPaywallPage clicks
+      // Copy, rather than allowing it to change during overlay rendering.
+      console.log('  Holding PPV banner while checkout Copy control renders...');
+      await holdBannerCarousel(this.driver, this.ppvName);
     }
 
     return true;
@@ -63,6 +73,7 @@ export class AndroidLandingPage extends AndroidBasePage {
       buyMissingScreenshot: './test-results/android_landing_buy_cta_not_found.png',
       validateSurface: 'PPV Banner',
       immediatePaywall: true,
+      keepCarouselLockedForCopy: true,
       recordPage: 'Landing',
     }, hooks);
   }

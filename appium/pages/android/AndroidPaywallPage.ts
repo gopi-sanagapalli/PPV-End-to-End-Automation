@@ -7,6 +7,7 @@ import {
   adb,
   adbSwipe,
 } from './AndroidBasePage';
+import { releaseHeldBannerCarousel } from '../../utils/bannerInteraction';
 
 export interface AndroidCopyOptions {
   screenshotPrefix?: string;
@@ -130,37 +131,39 @@ export class AndroidPaywallPage extends AndroidBasePage {
   private async clickCopyOnLandingBanner(label: string, ppvName: string): Promise<boolean> {
     console.log('  🔍 Landing banner copy controls should be on the banner, not a paywall.');
 
-    // Wait up to 5 seconds for the Copy button to appear on the screen before checking banner visibility
-    console.log('  ⏳ Waiting for Copy button to appear on screen...');
-    for (let attempt = 0; attempt < 10; attempt++) {
-      if (await this.isCopyButtonVisible()) {
-        console.log(`  ✅ Copy button is visible on the screen. Clicking it directly...`);
-        return this.clickCopyButton(label);
-      }
-      await this.driver.pause(500);
-    }
-
+    // Do not wait for an arbitrary Copy button first: while waiting the
+    // carousel can advance and expose the next banner's control. Confirm the
+    // detected PPV banner is active, then copy immediately from that card.
     console.log('  Checking whether the PPV banner is active before tapping Copy...');
     const ppvVisible = await this.ensureLandingPPVBannerVisible(ppvName);
     if (!ppvVisible) {
       console.log(`  ⚠️ Could not bring PPV banner "${ppvName}" into view before copying.`);
+      await releaseHeldBannerCarousel();
       return false;
     }
 
-    if (await this.isCopyButtonVisible()) {
-      console.log('  ✅ Copy button is visible on the PPV banner');
-      return this.clickCopyButton(label);
-    }
-
-    for (let attempt = 0; attempt < 5; attempt++) {
+    // A short, PPV-guarded retry accommodates a control that is still
+    // rendering, without giving the carousel time to switch banners.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (!await this.isVisible(ppvName, 300)) {
+        if (!await this.ensureLandingPPVBannerVisible(ppvName)) {
+          await releaseHeldBannerCarousel();
+          return false;
+        }
+      }
       if (await this.isCopyButtonVisible()) {
-        console.log(`  ✅ Copy button appeared on PPV banner after ${attempt + 1} check(s)`);
+        console.log(`  ✅ Copy button is visible on PPV banner (check ${attempt + 1})`);
+        // Releasing immediately before the click resets the carousel's touch
+        // timer while allowing the native Copy control to receive its tap.
+        await releaseHeldBannerCarousel();
         return this.clickCopyButton(label);
       }
-      await this.driver.pause(500);
+      await this.driver.pause(200);
     }
 
-    return this.clickCopyButton(label);
+    console.log('  ⚠️ Copy button did not render while PPV banner remained active.');
+    await releaseHeldBannerCarousel();
+    return false;
   }
 
   private async ensureLandingPPVBannerVisible(ppvName: string): Promise<boolean> {

@@ -6,7 +6,6 @@ import {
   getScreenSize,
 } from './AndroidBasePage';
 import { getAndroidValidationSheet } from './AndroidSurfacingPoint';
-import { BannerInteraction } from '../../utils/bannerInteraction';
 
 // Timezone-aware date utilities loaded dynamically to avoid tsconfig rootDir restrictions
 let getDynamicDateTimeBadge: ((template: string, region?: string) => string) | undefined;
@@ -131,10 +130,9 @@ export class AndroidValidationPage extends AndroidBasePage {
     let targetXml = '';
 
     try {
-      if (surface === 'PPV Banner') {
-        console.log('⏳ Waiting 3 seconds for the banner image to fully load...');
-        await this.driver.pause(3000);
-      }
+      // The caller locks banner carousels before validation. Read the current
+      // source immediately: an arbitrary delay here can otherwise validate a
+      // later carousel item instead of the PPV banner that was detected.
       pageSource = await this.driver.getPageSource();
       targetXml = pageSource;
 
@@ -593,6 +591,41 @@ export class AndroidValidationPage extends AndroidBasePage {
             actualValue = directMatch;
             isMatch = true;
           } else {
+            // Android may render the same local event time in a different
+            // display format, e.g. expected "Sat 25th Jul at 20:00" versus
+            // actual "Sat 25th July at 8:00pm". Compare the date components
+            // and time value rather than requiring the presentation to match.
+            const parseBannerDateTime = (value: string) => {
+              const normalized = normalizeDateString(value);
+              const weekday = normalized.match(/\b(sun|mon|tue|wed|thu|fri|sat)[a-z]*\b/i)?.[1]?.toLowerCase();
+              const day = normalized.match(/\b(\d{1,2})(?:st|nd|rd|th)?\b/i)?.[1];
+              const month = normalized.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/i)?.[1]?.toLowerCase();
+              const timeMatch = normalized.match(/(?:\bat\b|•)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/i);
+              if (!day || !month || !timeMatch) return null;
+
+              let hour = parseInt(timeMatch[1], 10);
+              const minute = parseInt(timeMatch[2] || '0', 10);
+              const meridiem = timeMatch[3]?.toLowerCase();
+              if (meridiem === 'pm' && hour < 12) hour += 12;
+              if (meridiem === 'am' && hour === 12) hour = 0;
+              return { weekday, day, month, hour, minute };
+            };
+            const expectedDateTime = parseBannerDateTime(expectedValue);
+            const semanticMatch = expectedDateTime
+              ? texts.find(t => {
+                  const actualDateTime = parseBannerDateTime(t);
+                  return !!actualDateTime &&
+                    actualDateTime.day === expectedDateTime.day &&
+                    actualDateTime.month === expectedDateTime.month &&
+                    actualDateTime.hour === expectedDateTime.hour &&
+                    actualDateTime.minute === expectedDateTime.minute &&
+                    (!expectedDateTime.weekday || !actualDateTime.weekday || actualDateTime.weekday === expectedDateTime.weekday);
+                })
+              : undefined;
+            if (semanticMatch) {
+              actualValue = semanticMatch;
+              isMatch = true;
+            } else {
             // Try combining adjacent text pieces that together form the date
             const joined = normalizeDateString(texts.join(' '));
             if (joined.includes(expClean)) {
@@ -642,6 +675,7 @@ export class AndroidValidationPage extends AndroidBasePage {
                   }
                 }
               }
+            }
             }
           }
         } else if (

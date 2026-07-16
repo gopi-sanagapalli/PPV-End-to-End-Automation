@@ -24,9 +24,14 @@
  * The lock is held for exactly as long as validation takes (no fixed timeout).
  */
 
-import { WdBrowser } from '../../appium/pages/android/AndroidBasePage';
+import type { WdBrowser } from '../../appium/pages/android/AndroidBasePage';
 
 export type WdElement = any;
+
+// A landing-banner handoff crosses page objects: the CTA is tapped in
+// AndroidLandingPage and the URL is copied in AndroidPaywallPage. Keep the
+// active touch here so the carousel remains paused across that boundary.
+let heldBannerInteraction: BannerInteraction | null = null;
 
 export class BannerInteraction {
   private driver: WdBrowser;
@@ -43,7 +48,37 @@ export class BannerInteraction {
    * Uses a set of generic XPath selectors — no source/PPV names.
    * Returns null if nothing is found.
    */
-  async findCurrentBanner(): Promise<WdElement | null> {
+  async findCurrentBanner(referenceText = ''): Promise<WdElement | null> {
+    // Compose landing pages expose the carousel container with this resource
+    // id. Prefer it because it receives the paging touch even when the title
+    // itself is a non-interactive child.
+    try {
+      const carousel = await this.driver.$('//*[@resource-id="CarouselBox"]');
+      if (await carousel.isDisplayed()) {
+        console.log('[BannerLock] Found carousel container "CarouselBox"');
+        return carousel;
+      }
+    } catch {
+      // Other surfaces do not use this Compose resource id.
+    }
+
+    // Prefer the PPV text that was just detected.  Some carousel
+    // implementations do not expose their image as an ImageView, but do
+    // expose the banner title. Holding the title area pauses the same card.
+    if (referenceText) {
+      try {
+        const title = await this.driver.$(
+          `android=new UiSelector().textContains("${referenceText.replace(/"/g, '\\"')}")`,
+        );
+        if (await title.isDisplayed()) {
+          console.log(`[BannerLock] Found current PPV banner by title "${referenceText}"`);
+          return title;
+        }
+      } catch {
+        // Continue with generic carousel selectors below.
+      }
+    }
+
     const selectors = [
       '//*[@content-desc="Banner image"]',
       '//*[contains(@content-desc, "banner")]',
@@ -174,8 +209,8 @@ export class BannerInteraction {
    * Convenience: find, lock, run callback, unlock.
    * If lock fails, callback still runs.
    */
-  async withLock(runWhileLocked: () => Promise<void>): Promise<void> {
-    const banner = await this.findCurrentBanner();
+  async withLock(runWhileLocked: () => Promise<void>, referenceText = ''): Promise<void> {
+    const banner = await this.findCurrentBanner(referenceText);
     await this.lock(banner);
     try {
       await runWhileLocked();
@@ -183,4 +218,21 @@ export class BannerInteraction {
       await this.unlock();
     }
   }
+}
+
+/** Hold a banner carousel across the CTA → Copy overlay handoff. */
+export async function holdBannerCarousel(driver: WdBrowser, referenceText = ''): Promise<void> {
+  await releaseHeldBannerCarousel();
+  const interaction = new BannerInteraction(driver);
+  const banner = await interaction.findCurrentBanner(referenceText);
+  await interaction.lock(banner);
+  heldBannerInteraction = interaction;
+}
+
+/** Release a carousel hold immediately before tapping the Copy control. */
+export async function releaseHeldBannerCarousel(): Promise<void> {
+  if (!heldBannerInteraction) return;
+  const interaction = heldBannerInteraction;
+  heldBannerInteraction = null;
+  await interaction.unlock();
 }

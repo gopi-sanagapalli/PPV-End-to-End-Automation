@@ -81,6 +81,50 @@ const platformVersion  = process.env.PLATFORM_VERSION || rawVersion || '';
 
 console.log(`📱 Device   : ${deviceName} (${serial || 'no device'})`);
 console.log(`🤖 Android  : ${platformVersion || 'unknown'}`);
+
+// The native DAZN app formats event times from the Android device timezone.
+// Web timezone emulation only applies after the checkout handoff, so configure
+// the device itself before the app is launched for the test.
+const regionTimezoneMap: Record<string, string> = {
+  GB: 'Europe/London',
+  UK: 'Europe/London',
+  US: 'America/New_York',
+  AE: 'Asia/Dubai',
+  UAE: 'Asia/Dubai',
+  AU: 'Australia/Sydney',
+  BR: 'America/Sao_Paulo',
+  DE: 'Europe/Berlin',
+  IT: 'Europe/Rome',
+  ES: 'Europe/Madrid',
+  FR: 'Europe/Paris',
+  CA: 'America/Toronto',
+  JP: 'Asia/Tokyo',
+};
+
+function configureDeviceTimezone(): void {
+  if (!serial || process.env.ANDROID_SET_TIMEZONE === 'false') return;
+
+  const region = (process.env.DAZN_REGION || 'GB').toUpperCase();
+  const timezone = regionTimezoneMap[region] || regionTimezoneMap.GB;
+  console.log(`🌍 Setting Android device timezone for ${region}: ${timezone}`);
+
+  // Disable automatic timezone detection so a carrier/network cannot overwrite
+  // the regional timezone while the native app is under test.
+  adbShell(serial, 'shell settings put global auto_time_zone 0');
+  adbShell(serial, `shell cmd alarm set-timezone ${timezone}`);
+
+  const activeTimezone = adbShell(serial, 'shell getprop persist.sys.timezone');
+  if (activeTimezone === timezone) {
+    console.log(`✅ Android device timezone is ${activeTimezone}`);
+  } else {
+    console.warn(
+      `⚠️ Could not confirm Android timezone "${timezone}" (device reports "${activeTimezone || 'unknown'}"). ` +
+      'The connected device may block timezone changes via ADB.',
+    );
+  }
+}
+
+configureDeviceTimezone();
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const config = {
