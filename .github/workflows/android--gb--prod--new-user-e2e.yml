@@ -40,6 +40,7 @@ jobs:
       - self-hosted
       - macOS
       - ARM64
+      - sridevi-runners
 
 
     outputs:
@@ -155,6 +156,7 @@ jobs:
       - self-hosted
       - macOS
       - ARM64
+      - sridevi-runners
 
     timeout-minutes: 30
 
