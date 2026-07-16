@@ -1,4 +1,3 @@
-import { spawn, ChildProcess } from 'child_process';
 import {
   AndroidBasePage,
   AndroidPPVSurface,
@@ -7,13 +6,7 @@ import {
   getScreenSize,
 } from './AndroidBasePage';
 import { getAndroidValidationSheet } from './AndroidSurfacingPoint';
-
-const ANDROID_SDK = process.env.ANDROID_HOME || `${process.env.HOME}/Library/Android/sdk`;
-const ADB = `${ANDROID_SDK}/platform-tools/adb`;
-const DEVICE_SERIAL = process.env.DEVICE_SERIAL || '';
-const ADB_SERIAL = DEVICE_SERIAL ? `-s ${DEVICE_SERIAL}` : '';
-
-let _carouselProcess: ChildProcess | null = null;
+import { BannerInteraction } from '../../utils/bannerInteraction';
 
 // Timezone-aware date utilities loaded dynamically to avoid tsconfig rootDir restrictions
 let getDynamicDateTimeBadge: ((template: string, region?: string) => string) | undefined;
@@ -415,18 +408,7 @@ export class AndroidValidationPage extends AndroidBasePage {
     eventData.CURRENT_PAGE = 'mobile';
 
     const titleExpected = eventData.MOBILE_BANNER_TITLE || eventData.PPV_DISPLAY_NAME || eventData.PPV_NAME;
-    
-    // Pause carousel before gathering texts for landing page banner
-    if (source === 'landing-page-banner') {
-      await this.pauseCarousel(20000);
-    }
-    
     const { texts, pageSource, targetXml } = await this.gatherTextsFromSurface(surface, titleExpected);
-    
-    // Release carousel after text gathering is complete
-    if (source === 'landing-page-banner') {
-      await this.releaseCarousel();
-    }
 
     const cleanStr = (s: string) =>
       (s || '').replace(/[\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]/g, ' ')
@@ -781,81 +763,15 @@ export class AndroidValidationPage extends AndroidBasePage {
           } else if (pageSource.toLowerCase().includes(expectedValue.replace(/[\u200b\u200c\u200d\ufeff]/g, '').trim().toLowerCase())) { 
             actualVal = expectedValue; 
           } else if (fieldName === 'Date and Time' || fieldName === 'Banner - Event Date') {
-            console.log(`  🔍 [Date and Time] Starting validation...`);
-            console.log(`  🔍 [Date and Time] Expected: "${expectedValue}"`);
-            console.log(`  🔍 [Date and Time] Texts count: ${texts.length}`);
-            
             // Fallback for dynamic timezone/date formatting changes
             const dateRegex = /\b(Sun|Mon|Tue|Wed|Thu|Fri|Sat)[a-z]*\s+\d{1,2}(?:st|nd|rd|th)?\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(?:at|•)\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?/i;
-            const dynamicDateMatch = texts.find(t => {
-              const matches = dateRegex.test(t);
-              if (matches) console.log(`  🔍 [Date and Time] Regex matched text: "${t}"`);
-              return matches;
-            });
-            
-            console.log(`  🔍 [Date and Time] dynamicDateMatch found: ${!!dynamicDateMatch}`);
-            
+            const dynamicDateMatch = texts.find(t => dateRegex.test(t));
             if (dynamicDateMatch) {
-              console.log(`  🔍 [Date and Time] Matched: "${dynamicDateMatch}"`);
-              
-              // Verify the matched date matches the expected date (handles timezone conversion)
-              const expectedNorm = String(expectedValue || '').toLowerCase()
-                .replace(/[\u200b\u200c\u200d\ufeff]/g, '')
-                .replace(/\b(\d+)(?:st|nd|rd|th)\b/gi, '$1')
-                .replace(/january/g, 'jan').replace(/february/g, 'feb').replace(/march/g, 'mar')
-                .replace(/april/g, 'apr').replace(/june/g, 'jun').replace(/july/g, 'jul')
-                .replace(/august/g, 'aug').replace(/september/g, 'sep').replace(/october/g, 'oct')
-                .replace(/november/g, 'nov').replace(/december/g, 'dec')
-                .replace(/\s+/g, ' ').trim();
-              const actualNorm = String(dynamicDateMatch || '').toLowerCase()
-                .replace(/[\u200b\u200c\u200d\ufeff]/g, '')
-                .replace(/\b(\d+)(?:st|nd|rd|th)\b/gi, '$1')
-                .replace(/january/g, 'jan').replace(/february/g, 'feb').replace(/march/g, 'mar')
-                .replace(/april/g, 'apr').replace(/june/g, 'jun').replace(/july/g, 'jul')
-                .replace(/august/g, 'aug').replace(/september/g, 'sep').replace(/october/g, 'oct')
-                .replace(/november/g, 'nov').replace(/december/g, 'dec')
-                .replace(/\s+/g, ' ').trim();
-              
-              console.log(`  🔍 [Date and Time] Expected norm: "${expectedNorm}"`);
-              console.log(`  🔍 [Date and Time] Actual norm: "${actualNorm}"`);
-              
-              // Extract day+month from both dates for comparison
-              const expectedDateMatch = expectedNorm.match(/(\d{1,2})\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i);
-              const actualDateMatch = actualNorm.match(/(\d{1,2})\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i);
-              
-              console.log(`  🔍 [Date and Time] Expected date match:`, expectedDateMatch);
-              console.log(`  🔍 [Date and Time] Actual date match:`, actualDateMatch);
-              
-              if (expectedDateMatch && actualDateMatch) {
-                const expectedDay = expectedDateMatch[1];
-                const expectedMonth = expectedDateMatch[2].toLowerCase();
-                const actualDay = actualDateMatch[1];
-                const actualMonth = actualDateMatch[2].toLowerCase();
-                
-                console.log(`  🔍 [Date and Time] Comparing: ${expectedDay} ${expectedMonth} vs ${actualDay} ${actualMonth}`);
-                
-                // Check if day and month match (timezone may change the day display)
-                if (expectedDay === actualDay && expectedMonth === actualMonth) {
-                  actualVal = dynamicDateMatch;
-                  console.log(`  ✅ [Date and Time] Valid timezone-adjusted match: ${expectedDay} ${expectedMonth}`);
-                } else {
-                  // Different dates - this is NOT a valid timezone conversion
-                  console.log(`  ❌ [Date and Time] Date mismatch: expected="${expectedDay} ${expectedMonth}", actual="${actualDay} ${actualMonth}"`);
-                  actualVal = 'Not found'; // Keep as FAIL
-                }
-              } else {
-                // Could not parse dates, accept the match
-                actualVal = dynamicDateMatch;
-                console.log(`  ⚠️ [Date and Time] Could not parse dates, accepting match`);
-              }
+              actualVal = dynamicDateMatch;
             } else {
-              console.log(`  🔍 [Date and Time] No regex match found in texts`);
               const pageSourceMatch = pageSource.match(dateRegex);
               if (pageSourceMatch) {
                 actualVal = pageSourceMatch[0];
-                console.log(`  🔍 [Date and Time] Found in pageSource: "${actualVal}"`);
-              } else {
-                console.log(`  🔍 [Date and Time] No match in pageSource either`);
               }
             }
           }
@@ -877,69 +793,6 @@ export class AndroidValidationPage extends AndroidBasePage {
           checkFieldLegacy('Description', eventData.MOBILE_BANNER_DESCRIPTION || eventData.BANNER_DESCRIPTION);
         }
       }
-    }
-    
-    // Release carousel pause after validation completes
-    if (source === 'landing-page-banner') {
-      await this.releaseCarousel();
-    }
-  }
-
-  // ── Carousel pause mechanism ──────────────────────────────────────────────
-  // Long-press on banner to pause carousel auto-advance during validation
-  private carouselPaused = false;
-  private bannerElement: any | null = null;
-
-  async pauseCarousel(durationMs: number = 20000): Promise<void> {
-    try {
-      console.log('  ⏸️ Attempting to pause carousel...');
-      
-      // Get screen dimensions and use center of screen for long press
-      // banner element is typically full-width at top of screen
-      const { width, height } = await this.driver.getWindowSize();
-      const centerX = Math.round(width / 2);
-      const centerY = Math.round(height * 0.25); // banner is typically in upper 25% of screen
-      
-      console.log(`  ⏸️ Carousel pause started at (${centerX}, ${centerY})`);
-      
-      // Use ADB shell input swipe to perform a long press.
-      // swipe from (x,y) to (x,y) with duration holds the touch for that many ms.
-      // Spawn as a detached child process so it runs in background without blocking.
-      if (_carouselProcess) {
-        _carouselProcess.kill();
-        _carouselProcess = null;
-      }
-      
-      _carouselProcess = spawn(ADB, [ADB_SERIAL, 'shell', 'input', 'swipe',
-        String(centerX), String(centerY),
-        String(centerX), String(centerY),
-        String(durationMs)
-      ].filter(Boolean), { detached: true, stdio: 'ignore' });
-      
-      _carouselProcess.unref();
-      this.carouselPaused = true;
-      console.log(`  ✅ Carousel pause started (${durationMs}ms ADB swipe)`);
-    } catch (e: any) {
-      console.warn(`  ⚠️ Carousel pause not supported: ${e.message}`);
-      this.carouselPaused = false;
-    }
-  }
-
-  async releaseCarousel(): Promise<void> {
-    if (!this.carouselPaused) {
-      return;
-    }
-    
-    try {
-      if (_carouselProcess) {
-        _carouselProcess.kill('SIGKILL');
-        _carouselProcess = null;
-      }
-      this.carouselPaused = false;
-      console.log('  ▶️ Carousel pause released');
-    } catch (e: any) {
-      console.warn(`  ⚠️ Failed to release carousel: ${e.message}`);
-      this.carouselPaused = false;
     }
   }
 
