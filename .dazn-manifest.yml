@@ -1,0 +1,11 @@
+kind: Service
+metadata:
+  name: uat-ppv-end-to-end-automation
+  description: End-to-end Playwright automation suite for PPV purchase and validation flows across all DAZN regions and platforms.
+  owner: qa-automation
+  tags:
+    - qa
+    - automation
+    - playwright
+    - ppv
+    - e2e
