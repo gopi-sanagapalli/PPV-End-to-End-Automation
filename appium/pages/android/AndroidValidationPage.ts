@@ -407,6 +407,37 @@ export class AndroidValidationPage extends AndroidBasePage {
     eventData.CURRENT_PAGE = 'mobile';
 
     const titleExpected = eventData.MOBILE_BANNER_TITLE || eventData.PPV_DISPLAY_NAME || eventData.PPV_NAME;
+    
+    // Pause carousel for landing page banner before gathering texts
+    let bannerElement: any = null;
+    if (source === 'landing-page-banner') {
+      try {
+        // Find banner element dynamically - no hardcoded selectors
+        const bannerSelectors = [
+          '//android.widget.ImageView[@content-desc="Banner image"]',
+          '//android.widget.ImageView[contains(@content-desc, "banner")]',
+          '//android.view.ViewGroup[.//android.widget.ImageView]//android.widget.ImageView',
+        ];
+        
+        for (const selector of bannerSelectors) {
+          const els = await this.driver.$$(selector);
+          if (els.length > 0) {
+            bannerElement = els[0];
+            console.log(`  🎯 Found banner element using selector: ${selector}`);
+            break;
+          }
+        }
+        
+        if (bannerElement) {
+          await this.pauseCarousel(bannerElement, 20000);
+        } else {
+          console.log('  ⚠️ Banner element not found, skipping carousel pause');
+        }
+      } catch (e: any) {
+        console.warn(`  ⚠️ Failed to pause carousel: ${e.message}`);
+      }
+    }
+    
     const { texts, pageSource, targetXml } = await this.gatherTextsFromSurface(surface, titleExpected);
 
     const cleanStr = (s: string) =>
@@ -858,6 +889,67 @@ export class AndroidValidationPage extends AndroidBasePage {
           checkFieldLegacy('Description', eventData.MOBILE_BANNER_DESCRIPTION || eventData.BANNER_DESCRIPTION);
         }
       }
+    }
+    
+    // Release carousel pause after validation completes
+    if (source === 'landing-page-banner') {
+      await this.releaseCarousel();
+    }
+  }
+
+  // ── Carousel pause mechanism ──────────────────────────────────────────────
+  // Long-press on banner to pause carousel auto-advance during validation
+  private carouselPaused = false;
+  private bannerElement: any | null = null;
+
+  async pauseCarousel(bannerElement: any, durationMs: number = 20000): Promise<void> {
+    try {
+      console.log('  ⏸️ Attempting to pause carousel...');
+      
+      // Get banner bounds and calculate center point
+      const rect = await bannerElement.getRect();
+      const centerX = rect.x + rect.width / 2;
+      const centerY = rect.y + rect.height / 2;
+      
+      console.log(`  ⏸️ Carousel pause started at (${centerX}, ${centerY}) for ${durationMs}ms`);
+      
+      // Use W3C Actions API for long press
+      await this.driver.performActions([
+        {
+          type: 'pointer',
+          id: 'finger1',
+          parameters: { pointerType: 'touch' },
+          actions: [
+            { type: 'pointerMove', duration: 0, x: centerX, y: centerY },
+            { type: 'pointerDown', button: 0 },
+            { type: 'pause', duration: durationMs },
+            { type: 'pointerUp', button: 0 },
+          ],
+        },
+      ]);
+      
+      this.carouselPaused = true;
+      this.bannerElement = bannerElement;
+      console.log(`  ✅ Carousel paused for ${durationMs}ms`);
+    } catch (e: any) {
+      console.warn(`  ⚠️ Carousel pause not supported: ${e.message}`);
+      this.carouselPaused = false;
+    }
+  }
+
+  async releaseCarousel(): Promise<void> {
+    if (!this.carouselPaused) {
+      return;
+    }
+    
+    try {
+      // Release any active actions
+      await this.driver.releaseActions();
+      this.carouselPaused = false;
+      console.log('  ▶️ Carousel pause released');
+    } catch (e: any) {
+      console.warn(`  ⚠️ Failed to release carousel: ${e.message}`);
+      this.carouselPaused = false;
     }
   }
 
