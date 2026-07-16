@@ -277,6 +277,22 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
       const driver = browser;
       const baseUrl = 'https://www.dazn.com';
 
+      // Attempt native login from home page for existing user demo
+      if (LOGIN_FIRST && USER_EMAIL && USER_PASSWORD) {
+        console.log('🔐 Attempting native login from home page...');
+        try {
+          await sharedPreLoginFlow(driver, baseUrl, { email: USER_EMAIL, password: USER_PASSWORD });
+          console.log('✅ Native login successful');
+          await waitForHomePage(driver);
+        } catch (e) {
+          console.log(`⚠️ Native login failed: ${e.message}`);
+          console.log('   Continuing without native login — auth will happen in Chrome Custom Tab');
+        }
+      } else if (LOGIN_FIRST && (!USER_EMAIL || !USER_PASSWORD)) {
+        console.log('⚠️ LOGIN_FIRST=true but credentials not available — skipping native login');
+        console.log('   Auth will happen in Chrome Custom Tab during web checkout');
+      }
+
       console.log('✅ Startup handled by prepareAndroidApp; beginning existing-user PPV navigation');
 
       let buyTapped = false;

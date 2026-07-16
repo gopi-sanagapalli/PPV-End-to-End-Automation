@@ -116,7 +116,7 @@ const FLOWS: FlowDef[] = [
     env: {
       SOURCE: "schedule",
       USER_STATE: "active_standard_monthly",
-      LOGIN_FIRST: "false",
+      LOGIN_FIRST: "true",
     },
   },
 ];
