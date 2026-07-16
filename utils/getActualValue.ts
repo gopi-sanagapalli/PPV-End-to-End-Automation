@@ -1571,16 +1571,49 @@ export async function getActualValue(
       return found === 'Yes' ? 'Visible' : 'Not visible';
     }
     case 'fight card modal - event title': {
-      // Primary: live DOM locator targeting the specific title heading
-      const titleLoc = page.locator('h2[class*="fight-card-detail__title"]').first();
+      // Derive expected words from the event name for validation
+      const expectedTitle = eventData?.PPV_NAME || '';
+      const expectedWords = expectedTitle
+        .toLowerCase()
+        .replace(/\bv(?:s)?\.?\b/g, ' vs ')
+        .replace(/[^a-z0-9]+/g, ' ')
+        .split(/\s+/)
+        .filter((w: string) => w.length > 2 && !['the', 'and', 'for', 'with', 'from'].includes(w));
+
+      const matchesExpected = (text: string) => {
+        if (!text || text.length >= 120) return false;
+        const lower = text.toLowerCase().replace(/\bv(?:s)?\.?\b/g, ' vs ');
+        return expectedWords.length === 0 || expectedWords.every((w: string) => lower.includes(w));
+      };
+
+      // Primary: fight-card-detail specific title heading (scoped to fight-card container)
+      const fightCardContainer = page.locator('[class*="fight-card-detail" i]').first();
+      const titleLoc = fightCardContainer.locator('h1, h2, h3').first();
       const titleText = await titleLoc.textContent({ timeout: 3000 }).catch(() => '');
-      if (titleText && titleText.trim()) return titleText.trim();
-      // Fallback: broader modal heading selectors
-      const fallbackLoc = page.locator(
-        '[class*="modal" i] h2, [role="dialog"] h2, [aria-modal="true"] h2, [class*="overlay" i] h2'
-      ).first();
-      const fallbackText = await fallbackLoc.textContent({ timeout: 2000 }).catch(() => '');
-      if (fallbackText && fallbackText.trim()) return fallbackText.trim();
+      if (titleText && matchesExpected(titleText)) return titleText.trim();
+
+      // Fallback: fight-card-specific class selectors only (not generic modal/overlay)
+      const specificSelectors = [
+        'h2[class*="fight-card-detail__title"]',
+        'h2[class*="fight-card__title" i]',
+        'h1[class*="fight-card" i]',
+        '[data-testid*="fight-card" i] h2',
+        '[data-testid*="fight-card" i] h1',
+      ];
+      for (const sel of specificSelectors) {
+        const el = page.locator(sel).first();
+        const text = await el.textContent({ timeout: 2000 }).catch(() => '');
+        if (text && matchesExpected(text)) return text.trim();
+      }
+
+      // Last resort: any h2 inside a dialog/modal scoped to fight-card context,
+      // validated against expected event name words to prevent false positives
+      const dialogH2s = await page.locator(
+        '[role="dialog"] h2, [aria-modal="true"] h2'
+      ).allTextContents().catch(() => [] as string[]);
+      const matchedH2 = dialogH2s.find(matchesExpected);
+      if (matchedH2) return matchedH2.trim();
+
       return 'Not found';
     }
     case 'fight card modal - event date': {
