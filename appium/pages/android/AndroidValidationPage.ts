@@ -1,3 +1,4 @@
+import { spawn, ChildProcess } from 'child_process';
 import {
   AndroidBasePage,
   AndroidPPVSurface,
@@ -6,6 +7,13 @@ import {
   getScreenSize,
 } from './AndroidBasePage';
 import { getAndroidValidationSheet } from './AndroidSurfacingPoint';
+
+const ANDROID_SDK = process.env.ANDROID_HOME || `${process.env.HOME}/Library/Android/sdk`;
+const ADB = `${ANDROID_SDK}/platform-tools/adb`;
+const DEVICE_SERIAL = process.env.DEVICE_SERIAL || '';
+const ADB_SERIAL = DEVICE_SERIAL ? `-s ${DEVICE_SERIAL}` : '';
+
+let _carouselProcess: ChildProcess | null = null;
 
 // Timezone-aware date utilities loaded dynamically to avoid tsconfig rootDir restrictions
 let getDynamicDateTimeBadge: ((template: string, region?: string) => string) | undefined;
@@ -889,28 +897,28 @@ export class AndroidValidationPage extends AndroidBasePage {
       // Get screen dimensions and use center of screen for long press
       // banner element is typically full-width at top of screen
       const { width, height } = await this.driver.getWindowSize();
-      const centerX = width / 2;
-      const centerY = height * 0.25; // banner is typically in upper 25% of screen
+      const centerX = Math.round(width / 2);
+      const centerY = Math.round(height * 0.25); // banner is typically in upper 25% of screen
       
       console.log(`  ⏸️ Carousel pause started at (${centerX}, ${centerY})`);
       
-      // Use W3C Actions API for long press
-      // pointerDown only - the touch is held until releaseActions is called
-      // This is non-blocking and lets us continue with text gathering
-      await this.driver.performActions([
-        {
-          type: 'pointer',
-          id: 'finger1',
-          parameters: { pointerType: 'touch' },
-          actions: [
-            { type: 'pointerMove', duration: 0, x: centerX, y: centerY },
-            { type: 'pointerDown', button: 0 },
-          ],
-        },
-      ]);
+      // Use ADB shell input swipe to perform a long press.
+      // swipe from (x,y) to (x,y) with duration holds the touch for that many ms.
+      // Spawn as a detached child process so it runs in background without blocking.
+      if (_carouselProcess) {
+        _carouselProcess.kill();
+        _carouselProcess = null;
+      }
       
+      _carouselProcess = spawn(ADB, [ADB_SERIAL, 'shell', 'input', 'swipe',
+        String(centerX), String(centerY),
+        String(centerX), String(centerY),
+        String(durationMs)
+      ].filter(Boolean), { detached: true, stdio: 'ignore' });
+      
+      _carouselProcess.unref();
       this.carouselPaused = true;
-      console.log('  ✅ Carousel pause started (touch held)');
+      console.log(`  ✅ Carousel pause started (${durationMs}ms ADB swipe)`);
     } catch (e: any) {
       console.warn(`  ⚠️ Carousel pause not supported: ${e.message}`);
       this.carouselPaused = false;
@@ -923,8 +931,10 @@ export class AndroidValidationPage extends AndroidBasePage {
     }
     
     try {
-      // Release the held touch
-      await this.driver.releaseActions();
+      if (_carouselProcess) {
+        _carouselProcess.kill('SIGKILL');
+        _carouselProcess = null;
+      }
       this.carouselPaused = false;
       console.log('  ▶️ Carousel pause released');
     } catch (e: any) {
