@@ -26,7 +26,7 @@ interface FlowResult {
 
 // ─── Mode ────────────────────────────────────────────────────────────────────
 
-const DEMO_MODE = (process.env.DEMO_MODE || "").toLowerCase() === "true";
+const PRESENTATION_MODE = (process.env.DEMO_MODE || "").toLowerCase() === "true";
 
 // ─── ANSI helpers ────────────────────────────────────────────────────────────
 
@@ -37,6 +37,7 @@ const GREEN = "\x1b[32m";
 const BLUE = "\x1b[34m";
 const CYAN = "\x1b[36m";
 const WHITE = "\x1b[37m";
+const YELLOW = "\x1b[33m";
 
 function heading(s: string) {
   return `${BOLD}${CYAN}${s}${RESET}`;
@@ -52,6 +53,9 @@ function label(s: string) {
 }
 function dim(s: string) {
   return `\x1b[2m${s}${RESET}`;
+}
+function warning(s: string) {
+  return `${BOLD}${YELLOW}${s}${RESET}`;
 }
 
 // ─── Flow Definitions ────────────────────────────────────────────────────────
@@ -127,6 +131,13 @@ function formatDuration(ms: number): string {
   return m > 0 ? `${m}m ${s}s` : `${s}s`;
 }
 
+function formatElapsed(startMs: number): string {
+  const elapsed = Math.floor((Date.now() - startMs) / 1000);
+  const m = Math.floor(elapsed / 60);
+  const s = elapsed % 60;
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
 function platformIcon(p: string): string {
   return p === "Web" ? "🌐" : "🤖";
 }
@@ -146,7 +157,7 @@ function printBanner(): void {
   console.log("");
 }
 
-function printFlowOutput(flow: FlowDef, total: number): void {
+function printFlowCard(flow: FlowDef, total: number): void {
   console.log(dim("━".repeat(55)));
   console.log("");
   console.log(heading(`Flow ${flow.id} of ${total}`));
@@ -156,8 +167,7 @@ function printFlowOutput(flow: FlowDef, total: number): void {
   console.log(`     ${label(flow.entry)}`);
   console.log(`     ${label("GB · Production")}`);
   console.log("");
-  console.log(`  ${BLUE}Status${RESET}`);
-  console.log(`  ${BOLD}RUNNING${RESET}`);
+  console.log(`  ${BLUE}▶ Starting automation...${RESET}`);
   console.log("");
 }
 
@@ -183,6 +193,38 @@ function printFlowComplete(
   console.log("");
   console.log(dim("━".repeat(55)));
   console.log("");
+}
+
+// ─── Milestone detection ─────────────────────────────────────────────────────
+// Lines containing these substrings are surfaced in presentation mode.
+
+const MILESTONE_PATTERNS: RegExp[] = [
+  /browser\s*(launched|opened|start)/i,
+  /page\s*(loaded|navigat|ready)/i,
+  /navigation\s*(completed|started)/i,
+  /(validation|verify).*(completed|passed)/i,
+  /generating\s*report/i,
+  /HTML\s*:/i,
+  /PDF\s*:/i,
+  /Excel\s*:/i,
+  /Video\s*:/i,
+  /video\s*(saved|recorded|captured)/i,
+  /Gemini\s*(Banner\s*)?Validation/i,
+  /Jira/i,
+  /✅.*complete/i,
+  /✅.*done/i,
+  /flow\s*(complete|ended|finished)/i,
+  /🧾.*validating/i,
+  /📋.*validating/i,
+  /landed\s*on/i,
+  /clicked\s*(buy|checkout|pay)/i,
+  /payment\s*(complete|done|success)/i,
+  /report\s*(generated|saved|created)/i,
+  /test\s*complete/i,
+];
+
+function isMilestoneLine(line: string): boolean {
+  return MILESTONE_PATTERNS.some((re) => re.test(line));
 }
 
 // ─── Report discovery ────────────────────────────────────────────────────────
@@ -257,7 +299,7 @@ function discoverNewestReport(): {
 function runFlow(flow: FlowDef, total: number): Promise<FlowResult> {
   return new Promise((resolve) => {
     const start = Date.now();
-    printFlowOutput(flow, total);
+    printFlowCard(flow, total);
 
     const [cmd, ...args] = flow.command.split(/\s+/);
     const mergedEnv = { ...process.env, ...DEFAULT_ENV, ...flow.env };
@@ -270,23 +312,27 @@ function runFlow(flow: FlowDef, total: number): Promise<FlowResult> {
 
     const stdoutBuf: string[] = [];
 
-    child.stdout?.on("data", (chunk: Buffer) => {
-      const text = chunk.toString();
-      stdoutBuf.push(text);
-      if (!DEMO_MODE) {
-        process.stdout.write(text);
+    // ── Heartbeat timer (presentation mode only) ─────────────
+    let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+
+    function startHeartbeat() {
+      if (!PRESENTATION_MODE) return;
+      heartbeatTimer = setInterval(() => {
+        const elapsed = formatElapsed(start);
+        process.stdout.write(`  ${warning("⏳ Executing... " + elapsed)}\n`);
+      }, 10_000);
+    }
+
+    function stopHeartbeat() {
+      if (heartbeatTimer) {
+        clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
       }
-    });
+    }
 
-    child.stderr?.on("data", (chunk: Buffer) => {
-      const text = chunk.toString();
-      stdoutBuf.push(text);
-      // Always stream errors so the audience sees failures live
-      process.stderr.write(text);
-    });
-
-    // 15-minute timeout per flow — prevents hanging
-    const timer = setTimeout(() => {
+    // ── Clear resources once the flow is settled ─────────────
+    const timeoutTimer = setTimeout(() => {
+      stopHeartbeat();
       child.kill("SIGTERM");
       process.stderr.write(fail(`\nFlow ${flow.id} timed out after 15m\n`));
       resolve({
@@ -300,8 +346,44 @@ function runFlow(flow: FlowDef, total: number): Promise<FlowResult> {
       });
     }, 900_000);
 
+    function settle(override?: Partial<FlowResult>) {
+      stopHeartbeat();
+      clearTimeout(timeoutTimer);
+    }
+
+    // ── Stdout handling ──────────────────────────────────────
+    child.stdout?.on("data", (chunk: Buffer) => {
+      const text = chunk.toString();
+      stdoutBuf.push(text);
+
+      if (PRESENTATION_MODE) {
+        // Only surface milestone lines; suppress everything else
+        const lines = text.split("\n").filter(Boolean);
+        for (const line of lines) {
+          if (isMilestoneLine(line)) {
+            // Truncate long lines to keep output clean
+            const trimmed =
+              line.length > 110 ? line.slice(0, 110) + "…" : line;
+            process.stdout.write(`  ${dim("·")} ${trimmed}\n`);
+          }
+        }
+      } else {
+        process.stdout.write(text);
+      }
+    });
+
+    // ── Stderr handling (always streamed live) ───────────────
+    child.stderr?.on("data", (chunk: Buffer) => {
+      const text = chunk.toString();
+      stdoutBuf.push(text);
+      process.stderr.write(text);
+    });
+
+    // ── Start heartbeat after a short delay so flow card is visible ──
+    setImmediate(() => startHeartbeat());
+
     child.on("error", (err: Error) => {
-      clearTimeout(timer);
+      settle();
       process.stderr.write(fail(`\nFailed to start: ${err.message}\n`));
       resolve({
         platform: flow.platform,
@@ -315,7 +397,7 @@ function runFlow(flow: FlowDef, total: number): Promise<FlowResult> {
     });
 
     child.on("close", (code: number | null) => {
-      clearTimeout(timer);
+      settle();
       const passed = code === 0;
       const durationMs = Date.now() - start;
 
