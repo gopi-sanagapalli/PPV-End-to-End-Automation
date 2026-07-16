@@ -91,9 +91,13 @@ jobs:
           // All 4 rate plans
           const plans = ['standard_monthly', 'standard_apm', 'ultimate_apm', 'ultimate_upfront'];
 
+          const devices = [
+            { deviceSerial: 'RZCW308EJKZ', appiumPort: 4723, appiumSystemPort: 8200, chromedriverPort: 9515 },
+            { deviceSerial: 'RZCX22324AF', appiumPort: 4724, appiumSystemPort: 8201, chromedriverPort: 9516 },
+          ];
           const matrix = [];
-          for (const plan of plans) {
-            matrix.push({ source, plan });
+          for (let index = 0; index < plans.length; index++) {
+            matrix.push({ source, plan: plans[index], ...devices[index % devices.length] });
           }
 
           console.log(`Source: ${source}`);
@@ -130,6 +134,10 @@ jobs:
       PPV_CONFIG: ${{ inputs.PPV_CONFIG }}
       PAYMENT_METHOD: ${{ inputs.PAYMENT_METHOD }}
       SWITCH: ${{ matrix.switch || inputs.SWITCH }}
+      DEVICE_SERIAL: ${{ matrix.deviceSerial }}
+      APPIUM_PORT: ${{ matrix.appiumPort }}
+      APPIUM_SYSTEM_PORT: ${{ matrix.appiumSystemPort }}
+      CHROMEDRIVER_PORT: ${{ matrix.chromedriverPort }}
 
     steps:
       - name: Checkout repository
@@ -139,6 +147,8 @@ jobs:
         run: |
           echo "Runner: $RUNNER_NAME"
           echo "OS: $RUNNER_OS"
+          echo "Device: $DEVICE_SERIAL"
+          echo "Appium port: $APPIUM_PORT"
           hostname
           echo "Commit: $(git rev-parse HEAD)"
 
@@ -211,12 +221,12 @@ jobs:
           echo "===== ADB VERSION ====="
           adb version
 
-          echo "===== RESTART ADB ====="
-          adb kill-server
+          echo "===== START ADB ====="
           adb start-server
 
-          echo "===== CONNECTED DEVICES ====="
-          adb devices -l
+          echo "===== ASSIGNED DEVICE ====="
+          adb -s "$DEVICE_SERIAL" wait-for-device
+          adb -s "$DEVICE_SERIAL" devices -l
 
       - name: Run Android Landing Page Banner Test
         shell: bash

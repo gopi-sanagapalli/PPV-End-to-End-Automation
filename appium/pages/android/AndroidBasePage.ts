@@ -26,10 +26,12 @@ export interface AndroidCopyResult {
 const MOBILE_BROWSER_PACKAGE = process.env.MOBILE_BROWSER_PACKAGE || 'com.android.chrome';
 const ANDROID_SDK = process.env.ANDROID_HOME || `${process.env.HOME}/Library/Android/sdk`;
 const ADB = `${ANDROID_SDK}/platform-tools/adb`;
+const DEVICE_SERIAL = process.env.DEVICE_SERIAL || '';
 
 export function adb(cmd: string): string {
   try {
-    return execSync(`${ADB} ${cmd}`, { encoding: 'utf-8', timeout: 15000 }).trim();
+    const serialArg = DEVICE_SERIAL ? `-s ${DEVICE_SERIAL} ` : '';
+    return execSync(`${ADB} ${serialArg}${cmd}`, { encoding: 'utf-8', timeout: 15000 }).trim();
   } catch {
     return '';
   }

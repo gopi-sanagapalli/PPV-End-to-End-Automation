@@ -27,6 +27,9 @@ import { execSync } from 'child_process';
 
 const ANDROID_SDK = process.env.ANDROID_HOME || `${process.env.HOME}/Library/Android/sdk`;
 const ADB         = `${ANDROID_SDK}/platform-tools/adb`;
+const APPIUM_PORT = Number(process.env.APPIUM_PORT || '4723');
+const SYSTEM_PORT = Number(process.env.APPIUM_SYSTEM_PORT || '8200');
+const CHROMEDRIVER_PORT = Number(process.env.CHROMEDRIVER_PORT || '9515');
 
 // Export ANDROID_HOME at module level so Appium server inherits it
 process.env.ANDROID_HOME     = ANDROID_SDK;
@@ -82,7 +85,7 @@ console.log(`🤖 Android  : ${platformVersion || 'unknown'}`);
 
 export const config = {
   runner: 'local',
-  port:   4723,
+  port:   APPIUM_PORT,
   path:   '/',
 
   services: [
@@ -92,7 +95,7 @@ export const config = {
         command: 'appium',
         args: {
           address:         '127.0.0.1',
-          port:            4723,
+          port:            APPIUM_PORT,
           relaxedSecurity: true,
         },
       },
@@ -124,6 +127,9 @@ export const config = {
       'appium:chromedriverAutodownload': true,
       'appium:newCommandTimeout':        300,
       'appium:uiautomator2ServerInstallTimeout': 60000,
+      // These ports must be unique when two devices run on the same Mac.
+      'appium:systemPort':                SYSTEM_PORT,
+      'appium:chromedriverPort':          CHROMEDRIVER_PORT,
     } as any,
   ],
 
