@@ -40,7 +40,6 @@ jobs:
       - self-hosted
       - macOS
       - ARM64
-      - gopi-runners
 
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
@@ -184,7 +183,6 @@ jobs:
       - self-hosted
       - macOS
       - ARM64
-      - gopi-runners
 
     timeout-minutes: 30
 
