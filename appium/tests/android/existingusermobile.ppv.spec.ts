@@ -270,7 +270,13 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
         bitRate: '2000000',
       }).catch(e => console.error('⚠️ Failed to start screen recording:', e));
 
-      await prepareAndroidApp(browser, { clearAppData: true, waitForHome: true });
+      // When LOGIN_FIRST=true, preserve the landing page so the "Sign In"
+      // button is visible for sharedPreLoginFlow() to tap.
+      // After login completes, waitForHomePage() is called explicitly.
+      await prepareAndroidApp(browser, {
+        clearAppData: true,
+        waitForHome: !LOGIN_FIRST,
+      });
     });
 
     it('navigates to PPV buy button as existing user, opens Chrome, captures checkout URL', async () => {
