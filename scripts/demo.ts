@@ -254,47 +254,22 @@ function extractReportPaths(buffer: string[]): {
   };
 }
 
-function discoverNewestReport(): {
-  html: string;
-  pdf: string;
-  excel: string;
-  video: string;
-} | null {
-  const reportsDir = path.resolve(process.cwd(), "reports");
-  if (!fs.existsSync(reportsDir)) return null;
-
-  const entries = fs
-    .readdirSync(reportsDir)
-    .map((name) => ({
-      name,
-      mtime: fs.statSync(path.join(reportsDir, name)).mtimeMs,
-    }))
-    .filter((e) =>
-      fs.statSync(path.join(reportsDir, e.name)).isDirectory()
-    )
-    .sort((a, b) => b.mtime - a.mtime);
-
-  if (!entries.length) return null;
-
-  const newest = path.join(reportsDir, entries[0].name);
-  const htmlP = path.join(newest, "PPV_Report.html");
-  const pdfP = path.join(newest, "PPV_Report.pdf");
-  const excelP = path.join(newest, "PPV_Results.xlsx");
-  const videoCandidates = ["PPV_Video.mp4", "PPV_Video.webm"]
-    .map((f) => path.join(newest, f))
-    .find((f) => fs.existsSync(f));
-
-  if (!fs.existsSync(htmlP)) return null;
-
-  return {
-    html: htmlP,
-    pdf: fs.existsSync(pdfP) ? pdfP : "",
-    excel: fs.existsSync(excelP) ? excelP : "",
-    video: videoCandidates || "",
-  };
-}
-
 // ─── Execution ───────────────────────────────────────────────────────────────
+// ROOT CAUSE ANALYSIS:
+//
+// npx playwright test keeps the Node.js process alive after tests finish
+// (Playwright workers / browser connections don't trigger process exit).
+// Therefore child.on("close") and child.on("exit") never fire, and the
+// Promise never resolves naturally.
+//
+// FIX:
+// 1. Detect test completion from stdout patterns
+//    (e.g. "✅ Flow "Boxing Page Banner → Standard → Flex Monthly" complete: 70/70 passed")
+// 2. When detected, extract report paths from the accumulated stdout buffer
+// 3. Resolve the promise immediately — do not wait for the process to die
+// 4. Kill the child process after resolution to prevent zombie processes
+// 5. Each flow gets its own fresh state (timers, buffers, report paths)
+//    — no leakage across flows.
 
 function runFlow(flow: FlowDef, total: number): Promise<FlowResult> {
   return new Promise((resolve) => {
@@ -310,11 +285,13 @@ function runFlow(flow: FlowDef, total: number): Promise<FlowResult> {
       env: mergedEnv,
     });
 
+    // ── Per-flow state (fresh for every flow — no cross-flow leakage) ──
     const stdoutBuf: string[] = [];
-
-    // ── Heartbeat timer (presentation mode only) ─────────────
     let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+    let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
+    let resolved = false;
 
+    // ── Heartbeat (presentation mode only) ───────────────────────────
     function startHeartbeat() {
       if (!PRESENTATION_MODE) return;
       heartbeatTimer = setInterval(() => {
@@ -330,124 +307,54 @@ function runFlow(flow: FlowDef, total: number): Promise<FlowResult> {
       }
     }
 
-    // ── Clear resources once the flow is settled ─────────────
-    const FLOW_TIMEOUT_MS = 900_000; // 15 minutes
-    const POST_COMPLETION_GRACE_MS = 30_000; // 30s after test ends
+    // ── Timeout (15 minutes) ─────────────────────────────────────────
+    const FLOW_TIMEOUT_MS = 900_000;
 
-    let completionDetected = false;
-    let postCompletionTimer: ReturnType<typeof setTimeout> | null = null;
-
-    function schedulePostCompletionExit() {
-      if (completionDetected) return;
-      completionDetected = true;
-      postCompletionTimer = setTimeout(() => {
-        // Grace period expired; force-kill and move on
+    function startTimeout() {
+      timeoutTimer = setTimeout(() => {
+        if (resolved) return;
+        resolved = true;
+        stopHeartbeat();
         child.kill("SIGTERM");
         process.stderr.write(
-          warning(
-            `\nFlow ${flow.id} reports still generating — moving to next flow after ${POST_COMPLETION_GRACE_MS / 1000}s grace\n`
-          )
+          fail(`\nFlow ${flow.id} timed out after 15m\n`)
         );
         resolve({
           platform: flow.platform,
           user: flow.user,
           entry: flow.entry,
-          passed: true,
+          passed: false,
           durationMs: Date.now() - start,
-          reportPaths: discoverNewestReport(),
+          reportPaths: null,
           geminiEvidence: false,
         });
-      }, POST_COMPLETION_GRACE_MS);
+      }, FLOW_TIMEOUT_MS);
     }
 
-    const timeoutTimer = setTimeout(() => {
-      stopHeartbeat();
-      if (postCompletionTimer) clearTimeout(postCompletionTimer);
-      child.kill("SIGTERM");
-      process.stderr.write(fail(`\nFlow ${flow.id} timed out after 15m\n`));
-      resolve({
-        platform: flow.platform,
-        user: flow.user,
-        entry: flow.entry,
-        passed: false,
-        durationMs: Date.now() - start,
-        reportPaths: null,
-        geminiEvidence: false,
-      });
-    }, FLOW_TIMEOUT_MS);
-
-    function settle() {
-      stopHeartbeat();
-      clearTimeout(timeoutTimer);
-      if (postCompletionTimer) clearTimeout(postCompletionTimer);
-    }
-
-    // ── Stdout handling ──────────────────────────────────────
-    child.stdout?.on("data", (chunk: Buffer) => {
-      const text = chunk.toString();
-      stdoutBuf.push(text);
-
-      if (PRESENTATION_MODE) {
-        // Only surface milestone lines; suppress everything else
-        const lines = text.split("\n").filter(Boolean);
-        for (const line of lines) {
-          if (isMilestoneLine(line)) {
-            // Report paths must stay intact for copy/paste
-            const isReportPath =
-              /^(HTML|PDF|Excel|Video)\s*:/i.test(line.trim());
-            const trimmed = isReportPath
-              ? line
-              : line.length > 110
-                ? line.slice(0, 110) + "…"
-                : line;
-            process.stdout.write(`  ${dim("·")} ${trimmed}\n`);
-          }
-          // Detect test completion to trigger post-completion grace period
-          if (/✅.*(flow|test).*(complete|done)/i.test(line) ||
-              /passed\s*\/\s*\d+/i.test(line)) {
-            schedulePostCompletionExit();
-          }
-        }
-      } else {
-        process.stdout.write(text);
+    function clearTimeout_() {
+      if (timeoutTimer) {
+        clearTimeout(timeoutTimer);
+        timeoutTimer = null;
       }
-    });
+    }
 
-    // ── Stderr handling (always streamed live) ───────────────
-    child.stderr?.on("data", (chunk: Buffer) => {
-      const text = chunk.toString();
-      stdoutBuf.push(text);
-      process.stderr.write(text);
-    });
+    // ── Resolve helper (shared between stdout-detection and close) ──
+    function resolveWithResult(passed: boolean) {
+      if (resolved) return;
+      resolved = true;
+      stopHeartbeat();
+      clearTimeout_();
 
-    // ── Start heartbeat after a short delay so flow card is visible ──
-    setImmediate(() => startHeartbeat());
-
-    child.on("error", (err: Error) => {
-      settle();
-      process.stderr.write(fail(`\nFailed to start: ${err.message}\n`));
-      resolve({
-        platform: flow.platform,
-        user: flow.user,
-        entry: flow.entry,
-        passed: false,
-        durationMs: Date.now() - start,
-        reportPaths: null,
-        geminiEvidence: false,
-      });
-    });
-
-    child.on("close", (code: number | null) => {
-      settle();
-      const passed = code === 0;
       const durationMs = Date.now() - start;
 
+      // Extract report paths from THIS flow's stdout buffer only
+      // (each flow has its own fresh stdoutBuf — no cross-flow leakage)
       const reportPaths = extractReportPaths(stdoutBuf);
 
       let gemini = reportPaths?.gemini ?? false;
       let paths = reportPaths
         ? { ...reportPaths }
-        : discoverNewestReport();
+        : null;
 
       if (paths && !gemini) {
         gemini = fs.existsSync(
@@ -473,7 +380,95 @@ function runFlow(flow: FlowDef, total: number): Promise<FlowResult> {
       };
 
       printFlowComplete(flow, result);
+
+      // Kill the child process so it doesn't stay alive as a zombie
+      child.kill("SIGTERM");
+
       resolve(result);
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // Stdout — detect test completion and resolve immediately
+    // ══════════════════════════════════════════════════════════════════
+
+    child.stdout?.on("data", (chunk: Buffer) => {
+      const text = chunk.toString();
+      stdoutBuf.push(text);
+
+      if (PRESENTATION_MODE) {
+        const lines = text.split("\n").filter(Boolean);
+        for (const line of lines) {
+          if (isMilestoneLine(line)) {
+            const isReportPath =
+              /^(HTML|PDF|Excel|Video)\s*:/i.test(line.trim());
+            const trimmed = isReportPath
+              ? line
+              : line.length > 110
+                ? line.slice(0, 110) + "…"
+                : line;
+            process.stdout.write(`  ${dim("·")} ${trimmed}\n`);
+          }
+        }
+      } else {
+        process.stdout.write(text);
+      }
+
+      // ── Detect test completion from framework output ─────────────
+      // When the framework prints test completion e.g.:
+      //   ✅ Flow "Boxing Page Banner → Standard → Flex Monthly" complete: 70/70 passed (100.0%)
+      // we resolve immediately. The child process may still be alive
+      // (Playwright keeps Node.js alive after tests finish), but we
+      // have all the information we need from stdout.
+      const completionPatterns: RegExp[] = [
+        /✅.*flow.*complete.*\d+\/\d+\s*passed/i,
+        /✅.*test.*complete.*\d+\/\d+\s*passed/i,
+        /Flow\s*".*"\s*complete:\s*\d+\/\d+\s*passed/i,
+      ];
+
+      const isComplete = completionPatterns.some((re) => re.test(text));
+      if (isComplete) {
+        // Reports are already generated by this point (the framework
+        // generates them inline before printing the completion message).
+        // The report paths are in stdoutBuf — resolve immediately.
+        resolveWithResult(true);
+      }
+    });
+
+    // ══════════════════════════════════════════════════════════════════
+    // Stderr — always streamed live
+    // ══════════════════════════════════════════════════════════════════
+
+    child.stderr?.on("data", (chunk: Buffer) => {
+      process.stderr.write(chunk.toString());
+    });
+
+    // ══════════════════════════════════════════════════════════════════
+    // Start timers
+    // ══════════════════════════════════════════════════════════════════
+
+    setImmediate(() => {
+      startHeartbeat();
+      startTimeout();
+    });
+
+    // ══════════════════════════════════════════════════════════════════
+    // Process lifecycle events — fallback if stdout detection missed
+    // ══════════════════════════════════════════════════════════════════
+
+    child.on("error", (err: Error) => {
+      if (resolved) return;
+      process.stderr.write(fail(`\nFailed to start: ${err.message}\n`));
+      resolveWithResult(false);
+    });
+
+    child.on("close", (code: number | null) => {
+      // If stdout detection already resolved, this is a no-op (resolved=true)
+      resolveWithResult(code === 0);
+    });
+
+    child.on("exit", (code: number | null) => {
+      // Same guard — first one to call resolveWithResult wins
+      resolveWithResult(code === 0);
     });
   });
 }
