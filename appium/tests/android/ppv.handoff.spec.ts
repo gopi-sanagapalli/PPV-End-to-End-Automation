@@ -1853,6 +1853,16 @@ describe('DAZN Android PPV → Web Handoff', () => {
         throw new Error(`❌ Flow "${flowConfig.name}" did not reach the expected end page`);
       }
 
+      if (failed > 0) {
+        const failMsgs = results
+          .filter(r => r.status === 'FAIL')
+          .map(r => `  - [${r.page}] ${r.field}: expected "${r.expected}", actual "${r.actual}"`)
+          .join('\n');
+        throw new Error(
+          `❌ Flow "${flowConfig.name}" completed navigation but had ${failed} validation failure(s):\n${failMsgs}`
+        );
+      }
+
     } catch (playwrightErr: any) {
       console.error(`❌ Local Playwright Web Checkout failed: ${playwrightErr.message}`);
       throw playwrightErr;

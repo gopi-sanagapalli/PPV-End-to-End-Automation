@@ -2661,6 +2661,16 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
           throw new Error(`❌ Flow "${flowConfig.name}" did not reach the expected end page`);
         }
 
+        if (failed > 0) {
+          const failMsgs = results
+            .filter(r => r.status === 'FAIL')
+            .map(r => `  - [${r.page}] ${r.field}: expected "${r.expected}", actual "${r.actual}"`)
+            .join('\n');
+          throw new Error(
+            `❌ Flow "${flowConfig.name}" completed navigation but had ${failed} validation failure(s):\n${failMsgs}`
+          );
+        }
+
         // Removed logout flow for search to remain logged in
 
       } catch (playwrightErr: any) {
