@@ -407,7 +407,18 @@ export class AndroidValidationPage extends AndroidBasePage {
     eventData.CURRENT_PAGE = 'mobile';
 
     const titleExpected = eventData.MOBILE_BANNER_TITLE || eventData.PPV_DISPLAY_NAME || eventData.PPV_NAME;
+    
+    // Pause carousel before gathering texts for landing page banner
+    if (source === 'landing-page-banner') {
+      await this.pauseCarousel(20000);
+    }
+    
     const { texts, pageSource, targetXml } = await this.gatherTextsFromSurface(surface, titleExpected);
+    
+    // Release carousel after text gathering is complete
+    if (source === 'landing-page-banner') {
+      await this.releaseCarousel();
+    }
 
     const cleanStr = (s: string) =>
       (s || '').replace(/[\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]/g, ' ')
@@ -871,18 +882,21 @@ export class AndroidValidationPage extends AndroidBasePage {
   private carouselPaused = false;
   private bannerElement: any | null = null;
 
-  async pauseCarousel(bannerElement: any, durationMs: number = 20000): Promise<void> {
+  async pauseCarousel(durationMs: number = 20000): Promise<void> {
     try {
       console.log('  ⏸️ Attempting to pause carousel...');
       
-      // Get banner bounds and calculate center point
-      const rect = await bannerElement.getRect();
-      const centerX = rect.x + rect.width / 2;
-      const centerY = rect.y + rect.height / 2;
+      // Get screen dimensions and use center of screen for long press
+      // banner element is typically full-width at top of screen
+      const { width, height } = await this.driver.getWindowSize();
+      const centerX = width / 2;
+      const centerY = height * 0.25; // banner is typically in upper 25% of screen
       
-      console.log(`  ⏸️ Carousel pause started at (${centerX}, ${centerY}) for ${durationMs}ms`);
+      console.log(`  ⏸️ Carousel pause started at (${centerX}, ${centerY})`);
       
       // Use W3C Actions API for long press
+      // pointerDown only - the touch is held until releaseActions is called
+      // This is non-blocking and lets us continue with text gathering
       await this.driver.performActions([
         {
           type: 'pointer',
@@ -891,15 +905,12 @@ export class AndroidValidationPage extends AndroidBasePage {
           actions: [
             { type: 'pointerMove', duration: 0, x: centerX, y: centerY },
             { type: 'pointerDown', button: 0 },
-            { type: 'pause', duration: durationMs },
-            { type: 'pointerUp', button: 0 },
           ],
         },
       ]);
       
       this.carouselPaused = true;
-      this.bannerElement = bannerElement;
-      console.log(`  ✅ Carousel paused for ${durationMs}ms`);
+      console.log('  ✅ Carousel pause started (touch held)');
     } catch (e: any) {
       console.warn(`  ⚠️ Carousel pause not supported: ${e.message}`);
       this.carouselPaused = false;
@@ -912,7 +923,7 @@ export class AndroidValidationPage extends AndroidBasePage {
     }
     
     try {
-      // Release any active actions
+      // Release the held touch
       await this.driver.releaseActions();
       this.carouselPaused = false;
       console.log('  ▶️ Carousel pause released');
