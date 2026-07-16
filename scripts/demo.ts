@@ -188,7 +188,6 @@ function printFlowComplete(
     console.log(`    ${pass("✓")} Video : ${rp.video}`);
     if (result.geminiEvidence)
       console.log(`    ${pass("✓")} AI Banner Validation`);
-    console.log(`    ${pass("✓")} Jira Integration`);
   }
   console.log("");
   console.log(dim("━".repeat(55)));
@@ -490,7 +489,6 @@ function printSummary(results: FlowResult[]): void {
   console.log("  Quality");
   console.log(`    ${pass("✅")} Functional Validation`);
   console.log(`    ${pass("✅")} Gemini AI Banner Validation`);
-  console.log(`    ${pass("✅")} Automatic Jira Ticket Creation`);
   console.log("");
   console.log("  Reporting");
   console.log(`    ${pass("✅")} HTML Report`);
@@ -503,6 +501,7 @@ function printSummary(results: FlowResult[]): void {
   console.log(`    ${pass("✅")} Multi Region`);
   console.log(`    ${pass("✅")} Multiple User States`);
   console.log(`    ${pass("✅")} Multiple Entry Points`);
+  console.log(`    ${pass("✅")} Automatic Jira Ticket Creation (CI only)`);
   console.log("");
   console.log(
     `${BOLD}${CYAN}════════════════════════════════════════════════════════${RESET}`
