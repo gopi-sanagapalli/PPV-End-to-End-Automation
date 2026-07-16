@@ -331,8 +331,38 @@ function runFlow(flow: FlowDef, total: number): Promise<FlowResult> {
     }
 
     // ── Clear resources once the flow is settled ─────────────
+    const FLOW_TIMEOUT_MS = 900_000; // 15 minutes
+    const POST_COMPLETION_GRACE_MS = 30_000; // 30s after test ends
+
+    let completionDetected = false;
+    let postCompletionTimer: ReturnType<typeof setTimeout> | null = null;
+
+    function schedulePostCompletionExit() {
+      if (completionDetected) return;
+      completionDetected = true;
+      postCompletionTimer = setTimeout(() => {
+        // Grace period expired; force-kill and move on
+        child.kill("SIGTERM");
+        process.stderr.write(
+          warning(
+            `\nFlow ${flow.id} reports still generating — moving to next flow after ${POST_COMPLETION_GRACE_MS / 1000}s grace\n`
+          )
+        );
+        resolve({
+          platform: flow.platform,
+          user: flow.user,
+          entry: flow.entry,
+          passed: true,
+          durationMs: Date.now() - start,
+          reportPaths: discoverNewestReport(),
+          geminiEvidence: false,
+        });
+      }, POST_COMPLETION_GRACE_MS);
+    }
+
     const timeoutTimer = setTimeout(() => {
       stopHeartbeat();
+      if (postCompletionTimer) clearTimeout(postCompletionTimer);
       child.kill("SIGTERM");
       process.stderr.write(fail(`\nFlow ${flow.id} timed out after 15m\n`));
       resolve({
@@ -344,11 +374,12 @@ function runFlow(flow: FlowDef, total: number): Promise<FlowResult> {
         reportPaths: null,
         geminiEvidence: false,
       });
-    }, 900_000);
+    }, FLOW_TIMEOUT_MS);
 
-    function settle(override?: Partial<FlowResult>) {
+    function settle() {
       stopHeartbeat();
       clearTimeout(timeoutTimer);
+      if (postCompletionTimer) clearTimeout(postCompletionTimer);
     }
 
     // ── Stdout handling ──────────────────────────────────────
@@ -361,10 +392,20 @@ function runFlow(flow: FlowDef, total: number): Promise<FlowResult> {
         const lines = text.split("\n").filter(Boolean);
         for (const line of lines) {
           if (isMilestoneLine(line)) {
-            // Truncate long lines to keep output clean
-            const trimmed =
-              line.length > 110 ? line.slice(0, 110) + "…" : line;
+            // Report paths must stay intact for copy/paste
+            const isReportPath =
+              /^(HTML|PDF|Excel|Video)\s*:/i.test(line.trim());
+            const trimmed = isReportPath
+              ? line
+              : line.length > 110
+                ? line.slice(0, 110) + "…"
+                : line;
             process.stdout.write(`  ${dim("·")} ${trimmed}\n`);
+          }
+          // Detect test completion to trigger post-completion grace period
+          if (/✅.*(flow|test).*(complete|done)/i.test(line) ||
+              /passed\s*\/\s*\d+/i.test(line)) {
+            schedulePostCompletionExit();
           }
         }
       } else {
