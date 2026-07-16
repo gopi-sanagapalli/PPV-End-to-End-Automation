@@ -649,10 +649,11 @@ async function runFlow(
       }
 
       if (validateLanding) {
-        if (source === 'landing-page-banner' && container) {
+        if ((source === 'landing-page-banner' || source === 'boxing-page-banner') && container) {
+          const flowName = source === 'landing-page-banner' ? 'landing-page-banner' : 'boxing-page-banner';
           await validatePpvBannerImage(container, {
             region: REGION,
-            flow: 'landing-page-banner',
+            flow: flowName,
           });
         }
 
