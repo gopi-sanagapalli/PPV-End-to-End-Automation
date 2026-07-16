@@ -108,15 +108,15 @@ const FLOWS: FlowDef[] = [
   {
     id: 4,
     platform: "Android",
-    user: "Active Paid User",
-    entry: "Schedule",
+    user: "Existing Subscriber",
+    entry: "Schedule → PPV Purchase",
     command:
       "npx wdio run config/wdio.android.conf.ts --spec tests/android/existingusermobile.ppv.spec.ts",
     cwd: path.join(process.cwd(), "appium"),
     env: {
       SOURCE: "schedule",
       USER_STATE: "active_standard_monthly",
-      LOGIN_FIRST: "false",
+      LOGIN_FIRST: "true",
     },
   },
 ];
@@ -483,8 +483,9 @@ function printSummary(results: FlowResult[]): void {
   console.log(`    ${pass("✅")} Schedule`);
   console.log("");
   console.log("  User States");
-  console.log(`    ${pass("✅")} New User`);
-  console.log(`    ${pass("✅")} Active Paid User`);
+  console.log(`    ${pass("✅")} Web User`);
+  console.log(`    ${pass("✅")} Android New User`);
+  console.log(`    ${pass("✅")} Android Existing Subscriber`);
   console.log("");
   console.log("  Quality");
   console.log(`    ${pass("✅")} Functional Validation`);
