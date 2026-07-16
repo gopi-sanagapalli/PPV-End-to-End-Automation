@@ -1571,25 +1571,16 @@ export async function getActualValue(
       return found === 'Yes' ? 'Visible' : 'Not visible';
     }
     case 'fight card modal - event title': {
-      const expectedTitle = eventData?.PPV_NAME || '';
-      const words = expectedTitle
-        .toLowerCase()
-        .replace(/\bv(?:s)?\.?\b/g, ' vs ')
-        .replace(/[^a-z0-9]+/g, ' ')
-        .split(/\s+/)
-        .filter(w => w.length > 2 && !['the', 'and', 'for', 'with', 'from'].includes(w));
-      // Find the shortest matching modal node to avoid picking a parent container
-      // that includes promoter + title + date concatenated together
-      const allMatches = snapFindAll(n => {
-        if (!n.isInModal) return false;
-        const text = n.text.toLowerCase().replace(/\bv(?:s)?\.?\b/g, ' vs ');
-        return words.every(w => text.includes(w)) && n.text.length < 120;
-      }, true);
-      if (allMatches.length > 0) {
-        // Pick the shortest match — the most specific element (e.g. just the title, not the whole modal)
-        allMatches.sort((a, b) => a.length - b.length);
-        return allMatches[0];
-      }
+      // Primary: live DOM locator targeting the specific title heading
+      const titleLoc = page.locator('h2[class*="fight-card-detail__title"]').first();
+      const titleText = await titleLoc.textContent({ timeout: 3000 }).catch(() => '');
+      if (titleText && titleText.trim()) return titleText.trim();
+      // Fallback: broader modal heading selectors
+      const fallbackLoc = page.locator(
+        '[class*="modal" i] h2, [role="dialog"] h2, [aria-modal="true"] h2, [class*="overlay" i] h2'
+      ).first();
+      const fallbackText = await fallbackLoc.textContent({ timeout: 2000 }).catch(() => '');
+      if (fallbackText && fallbackText.trim()) return fallbackText.trim();
       return 'Not found';
     }
     case 'fight card modal - event date': {
