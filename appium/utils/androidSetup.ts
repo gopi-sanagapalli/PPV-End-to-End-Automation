@@ -11,6 +11,7 @@ type WdElement = any;
 type PrepareAndroidAppOptions = {
   clearAppData?: boolean;
   waitForHome?: boolean;
+  acceptCookiesOnly?: boolean;
 };
 
 function adb(cmd: string): string {
@@ -316,7 +317,18 @@ export async function prepareAndroidApp(driver: WdBrowser, options: PrepareAndro
   await driver.activateApp(APP_PACKAGE);
   console.log('🚀 App launched');
 
-  if (options.waitForHome !== false) {
+  if (options.acceptCookiesOnly) {
+    // Accept cookies but keep the landing page visible (don't dismiss it).
+    // This is for LOGIN_FIRST flows where the "Log In" button is on the
+    // landing page and must not be hidden by the cookie banner.
+    console.log('🍪 Accepting cookies (landing page preserved)...');
+    try {
+      await acceptCookiesIfPresent(driver);
+      console.log('✅ Cookies accepted, landing page visible');
+    } catch (e) {
+      console.log('ℹ️ No cookie banner detected');
+    }
+  } else if (options.waitForHome !== false) {
     await waitForHomePage(driver);
   } else {
     console.log('ℹ️ Skipping waiting for Home page');

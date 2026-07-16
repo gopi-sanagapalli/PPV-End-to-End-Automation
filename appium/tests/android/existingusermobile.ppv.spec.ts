@@ -270,11 +270,12 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
         bitRate: '2000000',
       }).catch(e => console.error('⚠️ Failed to start screen recording:', e));
 
-      // When LOGIN_FIRST=true, preserve the landing page so the "Sign In"
-      // button is visible for sharedPreLoginFlow() to tap.
+      // When LOGIN_FIRST=true, accept cookies but keep the landing page
+      // visible so sharedPreLoginFlow() can tap "Log In".
       // After login completes, waitForHomePage() is called explicitly.
       await prepareAndroidApp(browser, {
         clearAppData: true,
+        acceptCookiesOnly: LOGIN_FIRST || undefined,
         waitForHome: !LOGIN_FIRST,
       });
     });

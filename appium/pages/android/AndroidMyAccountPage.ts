@@ -12,25 +12,31 @@ export class AndroidMyAccountPage extends AndroidBasePage {
     await this.driver.pause(500);
 
     const directLoginSelectors = [
+      // Exact text matches (Android UiSelector is case-sensitive)
       'android=new UiSelector().text("Sign In")',
       'android=new UiSelector().text("Sign in")',
       'android=new UiSelector().text("Log In")',
       'android=new UiSelector().text("Log in")',
       'android=new UiSelector().text("Login")',
+      // Exact description matches
       'android=new UiSelector().description("Sign In")',
       'android=new UiSelector().description("Sign in")',
       'android=new UiSelector().description("Log In")',
       'android=new UiSelector().description("Log in")',
       'android=new UiSelector().description("Login")',
+      // Contains text matches
       'android=new UiSelector().textContains("Sign In")',
       'android=new UiSelector().textContains("Sign in")',
       'android=new UiSelector().textContains("Log In")',
       'android=new UiSelector().textContains("Log in")',
+      'android=new UiSelector().textContains("Login")',
       'android=new UiSelector().descriptionContains("Sign In")',
       'android=new UiSelector().descriptionContains("Sign in")',
       'android=new UiSelector().descriptionContains("Log In")',
       'android=new UiSelector().descriptionContains("Log in")',
       'android=new UiSelector().descriptionContains("Login")',
+      // XPath fallback: case-insensitive text match
+      '//*[contains(translate(text(), "LOGIN", "login"), "login") or contains(translate(text(), "SIGN IN", "sign in"), "sign in")]',
     ];
 
     let loginClicked = false;
