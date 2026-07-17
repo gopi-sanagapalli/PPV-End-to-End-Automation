@@ -429,6 +429,105 @@ export class RailsInterceptor {
     return matches;
   }
 
+  /**
+   * Resolve the rendered Home-card image for an event title from DAZN's public
+   * Home Rails payload. The Home DOM labels these cards with a promotion, not
+   * the fight name; the event record links its title to the competition's
+   * portrait image. No entitlement or competition ID is used for matching.
+   */
+  async findHomePortraitImageIdsByTitle(titleWordLists: string[][]): Promise<string[]> {
+    if (titleWordLists.length === 0) return [];
+
+    const imageIds = await this.page.evaluate(async ({ wordLists }) => {
+      const normalise = (value: string) => value.toLowerCase()
+        .replace(/[^a-z0-9]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      const titleMatches = (value: string) => {
+        const text = normalise(value);
+        return wordLists.some(words => words.every(word => text.includes(word)));
+      };
+      const readString = (record: Record<string, unknown>, keys: string[]) => {
+        for (const key of keys) {
+          const value = record[key];
+          if (typeof value === 'string' && value.trim()) return value.trim();
+        }
+        return '';
+      };
+      const isRecord = (value: unknown): value is Record<string, unknown> =>
+        typeof value === 'object' && value !== null && !Array.isArray(value);
+      const imageId = (value: unknown): string =>
+        isRecord(value) && typeof value.Id === 'string' ? value.Id : '';
+      const portraitIds = new Set<string>();
+      const fallbackIds = new Set<string>();
+      const visited = new Set<object>();
+
+      const collectImages = (competition: Record<string, unknown>) => {
+        const images = Array.isArray(competition.Images) ? competition.Images : [];
+        for (const image of images) {
+          if (!isRecord(image)) continue;
+          const id = imageId(image);
+          if (!id) continue;
+          const type = String(image.ImageType || image.imageType || '').toLowerCase();
+          if (type.includes('portrait')) portraitIds.add(id);
+          else if (type.includes('tile')) fallbackIds.add(id);
+        }
+        for (const key of ['PortraitImage', 'portraitImage', 'Image', 'image']) {
+          const id = imageId(competition[key]);
+          if (id) fallbackIds.add(id);
+        }
+      };
+
+      const visit = (value: unknown): void => {
+        if (Array.isArray(value)) {
+          value.forEach(visit);
+          return;
+        }
+        if (!isRecord(value) || visited.has(value)) return;
+        visited.add(value);
+
+        const title = readString(value, ['Title', 'title', 'Name', 'name']);
+        if (title && titleMatches(title)) {
+          const competition = value.Competition ?? value.competition;
+          if (isRecord(competition)) collectImages(competition);
+        }
+        Object.values(value).forEach(visit);
+      };
+
+      try {
+        const locale = location.pathname.split('/').find(part => /^en-/i.test(part)) || 'en-GB';
+        const country = locale.slice(3).toLowerCase();
+        const params = 'PageType:Home;ContentType:None;OpenBrowse:True';
+        const homeRailsUrl = new URL('https://rails.discovery.indazn.com/eu/v9/rails');
+        homeRailsUrl.search = new URLSearchParams({
+          groupId: 'home', country, openBrowse: 'true', brand: 'dazn',
+        }).toString();
+        const homeRails = await fetch(homeRailsUrl.toString(), { credentials: 'omit' }).then(response => response.json());
+        const rails = Array.isArray(homeRails.Rails) ? homeRails.Rails : [];
+
+        for (const rail of rails) {
+          if (!isRecord(rail) || typeof rail.Id !== 'string') continue;
+          const railUrl = new URL('https://rail-router.discovery.indazn.com/eu/v10/Rail');
+          railUrl.search = new URLSearchParams({
+            platform: 'web', id: rail.Id, country, brand: 'dazn', languageCode: 'en',
+            params: typeof rail.Params === 'string' ? rail.Params : params,
+          }).toString();
+          const payload = await fetch(railUrl.toString(), { credentials: 'omit' })
+            .then(response => response.ok ? response.json() : null)
+            .catch(() => null);
+          if (payload) visit(payload);
+          if (portraitIds.size > 0) break;
+        }
+      } catch {
+        return [];
+      }
+      return [...portraitIds, ...fallbackIds];
+    }, { wordLists: titleWordLists });
+
+    console.log(`🎯 [RailsInterceptor] Resolved ${imageIds.length} Home image ID(s) from PPV title`);
+    return imageIds;
+  }
+
   printRailsSummary(): void {
     console.log(`📊 [RailsInterceptor] Rails captured: ${this.allRails.length}`);
     this.allRails.forEach((rail, index) => {

@@ -5,10 +5,10 @@
   "SPORT": "Boxing",
   "PPV_TYPE": "normal",
   "HAS_BUNDLE": false,
+  "PPV_DEV_MODE": false,
   "HAS_DEFAULT_SIGNUP_PPV": false,
   "global": {
     "PPV_PROMOTER": "Matchroom Boxing",
-    "PPV_ENTITLEMENT_ID": "1i6erxcyf2xxc1dgx4h6l0e1h7",
     "PPV_DESCRIPTION": "Catch the biggest moment of the year. Select a DAZN plan to pair with your pay-per-view.",
     "PPV_UTC_DATE": "2025-07-25T19:00:00Z",
     "PPV_LOCATION": "Jeddah, Saudi Arabia",
