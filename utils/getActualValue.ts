@@ -1521,6 +1521,7 @@ export async function getActualValue(
       const found = snapExists(n => (n.tag === 'button' || n.tag === 'a') && n.text.toLowerCase().includes('buy now'));
       return found === 'Yes' ? 'Visible' : 'Not visible';
     }
+    case 'purchased tag':
     case 'banner - purchased tag': {
       const scopedContainer = await getScopedLandingPPVContainer(page, eventData);
       if (scopedContainer) {
