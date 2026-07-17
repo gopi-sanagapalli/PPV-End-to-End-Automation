@@ -164,7 +164,7 @@ async function hasAnyVisibleElement(driver: WdBrowser): Promise<boolean> {
   // This indicates the app has loaded, even if we can't identify the specific page
   try {
     const currentActivity = await driver.getCurrentActivity();
-    if (currentActivity && currentActivity.includes('com.dazn')) {
+    if (currentActivity && currentActivity.includes('com.dazn') && !currentActivity.toLowerCase().includes('splash')) {
       console.log(`  ✓ App is running (activity: ${currentActivity})`);
       return true;
     }
@@ -223,11 +223,9 @@ export async function waitForHomePage(driver: WdBrowser, timeoutMs = 120000): Pr
         return false;
       }
 
-      // Fallback: if app has been running for more than 5 seconds and has visible UI,
-      // consider it ready even if we can't identify the specific page
       const elapsed = Date.now() - startTime;
-      if (elapsed > 5000 && await hasAnyVisibleElement(driver)) {
-        console.log('  ✓ App UI detected (fallback after 5s)');
+      if (elapsed > 40000 && await hasAnyVisibleElement(driver)) {
+        console.log('  ✓ App UI detected (fallback after 40s)');
         return true;
       }
 
@@ -296,9 +294,9 @@ export async function prepareAndroidApp(driver: WdBrowser, options: PrepareAndro
     console.warn(`⚠️ Failed to set device timezone via ADB: ${err.message}`);
   }
 
-  // Kill app if already running
+  // Kill app if already running (use adb force-stop for reliability)
   try {
-    await driver.terminateApp(APP_PACKAGE);
+    adb(`shell am force-stop ${APP_PACKAGE}`);
     console.log('✅ App terminated');
   } catch {}
 
