@@ -1521,6 +1521,7 @@ export async function getActualValue(
       const found = snapExists(n => (n.tag === 'button' || n.tag === 'a') && n.text.toLowerCase().includes('buy now'));
       return found === 'Yes' ? 'Visible' : 'Not visible';
     }
+    case 'purchased tag':
     case 'banner - purchased tag': {
       const scopedContainer = await getScopedLandingPPVContainer(page, eventData);
       if (scopedContainer) {
@@ -7396,6 +7397,25 @@ export async function getActualValue(
         n.text.length < 20
       );
       return found !== 'N/A' ? 'Yes' : 'No';
+    }
+
+    case 'cta after ultimate selection': {
+      // Read from live DOM since page state changed after selecting Ultimate card
+      const ctaSelectors = [
+        'button:has-text("Continue with DAZN Ultimate")',
+        'button:has-text("Continue with Ultimate")',
+        'button:has-text("Continue")',
+        'button[type="submit"]',
+      ];
+      for (const sel of ctaSelectors) {
+        const loc = page.locator(sel).first();
+        const vis = await loc.isVisible({ timeout: 1000 }).catch(() => false);
+        if (vis) {
+          const text = await loc.innerText({ timeout: 2000 }).catch(() => '');
+          if (text.trim()) return text.trim();
+        }
+      }
+      return 'N/A';
     }
 
     // ════════════════════════════════════════════════════════════

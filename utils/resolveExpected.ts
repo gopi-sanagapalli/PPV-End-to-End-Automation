@@ -84,6 +84,11 @@ export function resolveExpected(
     }
   }
 
+  // CTA after selecting DAZN Ultimate card — applies to Choose How To Buy, Default Signup, PPV pages
+  if (field === 'cta after ultimate selection') {
+    return eventData.PLAN_CTA_BUTTON || 'Continue with DAZN Ultimate';
+  }
+
   if (pageName === 'payment') {
     const isMobileWebHandoff = String(eventData.MOBILE_WEB_HANDOFF || eventData.mobile_web_handoff || '').toLowerCase() === 'true';
 

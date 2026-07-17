@@ -32,7 +32,7 @@ import {
   getUpsellPaymentData,
 } from '../../utils/excelReader';
 import { detectVariant } from '../../flows/detectVariant';
-import { validateVariant } from '../../flows/validateVariant';
+import { validateVariant, validateCtaAfterUltimateSelection } from '../../flows/validateVariant';
 import { buildEventData } from '../../utils/buildEventData';
 import { detectPageType, handleNoPpvClick } from '../../utils/flowHelpers';
 import { displayResultsTable } from '../../utils/resultsDisplay';
@@ -1577,6 +1577,11 @@ async function runFlow(
           }
         }
 
+        // Validate CTA after selecting DAZN Ultimate card
+        if (tier === 'ultimate') {
+          await validateCtaAfterUltimateSelection(page, variant, results, eventData, 'Default Signup');
+        }
+
         let btn = page.locator('button:has-text("Continue with DAZN Ultimate"), button:has-text("Continue with pay-per-view"), button:has-text("Continue"), button[type="submit"]').first();
         if (tier === 'ultimate') {
           const ultBtn = page.locator('button:has-text("Continue with DAZN Ultimate")').first();
@@ -1641,6 +1646,10 @@ async function runFlow(
                 break;
               }
             }
+          }
+          // Validate CTA after selecting DAZN Ultimate card (dev mode)
+          if (tier === 'ultimate') {
+            await validateCtaAfterUltimateSelection(page, variant, results, eventData, 'PPV');
           }
 
           const buttonSelectors = [
@@ -1710,6 +1719,9 @@ async function runFlow(
               }
             }
           }
+
+          // Validate CTA after selecting DAZN Ultimate card
+          await validateCtaAfterUltimateSelection(page, variant, results, eventData, 'PPV');
 
           const btn = page.locator('button:has-text("Continue with DAZN Ultimate")').first();
           await clickAndWaitForNav(page, btn, 'PPV Continue Ultimate');
