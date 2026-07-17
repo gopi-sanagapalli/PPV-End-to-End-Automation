@@ -381,6 +381,11 @@ export class AndroidValidationPage extends AndroidBasePage {
         const fieldName = (row['Field'] || '').trim();
         if (!fieldName) continue;
 
+        if (fieldName === 'Copy Description' && source !== 'landing-page-banner') {
+          console.log(`  ⏭️ Skipping [Copy Description] since source is "${source}" (only validated for landing-page-banner)`);
+          continue;
+        }
+
         let expectedValue = '';
         try { expectedValue = resolveExp(row, eventData); }
         catch { expectedValue = String(row['Expected'] || ''); }
