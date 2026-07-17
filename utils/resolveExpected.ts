@@ -81,10 +81,9 @@ export function resolveExpected(
     if (field === 'upsell feature 1') {
       // Prefer the event-specific UPSELL_FEATURE_1 (may include PPV name suffix);
       // fall back to the standard "Pay-per-views included" wording used on this page.
-      return (
-        eventData.UPSELL_FEATURE_1 ||
-        'Pay-per-views included at no extra cost. Minimum of 12 events per year.'
-      );
+      const dynamicVal = eventData.UPSELL_FEATURE_1;
+      const standardVal = 'Pay-per-views included at no extra cost. Minimum of 12 events per year.';
+      return dynamicVal ? `${dynamicVal}|${standardVal}` : standardVal;
     }
     if (field === 'upsell feature 2') {
       // On the Choose How To Buy page the order is: PPV bullet → HDR bullet → 185+ fights bullet
@@ -96,10 +95,9 @@ export function resolveExpected(
     }
     if (field === 'upsell feature 3') {
       // UPSELL_FEATURE_2 holds "185+ fights" in GLOBAL_DEFAULTS; it appears 3rd on this page.
-      return (
-        eventData.UPSELL_FEATURE_2 ||
-        "185+ fights a year from the world's best promoters."
-      );
+      // Support both "promoters" and "promotors" spellings.
+      const baseExpected = eventData.UPSELL_FEATURE_2 || "185+ fights a year from the world's best promoters.";
+      return `${baseExpected}|${baseExpected.replace('promoters', 'promotors')}|185+ fights a year from the world's best promotors`;
     }
     if (field === 'upsell feature 4') {
       return (
