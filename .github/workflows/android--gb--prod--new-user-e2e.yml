@@ -42,6 +42,8 @@ jobs:
       - ARM64
       - sridevi-runners
 
+    timeout-minutes: 10
+
 
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
@@ -115,28 +117,39 @@ jobs:
             'boxing-ultimate-subscription',
             'boxing-join-the-club',
           ]);
+          const devices = [
+            { deviceSerial: 'RZCW308EJKZ', appiumPort: 4723, appiumSystemPort: 8200, chromedriverPort: 9515 },
+            { deviceSerial: 'RZCX22324AF', appiumPort: 4724, appiumSystemPort: 8201, chromedriverPort: 9516 },
+          ];
           const matrix = [];
+          let deviceIndex = 0;
+          const addMatrixEntry = (entry) => {
+            matrix.push({ ...entry, ...devices[deviceIndex % devices.length] });
+            deviceIndex += 1;
+          };
           for (const source of sources) {
             for (const plan of plans) {
               if (ultimateOnlySources.has(source) && plan.startsWith('standard_')) continue;
-              matrix.push({ source, plan });
+              addMatrixEntry({ source, plan });
             }
           }
 
           if (sources.includes('home-page-banner') || sources.includes('home-page-dont-miss')) {
             for (const plan of plans) {
-              matrix.push({ source: 'home-page-subscribe', plan });
+              addMatrixEntry({ source: 'home-page-subscribe', plan });
             }
           }
 
           if (sources.includes('myaccount')) {
             for (const plan of plans) {
-              matrix.push({ source: 'myaccount-subscription-status', plan });
+              addMatrixEntry({ source: 'myaccount-subscription-status', plan });
             }
           }
 
-          matrix.push(
+          addMatrixEntry(
             { source: 'landing-page-dont-miss-live-switch', plan: 'standard_monthly', switch: 'true' },
+          );
+          addMatrixEntry(
             { source: 'landing-page-dont-miss-live-switch', plan: 'standard_apm', switch: 'true' },
           );
 
@@ -175,6 +188,10 @@ jobs:
       PPV_CONFIG: ${{ inputs.PPV_CONFIG }}
       PAYMENT_METHOD: ${{ inputs.PAYMENT_METHOD }}
       SWITCH: ${{ matrix.switch || inputs.SWITCH }}
+      DEVICE_SERIAL: ${{ matrix.deviceSerial }}
+      APPIUM_PORT: ${{ matrix.appiumPort }}
+      APPIUM_SYSTEM_PORT: ${{ matrix.appiumSystemPort }}
+      CHROMEDRIVER_PORT: ${{ matrix.chromedriverPort }}
 
     steps:
       - name: Checkout repository
@@ -241,6 +258,8 @@ jobs:
           echo "PLAN        = $PLAN"
           echo "PPV_CONFIG  = $PPV_CONFIG"
           echo "SWITCH      = $SWITCH"
+          echo "DEVICE      = $DEVICE_SERIAL"
+          echo "APPIUM_PORT = $APPIUM_PORT"
           echo "=============================="
 
       - name: Verify Android Device
@@ -255,12 +274,12 @@ jobs:
           echo "===== ADB VERSION ====="
           adb version
 
-          echo "===== RESTART ADB ====="
-          adb kill-server
+          echo "===== START ADB ====="
           adb start-server
 
-          echo "===== CONNECTED DEVICES ====="
-          adb devices -l
+          echo "===== ASSIGNED DEVICE ====="
+          adb -s "$DEVICE_SERIAL" wait-for-device
+          adb -s "$DEVICE_SERIAL" devices -l
 
       - name: Run Android New User PPV Flow
         shell: bash

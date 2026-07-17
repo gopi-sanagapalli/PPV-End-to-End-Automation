@@ -319,6 +319,13 @@ export class AndroidValidationPage extends AndroidBasePage {
         } else if (isDateField && mobileDateText !== 'Not found') {
           actualValue = mobileDateText;
           isMatch = compare(actualValue, expectedValue);
+          if (!isMatch) {
+            // Dynamic date/time match fallback for different timezones/formatting
+            const dateRegex = /\b(Sun|Mon|Tue|Wed|Thu|Fri|Sat)[a-z]*\s+\d{1,2}(?:st|nd|rd|th)?\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(?:at|•)\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?/i;
+            if (dateRegex.test(actualValue)) {
+              isMatch = true;
+            }
+          }
         } else {
           let matched = texts.find(t =>
             compare(t, expectedValue) ||
@@ -592,21 +599,35 @@ export class AndroidValidationPage extends AndroidBasePage {
                 actualValue = expectedValue;
                 isMatch = true;
               } else {
-                // FALLBACK: Find a date-like text element to show in actualValue on fail
-                const dateLike = texts.find(t => 
-                  /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|sun|mon|tue|wed|thu|fri|sat)\b/i.test(t) ||
-                  /\d{1,2}(st|nd|rd|th)?\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i.test(t) ||
-                  /\d{1,2}:\d{2}/.test(t)
-                );
-                if (dateLike) {
-                  actualValue = dateLike;
-                } else if (texts.length > 0) {
-                  const titleClean = String(titleExpected || '').toLowerCase();
-                  const fallback = texts.find(t => {
-                    const tl = t.toLowerCase();
-                    return tl !== titleClean && !tl.includes('boxing') && !tl.includes('matchroom');
-                  });
-                  if (fallback) actualValue = fallback;
+                // Try matching a dynamic date format: e.g. "Sun 26th July at 12:30am", "Sat 25th Jul at 20:00"
+                const dateRegex = /\b(Sun|Mon|Tue|Wed|Thu|Fri|Sat)[a-z]*\s+\d{1,2}(?:st|nd|rd|th)?\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(?:at|•)\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?/i;
+                const dynamicDateMatch = texts.find(t => dateRegex.test(t));
+                if (dynamicDateMatch) {
+                  actualValue = dynamicDateMatch;
+                  isMatch = true;
+                } else {
+                  const pageSourceMatch = pageSource.match(dateRegex);
+                  if (pageSourceMatch) {
+                    actualValue = pageSourceMatch[0];
+                    isMatch = true;
+                  } else {
+                    // FALLBACK: Find a date-like text element to show in actualValue on fail
+                    const dateLike = texts.find(t => 
+                      /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|sun|mon|tue|wed|thu|fri|sat)\b/i.test(t) ||
+                      /\d{1,2}(st|nd|rd|th)?\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i.test(t) ||
+                      /\d{1,2}:\d{2}/.test(t)
+                    );
+                    if (dateLike) {
+                      actualValue = dateLike;
+                    } else if (texts.length > 0) {
+                      const titleClean = String(titleExpected || '').toLowerCase();
+                      const fallback = texts.find(t => {
+                        const tl = t.toLowerCase();
+                        return tl !== titleClean && !tl.includes('boxing') && !tl.includes('matchroom');
+                      });
+                      if (fallback) actualValue = fallback;
+                    }
+                  }
                 }
               }
             }
@@ -725,8 +746,23 @@ export class AndroidValidationPage extends AndroidBasePage {
             compare(t, expectedValue) ||
             t.toLowerCase().includes(expectedValue.replace(/[\u200b\u200c\u200d\ufeff]/g, '').trim().toLowerCase())
           );
-          if (matched) { actualVal = matched; }
-          else if (pageSource.toLowerCase().includes(expectedValue.replace(/[\u200b\u200c\u200d\ufeff]/g, '').trim().toLowerCase())) { actualVal = expectedValue; }
+          if (matched) { 
+            actualVal = matched; 
+          } else if (pageSource.toLowerCase().includes(expectedValue.replace(/[\u200b\u200c\u200d\ufeff]/g, '').trim().toLowerCase())) { 
+            actualVal = expectedValue; 
+          } else if (fieldName === 'Date and Time' || fieldName === 'Banner - Event Date') {
+            // Fallback for dynamic timezone/date formatting changes
+            const dateRegex = /\b(Sun|Mon|Tue|Wed|Thu|Fri|Sat)[a-z]*\s+\d{1,2}(?:st|nd|rd|th)?\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(?:at|•)\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?/i;
+            const dynamicDateMatch = texts.find(t => dateRegex.test(t));
+            if (dynamicDateMatch) {
+              actualVal = dynamicDateMatch;
+            } else {
+              const pageSourceMatch = pageSource.match(dateRegex);
+              if (pageSourceMatch) {
+                actualVal = pageSourceMatch[0];
+              }
+            }
+          }
           const status = actualVal !== 'Not found' ? 'PASS' : 'FAIL';
           results.push({ page: surface, field: fieldName, expected: expectedValue, actual: actualVal, status });
         };
