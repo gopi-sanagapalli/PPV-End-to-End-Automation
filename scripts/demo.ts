@@ -455,30 +455,44 @@ function printSummary(results: FlowResult[]): void {
   console.log(`${BOLD}${CYAN}  DAZN PPV Automation Platform${RESET}`);
   console.log("");
   console.log("  Platforms");
-  console.log(`    ${pass("✅")} Web`);
-  console.log(`    ${pass("✅")} Android`);
+  const platforms = Array.from(new Set(results.map((r) => r.platform)));
+  platforms.forEach((p) => {
+    const passed = results.filter((r) => r.platform === p).every((r) => r.passed);
+    console.log(`    ${passed ? pass("✅") : fail("❌")} ${p}`);
+  });
   console.log("");
+
   console.log("  Entry Points");
-  console.log(`    ${pass("✅")} Boxing Page Banner`);
-  console.log(`    ${pass("✅")} Landing Page Banner`);
-  console.log(`    ${pass("✅")} Home → Don't Miss`);
-  console.log(`    ${pass("✅")} Schedule`);
+  const entries = Array.from(new Set(results.map((r) => r.entry)));
+  entries.forEach((e) => {
+    const passed = results.filter((r) => r.entry === e).every((r) => r.passed);
+    console.log(`    ${passed ? pass("✅") : fail("❌")} ${e}`);
+  });
   console.log("");
+
   console.log("  User States");
-  console.log(`    ${pass("✅")} Web User`);
-  console.log(`    ${pass("✅")} Android New User`);
-  console.log(`    ${pass("✅")} Android Existing Subscriber`);
+  const users = Array.from(new Set(results.map((r) => r.user)));
+  users.forEach((u) => {
+    const passed = results.filter((r) => r.user === u).every((r) => r.passed);
+    console.log(`    ${passed ? pass("✅") : fail("❌")} ${u}`);
+  });
   console.log("");
+
   console.log("  Quality");
-  console.log(`    ${pass("✅")} Functional Validation`);
-  console.log(`    ${pass("✅")} Gemini AI Banner Validation`);
+  const funcPassed = results.every((r) => r.passed);
+  console.log(`    ${funcPassed ? pass("✅") : fail("❌")} Functional Validation`);
+  const hasGemini = results.some((r) => r.geminiEvidence);
+  console.log(`    ${hasGemini ? pass("✅") : warning("⚠️")} Gemini AI Banner Validation`);
   console.log("");
+
   console.log("  Reporting");
-  console.log(`    ${pass("✅")} HTML Report`);
-  console.log(`    ${pass("✅")} PDF Report`);
-  console.log(`    ${pass("✅")} Excel Report`);
-  console.log(`    ${pass("✅")} Video Recording`);
+  const hasReports = results.some((r) => r.reportPaths);
+  console.log(`    ${hasReports ? pass("✅") : fail("❌")} HTML Report`);
+  console.log(`    ${hasReports ? pass("✅") : fail("❌")} PDF Report`);
+  console.log(`    ${hasReports ? pass("✅") : fail("❌")} Excel Report`);
+  console.log(`    ${hasReports ? pass("✅") : fail("❌")} Video Recording`);
   console.log("");
+
   console.log("  CI/CD");
   console.log(`    ${pass("✅")} GitHub Actions`);
   console.log(`    ${pass("✅")} Multi Region`);
