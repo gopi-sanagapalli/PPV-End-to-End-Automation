@@ -74,49 +74,29 @@ const FLOWS: FlowDef[] = [
   {
     id: 1,
     platform: "Web",
-    user: "New User",
-    entry: "Boxing Page Banner",
-    command:
-      "npx playwright test tests/new_user/newuser.ppv.spec.ts --project=chromium",
-    cwd: process.cwd(),
-    env: { SOURCE: "boxing-page-banner" },
-  },
-  {
-    id: 2,
-    platform: "Web",
     user: "Active Paid User",
-    entry: "Home → Don't Miss",
+    entry: "My Account Page",
     command:
       "npx playwright test tests/existing_user/existinguser.ppv.spec.ts --project=chromium",
     cwd: process.cwd(),
     env: {
-      SOURCE: "home-page-dont-miss",
+      SOURCE: "my-account",
       USER_STATE: "active_standard_monthly",
       LOGIN_FIRST: "true",
+      PLAN: "standard_monthly"
     },
   },
   {
-    id: 3,
+    id: 2,
     platform: "Android",
     user: "New User",
-    entry: "Landing Page Banner",
+    entry: "Schedule → PPV Purchase",
     command:
       "npx wdio run config/wdio.android.conf.ts --spec tests/android/ppv.handoff.spec.ts",
     cwd: path.join(process.cwd(), "appium"),
-    env: { SOURCE: "landing-page-banner" },
-  },
-  {
-    id: 4,
-    platform: "Android",
-    user: "Existing Subscriber",
-    entry: "Schedule → PPV Purchase",
-    command:
-      "npx wdio run config/wdio.android.conf.ts --spec tests/android/existingusermobile.ppv.spec.ts",
-    cwd: path.join(process.cwd(), "appium"),
     env: {
       SOURCE: "schedule",
-      USER_STATE: "active_standard_monthly",
-      LOGIN_FIRST: "true",
+      PLAN: "standard_apm"
     },
   },
 ];
