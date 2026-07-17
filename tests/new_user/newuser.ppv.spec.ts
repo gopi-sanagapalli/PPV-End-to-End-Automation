@@ -563,8 +563,8 @@ async function runFlow(
             ? new BoxingPage(page)
             : new LandingPage(page);
 
-      // Start RailsInterceptor before navigation for home-biggest-fights
-      // to capture entitlement IDs from the Rails API for tile matching
+      // Start RailsInterceptor before navigation for home-biggest-fights so
+      // the Home poster linked to the configured PPV name can be resolved.
       let railsInterceptor: RailsInterceptor | undefined;
       if (source === 'home-biggest-fights' || source === 'home-page-dazntile') {
         railsInterceptor = new RailsInterceptor(page);

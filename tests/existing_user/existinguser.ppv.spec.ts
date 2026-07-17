@@ -1018,8 +1018,8 @@ for (const stateKey of userStatesToRun) {
                 ? new BoxingPage(page)
                 : new LandingPage(page);
 
-          // Start RailsInterceptor before navigation for home-biggest-fights and home-page-dazntile
-          // to capture entitlement IDs from the Rails API for tile matching
+          // Start RailsInterceptor before navigation for home-biggest-fights and home-page-dazntile.
+          // Biggest Fights resolves the PPV-name poster; DAZN tile retains its own entitlement flow.
           let railsInterceptor: RailsInterceptor | undefined;
           if (SOURCE === 'home-biggest-fights' || SOURCE === 'home-page-dazntile') {
             railsInterceptor = new RailsInterceptor(page);

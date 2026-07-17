@@ -95,37 +95,50 @@ export class HomePage extends LandingPage {
       let foundHeading = false;
       let matchedPattern = '';
 
-      // Check all patterns at each scroll position.
+      // Check real rail headings first, then retain the generic fallback for
+      // markup variants. After dev mode returns to Home the rails lazy-load,
+      // so scan the full dynamically-sized page instead of a fixed 8,000px.
+      const railHeadingSelector = [
+        'section[data-target="rail"] h1',
+        'section[data-target="rail"] h2',
+        'section[data-target="rail"] h3',
+        'section[data-target="rail"] [class*="title" i]',
+      ].join(', ');
+      const fallbackHeadingSelector = 'h1, h2, h3, [class*="title" i]';
+
       // IMPORTANT: skip any heading that is wrapped inside an <a> element —
       // those are article/promo tiles (href="/en-GB/home/ArticleId:..."), not rail headings.
-      for (let i = 0; i < 20 && !foundHeading; i++) {
+      for (let i = 0; i < 35 && !foundHeading; i++) {
         for (const pattern of sectionPatterns) {
-          const allCandidates = this.page.locator('h2, h3, [class*="title" i]')
-            .filter({ hasText: pattern });
-          const count = await allCandidates.count().catch(() => 0);
-          for (let j = 0; j < count; j++) {
-            const candidate = allCandidates.nth(j);
-            if (!await candidate.isVisible().catch(() => false)) continue;
-            // Skip if heading is inside an <a> link (promo/article tile)
-            const insideLink = await candidate.locator('xpath=ancestor::a[1]').count().catch(() => 0) > 0;
-            if (insideLink) {
-              const txt = (await candidate.textContent().catch(() => '')) || '';
-              console.log(`⏭️ [Biggest Fights] Skipping heading inside <a>: "${txt.trim().substring(0, 60)}"`);
-              continue;
+          for (const selector of [railHeadingSelector, fallbackHeadingSelector]) {
+            const allCandidates = this.page.locator(selector).filter({ hasText: pattern });
+            const count = await allCandidates.count().catch(() => 0);
+            for (let j = 0; j < count; j++) {
+              const candidate = allCandidates.nth(j);
+              if (!await candidate.isVisible().catch(() => false)) continue;
+              // Skip if heading is inside an <a> link (promo/article tile)
+              const insideLink = await candidate.locator('xpath=ancestor::a[1]').count().catch(() => 0) > 0;
+              if (insideLink) {
+                const txt = (await candidate.textContent().catch(() => '')) || '';
+                console.log(`⏭️ [Biggest Fights] Skipping heading inside <a>: "${txt.trim().substring(0, 60)}"`);
+                continue;
+              }
+              sectionHeading = candidate;
+              foundHeading = true;
+              matchedPattern = pattern.source;
+              break;
             }
-            sectionHeading = candidate;
-            foundHeading = true;
-            matchedPattern = pattern.source;
-            break;
+            if (foundHeading) break;
           }
           if (foundHeading) break;
         }
         if (!foundHeading) {
           if (this.page.isClosed()) break;
-          await this.page.evaluate((pos: number) => {
-            window.scrollTo({ top: pos, behavior: 'instant' });
-          }, (i + 1) * 400).catch(() => { });
-          await this.page.waitForTimeout(200).catch(() => { });
+          await this.page.evaluate(() => {
+            window.scrollBy({ top: Math.floor(window.innerHeight * 0.8), behavior: 'instant' });
+          }).catch(() => { });
+          // Give the next rail a chance to render before checking headings again.
+          await this.page.waitForTimeout(400).catch(() => { });
         }
       }
 
@@ -147,9 +160,7 @@ export class HomePage extends LandingPage {
       const vsMatch = ppvName.match(/(\w+)\s+vs\.?\s+(\w+)/i);
       const fighter1 = vsMatch ? vsMatch[1] : '';
       const fighter2 = vsMatch ? vsMatch[2] : '';
-      const ppvEntitlementId = (eventData.PPV_ENTITLEMENT_ID || '').trim();
-      const ppvUtcDate = eventData.PPV_UTC_DATE || '';
-      console.log(`🔍 [HomePage Biggest Fights] Looking for: "${ppvName}" (f1="${fighter1}", f2="${fighter2}", entitlement="${ppvEntitlementId || 'N/A'}")`);
+      console.log(`🔍 [HomePage Biggest Fights] Looking for: "${ppvName}" (f1="${fighter1}", f2="${fighter2}")`);
 
       const cleanStr = (s: string) =>
         (s || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -168,23 +179,9 @@ export class HomePage extends LandingPage {
         return matchTitle || matchFighters;
       };
 
-      let ppvMonth = '';
-      if (ppvUtcDate) {
-        const d = new Date(ppvUtcDate);
-        if (!isNaN(d.getTime())) {
-          ppvMonth = d.toLocaleString('en-US', { month: 'short' }).toLowerCase();
-        }
-      }
-
       // ── RailsInterceptor (for diagnostics) ──
       const railsInterceptor: RailsInterceptor | undefined = (eventData as any)._railsInterceptor;
-      if (railsInterceptor && ppvEntitlementId) {
-        const matches = railsInterceptor.findTilesByEntitlement([ppvEntitlementId]);
-        if (matches.length > 0) {
-          console.log(`🎯 [Biggest Fights] Entitlement match: rail="${matches[0].railTitle}", tileIndex=${matches[0].tileIndex}`);
-        } else {
-          console.log(`⚠️ [Biggest Fights] No entitlement match for "${ppvEntitlementId}" — falling back to link-based navigation`);
-        }
+      if (railsInterceptor) {
         railsInterceptor.printRailsSummary();
       }
 
@@ -217,87 +214,92 @@ export class HomePage extends LandingPage {
 
       let targetTile: any = null;
 
-      // ── Strategy A: RailsInterceptor imageUrl fragment → scoped img[src] ──
-      if (railsInterceptor) {
-        const fightNightPattern = /saturday.?fight.?night|fight.?night|biggest.?fights|upcoming.?fight/i;
-        let railMatches = railsInterceptor.findTilesByRailTitle(
-          fightNightPattern,
-          (title) => matchesTileText(title)
-        );
+      // A Swiper clone can be "visible" to Playwright even though it is not the
+      // card a user can select.  Filter those at the link level (the duplicate
+      // class is on the slide, not on its img), rather than with an img selector.
+      const isUsableTile = async (tile: any): Promise<boolean> => {
+        if (!await tile.isVisible().catch(() => false)) return false;
+        const href = await tile.getAttribute('href').catch(() => '');
+        if (!href || href.includes('ArticleId')) return false;
+        const isDuplicate = await tile.locator(
+          'xpath=ancestor-or-self::*[contains(concat(" ", normalize-space(@class), " "), " swiper-slide-duplicate ")]'
+        ).count().catch(() => 0);
+        return isDuplicate === 0;
+      };
 
-        if (railMatches.length === 0) {
-          const allRailTiles = railsInterceptor.findTilesByRailTitle(fightNightPattern);
-          console.log(`ℹ️ [Biggest Fights] No title match in API; all tiles in matching rails:`);
-          allRailTiles.forEach(m => console.log(`   tile[${m.tileIndex}] "${m.tileTitle}" img="${m.imageUrl?.substring(0, 80) || 'none'}"`));
-          railMatches = allRailTiles;
+      const getTileMetadata = async (tile: any): Promise<string> => tile.evaluate((link: HTMLAnchorElement) => {
+        const linkData = [
+          link.textContent,
+          link.getAttribute('aria-label'),
+          link.getAttribute('title'),
+        ];
+        const imageData = Array.from(link.querySelectorAll('img')).flatMap((img: HTMLImageElement) => [
+          img.alt,
+          img.currentSrc,
+          img.src,
+          img.getAttribute('srcset'),
+          img.getAttribute('data-src'),
+        ]);
+        return [...linkData, ...imageData].filter(Boolean).join(' ');
+      }).catch(() => '');
+
+      const getTileCandidates = async (): Promise<Array<{ tile: any; metadata: string }>> => {
+        const candidates: Array<{ tile: any; metadata: string }> = [];
+        const links = railContainer.locator('a[href]');
+        const count = await links.count().catch(() => 0);
+        for (let i = 0; i < count; i++) {
+          const tile = links.nth(i);
+          if (await isUsableTile(tile)) {
+            candidates.push({ tile, metadata: await getTileMetadata(tile) });
+          }
         }
+        return candidates;
+      };
 
-        for (const match of railMatches) {
-          console.log(`🎯 [Biggest Fights] API tile: rail="${match.railTitle}" tile="${match.tileTitle}" img="${match.imageUrl?.substring(0, 80) || 'none'}"`);
-          if (!match.imageUrl) continue;
+      // The cards in this rail frequently expose only a promoter name in the
+      // DOM; the fighter names are rendered into the poster artwork. Resolve
+      // the configured PPV name to that public Home poster asset, then match
+      // the asset in this rail. This deliberately does not use an entitlement,
+      // competition ID, or a secondary browser tab.
+      const eventImageIds = railsInterceptor
+        ? await railsInterceptor.findHomePortraitImageIdsByTitle(partsWordLists)
+        : [];
 
-          const urlParts = match.imageUrl.split('/').filter(Boolean);
-          const uniqueFragment = urlParts.reverse().find(
-            p => p.length > 8 && !/^(image|poster|thumb|thumbnail|jpg|jpeg|png|webp|gif)$/i.test(p)
+      const findTileByEventImage = async (): Promise<any> => {
+        for (const imageId of eventImageIds) {
+          const matches = (await getTileCandidates()).filter(({ metadata }) =>
+            metadata.toLowerCase().includes(imageId.toLowerCase())
           );
-          if (!uniqueFragment) continue;
-
-          // Scope search to railContainer so we don't pick up other rails
-          const imgByUrl = railContainer.locator(`img[src*="${uniqueFragment}" i]:not(.swiper-slide-duplicate img)`).first();
-          if (await imgByUrl.count().catch(() => 0) > 0 && await imgByUrl.isVisible().catch(() => false)) {
-            const parentLink = imgByUrl.locator('xpath=ancestor::a[1]');
-            if (await parentLink.count().catch(() => 0) > 0) {
-              const href = await parentLink.getAttribute('href').catch(() => '');
-              console.log(`✅ [Biggest Fights] Found tile by imageUrl fragment (scoped): href="${href}"`);
-              targetTile = parentLink;
-              break;
-            }
+          if (matches.length === 1) {
+            const href = await matches[0].tile.getAttribute('href').catch(() => '');
+            console.log(`✅ [Biggest Fights] Found PPV card by its named poster image: href="${href}"`);
+            return matches[0].tile;
           }
-        }
-      }
-
-      // ── Strategy B: scoped img[alt] / img[src] matching within railContainer ──
-      const findTileInRail = async (): Promise<any> => {
-        const imgSelectors = [
-          fighter1 && fighter2 ? `img[alt*="${fighter1}" i][alt*="${fighter2}" i]:not(.swiper-slide-duplicate img)` : null,
-          fighter1 ? `img[alt*="${fighter1}" i]:not(.swiper-slide-duplicate img)` : null,
-          fighter1 ? `img[src*="${fighter1.toLowerCase()}"]:not(.swiper-slide-duplicate img)` : null,
-          ppvEntitlementId ? `img[alt*="${ppvEntitlementId}" i]:not(.swiper-slide-duplicate img)` : null,
-          ppvEntitlementId ? `a[href*="${ppvEntitlementId}" i]` : null,
-        ].filter(Boolean) as string[];
-
-        for (const sel of imgSelectors) {
-          // All searches scoped to railContainer
-          const el = railContainer.locator(sel).first();
-          if (await el.count().catch(() => 0) > 0 && await el.isVisible().catch(() => false)) {
-            const tagName = await el.evaluate((e: HTMLElement) => e.tagName.toLowerCase()).catch(() => '');
-            if (tagName === 'a') {
-              const href = await el.getAttribute('href').catch(() => '');
-              if (!href?.includes('ArticleId')) return el;
-            }
-            const link = el.locator('xpath=ancestor::a[1]');
-            if (await link.count().catch(() => 0) > 0) {
-              const href = await link.getAttribute('href').catch(() => '');
-              if (href && !href.includes('ArticleId')) {
-                console.log(`✅ [Biggest Fights] Found tile by "${sel}" (scoped): href="${href}"`);
-                return link;
-              }
-            }
+          if (matches.length > 1) {
+            console.log(`⚠️ [Biggest Fights] Poster image matched ${matches.length} cards; not selecting an ambiguous card`);
           }
-        }
-
-        // Last resort: first visible competition link in the scoped rail
-        const compLinks = railContainer.locator('a[href*="/competition/"], a[href*="/sport/"]');
-        const cnt = await compLinks.count().catch(() => 0);
-        for (let i = 0; i < cnt; i++) {
-          const t = compLinks.nth(i);
-          if (await t.isVisible().catch(() => false)) return t;
         }
         return null;
       };
 
+      // Fallback for environments where the fight name is exposed in a card
+      // label rather than solely in the artwork.
+      const findTileInRail = async (): Promise<any> => {
+        for (const { tile, metadata } of await getTileCandidates()) {
+          if (matchesTileText(metadata)) {
+            const href = await tile.getAttribute('href').catch(() => '');
+            console.log(`✅ [Biggest Fights] Found tile by event metadata: href="${href}"`);
+            return tile;
+          }
+        }
+
+        // No tile found in current view — carousel loop will advance and retry
+        console.log(`ℹ️ [Biggest Fights] Tile not found in current view — will try next carousel slide`);
+        return null;
+      };
+
       if (!targetTile) {
-        targetTile = await findTileInRail();
+        targetTile = await findTileByEventImage() || await findTileInRail();
         let clicks = 0;
         while (!targetTile && clicks < 15) {
           const nd = await nextBtn.evaluate((el: Element) =>
@@ -308,14 +310,14 @@ export class HomePage extends LandingPage {
           await nextBtn.click({ force: true, timeout: 3000 }).catch(() => { });
           clicks++;
           await this.page.waitForTimeout(500);
-          targetTile = await findTileInRail();
+          targetTile = await findTileByEventImage() || await findTileInRail();
         }
       }
 
       if (!targetTile) {
         throw new Error(
           `❌ [HomePage Biggest Fights] No competition tile found. ` +
-          `PPV: "${ppvName}", Competition ID: ${ppvEntitlementId || 'N/A'}`
+          `PPV: "${ppvName}"`
         );
       }
 
