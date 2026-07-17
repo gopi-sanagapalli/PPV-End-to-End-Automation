@@ -25,6 +25,14 @@
 
 import { execSync } from 'child_process';
 
+let appiumCommand = 'appium';
+try {
+  const detected = execSync('which appium', { encoding: 'utf8' }).trim();
+  if (detected) {
+    appiumCommand = detected;
+  }
+} catch {}
+
 const ANDROID_SDK = process.env.ANDROID_HOME || `${process.env.HOME}/Library/Android/sdk`;
 const ADB         = `${ANDROID_SDK}/platform-tools/adb`;
 const APPIUM_PORT = Number(process.env.APPIUM_PORT || '4723');
@@ -136,12 +144,13 @@ export const config = {
     [
       '@wdio/appium-service',
       {
-        command: 'appium',
+        command: appiumCommand,
         args: {
           address:         '127.0.0.1',
           port:            APPIUM_PORT,
           relaxedSecurity: true,
         },
+        appiumStartTimeout: 60000,
       },
     ],
   ],
