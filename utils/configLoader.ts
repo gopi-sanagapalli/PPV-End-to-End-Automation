@@ -130,7 +130,7 @@ export function loadEventConfig(eventConfigOrKey?: string, planKeyOverride?: str
   alignRegions(eventData);
 
   let merged = deepMerge(planData, eventData);
-  merged.eventKey = path.basename(filePath, '.json');
+  merged.eventKey = eventData.eventKey || path.basename(filePath, '.json');
   merged.planKey = planKey;
 
   return merged;
