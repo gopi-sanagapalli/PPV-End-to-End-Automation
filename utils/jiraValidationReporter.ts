@@ -2,6 +2,9 @@ import * as fs from 'fs';
 import * as https from 'https';
 import * as path from 'path';
 import { createHash } from 'crypto';
+import * as dotenv from 'dotenv';
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
+
 
 type ValidationResult = {
   page?: string;
@@ -112,18 +115,18 @@ function configuredJiraFields(context: JiraContext) {
   const fields = [
     {
       label: 'region',
-      fieldName: process.env.JIRA_REGION_FIELD_NAME,
+      fieldName: process.env.JIRA_REGION_FIELD_NAME || 'Region',
       value: process.env.JIRA_REGION || context.region,
     },
     {
       label: 'environment',
-      fieldName: process.env.JIRA_DAZN_ENVIRONMENT_FIELD_NAME,
-      value: process.env.JIRA_DAZN_ENVIRONMENT,
+      fieldName: process.env.JIRA_DAZN_ENVIRONMENT_FIELD_NAME || 'DAZN Environment',
+      value: process.env.JIRA_DAZN_ENVIRONMENT || 'Live Prod',
     },
     {
       label: 'platform',
-      fieldName: process.env.JIRA_PLATFORM_FIELD_NAME,
-      value: process.env.JIRA_PLATFORM,
+      fieldName: process.env.JIRA_PLATFORM_FIELD_NAME || 'Platform - required',
+      value: process.env.JIRA_PLATFORM || context.platform || 'Desktop Web',
     },
   ];
 
@@ -490,13 +493,13 @@ async function attachFile(
  * All Jira errors are logged and deliberately do not hide the original test failure.
  */
 export async function reportValidationFailuresToJira(report: JiraValidationReport): Promise<void> {
-  if (process.env.GITHUB_ACTIONS !== 'true') return;
+  if (process.env.GITHUB_ACTIONS !== 'true' && process.env.LOCAL_DEMO !== 'true') return;
 
   const failures = report.results.filter(result => String(result.status).toUpperCase() === 'FAIL');
   if (!failures.length) return;
 
   const config = jiraConfig();
-  if (!config) {
+  if (!config || process.env.JIRA_EMAIL === 'your_jira_email_here' || process.env.JIRA_API_TOKEN === 'your_jira_api_token_here') {
     console.warn('⚠️ [Jira] Validation failures found, but Jira secrets are not configured; skipping ticket creation.');
     return;
   }

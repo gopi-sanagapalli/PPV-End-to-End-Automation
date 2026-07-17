@@ -90,8 +90,8 @@ jobs:
           // Landing page banner only
           const source = 'landing-page-banner';
           
-          // All 4 rate plans
-          const plans = ['standard_monthly', 'standard_apm', 'ultimate_apm', 'ultimate_upfront'];
+          // Only 1 rate plan for local demo optimization
+          const plans = ['standard_monthly'];
 
           const devices = [
             { deviceSerial: 'RZCW308EJKZ', appiumPort: 4723, appiumSystemPort: 8200, chromedriverPort: 9515 },

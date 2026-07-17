@@ -1,6 +1,8 @@
 import fs from 'fs';
 import https from 'https';
 import path from 'path';
+import * as dotenv from 'dotenv';
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 type BannerAssessment = {
   imageLoaded: 'pass' | 'fail' | 'uncertain';
@@ -72,10 +74,10 @@ export async function validateBannerImage(
   banner: { screenshot(options: { path: string; type: 'png' }): Promise<Buffer> },
   context: { region: string; flow: string; url?: string; fighterNames?: string[] }
 ): Promise<BannerValidationResult | null> {
-  if (process.env.GITHUB_ACTIONS !== 'true' && process.env.GEMINI_BANNER_VALIDATION !== 'true') return null;
+  if (process.env.GITHUB_ACTIONS !== 'true' && process.env.GEMINI_BANNER_VALIDATION !== 'true' && process.env.LOCAL_DEMO !== 'true') return null;
 
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
+  if (!apiKey || apiKey === 'your_gemini_api_key_here') {
     console.log('ℹ️ [Gemini Banner] GEMINI_API_KEY is not configured; visual check skipped.');
     return null;
   }
