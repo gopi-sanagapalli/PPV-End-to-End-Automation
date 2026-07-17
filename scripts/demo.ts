@@ -96,7 +96,10 @@ const FLOWS: FlowDef[] = [
     cwd: path.join(process.cwd(), "appium"),
     env: {
       SOURCE: "schedule",
-      PLAN: "standard_apm"
+      PLAN: "standard_apm",
+      APPIUM_PORT: "4725",
+      APPIUM_SYSTEM_PORT: "8202",
+      CHROMEDRIVER_PORT: "9517"
     },
   },
 ];
