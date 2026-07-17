@@ -1576,6 +1576,19 @@ async function runFlow(
           }
         }
 
+        // Validate CTA after selecting DAZN Ultimate card
+        if (tier === 'ultimate') {
+          try {
+            await validateVariant(
+              page, variant,
+              [{ Field: 'CTA After Ultimate Selection', Expected: '{{PLAN_CTA_BUTTON}}' }],
+              results, eventData, 'Default Signup', undefined, true
+            );
+          } catch (e: any) {
+            console.warn('⚠️ CTA after Ultimate selection validation error:', e.message);
+          }
+        }
+
         let btn = page.locator('button:has-text("Continue with DAZN Ultimate"), button:has-text("Continue with pay-per-view"), button:has-text("Continue"), button[type="submit"]').first();
         if (tier === 'ultimate') {
           const ultBtn = page.locator('button:has-text("Continue with DAZN Ultimate")').first();
@@ -1639,6 +1652,18 @@ async function runFlow(
                 console.log(`✅ Dev mode: selected Ultimate card via: ${sel}`);
                 break;
               }
+            }
+          }
+          // Validate CTA after selecting DAZN Ultimate card (dev mode)
+          if (tier === 'ultimate') {
+            try {
+              await validateVariant(
+                page, variant,
+                [{ Field: 'CTA After Ultimate Selection', Expected: '{{PLAN_CTA_BUTTON}}' }],
+                results, eventData, 'PPV', undefined, true
+              );
+            } catch (e: any) {
+              console.warn('⚠️ CTA after Ultimate selection validation error:', e.message);
             }
           }
 
@@ -1708,6 +1733,17 @@ async function runFlow(
                 break;
               }
             }
+          }
+
+          // Validate CTA after selecting DAZN Ultimate card
+          try {
+            await validateVariant(
+              page, variant,
+              [{ Field: 'CTA After Ultimate Selection', Expected: '{{PLAN_CTA_BUTTON}}' }],
+              results, eventData, 'PPV', undefined, true
+            );
+          } catch (e: any) {
+            console.warn('⚠️ CTA after Ultimate selection validation error:', e.message);
           }
 
           const btn = page.locator('button:has-text("Continue with DAZN Ultimate")').first();

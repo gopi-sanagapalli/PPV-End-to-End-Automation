@@ -1047,6 +1047,16 @@ for (const stateKey of userStatesToRun) {
               console.log(`🧭 [Login First] Navigating via All Sports dropdown for source: ${SOURCE}`);
               await (landing as BoxingHomePage).navigateToSportViaAllSports(SOURCE, eventData);
             } else if (isBoxingSource) {
+              // For boxing sources, enable dev mode while still on /home
+              // (before navigating to the heavy boxing page). The boxing
+              // page loads video/streaming content for active subscribers
+              // that can block page.goto() to /search.
+              if (devModeEnabled) {
+                console.log('\n🎭 Dev mode flow detected — enabling dev mode from /home before boxing navigation...');
+                const searchPageEarly = new SearchPage(page);
+                await searchPageEarly.enableDevMode();
+                console.log('✅ Dev mode enabled from /home — now navigating to boxing page');
+              }
               console.log(`🧭 [Login First] Navigating directly to Boxing page via BoxingPage.navigate()`);
               await (landing as BoxingPage).navigate(baseUrl, SOURCE);
             } else {
@@ -1093,12 +1103,17 @@ for (const stateKey of userStatesToRun) {
           }
 
           if (devModeEnabled) {
-            console.log('\n🎭 Dev mode flow detected — enabling dev mode on landing page...');
-            const searchPage = new SearchPage(page);
-            await searchPage.enableDevMode();
-            if (LOGIN_FIRST) {
-              await page.keyboard.press('Escape').catch(() => { });
-              await page.waitForTimeout(200);
+            // For boxing sources with LOGIN_FIRST, dev mode was already
+            // enabled from /home before navigating to the boxing page.
+            const alreadyEnabledFromHome = LOGIN_FIRST && (SOURCE.startsWith('boxing-page') || SOURCE.startsWith('boxing'));
+            if (!alreadyEnabledFromHome) {
+              console.log('\n🎭 Dev mode flow detected — enabling dev mode on landing page...');
+              const searchPage = new SearchPage(page);
+              await searchPage.enableDevMode();
+              if (LOGIN_FIRST) {
+                await page.keyboard.press('Escape').catch(() => { });
+                await page.waitForTimeout(200);
+              }
             }
           }
 
@@ -1648,19 +1663,17 @@ for (const stateKey of userStatesToRun) {
         if (SOURCE === 'boxing-join-the-club') {
           console.log('\n🔍 Validating boxing-join-the-club redirect...');
           // The SPA loads `signup` first, then client-side routing appends ?page=PlanDetails.
+          // Wait specifically for TierPlans/PlanDetails URL or plan selection body content.
+          // Do NOT match on bare 'signup' — that's the initial URL before the redirect completes.
           await page.waitForFunction(() => {
             const href = window.location.href.toLowerCase();
             const text = document.body.innerText.toLowerCase();
             return href.includes('tierplans') ||
               href.includes('plandetails') ||
-              href.includes('signup') ||
-              href.includes('signin') ||
               text.includes('dazn ultimate') ||
               text.includes('choose your plan') ||
-              text.includes('choose a plan') ||
-              text.includes('sign in') ||
-              text.includes('email');
-          }, { timeout: 20000 }).catch(() => { });
+              text.includes('choose a plan');
+          }, { timeout: 30000 }).catch(() => { });
 
           const clubUrl = page.url();
           const clubBody = (await page.locator('body').innerText().catch(() => '')).toLowerCase();
@@ -2328,7 +2341,7 @@ for (const stateKey of userStatesToRun) {
             SOURCE === 'boxing-standard-subscription' ||
             SOURCE === 'boxing-join-the-club';
           if (isBoxingSubOnlySource && (page.url().includes('/myaccount') || page.url().endsWith('/home'))) {
-            throw new Error(`❌ [${SOURCE}] Expected to land on PlanDetails/TierPlans, but landed on My Account/Home page instead (flow bypassed plans/checkout).`);
+            throw new Error(`❌ [${SOURCE}] Expected to land on PlanDetails/TierPlans, but landed on Home page instead (flow bypassed plans/checkout).`);
           }
 
           // ── MY ACCOUNT PPV (Purchased) ─────────────────────────────
@@ -3172,6 +3185,18 @@ for (const stateKey of userStatesToRun) {
                 }
               }
             }
+            // Validate CTA after selecting DAZN Ultimate card
+            if (tier === 'ultimate') {
+              try {
+                await validateVariant(
+                  page, variant,
+                  [{ Field: 'CTA After Ultimate Selection', Expected: '{{PLAN_CTA_BUTTON}}' }],
+                  results, eventData, 'Default Signup', undefined, true
+                );
+              } catch (e: any) {
+                console.warn('⚠️ CTA after Ultimate selection validation error:', e.message);
+              }
+            }
 
             let btn = page.locator('button:has-text("Continue with DAZN Ultimate"), button:has-text("Continue with pay-per-view"), button:has-text("Continue"), button[type="submit"]').first();
             if (tier === 'ultimate') {
@@ -3220,6 +3245,17 @@ for (const stateKey of userStatesToRun) {
                 await ultimateCard.click({ force: true }).catch(() => { });
                 console.log('✅ Selected DAZN Ultimate');
               }
+              // Validate CTA after selecting DAZN Ultimate card
+              try {
+                await validateVariant(
+                  page, variant,
+                  [{ Field: 'CTA After Ultimate Selection', Expected: '{{PLAN_CTA_BUTTON}}' }],
+                  results, eventData, 'Choose How To Buy', undefined, true
+                );
+              } catch (e: any) {
+                console.warn('⚠️ CTA after Ultimate selection validation error:', e.message);
+              }
+
               const ultimateCta = page.locator(
                 'button:has-text("Continue with DAZN Ultimate"), button:has-text("Continue")'
               ).first();
@@ -3313,6 +3349,17 @@ for (const stateKey of userStatesToRun) {
                 await safeScrollToElement(page, ultimateCard);
                 await ultimateCard.click({ force: true }).catch(() => { });
                 console.log('✅ Clicked Ultimate card');
+              }
+
+              // Validate CTA after selecting DAZN Ultimate card
+              try {
+                await validateVariant(
+                  page, variant,
+                  [{ Field: 'CTA After Ultimate Selection', Expected: '{{PLAN_CTA_BUTTON}}' }],
+                  results, eventData, 'PPV', undefined, true
+                );
+              } catch (e: any) {
+                console.warn('⚠️ CTA after Ultimate selection validation error:', e.message);
               }
 
               const btn = page.locator(
@@ -3728,6 +3775,17 @@ for (const stateKey of userStatesToRun) {
             await safeScrollToElement(page, ultimateCard);
             await ultimateCard.click({ force: true }).catch(() => { });
             console.log('✅ Selected DAZN Ultimate');
+          }
+
+          // Validate CTA after selecting DAZN Ultimate card
+          try {
+            await validateVariant(
+              page, 'choosebuy',
+              [{ Field: 'CTA After Ultimate Selection', Expected: '{{PLAN_CTA_BUTTON}}' }],
+              results, eventData, 'Choose How To Buy', undefined, true
+            );
+          } catch (e: any) {
+            console.warn('⚠️ CTA after Ultimate selection validation error:', e.message);
           }
 
           const ultimateCta = page.locator(

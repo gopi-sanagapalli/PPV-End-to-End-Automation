@@ -7398,6 +7398,25 @@ export async function getActualValue(
       return found !== 'N/A' ? 'Yes' : 'No';
     }
 
+    case 'cta after ultimate selection': {
+      // Read from live DOM since page state changed after selecting Ultimate card
+      const ctaSelectors = [
+        'button:has-text("Continue with DAZN Ultimate")',
+        'button:has-text("Continue with Ultimate")',
+        'button:has-text("Continue")',
+        'button[type="submit"]',
+      ];
+      for (const sel of ctaSelectors) {
+        const loc = page.locator(sel).first();
+        const vis = await loc.isVisible({ timeout: 1000 }).catch(() => false);
+        if (vis) {
+          const text = await loc.innerText({ timeout: 2000 }).catch(() => '');
+          if (text.trim()) return text.trim();
+        }
+      }
+      return 'N/A';
+    }
+
     // ════════════════════════════════════════════════════════════
     // PPV PAYMENT PAGE
     // ════════════════════════════════════════════════════════════
