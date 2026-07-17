@@ -394,23 +394,49 @@ export async function findPPVTileInMonth(
   const nextMonthShort = MONTH_SHORT[(targetMonthIndex + 1) % 12];
 
   const escapedName  = ppvName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const tileSelector = `android=new UiSelector().textMatches("(?i).*${escapedName}.*")`;
+  // Strict regex matches name exactly (ignoring case, optional surrounding spaces)
+  // to avoid matching weigh-ins or press conferences.
+  const strictTileSelector = `android=new UiSelector().textMatches("(?i)^\\\\s*${escapedName}\\\\s*$")`;
 
   let overshotOnce = false;
 
   for (let i = 0; i < maxSwipes; i++) {
-    // ── Check tile visibility ──────────────────────────────────────────────
-    const tileEl = await driver.$(tileSelector);
-    if (await tileEl.isExisting()) {
+    // ── Check tile visibility (Strict Exact Match first) ───────────────────
+    const tileEl = await driver.$(strictTileSelector);
+    if (await tileEl.isExisting().catch(() => false)) {
       if (await tileEl.isDisplayed().catch(() => false)) {
-        console.log(`✅ Phase 3: Tile found after ${i} swipe(s).`);
+        console.log(`✅ Phase 3: Exact PPV Tile found after ${i} swipe(s).`);
         return tileEl;
       }
     }
 
-    // ── Overshoot detection ────────────────────────────────────────────────
+    // ── Check containing matches (excluding weigh-ins / press conferences) ──
     const textEls: WdElement[] =
       await driver.$$('android=new UiSelector().className("android.widget.TextView")').catch(() => []);
+    
+    let matchedEl: WdElement | null = null;
+    for (const el of textEls) {
+      const text = await el.getText().catch(() => '');
+      const lower = text.toLowerCase().trim();
+      if (
+        lower.includes(ppvName.toLowerCase()) &&
+        !lower.includes('weigh') &&
+        !lower.includes('press') &&
+        !lower.includes('media') &&
+        !lower.includes('workout') &&
+        !lower.includes('undercard')
+      ) {
+        matchedEl = el;
+        break;
+      }
+    }
+
+    if (matchedEl && await matchedEl.isDisplayed().catch(() => false)) {
+      console.log(`✅ Phase 3: Filtered PPV Tile found after ${i} swipe(s): "${await matchedEl.getText()}"`);
+      return matchedEl;
+    }
+
+    // ── Overshoot detection ────────────────────────────────────────────────
     let overshot = false;
 
     for (const el of textEls) {
@@ -437,22 +463,32 @@ export async function findPPVTileInMonth(
     await driver.pause(350);
   }
 
-  // ── Final fallback: UiScrollable with FULL PPV name ───────────────────────
-  // Using the full name avoids false matches like "Joshua Parker" vs "Joshua vs. Prenga".
-  console.warn(`⚠️ Phase 3: Gentle scroll exhausted. Trying UiScrollable with full name…`);
+  // ── Final fallback: UiScrollable with strict name matching ───────────────
+  console.warn(`⚠️ Phase 3: Gentle scroll exhausted. Trying UiScrollable with strict name…`);
   try {
     const fallbackSel =
       `android=new UiScrollable(new UiSelector().scrollable(true))` +
-      `.scrollIntoView(new UiSelector().textContains("${ppvName}"))`;
+      `.scrollIntoView(new UiSelector().textMatches("(?i)^\\\\s*${escapedName}\\\\s*$"))`;
     const el = await driver.$(fallbackSel);
     await el.waitForDisplayed({ timeout: 10000 });
-    console.log(`✅ Phase 3 (UiScrollable): Found tile.`);
+    console.log(`✅ Phase 3 (UiScrollable): Found strict tile.`);
     return el;
   } catch (err: any) {
-    throw new Error(
-      `❌ Phase 3: "${ppvName}" not found after ${maxSwipes} swipes + UiScrollable. ` +
-      `${err.message}`
-    );
+    console.warn(`⚠️ Phase 3: UiScrollable strict matching failed (${err.message}). Trying loose fallback...`);
+    try {
+      const fallbackSelLoose =
+        `android=new UiScrollable(new UiSelector().scrollable(true))` +
+        `.scrollIntoView(new UiSelector().textContains("${ppvName}"))`;
+      const el = await driver.$(fallbackSelLoose);
+      await el.waitForDisplayed({ timeout: 10000 });
+      console.log(`✅ Phase 3 (UiScrollable loose): Found tile.`);
+      return el;
+    } catch (err2: any) {
+      throw new Error(
+        `❌ Phase 3: "${ppvName}" not found after ${maxSwipes} swipes + UiScrollable. ` +
+        `${err2.message}`
+      );
+    }
   }
 }
 

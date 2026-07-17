@@ -74,8 +74,38 @@ export class AndroidSchedulePage extends AndroidBasePage {
 
     for (let i = 0; i < 20; i++) {
       try {
-        const ppvEl = await this.driver.$(`//android.widget.TextView[contains(@text, "${ppvName}")]`);
-        if (await ppvEl.isDisplayed()) {
+        const textViews = await this.driver.$$('android=new UiSelector().className("android.widget.TextView")').catch(() => []);
+        let ppvEl: WdElement | null = null;
+
+        // Try exact match first
+        for (const el of textViews) {
+          const txt = await el.getText().catch(() => '');
+          if (txt.toLowerCase().trim() === ppvName.toLowerCase().trim()) {
+            ppvEl = el;
+            break;
+          }
+        }
+
+        // Try contains check excluding ancillary keywords
+        if (!ppvEl) {
+          for (const el of textViews) {
+            const txt = await el.getText().catch(() => '');
+            const lower = txt.toLowerCase();
+            if (
+              lower.includes(ppvName.toLowerCase()) &&
+              !lower.includes('weigh') &&
+              !lower.includes('press') &&
+              !lower.includes('media') &&
+              !lower.includes('workout') &&
+              !lower.includes('undercard')
+            ) {
+              ppvEl = el;
+              break;
+            }
+          }
+        }
+
+        if (ppvEl && await ppvEl.isDisplayed()) {
           console.log(`Found "${ppvName}" (step ${i + 1})`);
           const rect = await ppvEl.getRect();
           const screenH = getScreenSize().height;
@@ -100,8 +130,34 @@ export class AndroidSchedulePage extends AndroidBasePage {
             );
             await this.driver.pause(1500);
 
-            const centeredEl = await this.driver.$(`//android.widget.TextView[contains(@text, "${ppvName}")]`);
-            if (await centeredEl.isDisplayed()) {
+            let centeredEl: WdElement | null = null;
+            const updatedViews = await this.driver.$$('android=new UiSelector().className("android.widget.TextView")').catch(() => []);
+            for (const el of updatedViews) {
+              const txt = await el.getText().catch(() => '');
+              if (txt.toLowerCase().trim() === ppvName.toLowerCase().trim()) {
+                centeredEl = el;
+                break;
+              }
+            }
+            if (!centeredEl) {
+              for (const el of updatedViews) {
+                const txt = await el.getText().catch(() => '');
+                const lower = txt.toLowerCase();
+                if (
+                  lower.includes(ppvName.toLowerCase()) &&
+                  !lower.includes('weigh') &&
+                  !lower.includes('press') &&
+                  !lower.includes('media') &&
+                  !lower.includes('workout') &&
+                  !lower.includes('undercard')
+                ) {
+                  centeredEl = el;
+                  break;
+                }
+              }
+            }
+
+            if (centeredEl && await centeredEl.isDisplayed()) {
               const newRect = await centeredEl.getRect();
               console.log(`  Tile centered at y=${newRect.y}`);
               return centeredEl;
