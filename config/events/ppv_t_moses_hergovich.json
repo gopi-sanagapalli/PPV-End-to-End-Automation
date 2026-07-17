@@ -8,7 +8,7 @@
   "PPV_DEV_MODE": true,
   "HAS_DEFAULT_SIGNUP_PPV": false,
   "global": {
-    "PPV_PROMOTER": "Matchroom Boxing",
+    "PPV_PROMOTER": "Queensberry Promotions",
     "PPV_ENTITLEMENT_ID": "ppv_t_moses_hergovich",
     "PPV_DESCRIPTION": "Catch the biggest moment of the year. Select a DAZN plan to pair with your pay-per-view.",
     "PPV_UTC_DATE": "2026-08-29T16:00:00Z",
