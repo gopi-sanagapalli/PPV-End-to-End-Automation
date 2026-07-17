@@ -959,7 +959,7 @@ export class MyAccountPage {
 
     // Detailed validations for PPV card contents: PPV Image, PPV Title, PPV Date/Time, and Purchased Text
     console.log('🔍 [Post-Payment] Extracting detailed PPV card information for validations...');
-    const cardData = await this.page.evaluate((name: string) => {
+    const cardData: any = await this.page.evaluate((name: string) => {
       // Helper to check match of name parts
       const matchesName = (text: string) => {
         const nameParts = name.toLowerCase().split(/\s+/).filter(part => part.length > 1);
@@ -1176,7 +1176,7 @@ export class MyAccountPage {
     await this.page.waitForTimeout(1000);
 
     // Extract PPV card data
-    const cardData = await this.page.evaluate((name: string) => {
+    const cardData: any = await this.page.evaluate((name: string) => {
       const matchesName = (text: string) => {
         const nameParts = name.toLowerCase().split(/\s+/).filter(part => part.length > 1);
         return nameParts.every(part => text.toLowerCase().includes(part));
