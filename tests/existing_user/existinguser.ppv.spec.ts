@@ -36,7 +36,7 @@ import {
   getUpsellPaymentData,
 } from '../../utils/excelReader';
 import { detectVariant } from '../../flows/detectVariant';
-import { validateVariant } from '../../flows/validateVariant';
+import { validateVariant, validateCtaAfterUltimateSelection } from '../../flows/validateVariant';
 import { buildEventData } from '../../utils/buildEventData';
 import { displayResultsTable } from '../../utils/resultsDisplay';
 import { writeResults } from '../../utils/excelWriter';
@@ -3187,15 +3187,7 @@ for (const stateKey of userStatesToRun) {
             }
             // Validate CTA after selecting DAZN Ultimate card
             if (tier === 'ultimate') {
-              try {
-                await validateVariant(
-                  page, variant,
-                  [{ Field: 'CTA After Ultimate Selection', Expected: '{{PLAN_CTA_BUTTON}}' }],
-                  results, eventData, 'Default Signup', undefined, true
-                );
-              } catch (e: any) {
-                console.warn('⚠️ CTA after Ultimate selection validation error:', e.message);
-              }
+              await validateCtaAfterUltimateSelection(page, variant, results, eventData, 'Default Signup');
             }
 
             let btn = page.locator('button:has-text("Continue with DAZN Ultimate"), button:has-text("Continue with pay-per-view"), button:has-text("Continue"), button[type="submit"]').first();
@@ -3246,15 +3238,7 @@ for (const stateKey of userStatesToRun) {
                 console.log('✅ Selected DAZN Ultimate');
               }
               // Validate CTA after selecting DAZN Ultimate card
-              try {
-                await validateVariant(
-                  page, variant,
-                  [{ Field: 'CTA After Ultimate Selection', Expected: '{{PLAN_CTA_BUTTON}}' }],
-                  results, eventData, 'Choose How To Buy', undefined, true
-                );
-              } catch (e: any) {
-                console.warn('⚠️ CTA after Ultimate selection validation error:', e.message);
-              }
+              await validateCtaAfterUltimateSelection(page, variant, results, eventData, 'Choose How To Buy');
 
               const ultimateCta = page.locator(
                 'button:has-text("Continue with DAZN Ultimate"), button:has-text("Continue")'
@@ -3352,15 +3336,7 @@ for (const stateKey of userStatesToRun) {
               }
 
               // Validate CTA after selecting DAZN Ultimate card
-              try {
-                await validateVariant(
-                  page, variant,
-                  [{ Field: 'CTA After Ultimate Selection', Expected: '{{PLAN_CTA_BUTTON}}' }],
-                  results, eventData, 'PPV', undefined, true
-                );
-              } catch (e: any) {
-                console.warn('⚠️ CTA after Ultimate selection validation error:', e.message);
-              }
+              await validateCtaAfterUltimateSelection(page, variant, results, eventData, 'PPV');
 
               const btn = page.locator(
                 'button:has-text("Continue with DAZN Ultimate")'
@@ -3778,15 +3754,7 @@ for (const stateKey of userStatesToRun) {
           }
 
           // Validate CTA after selecting DAZN Ultimate card
-          try {
-            await validateVariant(
-              page, 'choosebuy',
-              [{ Field: 'CTA After Ultimate Selection', Expected: '{{PLAN_CTA_BUTTON}}' }],
-              results, eventData, 'Choose How To Buy', undefined, true
-            );
-          } catch (e: any) {
-            console.warn('⚠️ CTA after Ultimate selection validation error:', e.message);
-          }
+          await validateCtaAfterUltimateSelection(page, 'choosebuy', results, eventData, 'Choose How To Buy');
 
           const ultimateCta = page.locator(
             'button:has-text("Continue with DAZN Ultimate"), ' +

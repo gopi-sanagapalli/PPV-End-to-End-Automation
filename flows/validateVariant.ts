@@ -511,3 +511,26 @@ export const validateVariant = async (
   // ── Capture red-boxed screenshots for any failed fields ──────────
   await captureFailures(page, results, pageName, eventData);
 };
+
+/**
+ * Validates the CTA button text after selecting DAZN Ultimate card.
+ * Uses the proper validateVariant system (getActualValue + resolveExpected).
+ * Only call this AFTER the Ultimate card has been clicked/selected.
+ */
+export const validateCtaAfterUltimateSelection = async (
+  page: any,
+  variant: string,
+  results: any[],
+  eventData: Record<string, string>,
+  pageName: string
+) => {
+  try {
+    await validateVariant(
+      page, variant,
+      [{ Field: 'CTA After Ultimate Selection', Expected: '{{PLAN_CTA_BUTTON}}', Tier: 'ultimate' }],
+      results, eventData, pageName, undefined, true
+    );
+  } catch (e: any) {
+    console.warn('⚠️ CTA after Ultimate selection validation error:', e.message);
+  }
+};
