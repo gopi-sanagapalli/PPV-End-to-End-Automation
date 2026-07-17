@@ -83,7 +83,13 @@ const event: EventConfig = loadEventConfig();
 const PPV_NAME = event.PPV_NAME;
 const SCHEDULE_PPV_TITLE = event.PPV_NAME;
 const SOURCE: string = (process.env.SOURCE || 'myaccount').trim().toLowerCase();
-const USER_STATE = process.env.USER_STATE || 'active_standard';
+// Keep the default aligned with the credential key in config/userstatus.json.
+// `active_standard` is a supported logical state, but it has no standalone
+// credentials entry, which previously made LOGIN_FIRST silently skip email.
+const USER_STATE = process.env.USER_STATE || 'active_standard_monthly';
+// buildEventData resolves credentials from process.env.USER_STATE. Propagate
+// the default as well as explicitly supplied values before that resolution.
+process.env.USER_STATE = USER_STATE;
 const APP_PACKAGE = process.env.APP_PACKAGE || 'com.dazn';
 const MOBILE_BROWSER_PACKAGE = process.env.MOBILE_BROWSER_PACKAGE || 'com.android.chrome';
 const ANDROID_SDK = process.env.ANDROID_HOME || `${process.env.HOME}/Library/Android/sdk`;
@@ -107,7 +113,7 @@ if (!USER_EMAIL || !USER_PASSWORD) {
     const { loadEventConfig } = require('../../../utils/testHelpers');
     const eventConfig = process.env.PPV_CONFIG || 'ppv_t_joshua_prenga.json';
     const eventJson = loadEventConfig(eventConfig);
-    const eventData = buildEventData(eventJson, REGION, 'standard', 'monthly', SOURCE);
+    const eventData = buildEventData(eventJson, REGION);
     USER_EMAIL = eventData.USER_EMAIL || '';
     USER_PASSWORD = eventData.USER_PASSWORD || '';
     console.log(`🔑 Resolved credentials from config: ${USER_EMAIL}`);
@@ -277,22 +283,6 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
       const driver = browser;
       const baseUrl = 'https://www.dazn.com';
 
-      // Attempt native login from home page for existing user demo
-      if (LOGIN_FIRST && USER_EMAIL && USER_PASSWORD) {
-        console.log('🔐 Attempting native login from home page...');
-        try {
-          await sharedPreLoginFlow(driver, baseUrl, { email: USER_EMAIL, password: USER_PASSWORD });
-          console.log('✅ Native login successful');
-          await waitForHomePage(driver);
-        } catch (e) {
-          console.log(`⚠️ Native login failed: ${e.message}`);
-          console.log('   Continuing without native login — auth will happen in Chrome Custom Tab');
-        }
-      } else if (LOGIN_FIRST && (!USER_EMAIL || !USER_PASSWORD)) {
-        console.log('⚠️ LOGIN_FIRST=true but credentials not available — skipping native login');
-        console.log('   Auth will happen in Chrome Custom Tab during web checkout');
-      }
-
       console.log('✅ Startup handled by prepareAndroidApp; beginning existing-user PPV navigation');
 
       let buyTapped = false;
@@ -324,12 +314,17 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
 
       // Merge mobile overrides
       try {
-        const mobileConfigPath = path.resolve(__dirname, '../../config/events', EVENT_CONFIG);
+        let mobileConfigPath = path.resolve(__dirname, '../../config/events', EVENT_CONFIG);
+        if (!fs.existsSync(mobileConfigPath) && json.eventKey) {
+          mobileConfigPath = path.resolve(__dirname, '../../config/events', `${json.eventKey}.json`);
+        }
         if (fs.existsSync(mobileConfigPath)) {
           const mobileJson = JSON.parse(fs.readFileSync(mobileConfigPath, 'utf8'));
           const mobileRegional = mobileJson.regions?.[REGION] || {};
           Object.assign(eventData, mobileRegional);
           console.log(`📱 Loaded mobile-specific overrides from ${mobileConfigPath}`);
+        } else {
+          console.warn(`⚠️ Mobile config override file not found: ${EVENT_CONFIG} (nor ${json.eventKey}.json)`);
         }
       } catch (e: any) {
         console.warn(`⚠️ Failed to load mobile overrides: ${e.message}`);
@@ -348,6 +343,12 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
 
       // ── Pre-Login Phase ───────────────────────────────────────────────────
       if (isMyAccount || LOGIN_FIRST) {
+        if (!USER_EMAIL || !USER_PASSWORD) {
+          throw new Error(
+            `LOGIN_FIRST requires USER_EMAIL and USER_PASSWORD. No credentials resolved for ` +
+            `USER_STATE="${USER_STATE}", DAZN_REGION="${REGION}", DAZN_ENV="${process.env.DAZN_ENV || 'stag'}".`,
+          );
+        }
         await sharedPreLoginFlow(driver, baseUrl, { email: USER_EMAIL, password: USER_PASSWORD });
 
         console.log('🔍 Waiting for post-login cleanup...');

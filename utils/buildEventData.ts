@@ -265,7 +265,10 @@ export function buildEventData(
   }
 
   // Load DaznPlan.json dynamically to read plan-level offers
-  const plansPath = path.resolve(process.cwd(), 'config/DaznPlan.json');
+  const configDirPlan = fs.existsSync(path.resolve(process.cwd(), 'config/DaznPlan.json'))
+    ? path.resolve(process.cwd(), 'config')
+    : path.resolve(__dirname, '..', 'config');
+  const plansPath = path.join(configDirPlan, 'DaznPlan.json');
   let plans: any = {};
   try {
     plans = JSON.parse(fs.readFileSync(plansPath, 'utf-8'));
@@ -448,7 +451,10 @@ export function buildEventData(
   if (userStateKey) {
     base.USER_STATE = userStateKey;
 
-    const userStatesPath = path.resolve(process.cwd(), 'config/userstatus.json');
+    const configDirUser = fs.existsSync(path.resolve(process.cwd(), 'config/userstatus.json'))
+      ? path.resolve(process.cwd(), 'config')
+      : path.resolve(__dirname, '..', 'config');
+    const userStatesPath = path.join(configDirUser, 'userstatus.json');
     let userStates: Record<string, any> = {};
     if (fs.existsSync(userStatesPath)) {
       userStates = JSON.parse(fs.readFileSync(userStatesPath, 'utf-8'));

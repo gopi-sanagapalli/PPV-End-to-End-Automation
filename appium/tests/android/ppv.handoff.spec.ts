@@ -193,13 +193,18 @@ describe('DAZN Android PPV → Web Handoff', () => {
     // Merge mobile overrides
     let mobileRegional = {};
     try {
-      const mobileConfigPath = path.resolve(__dirname, '../../config/events', EVENT_CONFIG);
+      let mobileConfigPath = path.resolve(__dirname, '../../config/events', EVENT_CONFIG);
+      if (!fs.existsSync(mobileConfigPath) && json.eventKey) {
+        mobileConfigPath = path.resolve(__dirname, '../../config/events', `${json.eventKey}.json`);
+      }
       if (fs.existsSync(mobileConfigPath)) {
         const mobileJson = JSON.parse(fs.readFileSync(mobileConfigPath, 'utf8'));
         mobileRegional = mobileJson.regions?.[REGION] || {};
         json.regions = json.regions || {};
         json.regions[REGION] = { ...json.regions[REGION], ...mobileRegional };
-        console.log(`📱 Merged mobile-specific overrides into config before building eventData`);
+        console.log(`📱 Merged mobile-specific overrides from ${mobileConfigPath} into config before building eventData`);
+      } else {
+        console.warn(`⚠️ Mobile config override file not found: ${EVENT_CONFIG} (nor ${json.eventKey}.json)`);
       }
     } catch (e: any) {
       console.warn(`⚠️ Failed to load mobile overrides: ${e.message}`);
