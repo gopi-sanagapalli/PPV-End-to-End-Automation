@@ -484,7 +484,7 @@ function printSummary(results: FlowResult[]): void {
   console.log(`    ${pass("✅")} Multi Region`);
   console.log(`    ${pass("✅")} Multiple User States`);
   console.log(`    ${pass("✅")} Multiple Entry Points`);
-  console.log(`    ${pass("✅")} Automatic Jira Ticket Creation (CI only)`);
+  console.log(`    ${pass("✅")} Automatic Jira Ticket Creation`);
   console.log("");
   console.log(
     `${BOLD}${CYAN}════════════════════════════════════════════════════════${RESET}`
@@ -497,29 +497,33 @@ function printSummary(results: FlowResult[]): void {
   console.log(`    Duration    : ${formatDuration(totalDuration)}`);
   console.log("");
 
-  const allReports = results
-    .map((r) => r.reportPaths)
-    .filter(Boolean) as NonNullable<FlowResult["reportPaths"]>[];
+  if (results.some((r) => r.reportPaths)) {
+    console.log("  Report Files by Flow");
+    results.forEach((r, idx) => {
+      const statusText = r.passed ? pass("Passed") : fail("Failed");
+      console.log(`    ${BOLD}Flow ${idx + 1}: ${r.platform} · ${r.user} · ${r.entry}${RESET} (${statusText})`);
 
-  if (allReports.length) {
-    console.log("  Report Files");
-    for (const rp of allReports) {
-      if (rp.html) console.log(`    ${pass("✓")} ${rp.html}`);
-      if (rp.pdf) console.log(`    ${pass("✓")} ${rp.pdf}`);
-      if (rp.excel) console.log(`    ${pass("✓")} ${rp.excel}`);
-      if (rp.video) console.log(`    ${pass("✓")} ${rp.video}`);
-      
-      const geminiHtml = path.join(path.dirname(rp.html), "Gemini_Banner_Validation", "index.html");
-      if (fs.existsSync(geminiHtml)) {
-        console.log(`    ${pass("✓")} ${geminiHtml}`);
+      const rp = r.reportPaths;
+      if (rp) {
+        if (rp.html) console.log(`      ${pass("✓")} HTML  : ${rp.html}`);
+        if (rp.pdf) console.log(`      ${pass("✓")} PDF   : ${rp.pdf}`);
+        if (rp.excel) console.log(`      ${pass("✓")} Excel : ${rp.excel}`);
+        if (rp.video) console.log(`      ${pass("✓")} Video : ${rp.video}`);
+
+        const geminiHtml = path.join(path.dirname(rp.html), "Gemini_Banner_Validation", "index.html");
+        if (fs.existsSync(geminiHtml)) {
+          console.log(`      ${pass("✓")} AI Validation : ${geminiHtml}`);
+        }
+      } else {
+        console.log(`      No report files generated`);
       }
-    }
-
-    const newestHtml = allReports[0].html;
-    if (process.platform === "darwin" && newestHtml) {
       console.log("");
+    });
+
+    const firstHtml = results.map((r) => r.reportPaths?.html).find(Boolean);
+    if (process.platform === "darwin" && firstHtml) {
       console.log(`  ${dim("Opening HTML report...")}`);
-      spawn("open", [newestHtml], { stdio: "ignore" });
+      spawn("open", [firstHtml], { stdio: "ignore" });
     }
   }
 
