@@ -493,7 +493,7 @@ async function attachFile(
  * All Jira errors are logged and deliberately do not hide the original test failure.
  */
 export async function reportValidationFailuresToJira(report: JiraValidationReport): Promise<void> {
-  if (process.env.GITHUB_ACTIONS !== 'true' && process.env.LOCAL_DEMO !== 'true') return;
+  if (process.env.GITHUB_ACTIONS !== 'true' && process.env.DEMO_MODE !== 'true') return;
 
   const failures = report.results.filter(result => String(result.status).toUpperCase() === 'FAIL');
   if (!failures.length) return;

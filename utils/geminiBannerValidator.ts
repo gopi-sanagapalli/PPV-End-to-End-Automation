@@ -74,7 +74,7 @@ export async function validateBannerImage(
   banner: { screenshot(options: { path: string; type: 'png' }): Promise<Buffer> },
   context: { region: string; flow: string; url?: string; fighterNames?: string[] }
 ): Promise<BannerValidationResult | null> {
-  if (process.env.GITHUB_ACTIONS !== 'true' && process.env.GEMINI_BANNER_VALIDATION !== 'true' && process.env.LOCAL_DEMO !== 'true') return null;
+  if (process.env.GITHUB_ACTIONS !== 'true' && process.env.GEMINI_BANNER_VALIDATION !== 'true' && process.env.DEMO_MODE !== 'true') return null;
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey || apiKey === 'your_gemini_api_key_here') {
