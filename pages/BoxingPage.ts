@@ -144,10 +144,12 @@ export class BoxingPage extends LandingPage {
 
     // ── STEP 5: Check if PPV card is already visible ──────────────────
     const isTileInView = async (): Promise<any> => {
-      // Find all cards that have "Buy now" button
+      // Find all cards — match by PPV name first, do NOT filter by "Buy now"
+      // because the target PPV may show a different CTA (e.g. "Get included",
+      // "Watch Live", etc.) depending on the user's plan/entitlement state.
       const cardCandidates = sectionWrapper.locator(
         '[class*="card" i], [class*="fight" i], [class*="event" i], [class*="tile" i], article, li'
-      ).filter({ has: this.page.locator('button:has-text("Buy now"), a:has-text("Buy now")') });
+      );
 
       const count = await cardCandidates.count().catch(() => 0);
       let bestCard: any = null;
@@ -636,16 +638,20 @@ export class BoxingPage extends LandingPage {
       } else if (source === 'boxing-ultimate' || source === 'boxing-banner-ultimate') {
         btnSelector = 'button:has-text("Get included in DAZN Ultimate"), a:has-text("Get included in DAZN Ultimate")';
       } else if (source === 'boxing-upcoming-fights') {
-        // container IS the specific PPV card — find "Buy now" inside it
-        // Do NOT fall back to page-level search
+        // container IS the specific PPV card matched by name.
+        // Only click if "Buy now" is present inside it.
+        // If the card shows "See more" or any other CTA instead of "Buy now",
+        // fail immediately — do NOT click a different PPV or fall back page-wide.
         const cardBuyNow = container.locator(
           'button:has-text("Buy now"), a:has-text("Buy now")'
         ).first();
         const isVisible = await cardBuyNow.isVisible({ timeout: 3000 }).catch(() => false);
         if (!isVisible) {
           throw new Error(
-            `❌ [Upcoming Big Fights] "Buy now" button not found inside PPV card. ` +
-            `Will NOT search page-wide to avoid clicking wrong PPV.`
+            `❌ [Upcoming Big Fights] "Buy now" is not available for this PPV. ` +
+            `The card was found and matched by name, but it does not have a "Buy now" button ` +
+            `(it may show "See more" or similar — this PPV is not yet purchasable). ` +
+            `Will NOT click a different PPV as a fallback.`
           );
         }
         btn = cardBuyNow;
