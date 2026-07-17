@@ -1,4 +1,5 @@
 import { execSync } from 'child_process';
+import { BannerInteraction } from '../../utils/bannerInteraction';
 
 export type WdBrowser = any;
 export type WdElement = any;
@@ -26,10 +27,12 @@ export interface AndroidCopyResult {
 const MOBILE_BROWSER_PACKAGE = process.env.MOBILE_BROWSER_PACKAGE || 'com.android.chrome';
 const ANDROID_SDK = process.env.ANDROID_HOME || `${process.env.HOME}/Library/Android/sdk`;
 const ADB = `${ANDROID_SDK}/platform-tools/adb`;
+const DEVICE_SERIAL = process.env.DEVICE_SERIAL || '';
 
 export function adb(cmd: string): string {
   try {
-    return execSync(`${ADB} ${cmd}`, { encoding: 'utf-8', timeout: 15000 }).trim();
+    const serialArg = DEVICE_SERIAL ? `-s ${DEVICE_SERIAL} ` : '';
+    return execSync(`${ADB} ${serialArg}${cmd}`, { encoding: 'utf-8', timeout: 15000 }).trim();
   } catch {
     return '';
   }
@@ -148,11 +151,11 @@ export class AndroidBasePage {
 
   async findPPVBanner(ppvName = this.ppvName): Promise<boolean> {
     if (await this.isVisible(ppvName, 4000)) return true;
-    if (await this.scrollToText(ppvName)) return true;
     for (let i = 0; i < 5; i++) {
       await this.swipeLeft();
       if (await this.isVisible(ppvName, 1500)) return true;
     }
+    if (await this.scrollToText(ppvName)) return true;
     for (let i = 0; i < 8; i++) {
       await this.scrollDown();
       if (await this.isVisible(ppvName, 1500)) return true;
@@ -167,18 +170,37 @@ export class AndroidBasePage {
     const horizontalSwipes = options.horizontalSwipes ?? 8;
     const verticalScrolls = options.verticalScrolls ?? 5;
 
-    if (await this.isVisible(ppvName, 3000)) return true;
+    const isCurrentBannerPPV = async (timeoutMs: number): Promise<boolean> => {
+      if (await this.isVisible(ppvName, timeoutMs)) return true;
+
+      // Compose carousel text is sometimes available in the UI hierarchy a
+      // fraction before UiSelector reports it as displayed. Checking it here
+      // prevents a visible PPV card being skipped while the carousel moves.
+      try {
+        return (await this.driver.getPageSource()).toLowerCase().includes(ppvName.toLowerCase());
+      } catch {
+        return false;
+      }
+    };
+
+    // Let the auto-advancing card render naturally first. This is faster and
+    // more reliable than swiping away the PPV card while it is entering view.
+    console.log(`  Waiting for "${ppvName}" to become the current banner...`);
+    for (let attempt = 0; attempt < 16; attempt++) {
+      if (await isCurrentBannerPPV(500)) return true;
+      await this.driver.pause(250);
+    }
 
     console.log(`  PPV banner not immediately visible. Swiping left to find "${ppvName}"...`);
     for (let i = 0; i < horizontalSwipes; i++) {
       await this.swipeLeft();
-      if (await this.isVisible(ppvName, 1500)) return true;
+      if (await isCurrentBannerPPV(750)) return true;
     }
 
     console.log('  Swiping left exhausted. Trying vertical scroll down...');
     for (let i = 0; i < verticalScrolls; i++) {
       await this.scrollDown();
-      if (await this.isVisible(ppvName, 1500)) return true;
+      if (await isCurrentBannerPPV(750)) return true;
     }
 
     return false;
@@ -206,7 +228,17 @@ export class AndroidBasePage {
   async runSurfaceValidation(hooks: AndroidFlowHooks | undefined, surface: AndroidPPVSurface): Promise<void> {
     if (!hooks?.validateSurface) return;
     try {
-      await hooks.validateSurface(surface);
+      // Banner carousels advance automatically.  Hold the currently displayed
+      // banner before collecting its copy so the PPV banner we found is the
+      // banner that is validated (and later used for the Buy CTA).
+      if (surface === 'PPV Banner') {
+        const bannerInteraction = new BannerInteraction(this.driver);
+        await bannerInteraction.withLock(async () => {
+          await hooks.validateSurface!(surface);
+        }, this.ppvName);
+      } else {
+        await hooks.validateSurface(surface);
+      }
     } catch (err: any) {
       console.warn(`Mobile ${surface.toLowerCase()} validation failed: ${err.message}`);
     }

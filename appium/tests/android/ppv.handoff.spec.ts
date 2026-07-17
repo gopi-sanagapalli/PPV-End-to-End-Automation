@@ -170,7 +170,7 @@ describe('DAZN Android PPV → Web Handoff', () => {
     const { buildEventData } = require('../../../utils/buildEventData');
 
     const REGION = process.env.DAZN_REGION || 'GB';
-    const EVENT_CONFIG = process.env.PPV_CONFIG || 'aj_joshua_prenga.json';
+    const EVENT_CONFIG = process.env.PPV_CONFIG || 'ppv_t_joshua_prenga.json';
     const PLAN = process.env.PLAN || 'standard_monthly';
     const PPV_TYPE = (process.env.PPV_TYPE || 'normal').toLowerCase();
     const SWITCH_TO_ULTIMATE = (process.env.SWITCH || '').toLowerCase() === 'true';
@@ -179,7 +179,7 @@ describe('DAZN Android PPV → Web Handoff', () => {
 
     const json = loadEventConfig(EVENT_CONFIG);
 
-    const plansPath = path.resolve(process.cwd(), 'config/DaznPlan.json');
+    const plansPath = path.resolve(__dirname, '../../..', 'config/DaznPlan.json');
     const plans = JSON.parse(fs.readFileSync(plansPath, 'utf-8'));
     const planData = plans[PLAN];
     if (!planData) {
@@ -305,9 +305,9 @@ describe('DAZN Android PPV → Web Handoff', () => {
     // ── validateMobileBannerOrTile: delegated to AndroidValidationPage ───────
     async function validateMobileBannerOrTile(
       surface: 'PPV Banner' | 'PPV Tile',
-      options: { landingCopyOverlay?: boolean } = {},
+      _options: { landingCopyOverlay?: boolean } = {},
     ) {
-      await validateMobileBannerOrTilePage(driver, surface, eventData, SOURCE, androidAvailabilityResults, options);
+      await validateMobileBannerOrTilePage(driver, surface, eventData, SOURCE, androidAvailabilityResults);
     }
 
     const androidFlowHooks = {
@@ -326,7 +326,7 @@ describe('DAZN Android PPV → Web Handoff', () => {
       try {
         const fs = require('fs');
         const path = require('path');
-        const configFileName = process.env.PPV_CONFIG || 'aj_joshua_prenga.json';
+        const configFileName = process.env.PPV_CONFIG || 'ppv_t_joshua_prenga.json';
         const configPath = path.resolve(__dirname, '../../..', 'config/events', configFileName);
         if (fs.existsSync(configPath)) {
           const configData = JSON.parse(fs.readFileSync(configPath, 'utf8'));
@@ -362,9 +362,38 @@ describe('DAZN Android PPV → Web Handoff', () => {
       console.log('  Landing page banner flow: find PPV banner, validate banner, buy, validate copy controls, copy URL.');
       buyTapped = await openLandingBannerPaywall(driver, PPV_NAME, androidFlowHooks);
 
-      await driver.pause(1000);
-      await validateMobileBannerOrTile('PPV Banner', { landingCopyOverlay: true });
+      // Perform Gemini AI visual check on the captured Android landing page banner
+      const screenshotPath = path.resolve(process.cwd(), 'test-results', 'android_landing_ppv_banner_found.png');
+      if (fs.existsSync(screenshotPath)) {
+        console.log(`🤖 [Gemini] Starting visual validation of Android landing page banner: ${screenshotPath}`);
+        const mockBanner = {
+          screenshot: async () => fs.readFileSync(screenshotPath)
+        };
+        try {
+          const { validatePpvBannerImage } = require('../../../utils/geminiBannerValidator');
+          const geminiResult = await validatePpvBannerImage(mockBanner, {
+            region: REGION,
+            flow: 'landing-page-banner',
+          });
 
+          if (geminiResult) {
+            console.log(`🤖 [Gemini] Visual validation complete. Passed: ${geminiResult.passed}`);
+            androidAvailabilityResults.push({
+              page: 'Landing Page',
+              field: 'Visual Banner Quality (Gemini)',
+              expected: 'pass',
+              actual: geminiResult.passed ? 'pass' : 'fail',
+              status: geminiResult.passed ? 'PASS' : 'FAIL',
+            });
+          }
+        } catch (err: any) {
+          console.error(`⚠️ [Gemini] Visual validation failed with error: ${err.message}`);
+        }
+      }
+
+      if (androidFlowHooks.validatePaywall) {
+        await androidFlowHooks.validatePaywall();
+      }
       const copyResult = await copyImmediateCheckoutUrl(driver, 'landing-page-banner', {
         screenshotPrefix: 'landing',
         retrySwipeBackToPPV: true,
@@ -658,7 +687,17 @@ describe('DAZN Android PPV → Web Handoff', () => {
       if (devices.length === 0) {
         throw new Error('❌ No Android devices found by Playwright!');
       }
-      const device = devices[0];
+      const targetSerial = process.env.DEVICE_SERIAL;
+      let device = devices[0];
+      if (targetSerial) {
+        const matched = devices.find(d => d.serial() === targetSerial);
+        if (matched) {
+          device = matched;
+          console.log(`🎯 Playwright matched device serial: ${targetSerial}`);
+        } else {
+          console.warn(`⚠️ Playwright could not find device with serial ${targetSerial}. Defaulting to first device.`);
+        }
+      }
       console.log(`📱 Connected to device: ${device.model()} (${device.serial()})`);
 
       console.log('Force-stopping Chrome on device...');
@@ -667,19 +706,27 @@ describe('DAZN Android PPV → Web Handoff', () => {
 
       const regionLocaleMap: Record<string, { locale: string; timezoneId: string }> = {
         GB: { locale: 'en-GB', timezoneId: 'Europe/London' },
+        UK: { locale: 'en-GB', timezoneId: 'Europe/London' },
         US: { locale: 'en-US', timezoneId: 'America/New_York' },
         AE: { locale: 'en-AE', timezoneId: 'Asia/Dubai' },
         AU: { locale: 'en-AU', timezoneId: 'Australia/Sydney' },
         BR: { locale: 'pt-BR', timezoneId: 'America/Sao_Paulo' },
+        DE: { locale: 'de-DE', timezoneId: 'Europe/Berlin' },
+        IT: { locale: 'it-IT', timezoneId: 'Europe/Rome' },
+        ES: { locale: 'es-ES', timezoneId: 'Europe/Madrid' },
+        FR: { locale: 'fr-FR', timezoneId: 'Europe/Paris' },
+        CA: { locale: 'en-CA', timezoneId: 'America/Toronto' },
+        JP: { locale: 'ja-JP', timezoneId: 'Asia/Tokyo' },
       };
-      const { locale: regionLocale, timezoneId: regionTimezone } =
-        regionLocaleMap[REGION] ?? { locale: 'en-GB', timezoneId: 'Europe/London' };
+      const REGION_KEY = (process.env.DAZN_REGION || 'GB').toUpperCase();
+      const { locale: activeLocale, timezoneId: activeTz } =
+        regionLocaleMap[REGION_KEY] ?? { locale: 'en-GB', timezoneId: 'Europe/London' };
 
-      console.log(`Launching Chrome browser on Android device with Locale: ${regionLocale}, Timezone: ${regionTimezone}...`);
+      console.log(`Launching Chrome browser on Android device with timezone "${activeTz}" and locale "${activeLocale}"...`);
       context = await device.launchBrowser({
         viewport: { width: 375, height: 667 },
-        timezoneId: regionTimezone,
-        locale: regionLocale,
+        timezoneId: activeTz,
+        locale: activeLocale,
         args: ['--incognito', '--no-first-run', '--disable-first-run-ui']
       });
 
@@ -1802,7 +1849,7 @@ describe('DAZN Android PPV → Web Handoff', () => {
       });
 
       // Generate HTML + PDF run reports
-      await generateReports(results, {
+      const reportPaths = await generateReports(results, {
         event: json.PPV_NAME,
         region: REGION,
         source: flowConfig.source,
@@ -1822,6 +1869,29 @@ describe('DAZN Android PPV → Web Handoff', () => {
       const failed = results.filter(r => r.status === 'FAIL').length;
       const total = passed + failed;
 
+      if (failed > 0) {
+        try {
+          const { reportValidationFailuresToJira } = require('../../../utils/jiraValidationReporter');
+          console.log(`🐞 [Jira] Triggering Jira ticket reporting for Android handoff test failures...`);
+          await reportValidationFailuresToJira({
+            results,
+            context: {
+              region: REGION,
+              environment: ENV,
+              platform: 'Android',
+              flow: 'newuser-landing-page',
+              event: json.PPV_NAME,
+              userState: 'new-user',
+              source: SOURCE,
+            },
+            htmlReportPath: reportPaths?.htmlPath || null,
+            pdfReportPath: reportPaths?.pdfPath || null,
+          });
+        } catch (jiraErr: any) {
+          console.error(`⚠️ [Jira] Failed to report to Jira: ${jiraErr.message}`);
+        }
+      }
+
       console.log(`\n✅ Flow "${flowConfig.name}" complete: ${passed}/${total} passed (${total > 0 ? ((passed / total) * 100).toFixed(1) : 0}%)`);
       console.log(`${'─'.repeat(55)}`);
 
@@ -1831,6 +1901,16 @@ describe('DAZN Android PPV → Web Handoff', () => {
 
       if (!reachedEndPage) {
         throw new Error(`❌ Flow "${flowConfig.name}" did not reach the expected end page`);
+      }
+
+      if (failed > 0) {
+        const failMsgs = results
+          .filter(r => r.status === 'FAIL')
+          .map(r => `  - [${r.page}] ${r.field}: expected "${r.expected}", actual "${r.actual}"`)
+          .join('\n');
+        throw new Error(
+          `❌ Flow "${flowConfig.name}" completed navigation but had ${failed} validation failure(s):\n${failMsgs}`
+        );
       }
 
     } catch (playwrightErr: any) {

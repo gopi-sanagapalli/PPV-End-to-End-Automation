@@ -3,8 +3,13 @@ import { BasePage } from './BasePage';
 import selectors from '../config/selectors.json';
 import { validateVariant } from '../flows/validateVariant';
 import { readSheet } from '../utils/excelReader';
+import { assertDaznPageAvailable } from '../utils/helpers';
 
 export class LandingPage extends BasePage {
+  // A banner slide can be replaced by React/Swiper between validation and the
+  // CTA click. Keep the PPV identity rather than retaining a DOM element.
+  private bannerPpvName = '';
+
   constructor(page: Page) {
     super(page);
   }
@@ -157,6 +162,7 @@ export class LandingPage extends BasePage {
     console.log(`⏱️ [T+${Date.now() - t0}ms] goto done`);
     await this.page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => { });
     console.log(`⏱️ [T+${Date.now() - t0}ms] networkidle done`);
+    await assertDaznPageAvailable(this.page, 'landing page navigation');
     await this.dismissConsentIfPresent();
     console.log(`⏱️ [T+${Date.now() - t0}ms] consent done`);
 
@@ -179,7 +185,7 @@ export class LandingPage extends BasePage {
     await logInBtn.waitFor({ state: 'visible', timeout: 10000 });
     console.log('🖱️ Clicking Log In on welcome page...');
     await logInBtn.click({ force: true });
-    await this.page.waitForLoadState('domcontentloaded').catch(() => {});
+    await this.page.waitForLoadState('domcontentloaded').catch(() => { });
   }
 
   // ─────────────────────────────
@@ -260,6 +266,62 @@ export class LandingPage extends BasePage {
     }).catch(() => { });
   }
 
+  /**
+   * Re-find and activate the PPV banner immediately before clicking its CTA.
+   * Locators survive a Swiper/React re-render; an ElementHandle does not.
+   */
+  protected async reacquireBannerSlideForClick(): Promise<Locator | null> {
+    if (!this.bannerPpvName) return null;
+
+    const carousel = this.bannerCarousel();
+    const slides = this.bannerSlides(carousel);
+    const slideCount = await slides.count().catch(() => 0);
+    let targetIndex = -1;
+
+    for (let index = 0; index < slideCount; index++) {
+      const text = ((await slides.nth(index).textContent().catch(() => '')) || '').trim();
+      if (this.matchesPPVName(text, this.bannerPpvName)) {
+        targetIndex = index;
+        break;
+      }
+    }
+
+    if (targetIndex === -1) {
+      console.warn(`⚠️ [Banner] Could not re-find PPV "${this.bannerPpvName}" before Buy Now click.`);
+      return null;
+    }
+
+    await this.stopCarouselAutoSlide();
+    const activated = await carousel.evaluate((root: HTMLElement, index: number) => {
+      const slides = Array.from(
+        root.querySelectorAll('.swiper-slide:not(.swiper-slide-duplicate)')
+      ) as HTMLElement[];
+      const target = slides[index];
+      if (!target) return false;
+
+      root.querySelectorAll('.swiper-slide').forEach((node) => {
+        const slide = node as HTMLElement;
+        slide.classList.remove('swiper-slide-active', 'swiper-slide-next', 'swiper-slide-prev');
+        slide.style.opacity = '0';
+        slide.style.pointerEvents = 'none';
+      });
+      target.classList.add('swiper-slide-active');
+      target.style.opacity = '1';
+      target.style.pointerEvents = 'auto';
+      return true;
+    }, targetIndex).catch(() => false);
+
+    if (!activated) {
+      console.warn(`⚠️ [Banner] Could not activate refreshed PPV slide ${targetIndex}.`);
+      return null;
+    }
+
+    const target = this.bannerSlides(this.bannerCarousel()).nth(targetIndex);
+    await target.waitFor({ state: 'visible', timeout: 3000 }).catch(() => { });
+    console.log(`✅ [Banner] Re-acquired PPV slide ${targetIndex} immediately before Buy Now click.`);
+    return target;
+  }
+
   // ─────────────────────────────
   // MATCH PPV NAME (flexible, splits colons/hyphens)
   // ─────────────────────────────
@@ -307,6 +369,7 @@ export class LandingPage extends BasePage {
   // ─────────────────────────────
   async findPPVInBanner(eventData: Record<string, string>): Promise<any> {
     const ppvName = eventData.PPV_NAME || '';
+    this.bannerPpvName = ppvName;
     const tBanner = Date.now();
     console.log(`🔍 [T+0ms] [Banner] Finding PPV: ${ppvName}`);
 
@@ -327,13 +390,13 @@ export class LandingPage extends BasePage {
 
           const stopSwiper = (swiper: any) => {
             if (!swiper) return;
-            try { swiper.autoplay?.stop(); } catch {}
+            try { swiper.autoplay?.stop(); } catch { }
             try {
               swiper.params.autoplay = false;
-            } catch {}
+            } catch { }
             try {
               if (swiper.autoplay?.running) swiper.autoplay.stop();
-            } catch {}
+            } catch { }
           };
 
           // Strategy 1: el.swiper
@@ -354,8 +417,8 @@ export class LandingPage extends BasePage {
               stopSwiper(el.swiper);
             }
           });
-        } catch {}
-      }).catch(() => {});
+        } catch { }
+      }).catch(() => { });
     };
 
     // Stop auto-slide immediately
@@ -399,8 +462,9 @@ export class LandingPage extends BasePage {
       await dumpPageDiag('attempt 1 — reloading page');
       console.log('🔄 [Banner] Carousel not found — reloading page and retrying...');
       await this.page.reload({ waitUntil: 'domcontentloaded' });
-      await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
-      await this.dismissConsentIfPresent().catch(() => {});
+      await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });
+      await assertDaznPageAvailable(this.page, 'landing banner retry');
+      await this.dismissConsentIfPresent().catch(() => { });
       await stopAllAutoSlide();
       carousel = this.bannerCarousel();
       carouselFound = await carousel.waitFor({ state: 'visible', timeout: 20000 }).then(() => true).catch(() => false);
@@ -413,7 +477,7 @@ export class LandingPage extends BasePage {
     }
 
     // Scroll to the carousel to ensure it is in view for hover/click interactions
-    await carousel.scrollIntoViewIfNeeded().catch(() => {});
+    await carousel.scrollIntoViewIfNeeded().catch(() => { });
     await stopAllAutoSlide();
 
     // Helper to get the currently active slide text
@@ -539,16 +603,16 @@ export class LandingPage extends BasePage {
               bannerEl.querySelectorAll('.swiper-slide').forEach((el) => {
                 const s = el as HTMLElement;
                 s.classList.remove('swiper-slide-active', 'swiper-slide-next', 'swiper-slide-prev');
-                s.style.removeProperty('opacity');
-                s.style.removeProperty('pointer-events');
+                s.style.opacity = '0';
+                s.style.pointerEvents = 'none';
               });
               // Make target visible — class makes Swiper CSS apply opacity:1, inline styles
               // force visibility even if Swiper CSS doesn't cover all cases
               target.classList.add('swiper-slide-active');
               target.style.opacity = '1';
               target.style.pointerEvents = 'auto';
-            } catch {}
-          }, i).catch(() => {});
+            } catch { }
+          }, i).catch(() => { });
           await this.page.waitForTimeout(300);
           await stopAllAutoSlide();
 
@@ -590,7 +654,7 @@ export class LandingPage extends BasePage {
       console.log(`  slide ${attempt + 1}: "${currentText.substring(0, 50)}..." — clicking next`);
 
       // Hover over the carousel to reveal chevron/navigation buttons
-      await carousel.hover().catch(() => {});
+      await carousel.hover().catch(() => { });
       await this.page.waitForTimeout(200);
 
       // Check if next button exists in carousel DOM
@@ -599,14 +663,14 @@ export class LandingPage extends BasePage {
 
       if (nextBtnVisible) {
         const prevText = currentText;
-        await nextBtn.click({ force: true }).catch(() => {});
+        await nextBtn.click({ force: true }).catch(() => { });
 
         // Wait for slide transition
         await this.page.waitForFunction((args) => {
           const activeEl = document.querySelector(args.activeSelector);
           const text = activeEl?.textContent?.trim() || '';
           return text !== args.prevText;
-        }, { activeSelector: selectors.banner.activeSlide, prevText }, { timeout: 3000 }).catch(() => {});
+        }, { activeSelector: selectors.banner.activeSlide, prevText }, { timeout: 3000 }).catch(() => { });
 
         await this.page.waitForTimeout(500);
         await stopAllAutoSlide();
@@ -720,7 +784,7 @@ export class LandingPage extends BasePage {
           top: Math.max(0, Math.round(nextScrollTop)),
           behavior: 'instant',
         });
-      }).catch(() => {});
+      }).catch(() => { });
 
       await this.page.waitForTimeout(500);
     }
@@ -745,7 +809,7 @@ export class LandingPage extends BasePage {
         top: Math.max(0, Math.round(absoluteTop - headerOffset)),
         behavior: 'instant',
       });
-    }).catch(() => {});
+    }).catch(() => { });
 
     await this.page.waitForTimeout(300);
 
@@ -1135,9 +1199,9 @@ export class LandingPage extends BasePage {
           }
           const stopSwiper = (swiper: any) => {
             if (!swiper) return;
-            try { swiper.autoplay?.stop(); } catch {}
-            try { swiper.params.autoplay = false; } catch {}
-            try { if (swiper.autoplay?.running) swiper.autoplay.stop(); } catch {}
+            try { swiper.autoplay?.stop(); } catch { }
+            try { swiper.params.autoplay = false; } catch { }
+            try { if (swiper.autoplay?.running) swiper.autoplay.stop(); } catch { }
           };
           document.querySelectorAll('.swiper, [class*="swiper"], .swiper-container').forEach((el: any) => {
             if (el.swiper) stopSwiper(el.swiper);
@@ -1145,8 +1209,8 @@ export class LandingPage extends BasePage {
           document.querySelectorAll('*').forEach((el: any) => {
             if (el.swiper && typeof el.swiper === 'object' && el.swiper.autoplay) stopSwiper(el.swiper);
           });
-        } catch {}
-      }).catch(() => {});
+        } catch { }
+      }).catch(() => { });
     } else {
       await this.stopCarouselAutoSlide();
     }
@@ -1171,6 +1235,11 @@ export class LandingPage extends BasePage {
     await this.page.waitForTimeout(200);
 
     let targetContainer = container;
+
+    if (src.includes('banner')) {
+      const refreshedBanner = await this.reacquireBannerSlideForClick();
+      if (refreshedBanner) targetContainer = refreshedBanner;
+    }
 
     // Check if container is a swiper slide
     // Skip swiper slide activation for banner sources — findPPVInBanner already
@@ -1342,42 +1411,66 @@ export class LandingPage extends BasePage {
       await buyNowBtn.click({ force: true, timeout: 5000 });
     } catch {
       console.log('⚠️  Click intercepted → forcing JS click');
-      const handle = await buyNowBtn.elementHandle().catch(() => null);
-      if (handle) {
-        await this.page.evaluate((el: any) => el.click(), handle);
-      } else if (src.includes('banner') || src.includes('tile') || src.includes('dont-miss')) {
-        // elementHandle went stale (carousel rotated) — re-click scoped to active slide only
-        console.log('🔄 elementHandle stale — clicking Buy Now in active banner slide via evaluate');
-        const clicked = await this.page.evaluate(() => {
-          const activeSlide = document.querySelector(
-            '.swiper-slide-active:not(.swiper-slide-duplicate), [class*="swiper-slide-active"]:not([class*="duplicate"])'
-          );
-          const root = activeSlide || document.querySelector('main') || document.body;
-          const candidates = root.querySelectorAll('a, button');
-          for (const btn of candidates) {
-            if (/buy now/i.test(btn.textContent || '')) {
-              (btn as HTMLElement).click();
-              return true;
-            }
+      let retriedWithFreshBannerLocator = false;
+
+      if (src.includes('banner')) {
+        const refreshedBanner = await this.reacquireBannerSlideForClick();
+        if (refreshedBanner) {
+          const freshBuyNow = refreshedBanner
+            .locator('a, button')
+            .filter({ hasText: /buy now/i })
+            .first();
+          retriedWithFreshBannerLocator = await freshBuyNow
+            .click({ force: true, timeout: 5000 })
+            .then(() => true)
+            .catch(() => false);
+          if (retriedWithFreshBannerLocator) {
+            console.log('✅ [Banner] Buy Now clicked through a fresh PPV-slide locator.');
           }
-          return false;
-        }).catch(() => false);
-        if (!clicked) {
-          throw new Error(`❌ [${src}] elementHandle stale and active-slide fallback found no Buy Now button.`);
         }
+      }
+
+      if (retriedWithFreshBannerLocator) {
+        // The click succeeded after the carousel re-render; do not fall back
+        // to an element handle from the previous DOM tree.
       } else {
-        await this.page.evaluate(() => {
-          const btns = document.querySelectorAll('a, button');
-          for (const btn of btns) {
-            if (/buy now/i.test(btn.textContent || '')) {
-              const rect = btn.getBoundingClientRect();
-              if (rect.width > 0 && rect.height > 0 && rect.top > 0) {
+        const handle = await buyNowBtn.elementHandle().catch(() => null);
+        if (handle) {
+          await this.page.evaluate((el: any) => el.click(), handle);
+        } else if (src.includes('banner') || src.includes('tile') || src.includes('dont-miss')) {
+          // elementHandle went stale (carousel rotated) — re-click scoped to active slide only
+          console.log('🔄 elementHandle stale — clicking Buy Now in active banner slide via evaluate');
+          const clicked = await this.page.evaluate(() => {
+            const activeSlide = document.querySelector(
+              '.swiper-slide-active:not(.swiper-slide-duplicate), [class*="swiper-slide-active"]:not([class*="duplicate"])'
+            );
+            const root = activeSlide || document.querySelector('main') || document.body;
+            const candidates = root.querySelectorAll('a, button');
+            for (const btn of candidates) {
+              if (/buy now/i.test(btn.textContent || '')) {
                 (btn as HTMLElement).click();
-                return;
+                return true;
               }
             }
+            return false;
+          }).catch(() => false);
+          if (!clicked) {
+            throw new Error(`❌ [${src}] elementHandle stale and active-slide fallback found no Buy Now button.`);
           }
-        }).catch(() => { });
+        } else {
+          await this.page.evaluate(() => {
+            const btns = document.querySelectorAll('a, button');
+            for (const btn of btns) {
+              if (/buy now/i.test(btn.textContent || '')) {
+                const rect = btn.getBoundingClientRect();
+                if (rect.width > 0 && rect.height > 0 && rect.top > 0) {
+                  (btn as HTMLElement).click();
+                  return;
+                }
+              }
+            }
+          }).catch(() => { });
+        }
       }
     }
 

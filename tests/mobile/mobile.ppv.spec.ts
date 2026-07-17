@@ -48,7 +48,7 @@ import {
 } from '../../utils/testHelpers';
 
 const REGION = process.env.DAZN_REGION || 'GB';
-const EVENT_CONFIG = process.env.PPV_CONFIG || 'aj_joshua_prenga.json';
+const EVENT_CONFIG = process.env.PPV_CONFIG || 'ppv_t_joshua_prenga.json';
 const PLAN = process.env.PLAN || 'standard_monthly';
 const SOURCE = process.env.SOURCE || 'landing-page-banner';
 const PPV_TYPE = (process.env.PPV_TYPE || 'normal').toLowerCase();
@@ -1170,6 +1170,7 @@ test.describe('Mobile → Web PPV Handoff', () => {
 
     console.log(`\n✅ Flow "${flowConfig.name}" complete: ${passed}/${total} passed (${total > 0 ? ((passed / total) * 100).toFixed(1) : 0}%)`);
     console.log(`${'─'.repeat(55)}`);
+    console.log('__DEMO_FLOW_COMPLETE__');
 
     if (total === 0) {
       const errMsg = `❌ Flow "${flowConfig.name}" had 0 validation checks`;

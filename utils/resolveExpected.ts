@@ -65,7 +65,11 @@ export function resolveExpected(
     }
   }
 
-  if (field === 'banner - fight card cta' && pageName.includes('landing')) {
+  if (
+    field === 'banner - fight card cta' &&
+    pageName.includes('landing') &&
+    !String(rule.Flow || rule.flow || '').toLowerCase().includes('ultimate')
+  ) {
     return 'N/A';
   }
 
@@ -75,17 +79,39 @@ export function resolveExpected(
 
   if (isActiveStandardUser && pageName === 'choose how to buy') {
     if (field === 'upsell feature 1') {
-      return 'Pay-per-views included at no extra cost. Minimum of 12 events per year.';
+      // Prefer the event-specific UPSELL_FEATURE_1 (may include PPV name suffix);
+      // fall back to the standard "Pay-per-views included" wording used on this page.
+      return (
+        eventData.UPSELL_FEATURE_1 ||
+        'Pay-per-views included at no extra cost. Minimum of 12 events per year.'
+      );
     }
     if (field === 'upsell feature 2') {
-      return "185+ fights a year from the world's best promoters|185+ fights a year from the world's best promotors|185+ fights a year from the best promoters|185+ fights a year from the best promotors";
+      // On the Choose How To Buy page the order is: PPV bullet → HDR bullet → 185+ fights bullet
+      // UPSELL_FEATURE_3 holds the HDR text in GLOBAL_DEFAULTS; use it for slot 2 on this page.
+      return (
+        eventData.UPSELL_FEATURE_3 ||
+        'HDR and Dolby 5.1 surround sound on select events.'
+      );
     }
     if (field === 'upsell feature 3') {
-      return 'HDR and Dolby 5.1 surround sound on select events.';
+      // UPSELL_FEATURE_2 holds "185+ fights" in GLOBAL_DEFAULTS; it appears 3rd on this page.
+      return (
+        eventData.UPSELL_FEATURE_2 ||
+        "185+ fights a year from the world's best promoters."
+      );
     }
     if (field === 'upsell feature 4') {
-      return 'Every match from Lega Serie A, and highlights from LALIGA, Bundesliga and the Saudi Pro League.';
+      return (
+        eventData.UPSELL_FEATURE_4 ||
+        'Every match from Lega Serie A, and highlights from LALIGA, Bundesliga and the Saudi Pro League.'
+      );
     }
+  }
+
+  // CTA after selecting DAZN Ultimate card — applies to Choose How To Buy, Default Signup, PPV pages
+  if (field === 'cta after ultimate selection') {
+    return eventData.PLAN_CTA_BUTTON || 'Continue with DAZN Ultimate';
   }
 
   if (pageName === 'payment') {
@@ -187,8 +213,9 @@ export function resolveExpected(
 
     switch ((pageName || "").toLowerCase()) {
       case 'boxing':
-        if (eventData.BOXING_BANNER_DATE) return String(eventData.BOXING_BANNER_DATE);
-        break;
+        // The upcoming-fight card uses the date format specified by its Excel
+        // row ({{LANDING_PAGE_PPV_DATE}}), not the hero banner's date tag.
+        return replacePlaceholders(String(raw ?? ''), eventData);
 
       case 'landing':
       case 'landing page':
@@ -456,6 +483,18 @@ export function resolveExpected(
     if (popupDate) return popupDate;
   }
 
+  // ── home-biggest-fights popup date ───────────────────────────────────────────
+  // The biggest-fights popup shows PPV_POPUP_DATE format (e.g. "25 JUL 1:30PM").
+  // The Excel template resolves via LANDING_PAGE_PPV_DATE which only has the date
+  // ("25 July"), causing a mismatch. Return PPV_POPUP_DATE directly for this source.
+  if (field === 'popup - event date') {
+    const currentSrc = (eventData.SOURCE || eventData.source || '').trim().toLowerCase();
+    if (currentSrc === 'home-biggest-fights' && eventData.PPV_POPUP_DATE) {
+      return String(eventData.PPV_POPUP_DATE);
+    }
+  }
+
+
   if (field === 'popup date') {
     const pDate = eventData.PPV_DATE || '';
     const lpDate = eventData.LANDING_PAGE_PPV_DATE || '';
@@ -469,9 +508,13 @@ export function resolveExpected(
     // Let those template rows resolve naturally.
     const currentSrc = (eventData.SOURCE || eventData.source || '').trim().toLowerCase();
     if (currentSrc !== 'home-page-popup') {
-      if (isActiveStandardUser) {
+      const isLoginFirst = String(eventData.LOGIN_FIRST ?? process.env.LOGIN_FIRST ?? process.env.LOGIN ?? '').toLowerCase() === 'true';
+
+      if (isActiveStandardUser && isLoginFirst) {
+        // User is already logged in — app knows they're active standard
         raw = ACTIVE_STANDARD_PPV_POPUP_DESCRIPTION;
       } else {
+        // User not logged in yet (mid-signup) OR freemium/frozen — app shows generic text
         raw = eventData.PPV_DESCRIPTION || DEFAULT_PPV_POPUP_DESCRIPTION;
       }
     }
@@ -785,12 +828,10 @@ export function resolveExpected(
     'ppv date badge',
     'date badge',
     'banner date badge',
-    'banner - event date',
     'upsell date badge',
     'tile date badge',
     'ppv date',
     'popup date',
-    'popup - event date',
     'welcome tile date',
     'event date',
     'fury payment date',
@@ -801,6 +842,13 @@ export function resolveExpected(
   if (dateOnlyFields.includes(field)) {
     if (pageName.toLowerCase().includes('mobile') || pageName.toLowerCase().includes('paywall')) {
       return template;
+    }
+    // My Account shows the full date+time (e.g. "Sat 29th Aug at 17:00") — do not
+    // strip it down to date-only candidates; use the date+time badge instead.
+    // Prepend the raw value so the report displays the full expected format first.
+    if (field === 'ppv date' && pageName.toLowerCase().includes('my account')) {
+      const candidates = getDynamicDateTimeBadge(template);
+      return candidates ? `${template}|${candidates}` : template;
     }
     return getDynamicDateBadge(template);
   }

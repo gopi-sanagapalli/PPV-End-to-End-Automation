@@ -2,6 +2,7 @@ import { Page } from '@playwright/test';
 import { BasePage } from './BasePage';
 import { compare } from '../utils/compare';
 import { resolveExpected } from '../utils/resolveExpected';
+import { captureFailures } from '../utils/failureCapture';
 
 /**
  * PPVUpsellPaymentPage — Generic page object for purchasing a PPV
@@ -112,8 +113,21 @@ export class PPVUpsellPaymentPage extends BasePage {
         // Return actual description text; fall back to 'Yes'/'No' if expected is Yes/No
         const paras = await this.page.locator('p, [class*="description" i], [class*="subtitle" i]')
           .allTextContents().catch(() => []);
-        const desc = paras.find((p: string) => p.trim().length > 20 && !p.toLowerCase().includes('payment'));
+        const cardTerms = /payment|visa|mastercard|amex|maestro|\*{4}|exp\s*\d|one time|today you pay|secure|promo|terms|privacy|cvv|cvc/i;
         const expectedLower = (expected || '').trim().toLowerCase();
+        // Prefer a paragraph whose text overlaps with the expected description words
+        const expectedWords = expectedLower.split(/\s+/).filter(w => w.length > 4);
+        let desc = paras.find((p: string) => {
+          const t = p.trim();
+          if (t.length < 20 || cardTerms.test(t)) return false;
+          return expectedWords.length > 0
+            ? expectedWords.some(w => t.toLowerCase().includes(w))
+            : true;
+        });
+        // Fallback: any long non-card paragraph
+        if (!desc) {
+          desc = paras.find((p: string) => p.trim().length > 20 && !cardTerms.test(p));
+        }
         if (expectedLower === 'yes' || expectedLower === 'no') {
           actual = desc ? 'Yes' : 'No';
         } else {
@@ -253,6 +267,9 @@ export class PPVUpsellPaymentPage extends BasePage {
       console.log(`  ${icon} [${field}] expected="${expected}" actual="${actual}"`);
       results.push({ page: pageName, field, expected, actual, status });
     }
+
+    // Capture red-boxed screenshots for any failed fields
+    await captureFailures(this.page, results, pageName);
   }
 
   // ─────────────────────────────

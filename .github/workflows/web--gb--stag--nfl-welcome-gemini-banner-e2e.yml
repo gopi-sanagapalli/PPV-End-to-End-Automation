@@ -1,0 +1,52 @@
+name: "Web · GB · Stag · NFL welcome Gemini banner"
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  visual-validation:
+    name: Gemini banner validation
+    runs-on:
+      - self-hosted
+      - macOS
+      - X64
+    # This provides the approved Gemini secret; the page under test remains staging.
+    environment:
+      name: prod
+    timeout-minutes: 15
+    env:
+      CI: 'true'
+      HEADLESS: 'true'
+      DAZN_REGION: GB
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_MODEL: gemini-2.5-flash
+      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install chromium
+
+      - name: Validate NFL welcome banner artwork
+        run: npx playwright test tests/visual/nflWelcomeBanner.gemini.spec.ts --project=chromium
+
+      - name: Upload visual validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nfl-welcome-gemini-evidence
+          path: test-results/
+          if-no-files-found: warn

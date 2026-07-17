@@ -4,6 +4,8 @@
   "main": "index.js",
   "scripts": {
     "android": "wdio run config/wdio.android.conf.ts",
+    "android:scenarios": "ts-node scripts/run-android-scenarios.ts",
+    "selected:scenarios": "ts-node scripts/run-android-scenarios.ts",
     "ios": "wdio run config/wdio.ios.conf.ts",
     "android:debug": "wdio run config/wdio.android.conf.ts --logLevel debug",
     "ios:debug": "wdio run config/wdio.ios.conf.ts --logLevel debug",

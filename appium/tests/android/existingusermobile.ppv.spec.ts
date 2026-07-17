@@ -105,7 +105,7 @@ if (!USER_EMAIL || !USER_PASSWORD) {
 
     const { buildEventData } = require('../../../utils/buildEventData');
     const { loadEventConfig } = require('../../../utils/testHelpers');
-    const eventConfig = process.env.PPV_CONFIG || 'aj_joshua_prenga.json';
+    const eventConfig = process.env.PPV_CONFIG || 'ppv_t_joshua_prenga.json';
     const eventJson = loadEventConfig(eventConfig);
     const eventData = buildEventData(eventJson, REGION, 'standard', 'monthly', SOURCE);
     USER_EMAIL = eventData.USER_EMAIL || '';
@@ -277,6 +277,22 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
       const driver = browser;
       const baseUrl = 'https://www.dazn.com';
 
+      // Attempt native login from home page for existing user demo
+      if (LOGIN_FIRST && USER_EMAIL && USER_PASSWORD) {
+        console.log('🔐 Attempting native login from home page...');
+        try {
+          await sharedPreLoginFlow(driver, baseUrl, { email: USER_EMAIL, password: USER_PASSWORD });
+          console.log('✅ Native login successful');
+          await waitForHomePage(driver);
+        } catch (e) {
+          console.log(`⚠️ Native login failed: ${e.message}`);
+          console.log('   Continuing without native login — auth will happen in Chrome Custom Tab');
+        }
+      } else if (LOGIN_FIRST && (!USER_EMAIL || !USER_PASSWORD)) {
+        console.log('⚠️ LOGIN_FIRST=true but credentials not available — skipping native login');
+        console.log('   Auth will happen in Chrome Custom Tab during web checkout');
+      }
+
       console.log('✅ Startup handled by prepareAndroidApp; beginning existing-user PPV navigation');
 
       let buyTapped = false;
@@ -295,11 +311,10 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
       const path = require('path');
       const { buildEventData } = require('../../../utils/buildEventData');
       const { loadEventConfig } = require('../../../utils/testHelpers');
-      const EVENT_CONFIG = process.env.PPV_CONFIG || 'aj_joshua_prenga.json';
+      const EVENT_CONFIG = process.env.PPV_CONFIG || 'ppv_t_joshua_prenga.json';
       const PLAN = process.env.PLAN || 'standard_monthly';
-
       const json = loadEventConfig(EVENT_CONFIG, PLAN);
-      const plansPath = path.resolve(process.cwd(), 'config/DaznPlan.json');
+      const plansPath = path.resolve(__dirname, '../../..', 'config/DaznPlan.json');
       const plans = JSON.parse(fs.readFileSync(plansPath, 'utf-8'));
       const planData = plans[PLAN] || { TIER: 'standard', RATE_PLAN: 'monthly' };
       const planTier = (planData.TIER || 'standard').toLowerCase();
@@ -418,7 +433,7 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
         try {
           const fs = require('fs');
           const path = require('path');
-          const configFileName = process.env.PPV_CONFIG || 'aj_joshua_prenga.json';
+          const configFileName = process.env.PPV_CONFIG || 'ppv_t_joshua_prenga.json';
           const configPath = path.resolve(__dirname, '../../..', 'config/events', configFileName);
           if (fs.existsSync(configPath)) {
             const configData = JSON.parse(fs.readFileSync(configPath, 'utf8'));
@@ -679,7 +694,7 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
 
 
         const REGION = process.env.DAZN_REGION || 'GB';
-        const EVENT_CONFIG = process.env.PPV_CONFIG || 'aj_joshua_prenga.json';
+        const EVENT_CONFIG = process.env.PPV_CONFIG || 'ppv_t_joshua_prenga.json';
         const PLAN = process.env.PLAN || 'standard_monthly';
         const PPV_TYPE = (process.env.PPV_TYPE || 'normal').toLowerCase();
         const SWITCH_TO_ULTIMATE = (process.env.SWITCH || '').toLowerCase() === 'true';
@@ -710,7 +725,7 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
 
         const json = loadEventConfig(EVENT_CONFIG);
 
-        const plansPath = path.resolve(process.cwd(), 'config/DaznPlan.json');
+        const plansPath = path.resolve(__dirname, '../../..', 'config/DaznPlan.json');
         const plans = JSON.parse(fs.readFileSync(plansPath, 'utf-8'));
         const planData = plans[PLAN];
         if (!planData) {
@@ -844,18 +859,46 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
         if (devices.length === 0) {
           throw new Error('❌ No Android devices found by Playwright!');
         }
-        const device = devices[0];
+        const targetSerial = process.env.DEVICE_SERIAL;
+        let device = devices[0];
+        if (targetSerial) {
+          const matched = devices.find(d => d.serial() === targetSerial);
+          if (matched) {
+            device = matched;
+            console.log(`🎯 Playwright matched device serial: ${targetSerial}`);
+          } else {
+            console.warn(`⚠️ Playwright could not find device with serial ${targetSerial}. Defaulting to first device.`);
+          }
+        }
         console.log(`📱 Connected to device: ${device.model()} (${device.serial()})`);
 
         console.log('Force-stopping Chrome on device...');
         await device.shell(`am force-stop ${MOBILE_BROWSER_PACKAGE}`);
         await sleep(1000);
 
-        console.log('Launching Chrome browser on Android device...');
+        const regionLocaleMap: Record<string, { locale: string; timezoneId: string }> = {
+          GB: { locale: 'en-GB', timezoneId: 'Europe/London' },
+          UK: { locale: 'en-GB', timezoneId: 'Europe/London' },
+          US: { locale: 'en-US', timezoneId: 'America/New_York' },
+          AE: { locale: 'en-AE', timezoneId: 'Asia/Dubai' },
+          AU: { locale: 'en-AU', timezoneId: 'Australia/Sydney' },
+          BR: { locale: 'pt-BR', timezoneId: 'America/Sao_Paulo' },
+          DE: { locale: 'de-DE', timezoneId: 'Europe/Berlin' },
+          IT: { locale: 'it-IT', timezoneId: 'Europe/Rome' },
+          ES: { locale: 'es-ES', timezoneId: 'Europe/Madrid' },
+          FR: { locale: 'fr-FR', timezoneId: 'Europe/Paris' },
+          CA: { locale: 'en-CA', timezoneId: 'America/Toronto' },
+          JP: { locale: 'ja-JP', timezoneId: 'Asia/Tokyo' },
+        };
+        const REGION_KEY = (process.env.DAZN_REGION || 'GB').toUpperCase();
+        const { locale: activeLocale, timezoneId: activeTz } =
+          regionLocaleMap[REGION_KEY] ?? { locale: 'en-GB', timezoneId: 'Europe/London' };
+
+        console.log(`Launching Chrome browser on Android device with timezone "${activeTz}" and locale "${activeLocale}"...`);
         context = await device.launchBrowser({
           viewport: { width: 375, height: 667 },
-          timezoneId: 'Asia/Kolkata',
-          locale: 'en-IN',
+          timezoneId: activeTz,
+          locale: activeLocale,
           args: ['--incognito', '--no-first-run', '--disable-first-run-ui']
         });
 
@@ -2749,6 +2792,16 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
 
         if (!reachedEndPage && pageType !== 'myaccount-ppv') {
           throw new Error(`❌ Flow "${flowConfig.name}" did not reach the expected end page`);
+        }
+
+        if (failed > 0) {
+          const failMsgs = results
+            .filter(r => r.status === 'FAIL')
+            .map(r => `  - [${r.page}] ${r.field}: expected "${r.expected}", actual "${r.actual}"`)
+            .join('\n');
+          throw new Error(
+            `❌ Flow "${flowConfig.name}" completed navigation but had ${failed} validation failure(s):\n${failMsgs}`
+          );
         }
 
         // Removed logout flow for search to remain logged in

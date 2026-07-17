@@ -1,0 +1,146 @@
+{
+  "eventKey": "moses_hergovich",
+  "PPV_NAME": "Moses vs. Hrgovic",
+  "PPV_DISPLAY_NAME": "Moses vs. Hrgovic",
+  "SPORT": "Boxing",
+  "PPV_TYPE": "normal",
+  "HAS_BUNDLE": false,
+  "PPV_DEV_MODE": true,
+  "HAS_DEFAULT_SIGNUP_PPV": false,
+  "global": {
+    "PPV_PROMOTER": "Queensberry Promotions",
+    "PPV_ENTITLEMENT_ID": "ppv_t_moses_hergovich",
+    "PPV_DESCRIPTION": "Catch the biggest moment of the year. Select a DAZN plan to pair with your pay-per-view.",
+    "PPV_UTC_DATE": "2026-08-29T16:00:00Z",
+    "PPV_LOCATION": "The 02, London",
+    "PPV_DATE": "Sat 29th Aug at 17:00",
+    "PPV_POPUP_DATE": "29 AUG 5:00PMPM",
+    "SEARCH_PPV_DATE_TIME": "29 AUG 5:00PMPM",
+    "PPV_TIME": "17:00",
+    "SCHEDULE_PPV_TIME": "5:00PMPM",
+    "BOXING_BANNER_DATE": "SAT 29TH AUG",
+    "LANDING_BANNER_DATE": "SAT 29TH AUG AT 17:00",
+    "BOXING_BANNER_SUBTITLE": "Undefeated. Unexplained. A Natural Born Thriller. Boxing's next superstar meets his most dangerous test yet",
+    "BOXING_UPCOMING_DATE": "AUG 29",
+    "LANDING_DONT_MISS_DATE": "AUG 29",
+    "PPV_PAGE_DATE": "Sat 29th Aug at 17:00",
+    "PPV_CARD_TITLE": "Moses vs. Hrgovic",
+    "PPV_CARD_DESCRIPTION": "Just the fight - plus 7 days of DAZN Standard, free",
+    "BANNER_DESCRIPTION": "Undefeated. Unexplained. A Natural Born Thriller. Boxing's next superstar meets his most dangerous test yet",
+    "HOME_POPUP_DATE": "SAT 29TH AUG AT 17:00",
+    "HOME_POPUP_DESCRIPTION": "Undefeated. Unexplained. A Natural Born Thriller. Boxing's next superstar meets his most dangerous test yet"
+  },
+  "regions": {
+    "GB": {
+      "LANDING_PAGE_PPV_DATE": "29 August",
+      "PPV_DATE": "Sat 29th Aug at 17:00",
+      "PPV_PAGE_DATE": "Sat 29th Aug at 17:00",
+      "PPV_TIME": "17:00",
+      "LANDING_BANNER_DATE": "SAT 29TH AUG AT 17:00",
+      "HOME_POPUP_DATE": "SAT 29TH AUG AT 17:00",
+      "PPV_POPUP_DATE": "29 AUG 5:00PMPM",
+      "SEARCH_PPV_DATE_TIME": "29 AUG 5:00PMPM",
+      "SCHEDULE_PPV_TIME": "5:00PMPM",
+      "HOME_BOXING_UPCOMING_TIME": "5:00PMPM",
+      "PPV_PRICE": "£24.99",
+      "TODAY_YOU_PAY_PRICE": "£24.99",
+      "UPSELL_PRICE": "",
+      "UPSELL_CROSSED_PRICE": "",
+      "UPSELL_PRICE_LENGTH": "/month for 12 months",
+      "PPV1_UPSELL_TILE_DATE": "",
+      "offers": []
+    },
+    "US": {
+      "LANDING_PAGE_PPV_DATE": "29 August",
+      "PPV_DATE": "Sat 29th Aug at 12:00",
+      "PPV_PAGE_DATE": "Sat 29th Aug at 12:00",
+      "PPV_TIME": "12:00",
+      "LANDING_BANNER_DATE": "SAT 29TH AUG AT 12:00",
+      "HOME_POPUP_DATE": "SAT 29TH AUG AT 12:00",
+      "PPV_POPUP_DATE": "29 AUG 10:30AM",
+      "SEARCH_PPV_DATE_TIME": "29 AUG 10:30AM",
+      "SCHEDULE_PPV_TIME": "10:30AM",
+      "HOME_BOXING_UPCOMING_TIME": "10:30AM",
+      "PPV_PRICE": "$59.99",
+      "TODAY_YOU_PAY_PRICE": "$59.99",
+      "UPSELL_PRICE": "",
+      "UPSELL_CROSSED_PRICE": "",
+      "UPSELL_PRICE_LENGTH": "/month for 12 months",
+      "PPV1_UPSELL_TILE_DATE": "",
+      "offers": []
+    },
+    "AU": {
+      "LANDING_PAGE_PPV_DATE": "30 August",
+      "PPV_DATE": "Sun 30th Aug at 02:00",
+      "PPV_PAGE_DATE": "Sun 30th Aug at 02:00",
+      "PPV_TIME": "02:00",
+      "LANDING_BANNER_DATE": "SUN 30TH AUG AT 02:00",
+      "HOME_POPUP_DATE": "SUN 30TH AUG AT 02:00",
+      "PPV_POPUP_DATE": "29 AUG 12:30AM",
+      "SEARCH_PPV_DATE_TIME": "29 AUG 12:30AM",
+      "SCHEDULE_PPV_TIME": "12:30AM",
+      "HOME_BOXING_UPCOMING_TIME": "12:30AM",
+      "PPV_PRICE": "$49.99",
+      "TODAY_YOU_PAY_PRICE": "$49.99",
+      "UPSELL_PRICE": "$39.99",
+      "UPSELL_CROSSED_PRICE": "N/A",
+      "UPSELL_PRICE_LENGTH": "/month for 12 months",
+      "PPV1_UPSELL_TILE_DATE": "",
+      "offers": []
+    },
+    "AE": {
+      "LANDING_PAGE_PPV_DATE": "29 August",
+      "PPV_DATE": "Sat 29th Aug at 20:00",
+      "PPV_PAGE_DATE": "Sat 29th Aug at 20:00",
+      "PPV_TIME": "20:00",
+      "LANDING_BANNER_DATE": "SAT 29TH AUG AT 20:00",
+      "HOME_POPUP_DATE": "SAT 29TH AUG AT 20:00",
+      "PPV_POPUP_DATE": "29 AUG 6:30PM",
+      "SEARCH_PPV_DATE_TIME": "29 AUG 6:30PM",
+      "SCHEDULE_PPV_TIME": "6:30PM",
+      "HOME_BOXING_UPCOMING_TIME": "6:30PM",
+      "PPV_PRICE": "AED 72.99",
+      "TODAY_YOU_PAY_PRICE": "AED 72.99",
+      "UPSELL_PRICE_LENGTH": "/month for 12 months",
+      "PPV1_UPSELL_TILE_DATE": "",
+      "offers": []
+    },
+    "BR": {
+      "LANDING_PAGE_PPV_DATE": "29 August",
+      "PPV_DATE": "Sat 29th Aug at 13:00",
+      "PPV_PAGE_DATE": "Sat 29th Aug at 13:00",
+      "PPV_TIME": "13:00",
+      "LANDING_BANNER_DATE": "SAT 29TH AUG AT 13:00",
+      "HOME_POPUP_DATE": "SAT 29TH AUG AT 13:00",
+      "PPV_POPUP_DATE": "29 AUG 11:30AM",
+      "SEARCH_PPV_DATE_TIME": "29 AUG 11:30AM",
+      "SCHEDULE_PPV_TIME": "11:30AM",
+      "HOME_BOXING_UPCOMING_TIME": "11:30AM",
+      "PPV_PRICE": "100.90",
+      "TODAY_YOU_PAY_PRICE": "100.90",
+      "UPSELL_PRICE_LENGTH": "/month for 12 months",
+      "PPV1_UPSELL_TILE_DATE": "",
+      "offers": []
+    }
+  },
+  "variants": {
+    "variant1": {
+      "detection": "to watch your pay-per-view",
+      "ppvSelector": "input[type='radio']",
+      "ctaText": "Continue with pay-per-view"
+    },
+    "variant2": {
+      "detection": "choose your subscription",
+      "ppvSelector": "input[type='checkbox']",
+      "ctaText": "Continue with PPV + 7-day free trial"
+    }
+  },
+  "pages": {
+    "ppv": {
+      "detection": "to watch your pay-per-view"
+    },
+    "plan": {
+      "detection": "choose a plan that's right for you"
+    }
+  }
+}

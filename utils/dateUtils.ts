@@ -24,6 +24,7 @@ export function getNowForRegion(region?: string): Date {
     GB:  'Europe/London',
     UK:  'Europe/London',
     US:  'America/New_York',
+    AE:  'Asia/Dubai',
     UAE: 'Asia/Dubai',
     AU:  'Australia/Sydney',
     BR:  'America/Sao_Paulo',

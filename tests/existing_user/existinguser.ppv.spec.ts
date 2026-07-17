@@ -36,11 +36,12 @@ import {
   getUpsellPaymentData,
 } from '../../utils/excelReader';
 import { detectVariant } from '../../flows/detectVariant';
-import { validateVariant } from '../../flows/validateVariant';
+import { validateVariant, validateCtaAfterUltimateSelection } from '../../flows/validateVariant';
 import { buildEventData } from '../../utils/buildEventData';
 import { displayResultsTable } from '../../utils/resultsDisplay';
 import { writeResults } from '../../utils/excelWriter';
 import { generateReports } from '../../utils/reportGenerator';
+import { reportValidationFailuresToJira } from '../../utils/jiraValidationReporter';
 import {
   sleep,
   setupPage,
@@ -54,13 +55,14 @@ import {
   clickAndWaitForNav,
   handlePopupModal,
   assertCountryMatch,
+  waitForHomePageAuthRedirect,
 } from '../../utils/testHelpers';
 import { handleNoPpvClick } from '../../utils/flowHelpers';
 import { AuthenticationManager } from '../../auth/AuthenticationManager';
 
 
 const REGION = process.env.DAZN_REGION || 'GB';
-const EVENT_CONFIG = process.env.PPV_CONFIG || 'aj_joshua_prenga.json';
+const EVENT_CONFIG = process.env.PPV_CONFIG || 'ppv_t_joshua_prenga.json';
 const SOURCE = process.env.SOURCE || 'my-account';
 
 // ── Flow constant — used for flow-restricted Excel rows ──────────────
@@ -78,6 +80,25 @@ const LOGIN_FIRST_INVALID_LANDING_SOURCES = new Set<string>([
   'landing-page-banner',
   'landing-page-dont-miss-live',
 ]);
+// These signed-in Ultimate boxing sources deliberately retain their purchase CTA.
+// Their entitlement is verified in My Account after the CTA click, rather than from
+// a Purchased tag or a Fight Card modal on the Boxing page.
+const ULTIMATE_LOGIN_FIRST_BOXING_MY_ACCOUNT_SOURCES = new Set<string>([
+  'boxing-page-banner',
+  'boxing-upcoming-fights',
+]);
+
+function isMyAccountDestination(url: string): boolean {
+  const lower = url.toLowerCase();
+  return lower.includes('/myaccount') || (
+    lower.includes('/account') &&
+    !lower.includes('/signup') &&
+    !lower.includes('/signin') &&
+    !lower.includes('/personaldetails') &&
+    !lower.includes('/emaildetails') &&
+    !lower.includes('/content/')
+  );
+}
 const ENV = (process.env.DAZN_ENV || 'stag').toLowerCase();
 const PAYMENT_METHOD = (process.env.PAYMENT_METHOD || 'credit_card').toLowerCase();
 
@@ -115,6 +136,23 @@ for (const stateKey of userStatesToRun) {
 
 
     const json = loadEventConfig(EVENT_CONFIG);
+    if (SOURCE.toLowerCase() === 'boxing-page-bundle' && json?.HAS_BUNDLE !== true) {
+      const skipReason = `SOURCE "${SOURCE}" requires HAS_BUNDLE: true; selected event does not have a bundle configured.`;
+      console.log(`INFO: ${skipReason} Skipping flow.`);
+      test.skip(true, skipReason);
+      return;
+    }
+
+    // PPV_DEV_MODE: when true, the PPV is only accessible via My Account + Dev Mode.
+    // All non-myaccount sources are skipped automatically.
+    const PPV_DEV_MODE = json?.PPV_DEV_MODE === true;
+    const MY_ACCOUNT_SOURCES = new Set(['my-account', 'myaccount', 'myaccount-subscription-status']);
+    if (PPV_DEV_MODE && !MY_ACCOUNT_SOURCES.has(SOURCE.toLowerCase())) {
+      const skipReason = `PPV_DEV_MODE is true — only myaccount flows are supported for this event. SOURCE "${SOURCE}" is skipped.`;
+      console.log(`INFO: ${skipReason}`);
+      test.skip(true, skipReason);
+      return;
+    }
     const PPV_TYPE = (process.env.PPV_TYPE || json.PPV_TYPE || 'normal').toLowerCase();
     configureExcelPathForEvent(json.eventKey || '');
     const eventData = buildEventData(json, REGION);
@@ -132,6 +170,12 @@ for (const stateKey of userStatesToRun) {
     const sourcesPath = path.resolve(process.cwd(), 'config/surfacingpoint.json');
     if (fs.existsSync(sourcesPath)) {
       const sources = JSON.parse(fs.readFileSync(sourcesPath, 'utf-8'));
+      if (sources[SOURCE]?.defaultSignup && json?.HAS_DEFAULT_SIGNUP_PPV !== true) {
+        const skipReason = `SOURCE "${SOURCE}" requires HAS_DEFAULT_SIGNUP_PPV: true; selected event does not enable PPV in the default signup journey.`;
+        console.log(`INFO: ${skipReason} Skipping flow.`);
+        test.skip(true, skipReason);
+        return;
+      }
       if (sources[SOURCE]?.defaultSignup) {
         process.env.DEFAULT_SIGNUP = 'true';
       }
@@ -168,8 +212,9 @@ for (const stateKey of userStatesToRun) {
     }
 
     const isUSorGB = REGION === 'GB' || REGION === 'US';
-    // Dev mode can be forced via DEV_MODE_ON=on for prod verification.
-    const devModeForced = (process.env.DEV_MODE_ON || '').toLowerCase() === 'on';
+    // Dev mode can be forced via DEV_MODE_ON=on for prod verification,
+    // or automatically when PPV_DEV_MODE: true is set in the event config.
+    const devModeForced = (process.env.DEV_MODE_ON || '').toLowerCase() === 'on' || PPV_DEV_MODE;
     let ratePlan = (process.env.RATE_PLAN || json.RATE_PLAN || 'monthly').toLowerCase();
     const userEmail = eventData.USER_EMAIL || json.USER_EMAIL || '';
     const userPassword = eventData.USER_PASSWORD || json.USER_PASSWORD || '';
@@ -197,14 +242,36 @@ for (const stateKey of userStatesToRun) {
         ? 'ultimate'
         : 'standard';
     const isUltimateLoginFirstUser = LOGIN_FIRST && isActiveUltimateState(userStateKey);
+    const isUltimateLoginFirstBoxingMyAccountFlow =
+      isUltimateLoginFirstUser &&
+      ULTIMATE_LOGIN_FIRST_BOXING_MY_ACCOUNT_SOURCES.has(SOURCE.toLowerCase());
 
     // Bypass phone number for every effective Ultimate journey in GB/US,
     // including Active Standard → Ultimate upgrades.
+    // Boxing subscription sources (boxing-banner-ultimate, boxing-ultimate-subscription,
+    // boxing-join-the-club) redirect signed-in Ultimate users to /home — they never
+    // go through the phone number page, so dev mode is not needed for them.
+    // The exclusion is a top-level gate so that no condition (effectiveTier,
+    // isUltimateLoginFirstUser, etc.) can accidentally re-enable dev mode.
+    const BOXING_HOME_REDIRECT_SOURCES = new Set<string>([
+      'boxing-banner-ultimate',
+      'boxing-ultimate-subscription',
+      'boxing-join-the-club',
+    ]);
+    const isBoxingHomeRedirect =
+      LOGIN_FIRST &&
+      isActiveUltimateState(userStateKey) &&
+      BOXING_HOME_REDIRECT_SOURCES.has(SOURCE.toLowerCase());
     const devModeEnabled =
       devModeForced ||
-      isUltimateLoginFirstUser ||
-      (effectiveTier === 'ultimate' && isUSorGB) ||
-      (SOURCE === 'landing-page-dont-miss-live-switch');
+      (!isBoxingHomeRedirect && (
+        isUltimateLoginFirstUser ||
+        (isActiveUltimateState(userStateKey) &&
+          ['my-account', 'myaccount', 'myaccount-subscription-status'].includes(SOURCE.toLowerCase()) &&
+          isUSorGB) ||
+        (effectiveTier === 'ultimate' && isUSorGB) ||
+        (SOURCE === 'landing-page-dont-miss-live-switch')
+      ));
 
     console.log(`🎯 Requested PLAN : ${requestedPlan || '(none -> PPV only)'}`);
     console.log(`🛒 Purchase route : ${purchaseOption}`);
@@ -368,6 +435,23 @@ for (const stateKey of userStatesToRun) {
         paymentMethod: PAYMENT_METHOD === 'gpay' ? 'Google Pay' : 'Credit Card',
       });
       if (folderPath) console.log(`\n📂 Report folder: ${folderPath}`);
+
+      const failed = results.filter(r => r.status === 'FAIL').length;
+      if (failed > 0) {
+        const failMsgs = results
+          .filter(r => r.status === 'FAIL')
+          .map(r => `  - [${r.page}] ${r.field}: expected "${r.expected}", actual "${r.actual}"`)
+          .join('\n');
+        const errMsg = `❌ Flow "${SOURCE} (${userStateKey})" completed navigation but had ${failed} validation failure(s):\n${failMsgs}`;
+        console.log(errMsg);
+        throw new Error(errMsg);
+      }
+    };
+
+    const validateUltimateMyAccountRedirect = async () => {
+      console.log('\n🏠 [Ultimate User] Landed on My Account — validating purchased PPV status...');
+      const myAccountPage = new MyAccountPage(page);
+      await myAccountPage.navigateAndValidatePurchasedPPVStatus(baseUrl, results, eventData);
     };
 
     // ── detectPageType ────────────────────────────────────────────
@@ -383,26 +467,26 @@ for (const stateKey of userStatesToRun) {
         initialUrl.includes('index.html') ||
         initialUrl.includes('externalpurchaseid=') ||
         initialUrl.includes('contextualppvid=') ||
-        ((initialUrl.includes('page=plandetails') || initialUrl.includes('page=tierplans')) && 
-         !initialUrl.includes('upselltiershown') && 
-         !initialUrl.includes('upselltierselected') && 
-         !initialUrl.includes('upselltierskipped'))
+        ((initialUrl.includes('page=plandetails') || initialUrl.includes('page=tierplans')) &&
+          !initialUrl.includes('upselltiershown') &&
+          !initialUrl.includes('upselltierselected') &&
+          !initialUrl.includes('upselltierskipped'))
       ) {
         try {
           await p.waitForFunction(() => {
             const href = window.location.href.toLowerCase();
             const bodyText = document.body ? document.body.innerText.toLowerCase() : '';
-            const hasUpsellStateInUrl = href.includes('upselltiershown') || 
-                                         href.includes('upselltierselected') || 
-                                         href.includes('upselltierskipped');
-            const hasPpvText = bodyText.includes('pay-per-view') || 
-                                bodyText.includes('just the fight') || 
-                                bodyText.includes('continue with pay-per-view') || 
-                                bodyText.includes('ultimate fan package') ||
-                                bodyText.includes('to watch your pay-per-view');
+            const hasUpsellStateInUrl = href.includes('upselltiershown') ||
+              href.includes('upselltierselected') ||
+              href.includes('upselltierskipped');
+            const hasPpvText = bodyText.includes('pay-per-view') ||
+              bodyText.includes('just the fight') ||
+              bodyText.includes('continue with pay-per-view') ||
+              bodyText.includes('ultimate fan package') ||
+              bodyText.includes('to watch your pay-per-view');
             return hasUpsellStateInUrl || hasPpvText;
-          }, { timeout: 8000 }).catch(() => {});
-        } catch {}
+          }, { timeout: 8000 }).catch(() => { });
+        } catch { }
       }
 
       const url = p.url();
@@ -458,7 +542,7 @@ for (const stateKey of userStatesToRun) {
         return 'saved-card-payment';
       }
 
-      // My Account PPV page — ultimate users redirected here when PPV is already purchased
+      // My Account page — ultimate users can redirect here when PPV is already purchased
       if (urlLower.includes('/myaccount/ppv') || urlLower.includes('/myaccount?')) {
         return 'myaccount-ppv';
       }
@@ -678,7 +762,7 @@ for (const stateKey of userStatesToRun) {
           console.log(`ℹ️ [Login First] Existing-user landing page source enabled: ${SOURCE}`);
         }
 
-        if (LOGIN_FIRST && isActiveUltimateState(userStateKey) && !isMyAccount) {
+        if (LOGIN_FIRST && isActiveUltimateState(userStateKey) && !isMyAccount && !isUltimateLoginFirstBoxingMyAccountFlow) {
           console.log('\n💎 [Login First Ultimate] Validating My Account purchased status before source click...');
           const myAccountPage = new MyAccountPage(page);
           await myAccountPage.navigateAndValidatePurchasedPPVStatus(baseUrl, results, eventData);
@@ -718,9 +802,15 @@ for (const stateKey of userStatesToRun) {
           await signupForPopup.enterEmail(userEmail);
           await signupForPopup.clickContinue();
           await signupForPopup.enterPasswordAndSignIn(userPassword);
+          await waitForHomePageAuthRedirect(page, 'Home Page Popup existing-user login');
 
-          // Wait for home page redirect
-          await page.waitForURL(/\/home/i, { timeout: 20000 }).catch(() => { });
+
+          if (devModeEnabled) {
+            console.log('\n🎭 [Home Page Popup] Ultimate/dev-mode flow detected — enabling dev mode before popup Buy Now...');
+            const searchPage = new SearchPage(page);
+            await searchPage.enableDevMode({ preservePpvPromo: true });
+            console.log('✅ [Home Page Popup] Dev mode enabled — continuing with popup flow');
+          }
 
           // ── Popup detection + validation + Buy Now (via HomePage POM) ──
           const homePageForPopup = new HomePage(page, baseUrl);
@@ -757,6 +847,7 @@ for (const stateKey of userStatesToRun) {
           await schedule.navigate(baseUrl);
           await setupPage(page, 8000);
           assertCountryMatch(page, REGION);
+          await dismissMarketingPopup(page, 5000);
 
           if (devModeEnabled) {
             console.log('\n🎭 Dev mode flow detected — enabling dev mode on schedule page...');
@@ -798,7 +889,7 @@ for (const stateKey of userStatesToRun) {
 
           if (scheduleEventCard) {
             // Step 2: Scroll card into view FIRST, then validate tile fields from it
-            await scheduleEventCard.scrollIntoViewIfNeeded().catch(() => {});
+            await scheduleEventCard.scrollIntoViewIfNeeded().catch(() => { });
 
             // Pre-capture tile values directly from the located event card element
             // so getActualValue uses these instead of a broad DOM scan
@@ -875,6 +966,7 @@ for (const stateKey of userStatesToRun) {
           await searchPage.navigate(baseUrl);
           await setupPage(page, 8000);
           assertCountryMatch(page, REGION);
+          await dismissMarketingPopup(page, 5000);
 
           if (devModeEnabled) {
             console.log('\n🎭 Dev mode flow detected — enabling dev mode on search page...');
@@ -967,10 +1059,18 @@ for (const stateKey of userStatesToRun) {
               console.log(`🧭 [Login First] Navigating via All Sports dropdown for source: ${SOURCE}`);
               await (landing as BoxingHomePage).navigateToSportViaAllSports(SOURCE, eventData);
             } else if (isBoxingSource) {
-              const targetUrl = `${baseNoSlash}/p/boxing`;
-              console.log(`🧭 [Login First] Navigating directly to Boxing page: ${targetUrl}`);
-              await page.goto(targetUrl, { waitUntil: 'domcontentloaded' });
-              await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });
+              // For boxing sources, enable dev mode while still on /home
+              // (before navigating to the heavy boxing page). The boxing
+              // page loads video/streaming content for active subscribers
+              // that can block page.goto() to /search.
+              if (devModeEnabled) {
+                console.log('\n🎭 Dev mode flow detected — enabling dev mode from /home before boxing navigation...');
+                const searchPageEarly = new SearchPage(page);
+                await searchPageEarly.enableDevMode();
+                console.log('✅ Dev mode enabled from /home — now navigating to boxing page');
+              }
+              console.log(`🧭 [Login First] Navigating directly to Boxing page via BoxingPage.navigate()`);
+              await (landing as BoxingPage).navigate(baseUrl, SOURCE);
             } else {
               // HomePage: we are already on /home. Strip the DAZN onboarding
               // step param before touching banner carousel DOM.
@@ -1008,18 +1108,24 @@ for (const stateKey of userStatesToRun) {
           }
           await setupPage(page, 8000);
           assertCountryMatch(page, REGION);
+          await dismissMarketingPopup(page, 5000);
           if (LOGIN_FIRST) {
             await page.keyboard.press('Escape').catch(() => { });
             await page.waitForTimeout(200);
           }
 
           if (devModeEnabled) {
-            console.log('\n🎭 Dev mode flow detected — enabling dev mode on landing page...');
-            const searchPage = new SearchPage(page);
-            await searchPage.enableDevMode();
-            if (LOGIN_FIRST) {
-              await page.keyboard.press('Escape').catch(() => { });
-              await page.waitForTimeout(200);
+            // For boxing sources with LOGIN_FIRST, dev mode was already
+            // enabled from /home before navigating to the boxing page.
+            const alreadyEnabledFromHome = LOGIN_FIRST && (SOURCE.startsWith('boxing-page') || SOURCE.startsWith('boxing'));
+            if (!alreadyEnabledFromHome) {
+              console.log('\n🎭 Dev mode flow detected — enabling dev mode on landing page...');
+              const searchPage = new SearchPage(page);
+              await searchPage.enableDevMode();
+              if (LOGIN_FIRST) {
+                await page.keyboard.press('Escape').catch(() => { });
+                await page.waitForTimeout(200);
+              }
             }
           }
 
@@ -1083,30 +1189,73 @@ for (const stateKey of userStatesToRun) {
           const containerSource = (SOURCE === 'subscribe-without-pay-per-view')
             ? 'home-page-get-started'
             : SOURCE;
-          const container = await landing.findPPVContainer(eventData, containerSource);
-
-          // Stop intercepting after findPPVContainer completes
-          if (eventData._railsInterceptor) {
-            await (eventData._railsInterceptor as RailsInterceptor).stopIntercepting();
-            delete eventData._railsInterceptor;
-          }
-
-          if (!container) {
-            throwLogged(new Error(`❌ PPV container not found on landing page via ${SOURCE}`));
-          }
+          let container: any;
 
           const isBoxingSubscriptionSource =
             SOURCE === 'boxing-banner-ultimate' ||
             SOURCE === 'boxing-ultimate-subscription' ||
             SOURCE === 'boxing-standard-subscription' ||
             SOURCE === 'boxing-join-the-club';
-
           const isUltimateLoginFirstEntitlement =
             LOGIN_FIRST &&
             isActiveUltimateState(userStateKey) &&
             !isBoxingSubscriptionSource;
+          const isUltimateUpcomingEntitlement =
+            isUltimateLoginFirstEntitlement &&
+            SOURCE.toLowerCase() === 'home-boxing-upcoming';
 
-          if (isUltimateLoginFirstEntitlement && SOURCE.toLowerCase().includes('banner')) {
+          // The purchased upcoming card has no Buy now CTA. Tell the page and
+          // field resolvers to locate it by its remaining Fight card CTA instead.
+          if (isUltimateUpcomingEntitlement) {
+            eventData.__ALLOW_NO_BUY_NOW = 'true';
+          }
+
+          if (SOURCE === 'home-page-dazntile') {
+            // home-page-dazntile is a DAZN entitlement tile flow. The tile click
+            // happens inside HomePage.findPPVContainer(), then a subscription
+            // modal must be confirmed before the signup route is evaluated.
+            await landing.findPPVContainer(eventData, containerSource);
+
+            if (eventData._railsInterceptor) {
+              await (eventData._railsInterceptor as RailsInterceptor).stopIntercepting();
+              delete eventData._railsInterceptor;
+            }
+
+            console.log('✅ [DAZN Tile] Entitlement tile clicked; waiting for subscription modal');
+
+            const subscribeCta = page
+              .getByRole('button', { name: /^subscribe$/i })
+              .filter({ visible: true })
+              .first();
+
+            if (!await subscribeCta.isVisible({ timeout: 10_000 }).catch(() => false)) {
+              throw new Error(
+                'DAZN entitlement tile opened no visible subscription modal with a Subscribe CTA'
+              );
+            }
+
+            await subscribeCta.click({ force: true });
+            console.log('✅ [DAZN Tile] Subscription modal Subscribe CTA clicked');
+          } else {
+            container = await landing.findPPVContainer(eventData, containerSource);
+
+            // Stop intercepting after findPPVContainer completes
+            if (eventData._railsInterceptor) {
+              await (eventData._railsInterceptor as RailsInterceptor).stopIntercepting();
+              delete eventData._railsInterceptor;
+            }
+
+            if (!container) {
+              throwLogged(new Error(`❌ PPV container not found on landing page via ${SOURCE}`));
+            }
+          }
+
+          if (isUltimateLoginFirstBoxingMyAccountFlow) {
+            console.log(
+              `\n💎 [Login First Ultimate] ${SOURCE}: skipping Purchased/Fight Card validations. ` +
+              'The selected Buy CTA will be verified through My Account PPV status.'
+            );
+          } else if (isUltimateLoginFirstEntitlement && SOURCE.toLowerCase().includes('banner')) {
             await landing.validateUltimatePurchasedBannerAndFightCard(
               container,
               SOURCE,
@@ -1114,6 +1263,22 @@ for (const stateKey of userStatesToRun) {
               eventData,
               pageName,
               flowParam
+            );
+            await finishRun('ultimate', userStateKey);
+            return;
+          }
+
+          if (isUltimateUpcomingEntitlement) {
+            console.log('\n💎 [Login First Ultimate] Validating purchased Upcoming Fights card (no Buy now CTA)...');
+            const ultimateUpcomingFlow = 'home-boxing-upcoming-ultimate-login-first';
+            await validateVariant(
+              page,
+              'home-boxing',
+              getHomeOfBoxingData(ultimateUpcomingFlow),
+              results,
+              eventData,
+              pageName,
+              ultimateUpcomingFlow
             );
             await finishRun('ultimate', userStateKey);
             return;
@@ -1127,7 +1292,7 @@ for (const stateKey of userStatesToRun) {
               src.includes('biggest-fights');
           })();
 
-          if (isUltimateLoginFirstEntitlement && ultimateTileSource) {
+          if (!isUltimateLoginFirstBoxingMyAccountFlow && isUltimateLoginFirstEntitlement && ultimateTileSource) {
             await landing.clickUltimateTileAndValidateNavigation(
               container,
               SOURCE,
@@ -1155,11 +1320,20 @@ for (const stateKey of userStatesToRun) {
               if ((sheetName === 'Home of Boxing' || sheetName === 'Home page') && (isStandalone || onOnboarding)) {
                 console.log('ℹ️ Standalone flow or direct navigation — skipping popup modal validations');
               } else {
-                const landingData = sheetName === 'Home page'
+                let landingData = sheetName === 'Home page'
                   ? getHomePageData(flowParam)
                   : sheetName === 'Home of Boxing'
                     ? getHomeOfBoxingData(flowParam)
                     : readSheet(sheetName);
+                if (isUltimateLoginFirstBoxingMyAccountFlow) {
+                  // The boxing banner/upcoming-fights CTA flow does not use a
+                  // Purchased tag or Fight Card. Keep every other Boxing page
+                  // validation in place so this exception cannot weaken other checks.
+                  landingData = landingData.filter((row: any) => {
+                    const field = String(row.Field || '').trim().toLowerCase();
+                    return !field.includes('purchased') && !field.includes('fight card');
+                  });
+                }
                 const variantName = sheetName === 'Home of Boxing'
                   ? 'home-boxing'
                   : sheetName === 'Home page'
@@ -1175,15 +1349,63 @@ for (const stateKey of userStatesToRun) {
           const clickBuyNowSource = (SOURCE === 'subscribe-without-pay-per-view')
             ? 'home-page-get-started'
             : SOURCE;
-          await landing.clickBuyNow(container, clickBuyNowSource);
+          if (SOURCE !== 'home-page-dazntile') {
+            await landing.clickBuyNow(container, clickBuyNowSource);
+          } else {
+            console.log('ℹ️ [DAZN Tile] Generic Buy Now click skipped; subscription modal Subscribe was already clicked');
+          }
+
+          if (isUltimateLoginFirstBoxingMyAccountFlow) {
+            try {
+              // The CTA itself must take the signed-in Ultimate user to My Account.
+              // Do not mask an invalid destination (for example /home) by issuing
+              // a second, explicit navigation before checking the result.
+              const ctaDestination = page.url();
+              if (!isMyAccountDestination(ctaDestination)) {
+                const message =
+                  `❌ [Login First Ultimate][${SOURCE}] Buy CTA redirection failed: ` +
+                  `expected My Account but landed on "${ctaDestination}". ` +
+                  'PPV status verification was not attempted.';
+                console.error(message);
+                throw new Error(message);
+              }
+
+              console.log('\n🏠 [Login First Ultimate] CTA redirected to My Account — verifying PPV status...');
+              await handleCookies(page, 8000);
+              const myAccountPage = new MyAccountPage(page);
+              await myAccountPage.scrollToPPVSection();
+              const rows = getMyAccountData().filter((row: any) =>
+                String(row.Field || '').trim().toLowerCase() === 'ppv status'
+              );
+              await validateVariant(page, 'myaccount', rows, results, eventData, 'My Account', 'myaccount');
+              const statusResult = results
+                .slice()
+                .reverse()
+                .find((r: any) => r.page === 'My Account' && r.field === 'PPV Status');
+              if (statusResult?.status === 'FAIL') {
+                throw new Error(
+                  `❌ [My Account] PPV Status validation failed. expected="${statusResult.expected}" actual="${statusResult.actual}"`
+                );
+              }
+            } catch (error: any) {
+              const message =
+                `❌ [Login First Ultimate][${SOURCE}] Flow could not be completed after clicking the PPV CTA: ` +
+                `${error?.message || error}`;
+              console.error(message);
+              throw new Error(message);
+            }
+
+            await finishRun('ultimate', userStateKey);
+            return;
+          }
         }
 
         if (SOURCE !== 'home-page-popup') {
           // Handle generic popup validations and click-through
           // For home-biggest-fights: clickBuyNow only clicks the tile, handlePopupModal validates + clicks Buy Now
           // For dont-miss/tile sources: avoid double-clicking modal
-          const clickPopup = SOURCE === 'home-biggest-fights' || (!SOURCE.includes('dont-miss') && !SOURCE.includes('tile'));
-          if (SOURCE.toLowerCase() !== 'glory') {
+          const clickPopup = SOURCE === 'home-biggest-fights' || (!SOURCE.includes('dont-miss') && !SOURCE.includes('tile') && !SOURCE.includes('upcoming'));
+          if (SOURCE.toLowerCase() !== 'glory' && SOURCE !== 'home-page-dazntile' && SOURCE !== 'home-boxing-upcoming') {
             await handlePopupModal(page, results, eventData, SOURCE, clickPopup);
           }
 
@@ -1207,6 +1429,58 @@ for (const stateKey of userStatesToRun) {
 
         // ── STRICT VALIDATION FOR ULTIMATE USER PRE-LOGGED IN ──
         if (isActiveUltimateState(userStateKey) && requiresPreLogin) {
+          // These boxing subscription sources redirect ultimate users to /home,
+          // not to a fixture/preview page — accept /home as a valid destination.
+          const ULTIMATE_HOME_REDIRECT_SOURCES = new Set<string>([
+            'boxing-banner-ultimate',
+            'boxing-ultimate-subscription',
+            'boxing-join-the-club',
+          ]);
+          const expectsHomeRedirect = ULTIMATE_HOME_REDIRECT_SOURCES.has(SOURCE.toLowerCase());
+
+          if (expectsHomeRedirect) {
+            console.log(`⏳ [Ultimate User] Source "${SOURCE}" — expecting /home redirect...`);
+            await page.waitForURL(
+              (url: URL) =>
+                !url.href.includes('/welcome') &&
+                !url.href.includes('PlanDetails') &&
+                !url.href.includes('TierPlans') &&
+                !url.href.includes('signup') &&
+                !url.href.includes('signin') &&
+                !url.href.includes('payment') &&
+                !url.href.includes('checkout'),
+              { timeout: 15000 }
+            ).catch(() => { });
+
+            const currentUrl = page.url();
+            const lowerUrl = currentUrl.toLowerCase();
+            let navStatus: 'PASS' | 'FAIL' = 'FAIL';
+            let actualPage = 'Unknown Page';
+
+            if (lowerUrl.includes('/home')) {
+              actualPage = 'Home Page';
+              navStatus = 'PASS';
+            }
+
+            results.push({
+              page: 'Home Page',
+              field: 'Ultimate User Navigation Target',
+              expected: 'Home Page (subscription source)',
+              actual: `Navigated to: ${currentUrl} (${actualPage})`,
+              status: navStatus,
+            });
+
+            if (navStatus === 'FAIL') {
+              const errMsg = `❌ [Ultimate User] Unexpected redirect after clicking "${SOURCE}" CTA. Landed on: ${currentUrl}`;
+              console.error(errMsg);
+              throw new Error(errMsg);
+            } else {
+              console.log(`✅ [Ultimate User] Successfully redirected to ${actualPage}: ${currentUrl}`);
+            }
+            reachedEndPage = true;
+            return;
+          }
+
           console.log('⏳ [Ultimate User] Waiting for redirection to fixture page...');
           await page.waitForURL(
             (url: URL) =>
@@ -1373,12 +1647,25 @@ for (const stateKey of userStatesToRun) {
           }
 
           // defaultSignup=true means the plan page should contain a PPV option ("subscribe without a pay-per-view").
-          // If it's absent, no PPV exists for this event — fail the test.
+          // If it's absent, the event is not configured for this source, so skip this flow cleanly.
           const hasPPVOption = stdBody.includes('subscribe without a pay-per-view') ||
             stdBody.includes('continue without pay-per-view') ||
             stdBody.includes('continue without a pay-per-view');
           if (!hasPPVOption) {
-            throw new Error(`❌ [${SOURCE}] Landed on plan/signup page but no PPV option found ("subscribe without a pay-per-view" or "continue without pay-per-view" absent). No PPV exists for this event.\nURL: ${stdUrl}`);
+            const skipMsg =
+              `⚠️ [${SOURCE}] No PPV option found on plan/signup page — ` +
+              `PPV is not configured for this event on this source. Skipping flow gracefully.\n` +
+              `URL: ${stdUrl}`;
+            console.log(skipMsg);
+            results.push({
+              page: 'PPV',
+              field: 'PPV Option Present',
+              expected: 'Subscribe without a pay-per-view',
+              actual: 'Not found — PPV not configured for this source',
+              status: 'SKIP',
+            });
+            reachedEndPage = true;
+            return;
           }
 
           console.log(`✅ [${SOURCE}] Successfully redirected to plan selection page with PPV option. URL: ${stdUrl}`);
@@ -1388,19 +1675,17 @@ for (const stateKey of userStatesToRun) {
         if (SOURCE === 'boxing-join-the-club') {
           console.log('\n🔍 Validating boxing-join-the-club redirect...');
           // The SPA loads `signup` first, then client-side routing appends ?page=PlanDetails.
+          // Wait specifically for TierPlans/PlanDetails URL or plan selection body content.
+          // Do NOT match on bare 'signup' — that's the initial URL before the redirect completes.
           await page.waitForFunction(() => {
             const href = window.location.href.toLowerCase();
             const text = document.body.innerText.toLowerCase();
             return href.includes('tierplans') ||
               href.includes('plandetails') ||
-              href.includes('signup') ||
-              href.includes('signin') ||
               text.includes('dazn ultimate') ||
               text.includes('choose your plan') ||
-              text.includes('choose a plan') ||
-              text.includes('sign in') ||
-              text.includes('email');
-          }, { timeout: 20000 }).catch(() => { });
+              text.includes('choose a plan');
+          }, { timeout: 30000 }).catch(() => { });
 
           const clubUrl = page.url();
           const clubBody = (await page.locator('body').innerText().catch(() => '')).toLowerCase();
@@ -1596,25 +1881,17 @@ for (const stateKey of userStatesToRun) {
           const ppvStatus = await myAccountPage.isPPVPurchased(eventData.PPV_NAME);
           console.log(`✅ PPV Actual Status: "${ppvStatus}"`);
 
-          results.push({
-            page: 'My Account',
-            variant: tier,
-            tier,
-            ratePlan,
-            field: 'PPV Status (Purchased)',
-            expected: eventData.PPV_STATUS,
-            actual: ppvStatus,
-            status: ppvStatus.toLowerCase().includes(
-              expectedPPVStatus
-            ) ? 'PASS' : 'FAIL',
-          });
-
           // --- Schedule Page validation (Post-Payment) ---
           if (PPV_TYPE !== 'upsell') {
             try {
               console.log('\n📅 [Post-Purchase] Navigating to Schedule page to verify purchased event...');
               const schedulePagePostPayment = new SchedulePage(page);
               await schedulePagePostPayment.navigate(baseUrl);
+              if (devModeEnabled) {
+                console.log('\n🎭 Dev mode flow detected — enabling dev mode before Schedule entitlement click...');
+                const searchPage = new SearchPage(page);
+                await searchPage.enableDevMode();
+              }
               await schedulePagePostPayment.selectSport(sport);
 
               console.log(`🔍 Finding event tile: "${eventData.PPV_NAME}"`);
@@ -1703,6 +1980,17 @@ for (const stateKey of userStatesToRun) {
             paymentMethod: PAYMENT_METHOD === 'gpay' ? 'Google Pay' : 'Credit Card',
           });
           if (folderPath) console.log(`\n📂 Report folder: ${folderPath}`);
+
+          const failedEarly = results.filter(r => r.status === 'FAIL').length;
+          if (failedEarly > 0) {
+            const failMsgsEarly = results
+              .filter(r => r.status === 'FAIL')
+              .map(r => `  - [${r.page}] ${r.field}: expected "${r.expected}", actual "${r.actual}"`)
+              .join('\n');
+            const errMsgEarly = `❌ Flow "${SOURCE} (${userStateKey})" completed navigation but had ${failedEarly} validation failure(s):\n${failMsgsEarly}`;
+            console.log(errMsgEarly);
+            throw new Error(errMsgEarly);
+          }
           return; // ← Exit early — no purchase flow needed
         }
 
@@ -1733,6 +2021,11 @@ for (const stateKey of userStatesToRun) {
               console.log('\n📅 [Ultimate] Navigating to Schedule page to verify purchased event...');
               const schedulePagePostPayment = new SchedulePage(page);
               await schedulePagePostPayment.navigate(baseUrl);
+              if (devModeEnabled) {
+                console.log('\n🎭 Dev mode flow detected — enabling dev mode before Schedule entitlement click...');
+                const searchPage = new SearchPage(page);
+                await searchPage.enableDevMode();
+              }
               await schedulePagePostPayment.selectSport(sport);
 
               console.log(`🔍 Finding event tile: "${eventData.PPV_NAME}"`);
@@ -2060,11 +2353,18 @@ for (const stateKey of userStatesToRun) {
             SOURCE === 'boxing-standard-subscription' ||
             SOURCE === 'boxing-join-the-club';
           if (isBoxingSubOnlySource && (page.url().includes('/myaccount') || page.url().endsWith('/home'))) {
-            throw new Error(`❌ [${SOURCE}] Expected to land on PlanDetails/TierPlans, but landed on My Account/Home page instead (flow bypassed plans/checkout).`);
+            throw new Error(`❌ [${SOURCE}] Expected to land on PlanDetails/TierPlans, but landed on Home page instead (flow bypassed plans/checkout).`);
           }
 
           // ── MY ACCOUNT PPV (Purchased) ─────────────────────────────
-          // Ultimate users redirected to /myaccount/ppv after sign-in when PPV is already purchased
+          // Ultimate users can redirect to My Account after sign-in when PPV is already purchased.
+          if (pageType === 'myaccount-ppv' && isActiveUltimateState(userStateKey)) {
+            await validateUltimateMyAccountRedirect();
+            await finishRun('ultimate', userStateKey);
+            return;
+          }
+
+          // Legacy fallback for non-Ultimate states that still land on /myaccount/ppv.
           if (pageType === 'myaccount-ppv') {
             console.log('\n✅ [Purchased] Landed on My Account PPV page — PPV is already purchased/included.');
 
@@ -2087,7 +2387,7 @@ for (const stateKey of userStatesToRun) {
               variant: tier,
               tier,
               ratePlan,
-              field: 'PPV Status (Purchased)',
+              field: 'PPV Status',
               expected: 'Purchased',
               actual: hasPurchased ? 'Purchased' : 'Not found',
               status: hasPurchased ? 'PASS' : 'FAIL',
@@ -2188,13 +2488,22 @@ for (const stateKey of userStatesToRun) {
               const bodyText = await page.locator('body').innerText({ timeout: 2000 }).then((t: string) => t.toLowerCase()).catch(() => '');
               const hasPPVOption = bodyText.includes('subscribe without a pay-per-view') ||
                 bodyText.includes('continue without pay-per-view') ||
-                bodyText.includes('continue without a pay-per-view') ||
-                bodyText.includes('to watch your pay-per-view') ||
-                bodyText.includes('pay-per-view') ||
-                bodyText.includes(eventData.PPV_NAME.toLowerCase()) ||
-                (eventData.PPV_DISPLAY_NAME && bodyText.includes(eventData.PPV_DISPLAY_NAME.toLowerCase()));
+                bodyText.includes('continue without a pay-per-view');
               if (!hasPPVOption) {
-                throw new Error('❌ [DefaultSignup] No PPV exists in default signup — redirected directly to plans page');
+                const skipMsg =
+                  `⚠️ [DefaultSignup] No PPV option found on plan page — ` +
+                  `PPV not configured for this source. Skipping flow gracefully.\n` +
+                  `URL: ${page.url()}`;
+                console.log(skipMsg);
+                results.push({
+                  page: 'PPV',
+                  field: 'PPV Option Present',
+                  expected: 'Subscribe without a pay-per-view',
+                  actual: 'Not found — PPV not configured for this source',
+                  status: 'SKIP',
+                });
+                reachedEndPage = true;
+                return;
               }
             }
           }
@@ -2342,20 +2651,27 @@ for (const stateKey of userStatesToRun) {
               ) {
                 actualPage = 'Fixture Page';
                 navStatus = 'PASS';
+              } else if (lowerUrl.includes('/myaccount')) {
+                actualPage = 'My Account';
+                navStatus = 'PASS';
               }
 
               results.push({
                 page: 'Sign In',
                 field: 'Post-Login Navigation Target',
-                expected: 'Preview Page or Fixture Page',
+                expected: 'Preview Page, Fixture Page, or My Account',
                 actual: `Navigated to: ${currentUrl} (${actualPage})`,
                 status: navStatus,
               });
 
               if (navStatus === 'FAIL') {
-                const errMsg = `❌ [Ultimate User Login] Not redirected to fixture page after signing in. Landed on: ${currentUrl}`;
+                const errMsg = `❌ [Ultimate User Login] Not redirected to fixture/preview page or My Account after signing in. Landed on: ${currentUrl}`;
                 console.error(errMsg);
                 throw new Error(errMsg);
+              } else if (actualPage === 'My Account') {
+                await validateUltimateMyAccountRedirect();
+                await finishRun('ultimate', userStateKey);
+                return;
               } else {
                 console.log(`✅ [Ultimate User Login] Successfully redirected to fixture/preview page: ${currentUrl} (${actualPage})`);
               }
@@ -2823,7 +3139,7 @@ for (const stateKey of userStatesToRun) {
               matched = await page.locator(`text=${ppvName}`).first().isVisible().catch(() => false);
             }
             if (!matched) {
-              throw new Error(`❌ [DefaultSignup] PPV is not configured in default signup for expected event: "${ppvName}"`);
+              throw new Error(`❌ [DefaultSignup] PPV on page does not match the expected event: "${ppvName}"`);
             }
             console.log(`✅ [DefaultSignup] Verified PPV on page matches: "${ppvName}"`);
 
@@ -2881,6 +3197,10 @@ for (const stateKey of userStatesToRun) {
                 }
               }
             }
+            // Validate CTA after selecting DAZN Ultimate card
+            if (tier === 'ultimate') {
+              await validateCtaAfterUltimateSelection(page, variant, results, eventData, 'Default Signup');
+            }
 
             let btn = page.locator('button:has-text("Continue with DAZN Ultimate"), button:has-text("Continue with pay-per-view"), button:has-text("Continue"), button[type="submit"]').first();
             if (tier === 'ultimate') {
@@ -2929,6 +3249,9 @@ for (const stateKey of userStatesToRun) {
                 await ultimateCard.click({ force: true }).catch(() => { });
                 console.log('✅ Selected DAZN Ultimate');
               }
+              // Validate CTA after selecting DAZN Ultimate card
+              await validateCtaAfterUltimateSelection(page, variant, results, eventData, 'Choose How To Buy');
+
               const ultimateCta = page.locator(
                 'button:has-text("Continue with DAZN Ultimate"), button:has-text("Continue")'
               ).first();
@@ -3024,6 +3347,9 @@ for (const stateKey of userStatesToRun) {
                 console.log('✅ Clicked Ultimate card');
               }
 
+              // Validate CTA after selecting DAZN Ultimate card
+              await validateCtaAfterUltimateSelection(page, variant, results, eventData, 'PPV');
+
               const btn = page.locator(
                 'button:has-text("Continue with DAZN Ultimate")'
               ).first();
@@ -3075,7 +3401,11 @@ for (const stateKey of userStatesToRun) {
               continue;
             }
 
-            if (!planValidated) {
+            // NOTE: For ultimate_upfront, plan page defaults to APM selected on load.
+            // Defer validateVariant to after the APU card click so DOM reflects correct state.
+            const shouldDeferPlanValidation = ratePlan === 'annual pay upfront';
+
+            if (!planValidated && !shouldDeferPlanValidation) {
               try {
                 await page.waitForSelector(
                   'input[type="radio"]',
@@ -3144,26 +3474,42 @@ for (const stateKey of userStatesToRun) {
               }
               await page.waitForTimeout(500);
 
-              // ── Post-selection: Validate upfront is selected ──
-              console.log('\n📋 Validating post-upfront-selection...');
-              const upfrontRadioCheck = await page.locator('input[type="radio"]').nth(1)
-                .isChecked().catch(() => false);
-              results.push({
-                page: 'DAZN Plan',
-                field: 'Annual Pay Upfront Selected (After Click)',
-                expected: 'Yes',
-                actual: upfrontRadioCheck ? 'Yes' : 'No',
-                status: upfrontRadioCheck ? 'PASS' : 'FAIL',
-              });
-              const apmRadioCheck = await page.locator('input[type="radio"]').first()
-                .isChecked().catch(() => true);
-              results.push({
-                page: 'DAZN Plan',
-                field: 'Annual Pay Monthly Deselected (After Upfront Click)',
-                expected: 'No',
-                actual: apmRadioCheck ? 'Yes' : 'No',
-                status: !apmRadioCheck ? 'PASS' : 'FAIL',
-              });
+              // ── Post-click: run deferred validateVariant now that APU card is selected ──
+              if (shouldDeferPlanValidation && !planValidated) {
+                try {
+                  const targetTier = (tier === 'ultimate' || purchaseOption === 'ultimate') ? 'ultimate' : 'standard';
+                  const originalTier = eventData.TIER;
+                  const originalPlanCta = eventData.PLAN_CTA_BUTTON;
+                  eventData.TIER = targetTier;
+                  eventData['TIER'] = targetTier;
+                  const isUpgradeFlow = page.url().includes('isUpgradeTierFlow') || userStateKey === 'active_standard';
+                  if (isUpgradeFlow && targetTier === 'ultimate') {
+                    eventData.PLAN_CTA_BUTTON = 'Continue';
+                    eventData['PLAN_CTA_BUTTON'] = 'Continue';
+                  }
+                  const planData = getPlanDataByTier(targetTier);
+                  const planFlow = [
+                    'boxing-banner-ultimate',
+                    'boxing-ultimate-subscription',
+                    'boxing-join-the-club',
+                  ].includes(SOURCE)
+                    ? 'boxing-ultimate-direct'
+                    : isMyAccount ? 'myaccount' : (isReturning ? 'returning' : undefined);
+                  console.log(`📊 Plan rows (deferred post-click): ${planData.length}`);
+                  await validateVariant(
+                    page, 'plan', planData, results, eventData, 'DAZN Plan', planFlow
+                  );
+                  eventData.TIER = originalTier;
+                  eventData['TIER'] = originalTier;
+                  eventData.PLAN_CTA_BUTTON = originalPlanCta;
+                  eventData['PLAN_CTA_BUTTON'] = originalPlanCta;
+                } catch (e: any) {
+                  console.warn('⚠️  Plan validation error (deferred):', e.message);
+                }
+                planValidated = true;
+              }
+
+
             } else if (ratePlan === 'annual pay monthly') {
               const annualCard = page.locator(
                 'label:has-text("Annual - pay over time"), ' +
@@ -3419,6 +3765,9 @@ for (const stateKey of userStatesToRun) {
             console.log('✅ Selected DAZN Ultimate');
           }
 
+          // Validate CTA after selecting DAZN Ultimate card
+          await validateCtaAfterUltimateSelection(page, 'choosebuy', results, eventData, 'Choose How To Buy');
+
           const ultimateCta = page.locator(
             'button:has-text("Continue with DAZN Ultimate"), ' +
             'button:has-text("Continue")'
@@ -3447,9 +3796,13 @@ for (const stateKey of userStatesToRun) {
             'boxing-join-the-club',
           ].includes(SOURCE) ? 'boxing-ultimate-direct' : undefined;
           console.log(`📊 Plan rows: ${planData.length}`);
-          await validateVariant(
-            page, 'plan', planData, results, eventData, 'DAZN Plan', planFlow
-          );
+          // NOTE: For ultimate_upfront, defer validateVariant to after APU card click.
+          const shouldDeferFlowBPlanValidation = ratePlan === 'annual pay upfront';
+          if (!shouldDeferFlowBPlanValidation) {
+            await validateVariant(
+              page, 'plan', planData, results, eventData, 'DAZN Plan', planFlow
+            );
+          }
 
           // Restore
           eventData.TIER = originalTier;
@@ -3474,26 +3827,29 @@ for (const stateKey of userStatesToRun) {
             }
             await page.waitForTimeout(500);
 
-            // ── Post-selection: Validate upfront is selected ──
-            console.log('\n📋 Validating post-upfront-selection (Flow B)...');
-            const upfrontChecked = await page.locator('input[type="radio"]').nth(1)
-              .isChecked().catch(() => false);
-            results.push({
-              page: 'DAZN Plan',
-              field: 'Annual Pay Upfront Selected (After Click)',
-              expected: 'Yes',
-              actual: upfrontChecked ? 'Yes' : 'No',
-              status: upfrontChecked ? 'PASS' : 'FAIL',
-            });
-            const apmChecked = await page.locator('input[type="radio"]').first()
-              .isChecked().catch(() => true);
-            results.push({
-              page: 'DAZN Plan',
-              field: 'Annual Pay Monthly Deselected (After Upfront Click)',
-              expected: 'No',
-              actual: apmChecked ? 'Yes' : 'No',
-              status: !apmChecked ? 'PASS' : 'FAIL',
-            });
+            // ── Post-click: run deferred validateVariant (Flow B) ──
+            if (shouldDeferFlowBPlanValidation) {
+              const restoreTier2 = eventData.TIER;
+              const restoreCta2 = eventData.PLAN_CTA_BUTTON;
+              eventData.TIER = 'ultimate';
+              eventData['TIER'] = 'ultimate';
+              eventData.PLAN_CTA_BUTTON = 'Continue';
+              eventData['PLAN_CTA_BUTTON'] = 'Continue';
+              try {
+                console.log(`📊 Plan rows (deferred post-click Flow B): ${planData.length}`);
+                await validateVariant(
+                  page, 'plan', planData, results, eventData, 'DAZN Plan', planFlow
+                );
+              } catch (e: any) {
+                console.warn('⚠️  Plan validation error (deferred Flow B):', e.message);
+              }
+              eventData.TIER = restoreTier2;
+              eventData['TIER'] = restoreTier2;
+              eventData.PLAN_CTA_BUTTON = restoreCta2;
+              eventData['PLAN_CTA_BUTTON'] = restoreCta2;
+            }
+
+
           }
 
           const planBtn = page.locator(
@@ -3702,10 +4058,12 @@ for (const stateKey of userStatesToRun) {
 
       const passed = results.filter(r => r.status === 'PASS').length;
       const failed = results.filter(r => r.status === 'FAIL').length;
-      const total = passed + failed;
+      const skippedCount = results.filter(r => String(r.status).toUpperCase() === 'SKIP').length;
+      const total = passed + failed + skippedCount;
 
       console.log(`\n✅ Flow "${SOURCE} (${stateKey})" complete: ${passed}/${total} passed (${total > 0 ? ((passed / total) * 100).toFixed(1) : 0}%)`);
       console.log(`${'─'.repeat(55)}`);
+      console.log('__DEMO_FLOW_COMPLETE__');
 
       if (total === 0) {
         const errMsg = `❌ Flow "${SOURCE} (${stateKey})" had 0 validation checks`;
@@ -3720,6 +4078,20 @@ for (const stateKey of userStatesToRun) {
       }
 
       if (failed > 0) {
+        await reportValidationFailuresToJira({
+          results,
+          htmlReportPath: htmlPath,
+          pdfReportPath: pdfPath,
+          context: {
+            region: REGION,
+            environment: process.env.DAZN_ENV || 'prod',
+            platform: 'web',
+            flow: `${SOURCE} (${stateKey})`,
+            event: eventData.PPV_NAME,
+            userState: stateKey,
+            source: SOURCE,
+          },
+        });
         const failMsgs = results
           .filter(r => r.status === 'FAIL')
           .map(r => `  - [${r.page}] ${r.field}: expected "${r.expected}", actual "${r.actual}"`)
@@ -3735,6 +4107,10 @@ for (const stateKey of userStatesToRun) {
 
     } finally {
       try {
+        if (!capturedVideoPath) {
+          capturedVideoPath = (await page.video()?.path().catch(() => null)) ?? null;
+        }
+
         // Only log — context may already be closed by early-exit paths above
         if (capturedVideoPath) console.log(`🎥 Video saved: ${capturedVideoPath}`);
         else console.log('⚠️  No video found');

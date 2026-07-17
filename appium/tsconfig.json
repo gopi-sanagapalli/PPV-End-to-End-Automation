@@ -14,7 +14,7 @@
     "skipLibCheck": true,
     "noImplicitAny": false,
     "moduleResolution": "node",
-    "ignoreDeprecations": "5.0",
+    "ignoreDeprecations": "6.0",
     "types": [
       "node",
       "mocha",
@@ -27,6 +27,7 @@
   "exclude": [
     "node_modules",
     "dist",
-    "tests/ios/schedule.spec.ts"
+    "tests/ios/schedule.spec.ts",
+    "pages/ios/IOSValidationPage.ts"
   ]
 }
