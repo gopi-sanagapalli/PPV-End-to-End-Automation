@@ -23,8 +23,9 @@
 //   APP_ACTIVITY     : Launch activity   (default: com.dazn.splash.view.SplashScreenActivity)
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { execSync } from 'child_process';
+import { execSync, spawn, ChildProcess } from 'child_process';
 
+let appiumProcess: ChildProcess | null = null;
 let appiumCommand = 'appium';
 try {
   const detected = execSync('which appium', { encoding: 'utf8' }).trim();
@@ -140,20 +141,29 @@ export const config = {
   port:   APPIUM_PORT,
   path:   '/',
 
-  services: [
-    [
-      '@wdio/appium-service',
-      {
-        command: appiumCommand,
-        args: {
-          address:         '127.0.0.1',
-          port:            APPIUM_PORT,
-          relaxedSecurity: true,
-        },
-        appiumStartTimeout: 60000,
-      },
-    ],
-  ],
+  services: [],
+
+  onPrepare: async function () {
+    console.log(`🚀 Starting Appium server manually on port ${APPIUM_PORT}...`);
+    appiumProcess = spawn(appiumCommand, [
+      '--port', String(APPIUM_PORT),
+      '--address', '127.0.0.1',
+      '--relaxed-security'
+    ], {
+      stdio: 'inherit',
+      shell: true
+    });
+    // Wait 3 seconds for Appium to start
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    console.log('✅ Appium server started.');
+  },
+
+  onComplete: async function () {
+    if (appiumProcess) {
+      console.log('🧹 Stopping Appium server...');
+      appiumProcess.kill();
+    }
+  },
 
   specs:        ['../tests/android/*.spec.ts'],
   exclude:      [],
