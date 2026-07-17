@@ -37,6 +37,98 @@ export interface AndroidValidationResult {
 // ─────────────────────────────────────────────────────────────────────────────
 export class AndroidValidationPage extends AndroidBasePage {
 
+  async captureAndMarkFailureScreenshot(
+    surface: string,
+    fieldName: string,
+    expectedValue: string,
+    actualValue: string
+  ): Promise<string> {
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const SHOTS_DIR = path.resolve(process.cwd(), 'test-results/failure-shots');
+      if (!fs.existsSync(SHOTS_DIR)) fs.mkdirSync(SHOTS_DIR, { recursive: true });
+
+      const screenshotPath = path.resolve(
+        SHOTS_DIR,
+        `android_${String(surface || 'page').replace(/[^a-zA-Z0-9]/g, '_')}_${String(fieldName || 'field').replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}.png`
+      );
+      await this.driver.saveScreenshot(screenshotPath);
+
+      if (!fs.existsSync(screenshotPath)) return '';
+
+      // Try to find the bounds of the element
+      let elementBounds: { x: number; y: number; width: number; height: number } | null = null;
+      try {
+        const searchTexts = [actualValue, expectedValue].filter(t => t && t !== 'Not found' && t.length > 2);
+        for (const t of searchTexts) {
+          const esc = t.replace(/"/g, '\\"');
+          const el = await this.driver.$(`//*[@text="${esc}" or contains(@text, "${esc}")]`).catch(() => null);
+          if (el && await el.isDisplayed().catch(() => false)) {
+            const rect = await el.getRect().catch(() => null);
+            if (rect && rect.width > 0 && rect.height > 0) {
+              elementBounds = rect;
+              break;
+            }
+          }
+        }
+      } catch (err: any) {
+        console.log(`  🔎 [Fail Shot Bounds] Could not locate bounds for "${fieldName}":`, err.message);
+      }
+
+      if (elementBounds) {
+        const Jimp = require('jimp');
+        const image = await Jimp.read(screenshotPath);
+        const imgW = image.bitmap.width;
+        const imgH = image.bitmap.height;
+
+        const windowRect = await this.driver.getWindowRect().catch(() => null);
+        const logicalW = windowRect ? windowRect.width : imgW;
+        const logicalH = windowRect ? windowRect.height : imgH;
+
+        const scaleX = imgW / logicalW;
+        const scaleY = imgH / logicalH;
+
+        const scaledX = Math.round(elementBounds.x * scaleX);
+        const scaledY = Math.round(elementBounds.y * scaleY);
+        const scaledW = Math.round(elementBounds.width * scaleX);
+        const scaledH = Math.round(elementBounds.height * scaleY);
+
+        const thickness = 4;
+        const color = 0xff1744ff; // red
+        for (let t = 0; t < thickness; t++) {
+          for (let i = scaledX - 2; i < scaledX + scaledW + 2; i++) {
+            if (i >= 0 && i < imgW && (scaledY + t) >= 0 && (scaledY + t) < imgH) {
+              image.setPixelColor(color, i, scaledY + t);
+            }
+          }
+          for (let i = scaledX - 2; i < scaledX + scaledW + 2; i++) {
+            if (i >= 0 && i < imgW && (scaledY + scaledH - 1 - t) >= 0 && (scaledY + scaledH - 1 - t) < imgH) {
+              image.setPixelColor(color, i, scaledY + scaledH - 1 - t);
+            }
+          }
+          for (let i = scaledY - 2; i < scaledY + scaledH + 2; i++) {
+            if ((scaledX + t) >= 0 && (scaledX + t) < imgW && i >= 0 && i < imgH) {
+              image.setPixelColor(color, scaledX + t, i);
+            }
+          }
+          for (let i = scaledY - 2; i < scaledY + scaledH + 2; i++) {
+            if ((scaledX + scaledW - 1 - t) >= 0 && (scaledX + scaledW - 1 - t) < imgW && i >= 0 && i < imgH) {
+              image.setPixelColor(color, scaledX + scaledW - 1 - t, i);
+            }
+          }
+        }
+        await image.writeAsync(screenshotPath);
+        console.log(`📸 [Fail Shot] Marked failing field "${fieldName}" in red: ${screenshotPath}`);
+      }
+
+      return screenshotPath;
+    } catch (e: any) {
+      console.warn(`⚠️ Failed to capture or mark failure screenshot:`, e.message);
+      return '';
+    }
+  }
+
   // ── Paywall: gather all visible text elements (with scroll) ──────────────
   async gatherTextsFromPaywall(): Promise<{
     texts: string[];
@@ -391,7 +483,10 @@ export class AndroidValidationPage extends AndroidBasePage {
 
         const status = isMatch ? 'PASS' : 'FAIL';
         console.log(`  ${status === 'PASS' ? '✅' : '❌'} [${fieldName}] expected="${expectedValue}" actual="${actualValue}"`);
-        results.push({ page: 'Mobile Paywall', field: fieldName, expected: expectedValue, actual: actualValue, status });
+        const screenshot = status === 'FAIL'
+          ? await this.captureAndMarkFailureScreenshot('Mobile Paywall', fieldName, expectedValue, actualValue)
+          : undefined;
+        results.push({ page: 'Mobile Paywall', field: fieldName, expected: expectedValue, actual: actualValue, status, screenshot });
       }
     } catch (err: any) {
       console.warn('⚠️ Mobile paywall validation sheet error:', err.message);
@@ -770,22 +865,38 @@ export class AndroidValidationPage extends AndroidBasePage {
 
         const status = isMatch ? 'PASS' : 'FAIL';
         console.log(`  ${status === 'PASS' ? '✅' : '❌'} [${fieldName}] expected="${expectedValue}" actual="${actualValue}"`);
-        results.push({ page: surface, field: fieldName, expected: expectedValue, actual: actualValue, status });
+        const screenshot = status === 'FAIL'
+          ? await this.captureAndMarkFailureScreenshot(surface, fieldName, expectedValue, actualValue)
+          : undefined;
+        results.push({ page: surface, field: fieldName, expected: expectedValue, actual: actualValue, status, screenshot });
       }
     } else {
       // Legacy fallback if no sheet rows are configured for this surface
       const presenceField = surface === 'PPV Banner' ? 'Banner Present' : 'Tile Present';
+      const status = isPresent ? 'PASS' : 'FAIL';
+      let screenshot = undefined;
+      if (status === 'FAIL') {
+        try {
+          const fs = require('fs');
+          const path = require('path');
+          const SHOTS_DIR = path.resolve(process.cwd(), 'test-results/failure-shots');
+          if (!fs.existsSync(SHOTS_DIR)) fs.mkdirSync(SHOTS_DIR, { recursive: true });
+          screenshot = path.resolve(SHOTS_DIR, `android_${String(surface || 'page').replace(/[^a-zA-Z0-9]/g, '_')}_not_present_${Date.now()}.png`);
+          await this.driver.saveScreenshot(screenshot);
+        } catch {}
+      }
       console.log(`  ${isPresent ? '✅' : '❌'} [${presenceField}] expected="Present" actual="${isPresent ? 'Present' : 'Not present'}"`);
       results.push({
         page: surface,
         field: presenceField,
         expected: 'Present',
         actual: isPresent ? 'Present' : 'Not present',
-        status: isPresent ? 'PASS' : 'FAIL',
+        status,
+        screenshot,
       });
 
       if (isPresent) {
-        const checkFieldLegacy = (fieldName: string, expectedValue: string) => {
+        const checkFieldLegacy = async (fieldName: string, expectedValue: string) => {
           if (!expectedValue || expectedValue.toUpperCase() === 'N/A') {
             console.log(`  Skip field [${fieldName}] (N/A)`);
             return;
@@ -813,9 +924,12 @@ export class AndroidValidationPage extends AndroidBasePage {
             }
           }
           const status = actualVal !== 'Not found' ? 'PASS' : 'FAIL';
-          results.push({ page: surface, field: fieldName, expected: expectedValue, actual: actualVal, status });
+          const screenshot = status === 'FAIL'
+            ? await this.captureAndMarkFailureScreenshot(surface, fieldName, expectedValue, actualVal)
+            : undefined;
+          results.push({ page: surface, field: fieldName, expected: expectedValue, actual: actualVal, status, screenshot });
         };
-        checkFieldLegacy('Title', titleExpected);
+        await checkFieldLegacy('Title', titleExpected);
         
         if (surface === 'PPV Banner') {
           // Use timezone-aware date generation for Android validation (matches web test behavior)
@@ -825,9 +939,9 @@ export class AndroidValidationPage extends AndroidBasePage {
             ? getDynamicDateTimeBadge(dateTimeTemplate, region) 
             : dateTimeTemplate;
           console.log(`  🌍 [Date and Time] Region: ${region}, Template: ${dateTimeTemplate}, Timezone-aware: ${timezoneAwareDateTime}`);
-          checkFieldLegacy('Date and Time', timezoneAwareDateTime);
+          await checkFieldLegacy('Date and Time', timezoneAwareDateTime);
           
-          checkFieldLegacy('Description', eventData.MOBILE_BANNER_DESCRIPTION || eventData.BANNER_DESCRIPTION);
+          await checkFieldLegacy('Description', eventData.MOBILE_BANNER_DESCRIPTION || eventData.BANNER_DESCRIPTION);
         }
       }
     }
