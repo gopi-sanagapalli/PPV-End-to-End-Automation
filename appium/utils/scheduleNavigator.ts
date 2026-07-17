@@ -613,6 +613,11 @@ export async function verifyNavigation(
     const ctaSelectors = [
       'android=new UiSelector().textContains("Buy")',
       'android=new UiSelector().textContains("Get")',
+      'android=new UiSelector().textContains("Sign")',
+      'android=new UiSelector().textContains("Plan")',
+      'android=new UiSelector().textContains("Register")',
+      'android=new UiSelector().textContains("Account")',
+      'android=new UiSelector().textContains("Continue")',
       'android=new UiSelector().textContains("£")',
       'android=new UiSelector().textContains("$")',
       'android=new UiSelector().textContains("€")',

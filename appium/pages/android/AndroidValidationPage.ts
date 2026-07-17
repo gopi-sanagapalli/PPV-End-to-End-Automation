@@ -138,22 +138,20 @@ export class AndroidValidationPage extends AndroidBasePage {
     const textsSet = new Set<string>();
     let pageSource = '';
 
-    // Wait up to 15 seconds for key paywall elements (including Instruction Text which can be slow)
+    // Wait up to 15 seconds for key paywall elements using fast element checks
     let isLoaded = false;
     for (let i = 0; i < 30; i++) {
-      const src = await this.driver.getPageSource().catch(() => '');
-      if (
-        src.toLowerCase().includes('copy') ||
-        src.toLowerCase().includes('how to watch') ||
-        src.toLowerCase().includes('paste this link') ||
-        src.toLowerCase().includes('paste')
-      ) {
+      const hasCopy = await this.driver.$('android=new UiSelector().textContains("Copy")').isDisplayed().catch(() => false);
+      const hasWatch = await this.driver.$('android=new UiSelector().textContains("watch")').isDisplayed().catch(() => false);
+      const hasPaste = await this.driver.$('android=new UiSelector().textContains("Paste")').isDisplayed().catch(() => false);
+      const hasLink = await this.driver.$('android=new UiSelector().textContains("link")').isDisplayed().catch(() => false);
+      if (hasCopy || hasWatch || hasPaste || hasLink) {
         isLoaded = true;
-        pageSource = src;
         break;
       }
       await this.driver.pause(500);
     }
+    pageSource = await this.driver.getPageSource().catch(() => '');
     if (!isLoaded) {
       console.warn('⚠️ Mobile paywall page did not load fully within timeout.');
     }
