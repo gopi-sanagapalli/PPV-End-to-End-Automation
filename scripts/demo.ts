@@ -525,6 +525,11 @@ function printSummary(results: FlowResult[]): void {
       if (rp.pdf) console.log(`    ${pass("✓")} ${rp.pdf}`);
       if (rp.excel) console.log(`    ${pass("✓")} ${rp.excel}`);
       if (rp.video) console.log(`    ${pass("✓")} ${rp.video}`);
+      
+      const geminiHtml = path.join(path.dirname(rp.html), "Gemini_Banner_Validation", "index.html");
+      if (fs.existsSync(geminiHtml)) {
+        console.log(`    ${pass("✓")} ${geminiHtml}`);
+      }
     }
 
     const newestHtml = allReports[0].html;
@@ -559,8 +564,23 @@ async function main(): Promise<void> {
   printBanner();
 
   const results: FlowResult[] = [];
+  
+  // Support running a specific flow via FLOW_ID environment variable
+  const flowIdArg = process.env.FLOW_ID;
+  const flowsToRun = flowIdArg 
+    ? FLOWS.filter(f => f.id === Number(flowIdArg))
+    : FLOWS;
+    
+  if (flowIdArg && flowsToRun.length === 0) {
+    console.error(`❌ Invalid FLOW_ID: ${flowIdArg}. Available flows: ${FLOWS.map(f => f.id).join(', ')}`);
+    process.exit(1);
+  }
+  
+  if (flowIdArg) {
+    console.log(`🎯 Running only Flow ${flowIdArg} of ${FLOWS.length}\n`);
+  }
 
-  for (const flow of FLOWS) {
+  for (const flow of flowsToRun) {
     const result = await runFlow(flow, FLOWS.length);
     results.push(result);
   }
