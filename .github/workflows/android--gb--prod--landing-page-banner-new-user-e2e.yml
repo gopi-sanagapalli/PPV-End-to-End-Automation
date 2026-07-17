@@ -141,6 +141,22 @@ jobs:
       APPIUM_SYSTEM_PORT: ${{ matrix.appiumSystemPort }}
       CHROMEDRIVER_PORT: ${{ matrix.chromedriverPort }}
 
+      # Jira validation custom field names and values
+      JIRA_REGION_FIELD_NAME: Region
+      JIRA_DAZN_ENVIRONMENT_FIELD_NAME: DAZN Environment
+      JIRA_PLATFORM_FIELD_NAME: Platform - required
+      JIRA_DAZN_ENVIRONMENT: Live Prod
+      JIRA_PLATFORM: Android
+
+      # Gemini AI and Jira ticket creation credentials
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_MODEL: gemini-2.5-flash
+      JIRA_BASE_URL: https://livesport.atlassian.net
+      JIRA_PROJECT_KEY: QAR
+      JIRA_ISSUE_TYPE: Bug
+      JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+      JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

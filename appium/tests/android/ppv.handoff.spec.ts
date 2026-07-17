@@ -364,6 +364,36 @@ describe('DAZN Android PPV → Web Handoff', () => {
     // ── landing-page-banner ───────────────────────────────────────────────
     else if (SOURCE === 'landing-page-banner') {
       buyTapped = await openLandingBannerPaywall(driver, PPV_NAME, androidFlowHooks);
+
+      // Perform Gemini AI visual check on the captured Android landing page banner
+      const screenshotPath = path.resolve(process.cwd(), 'test-results', 'android_landing_ppv_banner_found.png');
+      if (fs.existsSync(screenshotPath)) {
+        console.log(`🤖 [Gemini] Starting visual validation of Android landing page banner: ${screenshotPath}`);
+        const mockBanner = {
+          screenshot: async () => fs.readFileSync(screenshotPath)
+        };
+        try {
+          const { validatePpvBannerImage } = require('../../../utils/geminiBannerValidator');
+          const geminiResult = await validatePpvBannerImage(mockBanner, {
+            region: REGION,
+            flow: 'landing-page-banner',
+          });
+
+          if (geminiResult) {
+            console.log(`🤖 [Gemini] Visual validation complete. Passed: ${geminiResult.passed}`);
+            androidAvailabilityResults.push({
+              page: 'Landing Page',
+              field: 'Visual Banner Quality (Gemini)',
+              expected: 'pass',
+              actual: geminiResult.passed ? 'pass' : 'fail',
+              status: geminiResult.passed ? 'PASS' : 'FAIL',
+            });
+          }
+        } catch (err: any) {
+          console.error(`⚠️ [Gemini] Visual validation failed with error: ${err.message}`);
+        }
+      }
+
       if (androidFlowHooks.validatePaywall) {
         await androidFlowHooks.validatePaywall();
       }
@@ -1822,7 +1852,7 @@ describe('DAZN Android PPV → Web Handoff', () => {
       });
 
       // Generate HTML + PDF run reports
-      await generateReports(results, {
+      const reportPaths = await generateReports(results, {
         event: json.PPV_NAME,
         region: REGION,
         source: flowConfig.source,
@@ -1841,6 +1871,29 @@ describe('DAZN Android PPV → Web Handoff', () => {
       const passed = results.filter(r => r.status === 'PASS').length;
       const failed = results.filter(r => r.status === 'FAIL').length;
       const total = passed + failed;
+
+      if (failed > 0) {
+        try {
+          const { reportValidationFailuresToJira } = require('../../../utils/jiraValidationReporter');
+          console.log(`🐞 [Jira] Triggering Jira ticket reporting for Android handoff test failures...`);
+          await reportValidationFailuresToJira({
+            results,
+            context: {
+              region: REGION,
+              environment: ENV,
+              platform: 'Android',
+              flow: 'newuser-landing-page',
+              event: json.PPV_NAME,
+              userState: 'new-user',
+              source: SOURCE,
+            },
+            htmlReportPath: reportPaths?.htmlPath || null,
+            pdfReportPath: reportPaths?.pdfPath || null,
+          });
+        } catch (jiraErr: any) {
+          console.error(`⚠️ [Jira] Failed to report to Jira: ${jiraErr.message}`);
+        }
+      }
 
       console.log(`\n✅ Flow "${flowConfig.name}" complete: ${passed}/${total} passed (${total > 0 ? ((passed / total) * 100).toFixed(1) : 0}%)`);
       console.log(`${'─'.repeat(55)}`);
