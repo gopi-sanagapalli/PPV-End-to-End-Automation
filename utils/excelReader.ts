@@ -1,9 +1,10 @@
 import * as XLSX from 'xlsx';
+import * as path from 'path';
 
-let FILE_PATH = 'data/PPV_Input.xlsx';
+let FILE_PATH = path.resolve(__dirname, '../data/PPV_Input.xlsx');
 
 export function configureExcelPathForEvent(eventKey: string) {
-  FILE_PATH = 'data/PPV_Input.xlsx';
+  FILE_PATH = path.resolve(__dirname, '../data/PPV_Input.xlsx');
   console.log(`📊 excelReader configured path: ${FILE_PATH}`);
 }
 

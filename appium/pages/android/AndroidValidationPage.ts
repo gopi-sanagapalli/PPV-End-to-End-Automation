@@ -814,16 +814,16 @@ export class AndroidValidationPage extends AndroidBasePage {
         };
         checkFieldLegacy('Title', titleExpected);
         
-        // Use timezone-aware date generation for Android validation (matches web test behavior)
-        const region = (eventData.DAZN_REGION || process.env.DAZN_REGION || 'GB').toUpperCase();
-        const dateTimeTemplate = eventData.MOBILE_BANNER_DATE_TIME || eventData.MOBILE_BANNER_DATE || eventData.PPV_DATE;
-        const timezoneAwareDateTime = getDynamicDateTimeBadge 
-          ? getDynamicDateTimeBadge(dateTimeTemplate, region) 
-          : dateTimeTemplate;
-        console.log(`  🌍 [Date and Time] Region: ${region}, Template: ${dateTimeTemplate}, Timezone-aware: ${timezoneAwareDateTime}`);
-        checkFieldLegacy('Date and Time', timezoneAwareDateTime);
-        
         if (surface === 'PPV Banner') {
+          // Use timezone-aware date generation for Android validation (matches web test behavior)
+          const region = (eventData.DAZN_REGION || process.env.DAZN_REGION || 'GB').toUpperCase();
+          const dateTimeTemplate = eventData.MOBILE_BANNER_DATE_TIME || eventData.MOBILE_BANNER_DATE || eventData.PPV_DATE;
+          const timezoneAwareDateTime = getDynamicDateTimeBadge 
+            ? getDynamicDateTimeBadge(dateTimeTemplate, region) 
+            : dateTimeTemplate;
+          console.log(`  🌍 [Date and Time] Region: ${region}, Template: ${dateTimeTemplate}, Timezone-aware: ${timezoneAwareDateTime}`);
+          checkFieldLegacy('Date and Time', timezoneAwareDateTime);
+          
           checkFieldLegacy('Description', eventData.MOBILE_BANNER_DESCRIPTION || eventData.BANNER_DESCRIPTION);
         }
       }
