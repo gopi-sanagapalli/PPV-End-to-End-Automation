@@ -505,6 +505,17 @@ export async function reportValidationFailuresToJira(report: JiraValidationRepor
   }
 
   const context = report.context;
+  if (context && context.platform) {
+    const norm = context.platform.trim().toLowerCase();
+    if (norm === 'android') {
+      context.platform = 'Android Native App - Mobile';
+    } else if (norm === 'ios') {
+      context.platform = 'iOS Native App - Mobile';
+    } else if (norm === 'web') {
+      context.platform = 'Desktop Web';
+    }
+  }
+
   const runId = process.env.GITHUB_RUN_ID || 'unknown-run';
   const runMetadata = [
     `Repository: ${process.env.GITHUB_REPOSITORY || 'unknown'}`,
