@@ -144,6 +144,10 @@ export const config = {
   services: [],
 
   onPrepare: async function () {
+    console.log('🧹 Clearing stale ADB port forwards...');
+    try {
+      execSync(`${ADB} forward --remove-all`, { stdio: 'ignore' });
+    } catch {}
     console.log(`🚀 Starting Appium server manually on port ${APPIUM_PORT}...`);
     appiumProcess = spawn(appiumCommand, [
       '--port', String(APPIUM_PORT),
