@@ -15,7 +15,9 @@ const { locale: regionLocale, timezoneId: regionTimezone } =
 
 export default defineConfig({
   testDir: './tests',
-  timeout: 300_000,
+  // End-to-end runs include browser/video finalisation plus HTML/PDF/Excel
+  // evidence generation. Keep that work inside a realistic shared deadline.
+  timeout: 420_000,
   retries: 0,
   workers: process.env.CI ? 4 : 4,
   outputDir: 'test-results',

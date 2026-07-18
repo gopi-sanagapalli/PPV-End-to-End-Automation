@@ -55,6 +55,8 @@ const PPV_TYPE = (process.env.PPV_TYPE || 'normal').toLowerCase();
 const SWITCH_TO_ULTIMATE = (process.env.SWITCH || '').toLowerCase() === 'true';
 const ENV = (process.env.DAZN_ENV || 'stag').toLowerCase();
 const PAYMENT_METHOD = (process.env.PAYMENT_METHOD || 'credit_card').toLowerCase();
+const NORMAL_FLOW_TIMEOUT_MS = Number(process.env.PPV_TEST_TIMEOUT_MS) || 420_000;
+const UPSELL_FLOW_TIMEOUT_MS = Math.max(Number(process.env.PPV_UPSELL_TEST_TIMEOUT_MS) || 480_000, NORMAL_FLOW_TIMEOUT_MS);
 
 test.afterEach(async ({}, testInfo) => {
   if (testInfo.status !== testInfo.expectedStatus && testInfo.error?.message) {
@@ -78,7 +80,7 @@ async function captureFailShot(page: Page, field: string): Promise<string | unde
 
 test.describe('Mobile → Web PPV Handoff', () => {
   test('completes PPV purchase from mobile handoff URL', async ({ browser }) => {
-    test.setTimeout(PPV_TYPE === 'upsell' ? 300_000 : 180_000);
+    test.setTimeout(PPV_TYPE === 'upsell' ? UPSELL_FLOW_TIMEOUT_MS : NORMAL_FLOW_TIMEOUT_MS);
     const runStart = new Date();
 
     // Read the URL captured by the Appium test

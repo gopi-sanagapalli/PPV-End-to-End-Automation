@@ -279,8 +279,7 @@ export class LandingPage extends BasePage {
     let targetIndex = -1;
 
     for (let index = 0; index < slideCount; index++) {
-      const text = ((await slides.nth(index).textContent().catch(() => '')) || '').trim();
-      if (this.matchesPPVName(text, this.bannerPpvName)) {
+      if (await this.hasPpvBannerTitle(slides.nth(index), this.bannerPpvName)) {
         targetIndex = index;
         break;
       }
@@ -338,6 +337,53 @@ export class LandingPage extends BasePage {
   }
 
   /**
+   * Banner copy can mention several fights, so matching the complete slide text
+   * is unsafe. Match the configured event only when it appears as a short,
+   * title-like line (or a title/accessibility attribute) on that slide.
+   */
+  protected async hasPpvBannerTitle(slide: Locator, ppvName: string): Promise<boolean> {
+    return slide.evaluate((node, expectedName) => {
+      const normalise = (value: string) => value.toLowerCase()
+        .replace(/[^a-z0-9]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      const expected = normalise(expectedName);
+      if (!expected) return false;
+
+      const matchesTitle = (value: string | null | undefined): boolean => {
+        const title = normalise(value || '');
+        if (!title) return false;
+        // A generic promotion can mention many "A vs B" fights. An event title
+        // has one matchup and is either exact or has a small date/label suffix.
+        if ((title.match(/\bvs\b/g) || []).length > 1) return false;
+        return title === expected ||
+          (title.startsWith(`${expected} `) && title.length <= expected.length + 40);
+      };
+
+      const titleElements = node.querySelectorAll(
+        'h1, h2, h3, h4, h5, h6, [role="heading"], ' +
+        '[class*="title" i], [class*="heading" i], ' +
+        '[data-testid*="title" i], [data-test-id*="title" i], img[alt], [aria-label], [title]'
+      );
+      if (Array.from(titleElements).some(element => [
+        element.textContent,
+        element.getAttribute('alt'),
+        element.getAttribute('aria-label'),
+        element.getAttribute('title'),
+      ].some(matchesTitle))) return true;
+
+      // DAZN sometimes renders the event title in an unlabelled div. Restrict
+      // this fallback to complete short visual lines, not the whole marketing
+      // paragraph, so a generic "Introducing Ultimate" slide is still rejected.
+      const text = (node as HTMLElement).innerText || node.textContent || '';
+      return text.split(/\r?\n/)
+        .map(line => line.trim())
+        .filter(line => line.length > 0 && line.length <= 100)
+        .some(matchesTitle);
+    }, ppvName).catch(() => false);
+  }
+
+  /**
    * Score how closely a tile text matches the PPV name.
    * Higher score = better match. 0 = no match.
    * Exact match (tile text equals PPV name) scores highest.
@@ -367,11 +413,23 @@ export class LandingPage extends BasePage {
   // ─────────────────────────────
   // FIND PPV IN BANNER (carousel) — with resilient selectors
   // ─────────────────────────────
-  async findPPVInBanner(eventData: Record<string, string>): Promise<any> {
+  async findPPVInBanner(eventData: Record<string, string>, source?: string): Promise<any> {
     const ppvName = eventData.PPV_NAME || '';
+    const sourceName = source || 'banner';
     this.bannerPpvName = ppvName;
     const tBanner = Date.now();
     console.log(`🔍 [T+0ms] [Banner] Finding PPV: ${ppvName}`);
+
+    const failPpvNotConfigured = (detail: string): never => {
+      throw new Error(
+        `❌ [Banner] PPV "${ppvName || '(missing PPV_NAME)'}" is not configured in source ` +
+        `"${sourceName}" for the current page/region. ${detail}`
+      );
+    };
+
+    if (!ppvName.trim()) {
+      failPpvNotConfigured('The event configuration has no PPV_NAME.');
+    }
 
     // Helper to aggressively stop all swipers on the page via JS + CSS injection
     const stopAllAutoSlide = async () => {
@@ -472,33 +530,37 @@ export class LandingPage extends BasePage {
 
     if (!carouselFound) {
       await dumpPageDiag('attempt 2 — giving up');
-      console.log('⚠️  [Banner] No banner carousel found on page');
-      return null;
+      failPpvNotConfigured('No banner carousel is available in this source.');
     }
 
     // Scroll to the carousel to ensure it is in view for hover/click interactions
     await carousel.scrollIntoViewIfNeeded().catch(() => { });
     await stopAllAutoSlide();
 
-    // Helper to get the currently active slide text
+    const getActiveSlide = (): Locator =>
+      carousel.locator(selectors.banner.activeSlide).first();
     const getActiveSlideText = async (): Promise<string> => {
-      const active = carousel.locator(selectors.banner.activeSlide).locator(':visible').first();
+      const active = getActiveSlide();
       if (await active.isVisible({ timeout: 1000 }).catch(() => false)) {
         return ((await active.textContent().catch(() => '')) || '').trim();
       }
       return '';
     };
+    const saveActiveSlideIndex = async (active: Locator, fallbackIndex: number): Promise<void> => {
+      const index = await active.getAttribute('data-swiper-slide-index').catch(() => null);
+      eventData._ppvBannerSlideIndex = index && /^\d+$/.test(index)
+        ? index
+        : String(fallbackIndex);
+    };
 
     // Check active slide first
     const activeText = await getActiveSlideText();
-    if (activeText && this.matchesPPVName(activeText, ppvName)) {
+    const activeSlide = getActiveSlide();
+    if (await this.hasPpvBannerTitle(activeSlide, ppvName)) {
       console.log(`✅ [Banner] PPV already on active slide`);
       await stopAllAutoSlide();
-      // Store the data-swiper-slide-index of this active slide so validateVariant can re-navigate
-      const slideIndex = await carousel.locator(selectors.banner.activeSlide).first()
-        .getAttribute('data-swiper-slide-index').catch(() => null);
-      if (slideIndex !== null) eventData._ppvBannerSlideIndex = slideIndex;
-      return carousel.locator(selectors.banner.activeSlide).locator(':visible').first();
+      await saveActiveSlideIndex(activeSlide, 0);
+      return activeSlide;
     }
     console.log(`ℹ️  Active slide: "${activeText.substring(0, 60)}..." — not our PPV`);
 
@@ -507,199 +569,29 @@ export class LandingPage extends BasePage {
     const totalSlideCount = await slides.count().catch(() => 0);
     if (totalSlideCount === 0) {
       // Static banner (no swiper slides)
-      const containerText = await carousel.textContent().catch(() => '');
-      if (containerText && this.matchesPPVName(containerText, ppvName)) {
+      if (await this.hasPpvBannerTitle(carousel, ppvName)) {
         console.log('✅ [Banner] PPV found on static banner container');
         return carousel;
       }
       console.log('⚠️ [Banner] PPV not found on static banner');
-      return null;
+      failPpvNotConfigured('The static banner does not match the configured PPV.');
     }
 
-    // ─────────────────────────────────────────────────────────
-    // Navigate carousel using > (next) button to find the PPV
-    // ─────────────────────────────────────────────────────────
-    const nextBtnSelectors = [
-      selectors.banner.nextButton,
-      '.swiper-button-next',
-      '[class*="swiper-button-next"]',
-      'button[data-test-id="CHEVRON_RIGHT_ICON"]',
-      'svg[data-test-id="CHEVRON_RIGHT_ICON"]',
-      '[aria-label="Next slide"]',
-      'button[aria-label*="next" i]',
-      'button[class*="swiper-next" i]',
-      'button[class*="chevron" i]',
-      '[class*="chevron-right" i]',
-      '[class*="chevron-next" i]',
-      '[class*="next-button" i]',
-      '[class*="button-next" i]',
-    ].filter(Boolean).join(', ');
-
-    let nextBtn = carousel.locator(nextBtnSelectors).first();
-    let firstSlideText = activeText.substring(0, 100);
-    const maxSlides = Math.max(totalSlideCount + 2, 10); // Navigate at most totalSlides + buffer
-
-    for (let attempt = 0; attempt < maxSlides; attempt++) {
-      await stopAllAutoSlide();
-
-      // Read current active slide
-      const currentText = await getActiveSlideText();
-
-      // Scan every swiper slide before navigating.
-      const allSlides = this.bannerSlides(carousel);
-      const slideCount = await allSlides.count().catch(() => 0);
-
-      for (let i = 0; i < slideCount; i++) {
-        const slide = allSlides.nth(i);
-        const txt = ((await slide.textContent().catch(() => '')) || '').trim();
-
-        if (txt && this.matchesPPVName(txt, ppvName)) {
-          eventData._ppvBannerSlideIndex = String(i);
-
-          // Check if already active
-          const alreadyActive = await slide.evaluate((node: HTMLElement) =>
-            node.classList.contains('swiper-slide-active')
-          ).catch(() => false);
-
-          if (alreadyActive) {
-            console.log(`✅ [Banner] PPV found in slide ${i} — already active`);
-            return carousel.locator(selectors.banner.activeSlide).locator(':visible').first();
-          }
-
-          // Activate target slide via pure DOM class injection — no clicks, no Swiper API.
-          // Both pagination bullet clicks AND next-button clicks trigger DAZN SPA routing
-          // on authenticated home page (URL changes → page closes). Only safe path is
-          // manipulating CSS classes + inline styles directly via evaluate().
-          console.log(`🎯 [Banner] Activating slide ${i} via DOM class injection (no SPA routing)...`);
-          await this.page.evaluate((targetIdx: number) => {
-            try {
-              const bannerEl = document.querySelector(
-                [
-                  'main [class*="hero-banner" i]',
-                  'main [class*="heroBanner" i]',
-                  'main [class*="herobanner" i]',
-                  'main div.heroBannerSlider',
-                  'main [class*="bannersContainer" i]',
-                  'main [class*="hero-slider" i]',
-                  'main [class*="heroSlider" i]',
-                  'main [class*="hero" i] .swiper',
-                  'main [class*="banner" i] .swiper',
-                  '[class*="hero-banner" i]',
-                  '[class*="heroBanner" i]',
-                  '[class*="bannersContainer" i]',
-                ].join(', ')
-              ) as HTMLElement;
-              if (!bannerEl) return;
-              // Freeze swiper wrapper transition
-              const swiperWrapper = bannerEl.querySelector('.swiper-wrapper') as HTMLElement;
-              if (swiperWrapper) swiperWrapper.style.transitionDuration = '0ms';
-              // Get non-duplicate slides in order
-              const allSlides = Array.from(
-                bannerEl.querySelectorAll('.swiper-slide:not(.swiper-slide-duplicate)')
-              ) as HTMLElement[];
-              const target = allSlides[targetIdx];
-              if (!target) return;
-              // Remove active state from ALL slides (including loop duplicates)
-              bannerEl.querySelectorAll('.swiper-slide').forEach((el) => {
-                const s = el as HTMLElement;
-                s.classList.remove('swiper-slide-active', 'swiper-slide-next', 'swiper-slide-prev');
-                s.style.opacity = '0';
-                s.style.pointerEvents = 'none';
-              });
-              // Make target visible — class makes Swiper CSS apply opacity:1, inline styles
-              // force visibility even if Swiper CSS doesn't cover all cases
-              target.classList.add('swiper-slide-active');
-              target.style.opacity = '1';
-              target.style.pointerEvents = 'auto';
-            } catch { }
-          }, i).catch(() => { });
-          await this.page.waitForTimeout(300);
-          await stopAllAutoSlide();
-
-          // Return the specific slide element directly — more reliable than re-querying
-          // by selectors.banner.activeSlide (lazy locator could pick up wrong slide if
-          // Swiper's React reconciler restores classes between injection and evaluation).
-          console.log(`✅ [Banner] PPV slide ${i} activated via DOM — returning slide element`);
-          return slide;
-        }
-      }
-
-      // Check if this is our PPV
-      if (currentText && this.matchesPPVName(currentText, ppvName)) {
-        console.log(`✅ [Banner] PPV found after ${attempt} clicks`);
-        await stopAllAutoSlide();
-        // Store slide index for later re-navigation
-        const slideIndex = await carousel.locator(selectors.banner.activeSlide).first()
-          .getAttribute('data-swiper-slide-index').catch(() => null);
-        if (slideIndex !== null) eventData._ppvBannerSlideIndex = slideIndex;
-        // Check if Buy Now exists on this slide
-        const activeSlide = carousel.locator(selectors.banner.activeSlide).locator(':visible').first();
-        const hasBuyNow = await activeSlide.locator('a:has-text("Buy now"), button:has-text("Buy now"), a:has-text("Buy Now"), button:has-text("Buy Now")').first().isVisible({ timeout: 2000 }).catch(() => false);
-        if (hasBuyNow) {
-          console.log(`✅ [Banner] Buy Now found on PPV slide`);
-        } else {
-          console.log(`⚠️ [Banner] PPV slide found but no Buy Now button — returning slide anyway`);
-        }
-        await stopAllAutoSlide();
-        return activeSlide;
-      }
-
-      // Loop detection: if we've cycled back to the first slide, PPV isn't in carousel
-      if (attempt > 0 && currentText && firstSlideText && currentText.substring(0, 100) === firstSlideText) {
-        console.log('🔁 [Banner] Carousel looped back to first slide — PPV not in carousel');
-        break;
-      }
-
-      // Click next
-      console.log(`  slide ${attempt + 1}: "${currentText.substring(0, 50)}..." — clicking next`);
-
-      // Hover over the carousel to reveal chevron/navigation buttons
-      await carousel.hover().catch(() => { });
-      await this.page.waitForTimeout(200);
-
-      // Check if next button exists in carousel DOM
-      const nextBtnExists = await nextBtn.count().catch(() => 0) > 0;
-      let nextBtnVisible = nextBtnExists || await nextBtn.isVisible({ timeout: 1000 }).catch(() => false);
-
-      if (nextBtnVisible) {
-        const prevText = currentText;
-        await nextBtn.click({ force: true }).catch(() => { });
-
-        // Wait for slide transition
-        await this.page.waitForFunction((args) => {
-          const activeEl = document.querySelector(args.activeSelector);
-          const text = activeEl?.textContent?.trim() || '';
-          return text !== args.prevText;
-        }, { activeSelector: selectors.banner.activeSlide, prevText }, { timeout: 3000 }).catch(() => { });
-
-        await this.page.waitForTimeout(500);
-        await stopAllAutoSlide();
-      } else {
-        console.log('⚠️  [Banner] Next button not found in carousel DOM — cannot navigate further');
-        break;
+    // The carousel renders its non-duplicate slides up front. Inspect those
+    // stable slide nodes and activate only the exact PPV match. This avoids the
+    // flaky authenticated-page chevron interaction which can stall before the
+    // actual PPV CTA is clicked.
+    console.log(`🔍 [Banner] Checking ${totalSlideCount} rendered banner slide(s)...`);
+    for (let index = 0; index < totalSlideCount; index++) {
+      const slide = slides.nth(index);
+      if (await this.hasPpvBannerTitle(slide, ppvName)) {
+        console.log(`✅ [Banner] PPV found in slide ${index} — activating matching banner`);
+        eventData._ppvBannerSlideIndex = String(index);
+        return await this.reacquireBannerSlideForClick() || slide;
       }
     }
 
-    // ─────────────────────────────────────────────────────────
-    // Fallback: Check all slides directly via DOM (in case navigation missed one)
-    // ─────────────────────────────────────────────────────────
-    console.log('🔍 [Banner] Checking all slides directly...');
-    const allSlides = this.bannerSlides(carousel);
-    const slideCount = await allSlides.count().catch(() => 0);
-
-    for (let i = 0; i < slideCount; i++) {
-      const slide = allSlides.nth(i);
-      const text = ((await slide.textContent().catch(() => '')) || '').trim();
-      if (text && this.matchesPPVName(text, ppvName)) {
-        console.log(`✅ [Banner] PPV found in slide ${i} (fallback scan) — returning directly`);
-        // Do NOT call slideToLoop/slideTo — triggers DAZN SPA navigation/page close.
-        eventData._ppvBannerSlideIndex = String(i);
-        return slide;
-      }
-    }
-
-    console.log('⚠️  [Banner] PPV not found in carousel after checking all slides');
-    return null;
+    failPpvNotConfigured(`Checked ${totalSlideCount} rendered banner slide(s) without a matching PPV title.`);
   }
 
   // ─────────────────────────────
@@ -1163,7 +1055,7 @@ export class LandingPage extends BasePage {
     }
 
     if (src.includes('banner')) {
-      return this.findPPVInBanner(eventData);
+      return this.findPPVInBanner(eventData, src);
     }
 
     if (src.includes('dont-miss') || src.includes('tile') || src.includes('upcoming')) {

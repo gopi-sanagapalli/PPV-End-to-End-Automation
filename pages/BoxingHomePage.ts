@@ -604,12 +604,7 @@ export class BoxingHomePage extends HomePage {
     }
 
     if (src.includes('banner')) {
-      try {
-        return await this.findPPVInBanner(eventData);
-      } catch (e) {
-        console.log(`⚠️ Error finding PPV banner slide: ${(e as Error).message}`);
-        return null;
-      }
+      return this.findPPVInBanner(eventData, src);
     }
 
     return null;

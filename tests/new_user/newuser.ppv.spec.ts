@@ -67,6 +67,8 @@ const PPV_TYPE = (process.env.PPV_TYPE || 'normal').toLowerCase();
 const SWITCH_TO_ULTIMATE = (process.env.SWITCH || '').toLowerCase() === 'true';
 const ENV = (process.env.DAZN_ENV || 'stag').toLowerCase();
 const PAYMENT_METHOD = (process.env.PAYMENT_METHOD || 'credit_card').toLowerCase();
+const NORMAL_FLOW_TIMEOUT_MS = Number(process.env.PPV_TEST_TIMEOUT_MS) || 420_000;
+const UPSELL_FLOW_TIMEOUT_MS = Math.max(Number(process.env.PPV_UPSELL_TEST_TIMEOUT_MS) || 480_000, NORMAL_FLOW_TIMEOUT_MS);
 const HOME_SPORT_DROPDOWN_SOURCES = new Set([
   'home-boxing-banner',
   'home-boxing-tile',
@@ -2076,7 +2078,9 @@ test.describe.configure({ mode: 'parallel' });
 
 for (const planKey of plansToRun) {
   test(`PPV flow for new user - ${planKey}`, async ({ browser }) => {
-    test.setTimeout(PPV_TYPE === 'upsell' ? 300_000 : 180_000);
+    // Reports and video finalisation are part of the test. The former 180s
+    // ceiling could expire after every functional validation had passed.
+    test.setTimeout(PPV_TYPE === 'upsell' ? UPSELL_FLOW_TIMEOUT_MS : NORMAL_FLOW_TIMEOUT_MS);
     const runStart = new Date();
 
     try {
