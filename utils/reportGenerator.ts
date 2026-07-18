@@ -2,6 +2,25 @@ import fs from 'fs';
 import path from 'path';
 import { chromium } from '@playwright/test';
 
+const PDF_RENDER_TIMEOUT_MS = Number(process.env.PPV_REPORT_PDF_TIMEOUT_MS) || 30_000;
+
+async function withinReportTimeout<T>(work: Promise<T>, operation: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`${operation} timed out after ${PDF_RENDER_TIMEOUT_MS}ms`)),
+          PDF_RENDER_TIMEOUT_MS
+        );
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────
 // HTML + PDF RUN REPORT GENERATOR
 // Produces an easy-to-read run report showing:
@@ -437,23 +456,25 @@ export async function generateReports(
 
   // Render PDF via bundled Playwright Chromium (no system Chrome dependency)
   let pdfOk = false;
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
   try {
-    const browser = await chromium.launch({ headless: true });
+    browser = await chromium.launch({ headless: true, timeout: PDF_RENDER_TIMEOUT_MS });
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
     const page = await ctx.newPage();
-    await page.goto('file://' + htmlPath, { waitUntil: 'load' });
-    await page.pdf({
+    await page.goto('file://' + htmlPath, { waitUntil: 'load', timeout: PDF_RENDER_TIMEOUT_MS });
+    await withinReportTimeout(page.pdf({
       path: pdfPath,
       format: 'A4',
       landscape: false,
       printBackground: true,
       margin: { top: '10mm', bottom: '10mm', left: '8mm', right: '8mm' },
-    });
-    await browser.close();
+    }), 'PDF report rendering');
     pdfOk = true;
   } catch (e: any) {
     console.error(`❌ PDF report generation failed: ${e?.message || e}`);
     console.error(e?.stack || e);
+  } finally {
+    await browser?.close().catch(() => { });
   }
 
   // Copy Excel results into the run folder

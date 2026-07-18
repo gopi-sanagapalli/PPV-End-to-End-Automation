@@ -101,6 +101,7 @@ function isMyAccountDestination(url: string): boolean {
 }
 const ENV = (process.env.DAZN_ENV || 'stag').toLowerCase();
 const PAYMENT_METHOD = (process.env.PAYMENT_METHOD || 'credit_card').toLowerCase();
+const EXISTING_FLOW_TIMEOUT_MS = Number(process.env.PPV_TEST_TIMEOUT_MS) || 420_000;
 
 function throwLogged(error: Error): never {
   console.log(error.message);
@@ -129,7 +130,9 @@ test.describe.configure({ mode: 'parallel' });
 
 for (const stateKey of userStatesToRun) {
   test(`PPV flow via existing user - ${stateKey}`, async ({ browser }) => {
-    test.setTimeout(300_000);
+    // Applies uniformly to login-first, mid-sign-in, every user state and
+    // every source. It reserves time for artifact/report finalisation.
+    test.setTimeout(EXISTING_FLOW_TIMEOUT_MS);
     process.env.USER_STATE = stateKey;
     let defaultSignupPPVValidated = false;
     let noPpvClick = false;

@@ -443,12 +443,7 @@ export class BoxingPage extends LandingPage {
       return this.findUpcomingFightsPPV(eventData);
     }
     if (src === 'boxing-page-banner' || src === 'boxing-buy' || src === 'boxing-ultimate' || src === 'boxing-banner-ultimate') {
-      const banner = await this.findPPVInBanner(eventData);
-      if (!banner) {
-        console.log(`❌ [BoxingPage Banner] PPV "${eventData.PPV_NAME}" not found on hero banner.`);
-        return null;
-      }
-      return banner;
+     return this.findPPVInBanner(eventData, src);
     }
     if (src === 'boxing-ultimate-subscription' || src === 'boxing-standard-subscription' || src === 'boxing-join-the-club') {
       // Subscription-only flows — no PPV container needed.

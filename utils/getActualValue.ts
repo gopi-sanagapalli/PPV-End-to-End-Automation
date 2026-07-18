@@ -21,6 +21,23 @@ async function getScopedLandingPPVContainer(
   const prefixPart = ppvName.includes(':') ? ppvName.split(':')[0].trim() : '';
 
   const isTileSource = source.includes('dont-miss') || source.includes('tile') || source.includes('upcoming') || source.includes('rail') || source === 'home-biggest-fights';
+  const isBannerSource = source.includes('banner');
+
+  // Banner discovery stores the exact non-duplicate slide it selected. Use
+  // that slide during validation so a generic promo that merely mentions the
+  // fight in its marketing copy cannot be mistaken for the PPV banner.
+  if (isBannerSource) {
+    const banner = page.locator(
+      'main [class*="banner" i], main [class*="hero" i], main .swiper:not([class*="rail" i])'
+    ).first();
+    const selectedIndex = Number(eventData?._ppvBannerSlideIndex);
+    if (Number.isInteger(selectedIndex) && selectedIndex >= 0) {
+      const selectedSlide = banner.locator('.swiper-slide:not(.swiper-slide-duplicate)').nth(selectedIndex);
+      if (await selectedSlide.count().catch(() => 0) > 0) {
+        return selectedSlide;
+      }
+    }
+  }
 
   if (source.includes('upcoming')) {
     const allowNoBuyNow = String(eventData?.__ALLOW_NO_BUY_NOW || '').toLowerCase() === 'true';
@@ -199,14 +216,25 @@ async function getScopedLandingPPVContainer(
     // Banner source
     const banner = page.locator('main [class*="banner"], main [class*="hero"], main .swiper:not([class*="rail" i])').first();
     if (await banner.count().catch(() => 0) > 0) {
-      const slide = banner.locator('.swiper-slide').filter({ hasText: new RegExp(firstWord, 'i') }).first();
-      if (await slide.count().catch(() => 0) > 0) {
-        return slide;
+      // Do not use a broad first-word match here. A generic Ultimate banner can
+      // mention the event in its supporting copy while exposing a Sign up CTA.
+      const titleLikeSlides = banner.locator(
+        '.swiper-slide:not(.swiper-slide-duplicate)'
+      );
+      const slideCount = await titleLikeSlides.count().catch(() => 0);
+      for (let i = 0; i < slideCount; i++) {
+        const slide = titleLikeSlides.nth(i);
+        const labels = await slide.locator(
+          'h1, h2, h3, h4, h5, h6, [role="heading"], [class*="title" i], [class*="heading" i], img[alt], [aria-label], [title]'
+        ).allTextContents().catch(() => []);
+        const hasExactTitle = labels.some((label: string) => {
+          const normalise = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+          const title = normalise(eventData?.PPV_NAME || '');
+          const actual = normalise(label);
+          return title.length > 0 && (actual === title || actual.startsWith(`${title} `));
+        });
+        if (hasExactTitle) return slide;
       }
-    }
-    const activeSlide = page.locator('.swiper-slide-active, [class*="swiper-slide-active"]').first();
-    if (await activeSlide.count().catch(() => 0) > 0) {
-      return activeSlide;
     }
   }
   return null;

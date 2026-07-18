@@ -76,7 +76,7 @@ export class HomePage extends LandingPage {
     const src = (source || '').toLowerCase();
 
     if (src === 'home-page-banner') {
-      return super.findPPVInBanner(eventData);
+      return super.findPPVInBanner(eventData, src);
     }
 
     if (src === 'home-biggest-fights') {

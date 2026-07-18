@@ -33,6 +33,7 @@ type JiraValidationReport = {
 };
 
 const MAX_ATTACHMENTS = 12;
+const JIRA_REQUEST_TIMEOUT_MS = Number(process.env.JIRA_REQUEST_TIMEOUT_MS) || 15_000;
 
 function attachmentMimeType(filePath: string): string {
   switch (path.extname(filePath).toLowerCase()) {
@@ -96,6 +97,9 @@ async function requestJira(
         statusCode: response.statusCode || 0,
         body: Buffer.concat(chunks).toString('utf8'),
       }));
+    });
+    request.setTimeout(JIRA_REQUEST_TIMEOUT_MS, () => {
+      request.destroy(new Error(`Jira request timed out after ${JIRA_REQUEST_TIMEOUT_MS}ms`));
     });
     request.on('error', reject);
     if (body) request.write(body);
