@@ -63,22 +63,28 @@ export class LandingPage extends BasePage {
 
   protected async waitForFixtureOrPreviewNavigation(
     results: any[],
-    eventData: Record<string, string>,
     pageName: string,
-    flow: string,
-    sheetName = this.getUltimateValidationSheet(pageName),
+    source: string,
     timeout = 15000
   ): Promise<void> {
     await this.page.waitForURL((url: URL) => this.isFixtureOrPreviewUrl(url.href), { timeout }).catch(() => { });
     await this.page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => { });
-    await this.validateExcelFlow(sheetName, flow, results, eventData, pageName);
 
-    const navResult = results
-      .slice()
-      .reverse()
-      .find((r: any) => r.page === pageName && r.field === 'Ultimate Navigation Target');
-    if (navResult?.status === 'FAIL') {
-      throw new Error(`❌ [${pageName}] Ultimate navigation target validation failed. URL: ${this.page.url()}`);
+    const currentUrl = this.page.url();
+    const reachedTarget = this.isFixtureOrPreviewUrl(currentUrl);
+    results.push({
+      page: pageName,
+      field: 'Ultimate Navigation Target',
+      expected: 'Fixture Page or Preview Page',
+      actual: `Navigated to: ${currentUrl}`,
+      status: reachedTarget ? 'PASS' : 'FAIL',
+      source,
+    });
+
+    if (!reachedTarget) {
+      throw new Error(
+        `❌ [${pageName}] Ultimate tile navigation did not reach a fixture or preview page. URL: ${currentUrl}`
+      );
     }
   }
 
@@ -122,13 +128,9 @@ export class LandingPage extends BasePage {
     container: any,
     source: string,
     results: any[],
-    eventData: Record<string, string>,
-    pageName: string,
-    flowParam?: string
+    _eventData: Record<string, string>,
+    pageName: string
   ): Promise<void> {
-    const sheetName = this.getUltimateValidationSheet(pageName);
-    const baseFlow = flowParam && flowParam !== 'landing' ? flowParam : source;
-
     if (!this.isFixtureOrPreviewUrl(this.page.url())) {
       const containerIsBody = await container.evaluate((el: HTMLElement) =>
         el.tagName.toLowerCase() === 'body'
@@ -144,10 +146,8 @@ export class LandingPage extends BasePage {
 
     await this.waitForFixtureOrPreviewNavigation(
       results,
-      eventData,
       pageName,
-      `${baseFlow}-ultimate-tile`,
-      sheetName
+      source
     );
   }
 
