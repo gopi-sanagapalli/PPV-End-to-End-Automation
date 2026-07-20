@@ -367,6 +367,7 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
         for (let i = 0; i < 5; i++) {
           try {
             const permissionSelectors = [
+              '//android.widget.Button[@resource-id="com.android.permissioncontroller:id/permission_allow_button"]',
               'android=new UiSelector().resourceId("com.android.permissioncontroller:id/permission_allow_button")',
               'android=new UiSelector().resourceId("com.android.permissioncontroller:id/permission_allow_foreground_only_button")',
               'android=new UiSelector().textMatches("(?i)^(Allow|OK)$")'

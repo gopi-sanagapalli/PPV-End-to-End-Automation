@@ -60,6 +60,7 @@ async function acceptCookiesIfPresent(driver: WdBrowser): Promise<boolean> {
 
 async function dismissOneStartupDialog(driver: WdBrowser): Promise<boolean> {
   return tapFirstVisible(driver, [
+    '//android.widget.Button[@resource-id="com.android.permissioncontroller:id/permission_allow_button"]',
     'android=new UiSelector().resourceId("com.android.permissioncontroller:id/permission_allow_button")',
     'android=new UiSelector().resourceId("com.android.permissioncontroller:id/permission_allow_foreground_only_button")',
     'android=new UiSelector().resourceId("android:id/button1")',
