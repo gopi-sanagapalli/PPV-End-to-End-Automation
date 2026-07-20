@@ -360,6 +360,34 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
 
         console.log('🔍 Waiting for post-login cleanup...');
         await waitForHomePage(driver);
+
+        // System permission dialogs (like notifications) might pop up asynchronously after reaching Home.
+        // Dismiss/Allow them defensively to prevent them from blocking the screen.
+        console.log('🔔 Checking for notification permission popup...');
+        for (let i = 0; i < 5; i++) {
+          try {
+            const permissionSelectors = [
+              'android=new UiSelector().resourceId("com.android.permissioncontroller:id/permission_allow_button")',
+              'android=new UiSelector().resourceId("com.android.permissioncontroller:id/permission_allow_foreground_only_button")',
+              'android=new UiSelector().textMatches("(?i)^(Allow|OK)$")'
+            ];
+            let handled = false;
+            for (const selector of permissionSelectors) {
+              const btn = await driver.$(selector);
+              if (await btn.isDisplayed()) {
+                console.log(`🔔 Found permission dialog button ("${selector}"). Clicking Allow...`);
+                await btn.click();
+                handled = true;
+                break;
+              }
+            }
+            if (handled) {
+              await driver.pause(1000);
+              break;
+            }
+          } catch {}
+          await driver.pause(1000);
+        }
         console.log('✅ Post-login cleanup complete');
       }
 
