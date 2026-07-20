@@ -45,6 +45,7 @@ jobs:
 
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
+      dev_mode_on: ${{ steps.matrix.outputs.dev_mode_on }}
 
     steps:
       - name: Checkout repository
@@ -136,7 +137,9 @@ jobs:
           console.log(`DEFAULT_SIGNUP_DEVMODE=true — restricting to defaultSignup sources only`);
           console.log(`Scheduled sources (${sources.length}): ${sources.join(', ')}`);
           console.log(`Total matrix jobs: ${matrix.length}`);
+          // DEFAULT_SIGNUP_DEVMODE implies dev mode is always on
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `matrix=${JSON.stringify(matrix)}\n`);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, 'dev_mode_on=on\n');
           NODE
 
   prod:
@@ -162,6 +165,7 @@ jobs:
       HEADLESS: 'true'
       DAZN_REGION: GB
       DAZN_ENV: prod
+      DEV_MODE_ON: ${{ needs.prepare-matrix.outputs.dev_mode_on }}
       LOGIN_FIRST: 'false'
       SOURCE: ${{ matrix.source }}
       PROFILE: ${{ matrix.profile }}
