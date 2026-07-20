@@ -1821,6 +1821,7 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
               const bodyText = await page.locator('body').innerText({ timeout: 5000 }).catch(() => '');
               const bodyLines = (bodyText as string).split('\n').map((l: string) => l.trim()).filter(Boolean);
               const { resolveExpected: resolveExp } = require('../../../utils/resolveExpected');
+              eventData.CURRENT_PAGE = 'choose how to buy';
 
               for (const row of chooseBuyData) {
                 const cbField = (row['Field'] || '').trim();
@@ -1934,12 +1935,22 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
                       } catch { }
                       // Fallback: bodyLines scan
                       if (cbActual === 'N/A') {
-                        const dateLine = bodyLines.find((l: string) =>
-                          /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/i.test(l) &&
-                          /\d{1,2}/.test(l) && l.length < 80 &&
-                          !l.toLowerCase().includes('feature') && !l.toLowerCase().includes('fight') &&
-                          !l.toLowerCase().includes('promoter')
-                        );
+                        const dateLine = bodyLines.find((l: string) => {
+                          const lower = l.toLowerCase();
+                          const hasMonth = /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/i.test(l);
+                          const hasWeekday = /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun)\b/i.test(l);
+                          const hasTime = /\b\d{1,2}:\d{2}\b/.test(l) || /\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/i.test(l);
+                          const hasNumber = /\d/.test(l);
+                          
+                          return (
+                            ((hasMonth && hasNumber) || (hasWeekday && hasTime)) &&
+                            l.length < 80 &&
+                            !lower.includes('feature') && 
+                            !lower.includes('fight') &&
+                            !lower.includes('promoter') &&
+                            !lower.includes('month')
+                          );
+                        });
                         cbActual = dateLine || 'N/A';
                       }
                       break;
@@ -2118,34 +2129,40 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
                       }
                       break;
                     }
-                    case 'upsell feature 1': {
-                      // Feature 1: PPV included / events per year
-                      cbActual = bodyLines.find((l: string) =>
-                        l.length > 20 && l.length < 200 &&
-                        /ppv|pay-per-view|minimum.*event|event.*minimum/i.test(l) &&
-                        !l.toLowerCase().includes('subscription') &&
-                        !l.toLowerCase().includes('buy ')
-                      ) || 'N/A';
-                      break;
-                    }
-                    case 'upsell feature 2': {
-                      // Feature 2: 185+ fights / promoters (match by keyword, not DOM order)
-                      cbActual = bodyLines.find((l: string) =>
-                        l.length > 20 && l.length < 200 &&
-                        /185\+?|fights.*year|year.*fights|promoter/i.test(l) &&
-                        !l.toLowerCase().includes('subscription') &&
-                        !l.toLowerCase().includes('buy ')
-                      ) || 'N/A';
-                      break;
-                    }
-                    case 'upsell feature 3': {
-                      // Feature 3: HDR / Dolby / surround (match by keyword, not DOM order)
-                      cbActual = bodyLines.find((l: string) =>
-                        l.length > 20 && l.length < 200 &&
-                        /hdr|dolby|surround/i.test(l) &&
-                        !l.toLowerCase().includes('subscription') &&
-                        !l.toLowerCase().includes('buy ')
-                      ) || 'N/A';
+                    case 'upsell feature 1':
+                    case 'upsell feature 2':
+                    case 'upsell feature 3':
+                    case 'upsell feature 4': {
+                      // Content-based match (same approach as web) — order-independent
+                      const normalizeFeature = (t: string) =>
+                        t.toLowerCase().replace(/['']/g, "'").replace(/[.,]+$/g, '').replace(/\s+/g, ' ').trim();
+                      const expNorm = normalizeFeature(cbExpected);
+                      if (expNorm) {
+                        const alternatives = expNorm.split('|');
+                        for (const alt of alternatives) {
+                          const normAlt = normalizeFeature(alt);
+                          // Exact match
+                          const exact = bodyLines.find((l: string) => normalizeFeature(l) === normAlt);
+                          if (exact) { cbActual = exact; break; }
+                          // Contains match
+                          const contains = bodyLines.find((l: string) => {
+                            const normLine = normalizeFeature(l);
+                            return normLine.length > 20 && normLine.length < 200 &&
+                              (normLine.includes(normAlt) || normAlt.includes(normLine));
+                          });
+                          if (contains) { cbActual = contains; break; }
+                          // Word-based match (at least 3 significant words overlap)
+                          const expWords = normAlt.split(/\s+/).filter((w: string) => w.length > 3 && !['from', 'with', 'year', 'best'].includes(w));
+                          if (expWords.length > 0) {
+                            const wordMatch = bodyLines.find((l: string) => {
+                              const normLine = normalizeFeature(l);
+                              const matchCount = expWords.filter((w: string) => normLine.includes(w)).length;
+                              return matchCount >= Math.min(3, expWords.length);
+                            });
+                            if (wordMatch) { cbActual = wordMatch; break; }
+                          }
+                        }
+                      }
                       break;
                     }
                     case 'cta button': {
@@ -2200,9 +2217,10 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
                   console.warn(`⚠️ choosebuy [${cbField}] extract error: ${ce.message}`);
                 }
 
+                const { compare } = require('../../../utils/compare');
                 const aN = cbActual.replace(/\s+/g, ' ').trim().toLowerCase();
                 const eN = cbExpected.replace(/\s+/g, ' ').trim().toLowerCase();
-                const pass = aN === eN || aN.includes(eN) || eN.includes(aN);
+                const pass = compare(cbActual, cbExpected) || aN === eN || aN.includes(eN) || eN.includes(aN);
                 const cbStatus = pass ? 'PASS' : 'FAIL';
                 console.log(`  ${cbStatus === 'PASS' ? '✅' : '❌'} [${cbField}] expected="${cbExpected}" actual="${cbActual}"`);
                 // Capture screenshot for every failing field (same as other page validators)
@@ -2290,6 +2308,7 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
                 if (!cfField) continue;
                 const cfKey = cfField.toLowerCase().trim();
                 const { resolveExpected: resolveExp2 } = require('../../../utils/resolveExpected');
+                eventData.CURRENT_PAGE = 'confirmation';
                 let cfExpected = '';
                 try { cfExpected = resolveExp2(row, eventData); } catch { cfExpected = String(row['Expected'] || ''); }
                 if (!cfExpected || cfExpected.trim().toUpperCase() === 'N/A') continue;
