@@ -189,9 +189,9 @@ export class AndroidMyAccountPage extends AndroidBasePage {
       // the password page replaces it, which causes input to be sent nowhere.
       const passwordSelectors = [
         'android=new UiSelector().className("android.widget.EditText").password(true)',
-        '//*[contains(translate(@resource-id, "PASSWORD", "password"), "password")]',
-        'android=new UiSelector().resourceIdMatches(".*[Pp]assword.*")',
-        '//*[@resource-id="PasswordField"]',
+        '//android.widget.EditText[contains(translate(@resource-id, "PASSWORD", "password"), "password")]',
+        'android=new UiSelector().className("android.widget.EditText").resourceIdMatches(".*[Pp]assword.*")',
+        '//android.widget.EditText[@resource-id="PasswordField"]',
       ];
       let passwordInput: WdElement = null;
       
