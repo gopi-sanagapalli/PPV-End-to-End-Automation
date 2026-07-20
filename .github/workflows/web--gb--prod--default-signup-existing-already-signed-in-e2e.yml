@@ -45,6 +45,7 @@ jobs:
 
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
+      dev_mode_on: ${{ steps.matrix.outputs.dev_mode_on }}
 
     steps:
       - name: Checkout repository
@@ -93,10 +94,14 @@ jobs:
             throw new Error(`DEFAULT_SIGNUP_DEVMODE is not true in ${configInput}. This workflow is only for PPVs configured in default signup dev mode.`);
           }
 
-          // Only include sources that have defaultSignup: true
+          // Only include sources that have defaultSignup: true.
+          // home-page-get-started is NOT applicable for already-signed-in users
+          // (the button is replaced by home-page-subscribe when a user is logged in).
+          const NOT_APPLICABLE_SOURCES = new Set(['home-page-get-started']);
           const allSources = Object.keys(sourceConfig);
           const sources = allSources.filter((source) => {
             if (!sourceConfig[source]?.defaultSignup) return false;
+            if (NOT_APPLICABLE_SOURCES.has(source)) return false;
             if (source === 'home-kickboxing-tile' && sport !== 'kickboxing') return false;
             if (source === 'boxing-page-bundle' && !hasBundle) return false;
             return true;
@@ -145,7 +150,9 @@ jobs:
           console.log(`Scheduled sources (${sources.length}): ${sources.join(', ')}`);
           console.log(`Total matrix jobs: ${matrix.length}`);
 
+          // DEFAULT_SIGNUP_DEVMODE implies dev mode is always on
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `matrix=${JSON.stringify(matrix)}\n`);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, 'dev_mode_on=on\n');
           NODE
 
   prod:
@@ -171,6 +178,7 @@ jobs:
       HEADLESS: 'true'
       DAZN_REGION: GB
       DAZN_ENV: prod
+      DEV_MODE_ON: ${{ needs.prepare-matrix.outputs.dev_mode_on }}
       LOGIN_FIRST: 'true'
       TEST_TIMEOUT_MS: '600000'
       SOURCE: ${{ matrix.source }}

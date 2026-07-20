@@ -178,10 +178,21 @@ export function resolveExpected(
   }
 
   if (pageName === 'default signup') {
+    // Default Signup Excel rows have no 'Rate Plan' column so ratePlan is always ''.
+    // Use process.env.PLAN directly to detect the plan being tested.
+    // The Default Signup page upsell section always shows the Ultimate APM plan
+    // with price and length as SEPARATE fields (e.g. £24.99 | /month for 12 months).
+    // Only standard_monthly shows the combined format (£24.99/month | /month).
+    const planEnv = (process.env.PLAN || '').toLowerCase();
+    const isStandardMonthly = planEnv === 'standard_monthly' || planEnv === '';
     if (field === 'upsell price') {
-      raw = '{{UPSELL_PRICE}}/month';
+      // standard_monthly: price includes suffix (e.g. £24.99/month)
+      // all other plans: price is shown without suffix (e.g. £24.99)
+      raw = isStandardMonthly ? '{{UPSELL_PRICE}}/month' : '{{UPSELL_PRICE}}';
     } else if (field === 'upsell price length') {
-      raw = '/month';
+      // standard_monthly: /month
+      // all other plans (standard_apm, ultimate_apm, ultimate_upfront): /month for 12 months
+      raw = isStandardMonthly ? '/month' : '/month for 12 months';
     }
   }
 
