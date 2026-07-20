@@ -374,13 +374,15 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
             ];
             let handled = false;
             for (const selector of permissionSelectors) {
-              const btn = await driver.$(selector);
-              if (await btn.isDisplayed()) {
-                console.log(`🔔 Found permission dialog button ("${selector}"). Clicking Allow...`);
-                await btn.click();
-                handled = true;
-                break;
-              }
+              try {
+                const btn = await driver.$(selector);
+                if (await btn.isDisplayed()) {
+                  console.log(`🔔 Found permission dialog button ("${selector}"). Clicking Allow...`);
+                  await btn.click();
+                  handled = true;
+                  break;
+                }
+              } catch {}
             }
             if (handled) {
               await driver.pause(1000);
