@@ -378,7 +378,21 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
                 const btn = await driver.$(selector);
                 if (await btn.isDisplayed()) {
                   console.log(`🔔 Found permission dialog button ("${selector}"). Clicking Allow...`);
-                  await btn.click();
+                  try {
+                    await btn.click();
+                  } catch (clickErr: any) {
+                    console.warn(`  Native click failed: ${clickErr.message}. Trying ADB tap fallback...`);
+                    const rect = await btn.getRect();
+                    const tapX = Math.round(rect.x + rect.width / 2);
+                    const tapY = Math.round(rect.y + rect.height / 2);
+                    const caps = await driver.getCapabilities().catch(() => ({}));
+                    const udid = caps.udid || caps.deviceUDID || process.env.DEVICE_SERIAL || '';
+                    const serialArg = udid ? `-s ${udid}` : '';
+                    const { execSync } = require('child_process');
+                    const ANDROID_SDK = process.env.ANDROID_HOME || `${process.env.HOME}/Library/Android/sdk`;
+                    const ADB = `${ANDROID_SDK}/platform-tools/adb`;
+                    execSync(`${ADB} ${serialArg} shell input tap ${tapX} ${tapY}`);
+                  }
                   handled = true;
                   break;
                 }
@@ -392,6 +406,28 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
           await driver.pause(1000);
         }
         console.log('✅ Post-login cleanup complete');
+
+        // Ensure we navigate to the Home page if redirected to NFL Game Pass page
+        console.log('🏠 Ensuring we are on the Home page...');
+        const homeSelectors = [
+          'android=new UiSelector().text("Home")',
+          'android=new UiSelector().descriptionContains("Home")',
+          '//android.widget.ImageView[contains(@content-desc, "Home")]',
+          '//android.widget.TextView[contains(@text, "Home")]'
+        ];
+        let navigatedToHome = false;
+        for (const selector of homeSelectors) {
+          try {
+            const homeBtn = await driver.$(selector);
+            if (await homeBtn.isDisplayed()) {
+              console.log(`🏠 Found Home button ("${selector}"). Tapping to navigate...`);
+              await homeBtn.click();
+              await driver.pause(2000);
+              navigatedToHome = true;
+              break;
+            }
+          } catch {}
+        }
       }
 
       // Split recording removed to record in a single video

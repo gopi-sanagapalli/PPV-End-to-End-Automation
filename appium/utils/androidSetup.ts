@@ -26,10 +26,24 @@ function adb(cmd: string): string {
   }
 }
 
-async function clickIfVisible(el: WdElement, label: string): Promise<boolean> {
+async function clickIfVisible(el: WdElement, label: string, driver: WdBrowser): Promise<boolean> {
   try {
     if (await el.isDisplayed()) {
-      await el.click();
+      try {
+        await el.click();
+      } catch (clickErr: any) {
+        console.warn(`  Native click failed: ${clickErr.message}. Trying ADB tap fallback...`);
+        const rect = await el.getRect();
+        const tapX = Math.round(rect.x + rect.width / 2);
+        const tapY = Math.round(rect.y + rect.height / 2);
+        const caps = await driver.getCapabilities().catch(() => ({}));
+        const udid = caps.udid || caps.deviceUDID || process.env.DEVICE_SERIAL || '';
+        const serialArg = udid ? `-s ${udid}` : '';
+        const { execSync } = require('child_process');
+        const ANDROID_SDK = process.env.ANDROID_HOME || `${process.env.HOME}/Library/Android/sdk`;
+        const ADB = `${ANDROID_SDK}/platform-tools/adb`;
+        execSync(`${ADB} ${serialArg} shell input tap ${tapX} ${tapY}`);
+      }
       console.log(`✅ ${label}`);
       return true;
     }
@@ -42,7 +56,7 @@ async function tapFirstVisible(driver: WdBrowser, selectors: string[], label: st
   for (const selector of selectors) {
     try {
       const el = await driver.$(selector);
-      if (await clickIfVisible(el, label)) return true;
+      if (await clickIfVisible(el, label, driver)) return true;
     } catch {}
   }
 
