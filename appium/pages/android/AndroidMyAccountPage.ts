@@ -249,7 +249,14 @@ export class AndroidMyAccountPage extends AndroidBasePage {
           const { execSync } = require('child_process');
           const ANDROID_SDK = process.env.ANDROID_HOME || `${process.env.HOME}/Library/Android/sdk`;
           const ADB = `${ANDROID_SDK}/platform-tools/adb`;
-          execSync(`${ADB} shell input text "${escaped}"`);
+
+          // Get the UDID capability from the Appium driver to support multi-device/multi-runner environments
+          const caps = await this.driver.getCapabilities().catch(() => ({}));
+          const udid = caps.udid || caps.deviceUDID || process.env.DEVICE_SERIAL || '';
+          const serialArg = udid ? `-s ${udid}` : '';
+
+          console.log(`  Executing ADB command on device serial: "${udid || 'default'}"`);
+          execSync(`${ADB} ${serialArg} shell input text "${escaped}"`);
           await this.driver.pause(1000);
           console.log('  ADB shell input text fallback executed');
         } catch (adbErr: any) {
@@ -259,8 +266,8 @@ export class AndroidMyAccountPage extends AndroidBasePage {
 
       if (emailNeededFallback) {
         console.log('  Email input required key events fallback. Using driver.keys directly for password...');
-        await passwordInput.clearValue().catch(() => {});
         await passwordInput.click().catch(() => {});
+        await this.driver.pause(500);
         await this.driver.keys([...credentials.password]);
 
         const enteredPassword = await readPassword();
@@ -282,8 +289,8 @@ export class AndroidMyAccountPage extends AndroidBasePage {
         let enteredPassword = await readPassword();
         if (!setValueSuccess || (isPlaceholderOrEmpty(enteredPassword) && !hasBullets(enteredPassword))) {
           console.log('  Password input did not retain value from setValue. Falling back to driver.keys...');
-          await passwordInput.clearValue().catch(() => {});
           await passwordInput.click().catch(() => {});
+          await this.driver.pause(500);
           await this.driver.keys([...credentials.password]);
 
           enteredPassword = await readPassword();
