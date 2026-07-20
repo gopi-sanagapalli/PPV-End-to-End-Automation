@@ -149,6 +149,7 @@ export class AndroidMyAccountPage extends AndroidBasePage {
         // Compose text fields on some Android builds ignore setValue but accept
         // key events. Clear first so this remains safe on a partially-filled UI.
         await emailInput.clearValue();
+        await emailInput.click().catch(() => {});
         await this.driver.keys([...credentials.email]);
         enteredEmail = await readEmail();
       }
@@ -222,6 +223,7 @@ export class AndroidMyAccountPage extends AndroidBasePage {
       if (emailNeededFallback) {
         console.log('  Email input required key events fallback. Using driver.keys directly for password...');
         await passwordInput.clearValue().catch(() => {});
+        await passwordInput.click().catch(() => {});
         await this.driver.keys([...credentials.password]);
       } else {
         let setValueSuccess = false;
@@ -251,6 +253,7 @@ export class AndroidMyAccountPage extends AndroidBasePage {
         if (!setValueSuccess || (isPlaceholderOrEmpty(enteredPassword) && !hasBullets(enteredPassword))) {
           console.log('  Password input did not retain value from setValue. Falling back to driver.keys...');
           await passwordInput.clearValue().catch(() => {});
+          await passwordInput.click().catch(() => {});
           await this.driver.keys([...credentials.password]);
         }
       }
