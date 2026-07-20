@@ -967,12 +967,14 @@ async function runFlow(
       // Skip this check for boxing subscription sources — they intentionally bypass the PPV page
       // and go directly to plans. DEFAULT_SIGNUP=true is still set for them (they are sub-only flows)
       // but the "no PPV" check only applies to home-page / landing-page default signup sources.
+      // Also skip for subscribe-without-pay-per-view (noPpvClick) — it intentionally navigates
+      // away from the PPV option and lands on TierPlans without the "Subscribe without a pay-per-view" text.
       const isBoxingSubscriptionSource =
         SOURCE === 'boxing-banner-ultimate' ||
         SOURCE === 'boxing-ultimate-subscription' ||
         SOURCE === 'boxing-standard-subscription' ||
         SOURCE === 'boxing-join-the-club';
-      if (process.env.DEFAULT_SIGNUP === 'true' && !ppvValidated && !isBoxingSubscriptionSource) {
+      if (process.env.DEFAULT_SIGNUP === 'true' && !ppvValidated && !isBoxingSubscriptionSource && !noPpvClickConfig) {
         const url = page.url().toLowerCase();
         if (url.includes('page=tierplans') || url.includes('page=plandetails') || pageType === 'plan' || pageType === 'email') {
           const bodyText = await page.locator('body').innerText({ timeout: 2000 }).then((t: string) => t.toLowerCase()).catch(() => '');
@@ -1506,39 +1508,45 @@ async function runFlow(
         console.log('👉 Default Signup page');
         stuckCount = 0;
 
-        if (!ppvValidated) {
-          try {
-            const ppvData = getPPVDataByVariant(variant);
-            console.log(`📊 PPV rows (Default Signup): ${ppvData.length}`);
-            const ppvFlow = undefined;
-            await validateVariant(page, variant, ppvData, results, eventData, 'Default Signup', ppvFlow);
-          } catch (e: any) {
-            console.warn('⚠️ Default Signup validation error:', e.message);
+        // For noPpvClick flows (subscribe-without-pay-per-view), skip PPV validation
+        // and event-match check — the goal is only to click "Subscribe without a pay-per-view".
+        if (!noPpvClick) {
+          if (!ppvValidated) {
+            try {
+              const ppvData = getPPVDataByVariant(variant);
+              console.log(`📊 PPV rows (Default Signup): ${ppvData.length}`);
+              const ppvFlow = undefined;
+              await validateVariant(page, variant, ppvData, results, eventData, 'Default Signup', ppvFlow);
+            } catch (e: any) {
+              console.warn('⚠️ Default Signup validation error:', e.message);
+            }
+            ppvValidated = true;
           }
-          ppvValidated = true;
-        }
 
-        // ── Default Signup Event Matching Check ──
-        const ppvName = eventData.PPV_NAME || '';
-        const nameClean = ppvName.replace(/[:\-–]/g, ' ');
-        let matched = false;
-        if (nameClean.includes('vs')) {
-          const fighters = nameClean.split(/\bvs\b/i).map((f: string) => f.trim());
-          const f1 = fighters[0];
-          const f2 = fighters[1];
-          if (f1 && f2) {
-            const hasF1 = await page.locator(`text=${f1}`).first().isVisible().catch(() => false);
-            const hasF2 = await page.locator(`text=${f2}`).first().isVisible().catch(() => false);
-            matched = hasF1 || hasF2;
+          // ── Default Signup Event Matching Check ──
+          const ppvName = eventData.PPV_NAME || '';
+          const nameClean = ppvName.replace(/[:\-–]/g, ' ');
+          let matched = false;
+          if (nameClean.includes('vs')) {
+            const fighters = nameClean.split(/\bvs\b/i).map((f: string) => f.trim());
+            const f1 = fighters[0];
+            const f2 = fighters[1];
+            if (f1 && f2) {
+              const hasF1 = await page.locator(`text=${f1}`).first().isVisible().catch(() => false);
+              const hasF2 = await page.locator(`text=${f2}`).first().isVisible().catch(() => false);
+              matched = hasF1 || hasF2;
+            }
           }
+          if (!matched && ppvName) {
+            matched = await page.locator(`text=${ppvName}`).first().isVisible().catch(() => false);
+          }
+          if (!matched) {
+            throw new Error(`❌ [DefaultSignup] PPV on page does not match the expected event: "${ppvName}"`);
+          }
+          console.log(`✅ [DefaultSignup] Verified PPV on page matches: "${ppvName}"`);
+        } else {
+          console.log('ℹ️ [DefaultSignup] Skipping PPV event match check (noPpvClick flow).');
         }
-        if (!matched && ppvName) {
-          matched = await page.locator(`text=${ppvName}`).first().isVisible().catch(() => false);
-        }
-        if (!matched) {
-          throw new Error(`❌ [DefaultSignup] PPV on page does not match the expected event: "${ppvName}"`);
-        }
-        console.log(`✅ [DefaultSignup] Verified PPV on page matches: "${ppvName}"`);
 
         // Select Ultimate card first if tier is ultimate
         if (tier === 'ultimate') {
@@ -1585,6 +1593,16 @@ async function runFlow(
         // Validate CTA after selecting DAZN Ultimate card
         if (tier === 'ultimate') {
           await validateCtaAfterUltimateSelection(page, variant, results, eventData, 'Default Signup');
+        }
+
+        // ── Subscribe Without PPV opt-out (default signup page) ────────
+        // The "Subscribe without a pay-per-view" CTA lives on the Default Signup page,
+        // not the PPV page — so noPpvClick must be handled here.
+        if (noPpvClick) {
+          console.log('🔗 [noPpvClick] Clicking "Subscribe without a pay-per-view" on Default Signup page...');
+          await handleNoPpvClick(page, eventData);
+          noPpvClick = false; // reset so it only fires once
+          continue;           // re-detect page type after navigation
         }
 
         let btn = page.locator('button:has-text("Continue with DAZN Ultimate"), button:has-text("Continue with pay-per-view"), button:has-text("Continue"), button[type="submit"]').first();
@@ -1759,7 +1777,16 @@ async function runFlow(
         planClickCount++;
 
         // Handle TierPlans selection first if on TierPlans page
-        if (page.url().includes('page=TierPlans')) {
+        if (page.url().toLowerCase().includes('page=tierplans')) {
+          // ── subscribe-without-pay-per-view: endPage=plan → stop here ──
+          // The flow goal is to verify the TierPlans page is reached.
+          // Do NOT click any CTA — just confirm landing and break.
+          if (flowConfig.endPage === 'plan') {
+            console.log('✅ [subscribe-without-pay-per-view] Reached TierPlans page — flow complete (endPage=plan).');
+            reachedEndPage = true;
+            break;
+          }
+
           console.log(`🗺️ Handling TierPlans page selection for tier: ${tier}`);
           let tierBtn;
           if (tier === 'ultimate') {
@@ -2199,7 +2226,7 @@ for (const planKey of plansToRun) {
       console.log(`${'─'.repeat(55)}`);
       console.log('__DEMO_FLOW_COMPLETE__');
 
-      if (total === 0) {
+      if (total === 0 && flowConfig.endPage !== 'plan') {
         const errMsg = `❌ Flow "${flowConfig.name}" had 0 validation checks`;
         console.log(errMsg);
         throw new Error(errMsg);

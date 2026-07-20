@@ -349,12 +349,11 @@ export class PaymentPage extends BasePage {
     const banner = this.page.locator(bannerSelectors.join(', ')).first();
     const bannerVisible = await banner.isVisible({ timeout: 3000 }).catch(() => false);
 
-    const currentSource = (eventData.SOURCE || eventData.source || '').trim().toLowerCase();
-    const isBoxingSubscription =
-      currentSource === 'boxing-ultimate-subscription' ||
-      currentSource === 'boxing-standard-subscription' ||
-      currentSource === 'boxing-join-the-club';
-    const expectedPresence = isBoxingSubscription ? 'No' : 'Yes';
+    // Ultimate Upsell Banner is expected on standard plans (user can upgrade).
+    // On ultimate plans the banner is not expected (already on Ultimate).
+    const currentTier = (eventData.TIER || 'standard').toLowerCase();
+    const isUltimatePlan = currentTier === 'ultimate';
+    const expectedPresence = isUltimatePlan ? 'No' : 'Yes';
 
     // Validate 1: Banner presence (if not already validated in standard loop)
     const isBannerPresentAlreadyValidated = results.some(r => r.page === 'Payment' && r.field === 'Ultimate Upsell Banner Present');
