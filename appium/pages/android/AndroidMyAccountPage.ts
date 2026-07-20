@@ -205,20 +205,32 @@ export class AndroidMyAccountPage extends AndroidBasePage {
       
       // Some Compose builds omit the Android password flag. In that case the
       // sole visible EditText on the password screen is the safe fallback.
+      // Some Compose builds omit the Android password flag. In that case, find all EditText elements
+      // and pick the one that is likely the password input (e.g. not displaying the email address).
       if (!passwordInput) {
-        passwordInput = await this.findEl(
-          'android=new UiSelector().className("android.widget.EditText")',
-          3000,
-        );
+        const fields = await this.driver.$$('android=new UiSelector().className("android.widget.EditText")');
+        console.log(`  Found ${fields.length} EditText fields on password page`);
+        for (const field of fields) {
+          try {
+            if (await field.isDisplayed()) {
+              const textVal = (await field.getAttribute('text').catch(() => '') || '').toLowerCase();
+              const emailVal = (credentials.email || '').toLowerCase();
+              if (!textVal.includes('@') && (emailVal === '' || !textVal.includes(emailVal))) {
+                console.log(`  Selecting EditText field as password input (text: "${textVal}")`);
+                passwordInput = field;
+                break;
+              }
+            }
+          } catch {}
+        }
       }
       
       if (!passwordInput) {
         throw new Error('Email was submitted but no password input was found');
       }
 
-      // Wait for element to be interactable and ensure it's focused
+      // Wait for element to be interactable (do not click yet to avoid triggering autofill prompts)
       await passwordInput.waitForDisplayed({ timeout: 5000 });
-      await passwordInput.click();
 
       const readPassword = async (): Promise<string> => (
         await passwordInput.getAttribute('text').catch(() => '') ||
@@ -258,7 +270,6 @@ export class AndroidMyAccountPage extends AndroidBasePage {
       } else {
         let setValueSuccess = false;
         try {
-          await passwordInput.clearValue().catch(() => {});
           // `setValue` sends text directly to UiAutomator and is reliable for
           // symbols such as @ and !. It also avoids keyboard focus being lost
           // between individual driver.keys calls.
