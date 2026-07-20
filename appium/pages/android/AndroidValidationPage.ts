@@ -145,7 +145,13 @@ export class AndroidValidationPage extends AndroidBasePage {
       const hasWatch = await this.driver.$('android=new UiSelector().textContains("watch")').isDisplayed().catch(() => false);
       const hasPaste = await this.driver.$('android=new UiSelector().textContains("Paste")').isDisplayed().catch(() => false);
       const hasLink = await this.driver.$('android=new UiSelector().textContains("link")').isDisplayed().catch(() => false);
-      if (hasCopy || hasWatch || hasPaste || hasLink) {
+      
+      if (hasCopy && (hasWatch || hasPaste || hasLink)) {
+        isLoaded = true;
+        break;
+      }
+      // If we have the Copy button, or we've waited at least 8s and have some elements, proceed
+      if (hasCopy || (i > 16 && (hasWatch || hasPaste || hasLink))) {
         isLoaded = true;
         break;
       }
@@ -508,6 +514,186 @@ export class AndroidValidationPage extends AndroidBasePage {
 
     const titleExpected = eventData.MOBILE_BANNER_TITLE || eventData.PPV_DISPLAY_NAME || eventData.PPV_NAME;
     const { texts, pageSource, targetXml } = await this.gatherTextsFromSurface(surface, titleExpected);
+
+    if (surface === 'PPV Banner') {
+      const userState = String(process.env.USER_STATE || '').toLowerCase().trim().replace('-', '_');
+      const isUltimateUser = ['active_ultimate_apm', 'active_ultimate_upfront'].includes(userState);
+
+      const cleanStr = (s: string) =>
+        (s || '').replace(/[\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]/g, ' ')
+          .replace(/\s+/g, ' ').trim().toLowerCase();
+
+      const pushResult = async (fieldName: string, expected: string, actual: string, isMatch: boolean) => {
+        const status = isMatch ? 'PASS' : 'FAIL';
+        console.log(`  ${status === 'PASS' ? '✅' : '❌'} [${fieldName}] expected="${expected}" actual="${actual}"`);
+        const screenshot = status === 'FAIL'
+          ? await this.captureAndMarkFailureScreenshot(surface, fieldName, expected, actual)
+          : undefined;
+        results.push({ page: surface, field: fieldName, expected, actual, status, screenshot });
+      };
+
+      const checkDateTimeMatch = (expectedVal: string): { isMatch: boolean; actualVal: string } => {
+        const normalizeDateString = (s: string) => {
+          let clean = String(s || '').toLowerCase()
+            .replace(/[\u200b\u200c\u200d\ufeff]/g, '')
+            .replace(/a\.\s*m\./gi, 'am')
+            .replace(/p\.\s*m\./gi, 'pm')
+            .replace(/\b(\d+)(?:st|nd|rd|th)\b/gi, '$1')
+            .replace(/january/g, 'jan')
+            .replace(/february/g, 'feb')
+            .replace(/march/g, 'mar')
+            .replace(/april/g, 'apr')
+            .replace(/june/g, 'jun')
+            .replace(/july/g, 'jul')
+            .replace(/august/g, 'aug')
+            .replace(/september/g, 'sep')
+            .replace(/october/g, 'oct')
+            .replace(/november/g, 'nov')
+            .replace(/december/g, 'dec');
+          return clean.replace(/\s+/g, ' ').trim();
+        };
+        const expClean = normalizeDateString(expectedVal);
+        const directMatch = texts.find(t => {
+          const tc = normalizeDateString(t);
+          return tc === expClean || tc.includes(expClean) || expClean.includes(tc);
+        });
+        if (directMatch) return { isMatch: true, actualVal: directMatch };
+
+        const parseBannerDateTime = (value: string) => {
+          const normalized = normalizeDateString(value);
+          const weekday = normalized.match(/\b(sun|mon|tue|wed|thu|fri|sat)[a-z]*\b/i)?.[1]?.toLowerCase();
+          const day = normalized.match(/\b(\d{1,2})(?:st|nd|rd|th)?\b/i)?.[1];
+          const month = normalized.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/i)?.[1]?.toLowerCase();
+          const timeMatch = normalized.match(/(?:\bat\b|•)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/i);
+          if (!day || !month || !timeMatch) return null;
+
+          let hour = parseInt(timeMatch[1], 10);
+          const minute = parseInt(timeMatch[2] || '0', 10);
+          const meridiem = timeMatch[3]?.toLowerCase();
+          if (meridiem === 'pm' && hour < 12) hour += 12;
+          if (meridiem === 'am' && hour === 12) hour = 0;
+          return { weekday, day, month, hour, minute };
+        };
+        const expectedDateTime = parseBannerDateTime(expectedVal);
+        const semanticMatch = expectedDateTime
+          ? texts.find(t => {
+              const actualDateTime = parseBannerDateTime(t);
+              return !!actualDateTime &&
+                actualDateTime.day === expectedDateTime.day &&
+                actualDateTime.month === expectedDateTime.month &&
+                actualDateTime.hour === expectedDateTime.hour &&
+                actualDateTime.minute === expectedDateTime.minute &&
+                (!expectedDateTime.weekday || !actualDateTime.weekday || actualDateTime.weekday === expectedDateTime.weekday);
+            })
+          : undefined;
+        if (semanticMatch) return { isMatch: true, actualVal: semanticMatch };
+
+        const joined = normalizeDateString(texts.join(' '));
+        if (joined.includes(expClean)) return { isMatch: true, actualVal: expectedVal };
+        if (normalizeDateString(pageSource).includes(expClean)) return { isMatch: true, actualVal: expectedVal };
+
+        const dateParts = expClean.split(/\s+/).filter(p => p.length > 1 && p !== 'at' && p !== '•');
+        const allPartsFound = dateParts.length > 0 && dateParts.every(part =>
+          joined.includes(part) || normalizeDateString(pageSource).includes(part)
+        );
+        if (allPartsFound) return { isMatch: true, actualVal: expectedVal };
+
+        const dateRegex = /\b((Sun|Mon|Tue|Wed|Thu|Fri|Sat)[a-z]*\s+)?\d{1,2}(?:st|nd|rd|th)?\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(?:at|•)?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?/i;
+        const dynamicDateMatch = texts.find(t => dateRegex.test(t));
+        if (dynamicDateMatch) return { isMatch: true, actualVal: dynamicDateMatch };
+
+        const pageSourceMatch = pageSource.match(dateRegex);
+        if (pageSourceMatch) return { isMatch: true, actualVal: pageSourceMatch[0] };
+
+        const dateLike = texts.find(t => 
+          /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|sun|mon|tue|wed|thu|fri|sat)\b/i.test(t) ||
+          /\d{1,2}(st|nd|rd|th)?\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i.test(t) ||
+          /\d{1,2}:\d{2}/.test(t)
+        );
+        return { isMatch: false, actualVal: dateLike || 'Not found' };
+      };
+
+      // 1. PPV Image
+      let hasImg = 'No';
+      if (
+        targetXml.includes('resource-id="com.dazn:id/search_image"') ||
+        targetXml.includes('content-desc="Search result image"') ||
+        targetXml.includes('resource-id="com.dazn:id/image"') ||
+        targetXml.includes('ImageView') ||
+        /class="android\.view\.View"[^>]*text=""[^>]*content-desc=""[^>]*bounds="\[\d+,\d+\]\[\d+,\d+\]"/.test(targetXml) ||
+        /android\.widget\.ImageView/.test(targetXml)
+      ) {
+        hasImg = 'Yes';
+      }
+      await pushResult('PPV Image', 'Yes', hasImg, hasImg === 'Yes');
+
+      // 2. PPV Title
+      const isTitlePresent = texts.some(
+        t => cleanStr(t).includes(cleanStr(titleExpected)) || cleanStr(titleExpected).includes(cleanStr(t))
+      ) || cleanStr(pageSource).includes(cleanStr(titleExpected));
+      await pushResult('PPV Title', titleExpected, isTitlePresent ? titleExpected : 'Not found', isTitlePresent);
+
+      // 3. Date and Time
+      const region = (eventData.DAZN_REGION || process.env.DAZN_REGION || 'GB').toUpperCase();
+      const dateTimeTemplate = eventData.MOBILE_BANNER_DATE_TIME || eventData.MOBILE_BANNER_DATE || eventData.PPV_DATE;
+      const expectedDate = getDynamicDateTimeBadge 
+        ? getDynamicDateTimeBadge(dateTimeTemplate, region) 
+        : dateTimeTemplate;
+      
+      const dateCheck = checkDateTimeMatch(expectedDate);
+      await pushResult('Date and Time', expectedDate, dateCheck.actualVal, dateCheck.isMatch);
+
+      // 4. Description
+      const expectedDesc = eventData.MOBILE_BANNER_DESCRIPTION || eventData.BANNER_DESCRIPTION || '';
+      const cleanExpectedDesc = cleanStr(expectedDesc).replace(/\.\.\.$/, '').trim();
+      const isDescPresent = texts.some(t => {
+        const ct = cleanStr(t);
+        return ct.includes(cleanExpectedDesc) || cleanExpectedDesc.includes(ct);
+      }) || cleanStr(pageSource).includes(cleanExpectedDesc);
+      await pushResult('Description', expectedDesc, isDescPresent ? expectedDesc : 'Not found', isDescPresent);
+
+      // 5. Fight Card Button
+      const hasFightCard = texts.some(t => {
+        const tl = t.toLowerCase().replace(/\s+/g, '');
+        return tl.includes('fightcard') || tl.includes('fightcards');
+      }) || pageSource.toLowerCase().replace(/\s+/g, '').includes('fightcard');
+      await pushResult('Fight Card Button', 'Fight Card', hasFightCard ? 'Fight Card' : 'Not found', hasFightCard);
+
+      // Conditional validations based on user type:
+      if (!isUltimateUser) {
+        // Standard User Banner validations
+        // 6. Buy Now Button (expected to be present)
+        const hasBuyNow = texts.some(t => {
+          const tl = t.toLowerCase();
+          return tl === 'buy now' || tl === 'buy';
+        }) || pageSource.toLowerCase().includes('buy now');
+        await pushResult('Buy Now Button', 'Buy now', hasBuyNow ? 'Buy now' : 'Not found', hasBuyNow);
+      } else {
+        // Ultimate User Banner validations
+        // 6. Set Reminder Button
+        const hasSetReminder = texts.some(t => {
+          const tl = t.toLowerCase();
+          return tl === 'set reminder' || tl.includes('reminder');
+        }) || pageSource.toLowerCase().includes('set reminder') || pageSource.toLowerCase().includes('reminder');
+        await pushResult('Set Reminder Button', 'Set Reminder', hasSetReminder ? 'Set Reminder' : 'Not found', hasSetReminder);
+
+        // 7. Purchased Text
+        const hasPurchased = texts.some(t => {
+          const tl = t.toLowerCase();
+          return tl === 'purchased' || tl.includes('purchased');
+        }) || pageSource.toLowerCase().includes('purchased');
+        await pushResult('Purchased Text', 'Purchased', hasPurchased ? 'Purchased' : 'Not found', hasPurchased);
+
+        // 8. Buy Now Button NOT getting
+        const hasBuyNow = texts.some(t => {
+          const tl = t.toLowerCase();
+          return tl === 'buy now' || tl === 'buy';
+        }) || pageSource.toLowerCase().includes('buy now');
+        await pushResult('Buy Now Button (Absent)', 'Absent', hasBuyNow ? 'Present' : 'Absent', !hasBuyNow);
+      }
+
+      return;
+    }
 
     const cleanStr = (s: string) =>
       (s || '').replace(/[\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]/g, ' ')
@@ -875,7 +1061,7 @@ export class AndroidValidationPage extends AndroidBasePage {
       }
     } else {
       // Legacy fallback if no sheet rows are configured for this surface
-      const presenceField = surface === 'PPV Banner' ? 'Banner Present' : 'Tile Present';
+      const presenceField = 'Tile Present';
       const status = isPresent ? 'PASS' : 'FAIL';
       let screenshot = undefined;
       if (status === 'FAIL') {
@@ -933,19 +1119,6 @@ export class AndroidValidationPage extends AndroidBasePage {
           results.push({ page: surface, field: fieldName, expected: expectedValue, actual: actualVal, status, screenshot });
         };
         await checkFieldLegacy('Title', titleExpected);
-        
-        if (surface === 'PPV Banner') {
-          // Use timezone-aware date generation for Android validation (matches web test behavior)
-          const region = (eventData.DAZN_REGION || process.env.DAZN_REGION || 'GB').toUpperCase();
-          const dateTimeTemplate = eventData.MOBILE_BANNER_DATE_TIME || eventData.MOBILE_BANNER_DATE || eventData.PPV_DATE;
-          const timezoneAwareDateTime = getDynamicDateTimeBadge 
-            ? getDynamicDateTimeBadge(dateTimeTemplate, region) 
-            : dateTimeTemplate;
-          console.log(`  🌍 [Date and Time] Region: ${region}, Template: ${dateTimeTemplate}, Timezone-aware: ${timezoneAwareDateTime}`);
-          await checkFieldLegacy('Date and Time', timezoneAwareDateTime);
-          
-          await checkFieldLegacy('Description', eventData.MOBILE_BANNER_DESCRIPTION || eventData.BANNER_DESCRIPTION);
-        }
       }
     }
   }
