@@ -281,6 +281,7 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
       // After login completes, waitForHomePage() is called explicitly.
       await prepareAndroidApp(browser, {
         clearAppData: true,
+        acceptCookiesOnly: LOGIN_FIRST || undefined,
         waitForHome: !LOGIN_FIRST,
       });
     });
