@@ -280,8 +280,8 @@
             "USER_PASSWORD": "TODO_ADD_PASSWORD"
           },
           "prod": {
-            "USER_EMAIL": "TODO_ADD_US_ULTIMATE_UPFRONT_ACCOUNT",
-            "USER_PASSWORD": "TODO_ADD_PASSWORD"
+            "USER_EMAIL": "usppvultimate@yopmail.com",
+            "USER_PASSWORD": "Dazn@123"
           }
         }
       },
