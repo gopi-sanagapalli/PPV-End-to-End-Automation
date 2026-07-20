@@ -256,6 +256,12 @@ export class AndroidMyAccountPage extends AndroidBasePage {
       }
       await this.driver.pause(500);
 
+      if (await this.driver.isKeyboardShown().catch(() => false)) {
+        console.log('  Keyboard is visible — hiding keyboard to expose Sign In buttons...');
+        await this.driver.hideKeyboard().catch(() => {});
+        await this.driver.pause(1000);
+      }
+ 
       const signInSelectors = [
           'android=new UiSelector().text("Sign In")',
           'android=new UiSelector().text("Sign in")',
