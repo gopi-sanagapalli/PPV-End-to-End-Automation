@@ -102,7 +102,7 @@
     "endPage": "payment"
   },
   "subscribe-without-pay-per-view": {
-    "source": "home-page-get-started",
+    "source": "home-page-dazntile",
     "endPage": "plan",
     "defaultSignup": true,
     "noPpvClick": true
