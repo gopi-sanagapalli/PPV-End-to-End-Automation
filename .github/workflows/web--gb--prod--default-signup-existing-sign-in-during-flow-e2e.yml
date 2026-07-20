@@ -1,4 +1,4 @@
-name: "Web · GB · Prod · Moses vs. Hrgovic · Existing user — already signed in"
+name: "Web · GB · Prod · Joshua vs. Prenga · Default Signup Dev Mode · Existing user — sign in during flow"
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
       PPV_CONFIG:
         description: 'PPV config filename/key'
         required: true
-        default: 'ppv_t_moses_hergovich.json'
+        default: 'ppv_t_joshua_prenga.json'
 
       PAYMENT_METHOD:
         description: 'Payment method'
@@ -45,7 +45,6 @@ jobs:
 
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
-      dev_mode_on: ${{ steps.matrix.outputs.dev_mode_on }}
 
     steps:
       - name: Checkout repository
@@ -86,50 +85,28 @@ jobs:
 
           const event = JSON.parse(fs.readFileSync(eventPath, 'utf8'));
           const sourceConfig = JSON.parse(fs.readFileSync('config/surfacingpoint.json', 'utf8'));
-
           const sport = String(event.SPORT || '').trim().toLowerCase();
           const hasBundle = event.HAS_BUNDLE === true;
-          const hasDefaultSignupPpv = event.HAS_DEFAULT_SIGNUP_PPV === true;
-          const ppvDevMode = event.PPV_DEV_MODE === true;
+          const defaultSignupDevMode = event.DEFAULT_SIGNUP_DEVMODE === true;
 
-          const MY_ACCOUNT_SOURCES = new Set(['my-account', 'myaccount', 'myaccount-subscription-status']);
+          if (!defaultSignupDevMode) {
+            throw new Error(`DEFAULT_SIGNUP_DEVMODE is not true in ${configInput}. This workflow is only for PPVs configured in default signup dev mode.`);
+          }
 
-          // All possible sources for this workflow
-          const allSources = [
-            'home-page-banner',
-            'home-page-dont-miss',
-            'home-biggest-fights',
-            'home-page-dazntile',
-
-            'home-boxing-banner',
-            'home-boxing-tile',
-            'home-boxing-upcoming',
-            'home-kickboxing-tile',
-
-            'boxing-page-banner',
-            'boxing-page-bundle',
-            'boxing-upcoming-fights',
-            'boxing-banner-ultimate',
-            'boxing-ultimate-subscription',
-            'boxing-standard-subscription',
-            'boxing-join-the-club',
-
-            'search',
-            'schedule',
-            'myaccount',
-          ];
-
-          // Filter sources based on event config
+          // Only include sources that have defaultSignup: true
+          // Exclude sources not applicable for existing user sign-in during flow
+          const NOT_APPLICABLE_SIGN_IN_DURING = new Set(['myaccount-subscription-status', 'home-page-subscribe']);
+          const allSources = Object.keys(sourceConfig);
           const sources = allSources.filter((source) => {
-            // PPV_DEV_MODE: restrict to myaccount only
-            if (ppvDevMode && !MY_ACCOUNT_SOURCES.has(source)) return false;
+            if (!sourceConfig[source]?.defaultSignup) return false;
+            if (NOT_APPLICABLE_SIGN_IN_DURING.has(source)) return false;
             if (source === 'home-kickboxing-tile' && sport !== 'kickboxing') return false;
             if (source === 'boxing-page-bundle' && !hasBundle) return false;
-            if (sourceConfig[source]?.defaultSignup && !hasDefaultSignupPpv) return false;
             return true;
           });
 
-          // All profiles: user_state/plan
+          // Default signup is only applicable to new signups and non-subscribed users
+          // Active subscribers are NOT applicable for default signup flows
           const allProfiles = [
             'freemium/standard_monthly',
             'freemium/standard_apm',
@@ -140,48 +117,26 @@ jobs:
             'frozen/standard_apm',
             'frozen/ultimate_apm',
             'frozen/ultimate_upfront',
-
-            'active_standard_monthly/standard_monthly',
-            'active_standard_monthly/ultimate_apm',
-            'active_standard_monthly/ultimate_upfront',
-
-            'active_standard_apm/standard_apm',
-            'active_standard_apm/ultimate_apm',
-
-            'active_ultimate_apm/ultimate_apm',
-            'active_ultimate_upfront/ultimate_upfront',
           ];
 
-          // Sources that require Ultimate upgrade journey
-          const ultimateOnlySources = new Set([
-            'boxing-banner-ultimate',
-            'boxing-ultimate-subscription',
-            'boxing-join-the-club',
-          ]);
+          // subscribe-without-pay-per-view only needs one profile coverage
+          const SINGLE_PROFILE_SOURCES = new Set(['subscribe-without-pay-per-view']);
 
-          // Profiles that are valid for ultimate-only sources
-          const validUltimateProfiles = new Set([
-            'active_standard_monthly/ultimate_apm',
-            'active_standard_monthly/ultimate_upfront',
-            'active_standard_apm/ultimate_apm',
-          ]);
-
-          // Build base matrix: source × profile
           const matrix = [];
           for (const source of sources) {
-            for (const profile of allProfiles) {
-              if (ultimateOnlySources.has(source) && !validUltimateProfiles.has(profile)) continue;
+            const profiles = SINGLE_PROFILE_SOURCES.has(source)
+              ? ['freemium/standard_monthly']
+              : allProfiles;
+            for (const profile of profiles) {
               matrix.push({ source, profile });
             }
           }
 
           console.log(`Event: ${event.eventKey || event.PPV_NAME || configInput}`);
-          console.log(`SPORT=${event.SPORT || 'not set'}, HAS_BUNDLE=${hasBundle}, HAS_DEFAULT_SIGNUP_PPV=${hasDefaultSignupPpv}, PPV_DEV_MODE=${ppvDevMode}`);
+          console.log(`DEFAULT_SIGNUP_DEVMODE=true — restricting to defaultSignup sources only`);
           console.log(`Scheduled sources (${sources.length}): ${sources.join(', ')}`);
           console.log(`Total matrix jobs: ${matrix.length}`);
-
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `matrix=${JSON.stringify(matrix)}\n`);
-          fs.appendFileSync(process.env.GITHUB_OUTPUT, `dev_mode_on=${ppvDevMode ? 'on' : 'off'}\n`);
           NODE
 
   prod:
@@ -194,7 +149,7 @@ jobs:
       - macOS
       - ARM64
 
-    timeout-minutes: 30
+    timeout-minutes: 20
 
     strategy:
       fail-fast: false
@@ -207,9 +162,7 @@ jobs:
       HEADLESS: 'true'
       DAZN_REGION: GB
       DAZN_ENV: prod
-      LOGIN_FIRST: 'true'
-      TEST_TIMEOUT_MS: '600000'
-      DEV_MODE_ON: ${{ needs.prepare-matrix.outputs.dev_mode_on }}
+      LOGIN_FIRST: 'false'
       SOURCE: ${{ matrix.source }}
       PROFILE: ${{ matrix.profile }}
       PPV_CONFIG: ${{ inputs.PPV_CONFIG }}
@@ -225,40 +178,6 @@ jobs:
           echo "Runner: $RUNNER_NAME"
           echo "OS: $RUNNER_OS"
           hostname
-          echo "Commit: $(git rev-parse HEAD)"
-
-      - name: Verify runner VPN and DAZN signin reachability
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "=============================="
-          echo "Runner network preflight"
-          echo "Runner : $RUNNER_NAME"
-          echo "Host   : $(hostname)"
-          echo "Region : $DAZN_REGION"
-          echo "=============================="
-
-          if command -v scutil >/dev/null 2>&1; then
-            echo "DNS:"
-            scutil --dns | grep -E 'nameserver\[[0-9]+\]' | head -5 || true
-          fi
-
-          echo "Default route:"
-          route -n get default 2>/dev/null | grep -E 'gateway|interface' || true
-
-          echo "Public IP check:"
-          IPINFO="$(curl -fsSL --max-time 15 https://ipinfo.io/json || true)"
-          echo "$IPINFO"
-
-          COUNTRY="$(printf '%s' "$IPINFO" | sed -n 's/.*"country"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
-          if [ "$COUNTRY" != "$DAZN_REGION" ]; then
-            echo "❌ Runner public IP country is '$COUNTRY', expected '$DAZN_REGION'. Check the VPN on this runner before running DAZN PROD."
-            exit 1
-          fi
-
-          echo "DAZN signin HTTP check:"
-          curl -fsSIL --max-time 30 "https://www.dazn.com/en-GB/signin" | sed -n '1,12p'
 
       - name: Verify Node
         run: |
@@ -284,12 +203,11 @@ jobs:
           echo "USER_STATE  = $USER_STATE"
           echo "PLAN        = $PLAN"
           echo "LOGIN_FIRST = $LOGIN_FIRST"
-          echo "DEV_MODE_ON = $DEV_MODE_ON"
           echo "SWITCH      = $SWITCH"
           echo "=============================="
 
       - name: Run PROD PPV Flow
-        run: npx playwright test tests/existing_user/existinguser.ppv.spec.ts --project=chromium --timeout=600000
+        run: npx playwright test tests/existing_user/existinguser.ppv.spec.ts --project=chromium
 
       - name: Archive reports on runner disk
         if: always()
