@@ -220,11 +220,41 @@ export class AndroidMyAccountPage extends AndroidBasePage {
       await passwordInput.waitForDisplayed({ timeout: 5000 });
       await passwordInput.click();
 
+      const readPassword = async (): Promise<string> => (
+        await passwordInput.getAttribute('text').catch(() => '') ||
+        await passwordInput.getText().catch(() => '')
+      );
+      const hasBullets = (val: string) => val.includes('•') || val.includes('●') || val.includes('*');
+      const isPlaceholderOrEmpty = (val: string) => {
+        const cleaned = val.trim().toLowerCase();
+        return cleaned === '' || cleaned === 'password' || cleaned === 'enter password' || cleaned === 'enter your password';
+      };
+
+      const tryAdbFallback = async () => {
+        console.log('  Password input still empty. Trying ADB shell input text fallback...');
+        const escaped = credentials.password.replace(/([$"`\\!*?&|()<>#~;])/g, '\\$1');
+        try {
+          const { execSync } = require('child_process');
+          const ANDROID_SDK = process.env.ANDROID_HOME || `${process.env.HOME}/Library/Android/sdk`;
+          const ADB = `${ANDROID_SDK}/platform-tools/adb`;
+          execSync(`${ADB} shell input text "${escaped}"`);
+          await this.driver.pause(1000);
+          console.log('  ADB shell input text fallback executed');
+        } catch (adbErr: any) {
+          console.warn(`  ADB text input failed: ${adbErr.message}`);
+        }
+      };
+
       if (emailNeededFallback) {
         console.log('  Email input required key events fallback. Using driver.keys directly for password...');
         await passwordInput.clearValue().catch(() => {});
         await passwordInput.click().catch(() => {});
         await this.driver.keys([...credentials.password]);
+
+        const enteredPassword = await readPassword();
+        if (isPlaceholderOrEmpty(enteredPassword) && !hasBullets(enteredPassword)) {
+          await tryAdbFallback();
+        }
       } else {
         let setValueSuccess = false;
         try {
@@ -238,23 +268,17 @@ export class AndroidMyAccountPage extends AndroidBasePage {
           console.warn(`  setValue failed with error: ${err.message}. Falling back to driver.keys...`);
         }
 
-        // Double-check if password was entered (in case email input check was skipped/not triggered)
-        const readPassword = async (): Promise<string> => (
-          await passwordInput.getAttribute('text').catch(() => '') ||
-          await passwordInput.getText().catch(() => '')
-        );
         let enteredPassword = await readPassword();
-        const hasBullets = (val: string) => val.includes('•') || val.includes('●') || val.includes('*');
-        const isPlaceholderOrEmpty = (val: string) => {
-          const cleaned = val.trim().toLowerCase();
-          return cleaned === '' || cleaned === 'password' || cleaned === 'enter password' || cleaned === 'enter your password';
-        };
-
         if (!setValueSuccess || (isPlaceholderOrEmpty(enteredPassword) && !hasBullets(enteredPassword))) {
           console.log('  Password input did not retain value from setValue. Falling back to driver.keys...');
           await passwordInput.clearValue().catch(() => {});
           await passwordInput.click().catch(() => {});
           await this.driver.keys([...credentials.password]);
+
+          enteredPassword = await readPassword();
+          if (isPlaceholderOrEmpty(enteredPassword) && !hasBullets(enteredPassword)) {
+            await tryAdbFallback();
+          }
         }
       }
       await this.driver.pause(500);
