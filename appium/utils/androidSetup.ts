@@ -28,7 +28,7 @@ function adb(cmd: string): string {
 
 async function clickIfVisible(el: WdElement, label: string, driver: WdBrowser): Promise<boolean> {
   try {
-    if (await el.isDisplayed()) {
+    if (await el.isDisplayed().catch(() => false) || await el.isExisting()) {
       try {
         await el.click();
       } catch (clickErr: any) {
