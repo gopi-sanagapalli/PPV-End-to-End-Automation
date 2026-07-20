@@ -319,6 +319,20 @@ export async function prepareAndroidApp(driver: WdBrowser, options: PrepareAndro
     // Accept cookies but keep the landing page visible (don't dismiss it).
     // This is for LOGIN_FIRST flows where the "Log In" button is on the
     // landing page and must not be hidden by the cookie banner.
+    console.log('⏳ Waiting for Landing page to load...');
+    try {
+      await driver.waitUntil(async () => {
+        return await isLandingPageReady(driver);
+      }, {
+        timeout: 30000,
+        interval: 1000,
+        timeoutMsg: 'Android app landing page did not load in 30s'
+      });
+      console.log('✅ Landing page loaded');
+    } catch (e: any) {
+      console.warn(`⚠️ Warning: Landing page wait timed out: ${e.message}`);
+    }
+
     console.log('🍪 Accepting cookies (landing page preserved)...');
     try {
       await acceptCookiesIfPresent(driver);
