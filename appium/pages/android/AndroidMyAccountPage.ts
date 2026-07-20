@@ -242,6 +242,30 @@ export class AndroidMyAccountPage extends AndroidBasePage {
         return cleaned === '' || cleaned === 'password' || cleaned === 'enter password' || cleaned === 'enter your password';
       };
 
+      const focusPasswordInput = async () => {
+        try {
+          const rect = await passwordInput.getRect();
+          // Tap on the left side of the input field to prevent hitting the password visibility toggle icon on the right
+          const tapX = Math.round(rect.x + 50);
+          const tapY = Math.round(rect.y + rect.height / 2);
+          console.log(`  Tapping password field at coordinate (${tapX}, ${tapY}) to focus...`);
+          await this.driver.performActions([{
+            type: 'pointer',
+            id: 'finger1',
+            parameters: { pointerType: 'touch' },
+            actions: [
+              { type: 'pointerMove', duration: 0, x: tapX, y: tapY },
+              { type: 'pointerDown', button: 0 },
+              { type: 'pointerUp', button: 0 }
+            ]
+          }]);
+          await this.driver.pause(500);
+        } catch (err: any) {
+          console.warn(`  Coordinate focus tap failed: ${err.message}. Falling back to native click...`);
+          await passwordInput.click().catch(() => {});
+        }
+      };
+
       const tryAdbFallback = async () => {
         console.log('  Password input still empty. Trying ADB shell input text fallback...');
         const escaped = credentials.password.replace(/([$"`\\!*?&|()<>#~;])/g, '\\$1');
@@ -266,8 +290,7 @@ export class AndroidMyAccountPage extends AndroidBasePage {
 
       if (emailNeededFallback) {
         console.log('  Email input required key events fallback. Using driver.keys directly for password...');
-        await passwordInput.click().catch(() => {});
-        await this.driver.pause(500);
+        await focusPasswordInput();
         await this.driver.keys([...credentials.password]);
 
         const enteredPassword = await readPassword();
@@ -289,8 +312,7 @@ export class AndroidMyAccountPage extends AndroidBasePage {
         let enteredPassword = await readPassword();
         if (!setValueSuccess || (isPlaceholderOrEmpty(enteredPassword) && !hasBullets(enteredPassword))) {
           console.log('  Password input did not retain value from setValue. Falling back to driver.keys...');
-          await passwordInput.click().catch(() => {});
-          await this.driver.pause(500);
+          await focusPasswordInput();
           await this.driver.keys([...credentials.password]);
 
           enteredPassword = await readPassword();
