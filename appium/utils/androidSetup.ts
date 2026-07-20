@@ -226,6 +226,13 @@ export async function waitForHomePage(driver: WdBrowser, timeoutMs = 120000): Pr
         return false;
       }
 
+      if (await dismissOneStartupDialog(driver)) {
+        sawStartupDialog = true;
+        // Pause briefly after dialog dismissal to let the UI settle
+        await driver.pause(1500);
+        return false;
+      }
+
       if (await isHomeReady(driver)) {
         console.log('  ✓ Home page detected');
         return true;
@@ -242,13 +249,6 @@ export async function waitForHomePage(driver: WdBrowser, timeoutMs = 120000): Pr
       if (elapsed > 40000 && await hasAnyVisibleElement(driver)) {
         console.log('  ✓ App UI detected (fallback after 40s)');
         return true;
-      }
-
-      if (await dismissOneStartupDialog(driver)) {
-        sawStartupDialog = true;
-        // Pause briefly after dialog dismissal to let the UI settle
-        await driver.pause(1500);
-        return false;
       }
 
       return false;
