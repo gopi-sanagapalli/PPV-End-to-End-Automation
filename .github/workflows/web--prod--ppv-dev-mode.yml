@@ -17,6 +17,8 @@ permissions: { contents: read }
 jobs:
   prepare:
     runs-on: [self-hosted, macOS, ARM64]
+    env:
+      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
@@ -33,6 +35,7 @@ jobs:
       matrix:
         include: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     env:
+      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
       CI: 'true'
       HEADLESS: 'true'
       DAZN_ENV: prod

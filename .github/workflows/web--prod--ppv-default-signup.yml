@@ -17,6 +17,8 @@ permissions: { contents: read }
 jobs:
   prepare:
     runs-on: [self-hosted, macOS, ARM64]
+    env:
+      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
     outputs:
       new_matrix: ${{ steps.matrix.outputs.new_matrix }}
       signin_matrix: ${{ steps.matrix.outputs.signin_matrix }}
@@ -45,6 +47,7 @@ jobs:
     name: New user | ${{ matrix.source }} | ${{ matrix.plan }}
     runs-on: [self-hosted, macOS, ARM64]
     env:
+      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
       CI: 'true'
       HEADLESS: 'true'
       DAZN_ENV: prod
@@ -69,6 +72,7 @@ jobs:
     name: Sign in during flow | ${{ matrix.source }} | ${{ matrix.profile }}
     runs-on: [self-hosted, macOS, ARM64]
     env:
+      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
       CI: 'true'
       HEADLESS: 'true'
       DAZN_ENV: prod
@@ -93,6 +97,7 @@ jobs:
     name: Already signed in | ${{ matrix.source }} | ${{ matrix.profile }}
     runs-on: [self-hosted, macOS, ARM64]
     env:
+      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
       CI: 'true'
       HEADLESS: 'true'
       DAZN_ENV: prod

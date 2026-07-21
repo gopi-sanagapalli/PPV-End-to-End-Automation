@@ -17,6 +17,8 @@ permissions: { contents: read }
 jobs:
   prepare:
     runs-on: [self-hosted, macOS, ARM64]
+    env:
+      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
     outputs:
       new_matrix: ${{ steps.matrix.outputs.new_matrix }}
       signin_matrix: ${{ steps.matrix.outputs.signin_matrix }}
@@ -47,6 +49,7 @@ jobs:
       matrix:
         include: ${{ fromJSON(needs.prepare.outputs.new_matrix) }}
     env:
+      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
       CI: 'true'
       HEADLESS: 'true'
       DAZN_ENV: prod
@@ -71,6 +74,7 @@ jobs:
       matrix:
         include: ${{ fromJSON(needs.prepare.outputs.signin_matrix) }}
     env:
+      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
       CI: 'true'
       HEADLESS: 'true'
       DAZN_ENV: prod
@@ -95,6 +99,7 @@ jobs:
       matrix:
         include: ${{ fromJSON(needs.prepare.outputs.signed_matrix) }}
     env:
+      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
       CI: 'true'
       HEADLESS: 'true'
       DAZN_ENV: prod
