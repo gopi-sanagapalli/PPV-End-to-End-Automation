@@ -287,6 +287,29 @@ export async function detectPageType(
   return 'unknown';
 }
 
+export const NO_PPV_SELECTORS = [
+  'a:has-text("Subscribe without a pay-per-view")',
+  'button:has-text("Subscribe without a pay-per-view")',
+  'a:has-text("Subscribe without pay-per-view")',
+  'a:has-text("Continue without pay-per-view")',
+  'a:has-text("Continue without a pay-per-view")',
+  '[class*="ctaWithoutPPV" i]',
+];
+
+export async function findNoPpvLink(
+  page: any,
+  timeout = 3000
+): Promise<{ element: any; selector: string } | null> {
+  for (const selector of NO_PPV_SELECTORS) {
+    const element = page.locator(selector).first();
+    if (await element.isVisible({ timeout }).catch(() => false)) {
+      return { element, selector };
+    }
+  }
+
+  return null;
+}
+
 // ─────────────────────────────────────────────────────────────────
 // HANDLE NO-PPV CLICK — for "Subscribe without a pay-per-view" flow
 // Called when surfacingpoint.json has noPpvClick: true
@@ -297,34 +320,21 @@ export async function handleNoPpvClick(
 ): Promise<void> {
   console.log('🔗 [handleNoPpvClick] Looking for "Subscribe without a pay-per-view" link...');
 
-  const noPpvSelectors = [
-    'a:has-text("Subscribe without a pay-per-view")',
-    'button:has-text("Subscribe without a pay-per-view")',
-    'a:has-text("Subscribe without pay-per-view")',
-    'a:has-text("Continue without pay-per-view")',
-    'a:has-text("Continue without a pay-per-view")',
-    '[class*="ctaWithoutPPV" i]',
-  ];
+  const foundLink = await findNoPpvLink(page);
 
-  let noPpvLink: any = null;
-  for (const sel of noPpvSelectors) {
-    const el = page.locator(sel).first();
-    if (await el.isVisible({ timeout: 3000 }).catch(() => false)) {
-      noPpvLink = el;
-      console.log(`✅ [handleNoPpvClick] Found link via: ${sel}`);
-      break;
-    }
-  }
-
-  if (!noPpvLink) {
+  if (!foundLink) {
     throw new Error(
       '❌ [handleNoPpvClick] "Subscribe without a pay-per-view" link not found on page'
     );
   }
 
+  const noPpvLink = foundLink.element;
+  console.log(`✅ [handleNoPpvClick] Found link via: ${foundLink.selector}`);
   const beforeUrl = page.url();
+  const ctaText = await noPpvLink.innerText().catch(() => 'Subscribe without a pay-per-view');
+  eventData.SUBSCRIBE_WITHOUT_PPV_CTA_TEXT = ctaText.trim();
   await noPpvLink.click({ force: true });
-  console.log('✅ [handleNoPpvClick] Clicked "Subscribe without a pay-per-view"');
+  console.log(`✅ [handleNoPpvClick] Clicked "${ctaText.trim()}"`);
 
   await page.waitForURL(
     (url: URL) =>
