@@ -25,6 +25,19 @@ function replacePlaceholders(template: string, eventData: Record<string, string>
   return result;
 }
 
+function withCurrency(value: string | undefined, currency: string | undefined): string {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const curr = String(currency || '').trim();
+  if (!curr || raw.startsWith(curr) || /^[A-Z]{3}\s/i.test(raw) || /^[£$€₹]/.test(raw)) {
+    return raw;
+  }
+  if (/^[A-Z]{3}$/.test(curr)) {
+    return `${curr} ${raw}`;
+  }
+  return `${curr}${raw}`;
+}
+
 export function resolveExpected(
   rule: any,
   eventData: Record<string, string>
@@ -39,6 +52,10 @@ export function resolveExpected(
 
   const rawPage = rule.Page || rule.page || eventData.CURRENT_PAGE || eventData.current_page || '';
   const pageName = rawPage.trim().toLowerCase();
+  const normalizedPageName = pageName.replace(/[\s_-]+/g, ' ').trim();
+  const isUnspecifiedPage = normalizedPageName === '';
+  const isPlanPage = normalizedPageName === 'dazn plan' || normalizedPageName === 'plan' || isUnspecifiedPage;
+  const isPaymentPage = normalizedPageName === 'payment';
   const currentUserState = String(eventData.USER_STATE || process.env.USER_STATE || '').trim().toLowerCase();
   const isActiveStandardUser = [
     'active_standard',
@@ -112,7 +129,7 @@ export function resolveExpected(
     return eventData.PLAN_CTA_BUTTON || 'Continue with DAZN Ultimate';
   }
 
-  if (pageName === 'payment') {
+  if (isPaymentPage) {
     const isMobileWebHandoff = String(eventData.MOBILE_WEB_HANDOFF || eventData.mobile_web_handoff || '').toLowerCase() === 'true';
 
     // Mobile checkout does not render these desktop payment-section headings.
@@ -359,7 +376,7 @@ export function resolveExpected(
 
   if (
     field === 'flex future date' &&
-    (pageName === 'dazn plan' || pageName === 'plan' || pageName === '')
+    isPlanPage
   ) {
     const isMonthlyTrial =
       currentOfferType === '7_day_trial' &&
@@ -372,12 +389,16 @@ export function resolveExpected(
 
   if (isNonFreeMonthOffer && !isSubscriptionOnly) {
     // DAZN Plan page: no "1 MONTH FREE" badge, no promotional features/price text
-    if (pageName === 'dazn plan' || pageName === 'plan' || pageName === '') {
+    if (isPlanPage) {
       if (field === 'annual badge') {
         return isAnnualFreeMonth ? replacePlaceholders(eventData.ANNUAL_FREE_BADGE || eventData.ANNUAL_BADGE || '', eventData) : 'N/A| |';
       }
       if (field === 'annual price text') {
-        return isAnnualFreeMonth ? replacePlaceholders(eventData.ANNUAL_PRICE_TEXT || '', eventData) : replacePlaceholders(eventData.PLAN_DETAILS_ANNUAL_MONTHLY_DESC || 'Annual contract. Auto renews.|N/A| |', eventData);
+        if (isAnnualFreeMonth) {
+          return replacePlaceholders(eventData.ANNUAL_PRICE_TEXT || '', eventData);
+        }
+        const annualPrice = withCurrency(eventData.ANNUAL_PRICE, eventData.CURRENCY);
+        return annualPrice ? `${annualPrice}/month for 12 months` : 'N/A| |';
       }
       if (
         field === 'annual feature 1' ||
@@ -396,7 +417,7 @@ export function resolveExpected(
     }
 
     // Payment page overrides for non-1-month-free offers
-    if (pageName === 'payment' || pageName === '') {
+    if (isPaymentPage || isUnspecifiedPage) {
       // Payment page header for 7-day trial (monthly only — APM/APU always shows 'Choose how to pay')
       if (currentOfferType === '7_day_trial' && !currentRatePlan.includes('annual') && (field === 'header' || field === 'payment page title')) {
         return eventData.PAYMENT_PAGE_TITLE || eventData.PAYMENT_PAGE_TITLE_TRIAL || 'Choose how to pay after your free trial';
@@ -439,7 +460,7 @@ export function resolveExpected(
 
   if (isMonthlyNoOffer && !isSubscriptionOnly) {
     // DAZN Plan page: no trial badge, no trial description
-    if (pageName === 'dazn plan' || pageName === 'plan' || pageName === '') {
+    if (isPlanPage) {
       if (field === 'flex badge') {
         return 'N/A| |';
       }
@@ -454,7 +475,8 @@ export function resolveExpected(
         return 'N/A| |';
       }
       if (field === 'annual price text') {
-        return eventData.PLAN_DETAILS_ANNUAL_MONTHLY_DESC || 'Annual contract. Auto renews.|N/A| |';
+        const annualPrice = withCurrency(eventData.ANNUAL_PRICE, eventData.CURRENCY);
+        return annualPrice ? `${annualPrice}/month for 12 months` : 'N/A| |';
       }
       if (
         field === 'annual feature 1' ||
@@ -466,7 +488,7 @@ export function resolveExpected(
     }
 
     // Payment page: no free pricing
-    if (pageName === 'payment' || pageName === '') {
+    if (isPaymentPage || isUnspecifiedPage) {
       if (field === 'first month free price' || field === 'first month free text') {
         return 'N/A| |';
       }
@@ -528,7 +550,7 @@ export function resolveExpected(
     const currentSource = (eventData.SOURCE || eventData.source || '').trim().toLowerCase();
 
     if (field === 'header' || field === 'page header') {
-      if (pageName === 'payment') {
+      if (isPaymentPage) {
         raw = eventData.PAYMENT_PAGE_TITLE || eventData.PAYMENT_PAGE_TITLE_STANDARD || 'Choose how to pay';
       } else if (eventData.PAYMENT_HEADER) {
         raw = eventData.PAYMENT_HEADER;

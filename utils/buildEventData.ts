@@ -165,7 +165,10 @@ export function buildEventData(
     );
   }
 
-  const regional = deepMerge(deepMerge(GLOBAL_DEFAULTS, regionalBase), eventRegional);
+  const regional = deepMerge(
+    deepMerge(deepMerge(GLOBAL_DEFAULTS, merged.global || {}), regionalBase),
+    eventRegional
+  );
 
   const base: Record<string, any> = {
     PPV_NAME: merged.PPV_NAME,

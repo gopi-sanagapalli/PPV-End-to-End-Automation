@@ -3,9 +3,19 @@ import { handleCookies } from '../utils/helpers';
 import { validateVariant } from '../flows/validateVariant';
 import { getMyAccountData } from '../utils/excelReader';
 
+const MY_ACCOUNT_PPV_CARD_MARKER = 'data-myaccount-ppv-card-target';
 
 export class MyAccountPage {
   constructor(private page: Page) { }
+
+  private eventNameRegex(ppvName: string): RegExp {
+    const words = this.eventNameWords(ppvName)
+      .map(word => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    if (words.length === 0) {
+      return new RegExp(ppvName.split(/\s+/).join('.*'), 'i');
+    }
+    return new RegExp(words.join('[^a-z0-9]+'), 'i');
+  }
 
   async navigateAndValidatePurchasedPPVStatus(
     baseUrl: string,
@@ -48,6 +58,24 @@ export class MyAccountPage {
   async hasPPV(ppvName: string): Promise<boolean> {
     const row = await this.searchPPVInCurrentDOM(ppvName);
     return row !== null;
+  }
+
+  /**
+   * Ensure the requested PPV is visible before field-level validation. The
+   * My Account overview shows only a short featured list; the full event list
+   * is reached through "Explore more PPV events" at /myaccount/ppv.
+   */
+  async preparePPVValidation(ppvName: string): Promise<boolean> {
+    try {
+      const row = await this.findPPVRow(ppvName);
+      if (!row) return false;
+      await row.scrollIntoViewIfNeeded().catch(() => { });
+      console.log(`✅ Prepared My Account PPV validation for "${ppvName}" on ${this.page.url()}`);
+      return true;
+    } catch (error: any) {
+      console.warn(`⚠️ Unable to prepare My Account PPV validation for "${ppvName}": ${error?.message || 'unknown error'}`);
+      return false;
+    }
   }
 
   // ─────────────────────────────
@@ -126,6 +154,97 @@ export class MyAccountPage {
     // Keep this intentionally strict so a list containing multiple PPVs is not
     // accepted as the requested event card.
     return cardText.length > 0 && cardText.length <= 260 && ctaCount <= 1 && this.isEventTitleText(cardText, ppvName);
+  }
+
+  private async findVisiblePPVCardByDOM(ppvName: string): Promise<Locator | null> {
+    const marked = await this.page.evaluate(({ marker, ppvName }: { marker: string; ppvName: string }) => {
+      const clean = (value: string | null | undefined) =>
+        String(value ?? '').replace(/\s+/g, ' ').trim();
+      const normalize = (value: string) =>
+        clean(value)
+          .toLowerCase()
+          .replace(/\bv(?:s)?\.?\b/g, ' vs ')
+          .replace(/[^a-z0-9]+/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+      const words = normalize(ppvName)
+        .split(' ')
+        .filter(word => word.length > 2 && !['the', 'and', 'for', 'with', 'from', 'vs'].includes(word));
+
+      document.querySelectorAll(`[${marker}]`).forEach(node => node.removeAttribute(marker));
+      if (!words.length) return false;
+
+      const isVisible = (el: HTMLElement): boolean => {
+        const rect = el.getBoundingClientRect();
+        const style = window.getComputedStyle(el);
+        return rect.width > 0 &&
+          rect.height > 0 &&
+          style.display !== 'none' &&
+          style.visibility !== 'hidden' &&
+          style.opacity !== '0';
+      };
+
+      const hasAllWords = (text: string): boolean => {
+        const normalizedText = normalize(text);
+        return words.every(word => normalizedText.includes(word));
+      };
+
+      const candidates = Array.from(document.querySelectorAll<HTMLElement>(
+        'article, li, a, section, div'
+      ));
+      let best: HTMLElement | null = null;
+      let bestScore = -Infinity;
+
+      for (const el of candidates) {
+        if (!isVisible(el)) continue;
+        const text = clean(el.innerText || el.textContent);
+        if (text.length < 8 || text.length > 450) continue;
+        if (!hasAllWords(text)) continue;
+
+        const buyNowCount = (text.match(/\bbuy now\b/gi) || []).length;
+        const statusCount = (text.match(/\b(?:buy now|purchased|included)\b/gi) || []).length;
+        if (buyNowCount > 1 || statusCount > 1) continue;
+
+        const hasPrice = /(?:AED\s?|[£$€₹]\s?)\d+(?:[,.]\d{2})?/i.test(text);
+        const hasDate = /\b(?:mon|monday|tue|tuesday|wed|wednesday|thu|thursday|fri|friday|sat|saturday|sun|sunday)\b/i.test(text) &&
+          (/\bat\b/i.test(text) || /\b\d{1,2}:\d{2}\b/.test(text) || /\b\d{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]{3,9}\b/.test(text));
+        const hasCta = /\b(?:buy now|purchased|included)\b/i.test(text) ||
+          !!el.querySelector('button, a, [role="button"]');
+        const hasMedia = !!el.querySelector('img, picture, [role="img"], [style*="background-image"]');
+
+        // A title/price wrapper is often nested inside the real PPV card. It is
+        // sufficient for the name validation but has no date, CTA, or artwork,
+        // which made the remaining My Account fields incorrectly return N/A.
+        // Only mark a scope that contains at least two independent card signals.
+        const signalCount = Number(hasPrice) + Number(hasDate) + Number(hasCta) + Number(hasMedia);
+        if (signalCount < 2) continue;
+
+        const rect = el.getBoundingClientRect();
+        // Prefer the most complete individual card, then the most specific
+        // container. This keeps the scope away from a whole PPV-list section.
+        let score = signalCount * 10000;
+        score -= text.length;
+        score -= Math.max(0, rect.width - 500) / 10;
+
+        if (score > bestScore) {
+          best = el;
+          bestScore = score;
+        }
+      }
+
+      if (!best) return false;
+      best.setAttribute(marker, 'true');
+      return true;
+    }, { marker: MY_ACCOUNT_PPV_CARD_MARKER, ppvName }).catch(() => false);
+
+    if (!marked) return null;
+    const target = this.page.locator(`[${MY_ACCOUNT_PPV_CARD_MARKER}="true"]`).first();
+    if (await target.isVisible({ timeout: 1000 }).catch(() => false)) {
+      const cardText = ((await target.textContent().catch(() => '')) || '').replace(/\s+/g, ' ').trim();
+      console.log(`✅ Matched My Account PPV card: "${cardText.slice(0, 160)}"`);
+      return target;
+    }
+    return null;
   }
 
   // ─────────────────────────────
@@ -210,7 +329,10 @@ export class MyAccountPage {
   }
 
   private async searchPPVInCurrentDOM(ppvName: string): Promise<Locator | null> {
-    const regex = new RegExp(ppvName.split(/\s+/).join('.*'), 'i');
+    const regex = this.eventNameRegex(ppvName);
+
+    const domCard = await this.findVisiblePPVCardByDOM(ppvName);
+    if (domCard) return domCard;
 
     // Strategy 0: prefer individual PPV cards and require a matching title
     // inside that card. The My Account page can render multiple PPVs inside one
@@ -644,7 +766,7 @@ export class MyAccountPage {
   async getPPVName(ppvName: string): Promise<string> {
     const row = await this.findPPVRow(ppvName);
     if (!row) return 'N/A';
-    const regex = new RegExp(ppvName.split(/\s+/).join('.*'), 'i');
+    const regex = this.eventNameRegex(ppvName);
     const el = row
       .locator('span, p, h2, h3, h4, strong')
       .filter({ hasText: regex })
@@ -655,20 +777,28 @@ export class MyAccountPage {
   async getPPVDate(ppvName: string): Promise<string> {
     const row = await this.findPPVRow(ppvName);
     if (!row) return 'N/A';
+    const readDate = (text: string): string => {
+      const shortDateMatch = text.match(
+        /\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)(?:\s+at\s+\d{1,2}:\d{2})?\b/i
+      );
+      if (shortDateMatch) return shortDateMatch[0].trim();
+
+      const weekdayTimeMatch = text.match(
+        /\b(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s+at\s+\d{1,2}:\d{2}\b/i
+      );
+      return weekdayTimeMatch?.[0].trim() || '';
+    };
+
+    const rowDate = readDate((await row.textContent().catch(() => '')) || '');
+    if (rowDate) return rowDate;
+
     const allEls = row.locator('span, p, div, time');
     const count = await allEls.count().catch(() => 0);
     for (let i = 0; i < count; i++) {
       const text =
         (await allEls.nth(i).textContent().catch(() => ''))?.trim() || '';
-      if (
-        /\b(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\b/i.test(text) &&
-        /\d{1,2}(st|nd|rd|th)?\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)/i.test(
-          text
-        ) &&
-        text.length < 60
-      ) {
-        return text;
-      }
+      const date = readDate(text);
+      if (date) return date;
     }
     return 'N/A';
   }
@@ -676,19 +806,29 @@ export class MyAccountPage {
   async getPPVPrice(ppvName: string): Promise<string> {
     const row = await this.findPPVRow(ppvName);
     if (!row) return 'N/A';
+    const pricePattern = /(AED\s?|[£$€₹]\s?)[\d,.]+/;
+    const rowText = (await row.textContent().catch(() => ''))?.trim() || '';
+    const rowPrice = rowText.match(pricePattern);
+    if (rowPrice) return rowPrice[0].trim();
+
     const el = row
       .locator('span, p, div')
       .filter({ hasText: /(AED\s?|[£$€₹]\s?)[\d,.]+/ })
       .first();
     const text = (await el.textContent().catch(() => 'N/A'))?.trim() || 'N/A';
     if (text === 'N/A') return 'N/A';
-    const match = text.match(/(AED\s?|[£$€₹]\s?)[\d,.]+/);
+    const match = text.match(pricePattern);
     return match ? match[0].trim() : text;
   }
 
   async getPPVStatus(ppvName: string): Promise<string> {
     const row = await this.findPPVRow(ppvName);
     if (!row) return 'N/A';
+
+    const rowText = ((await row.textContent().catch(() => '')) || '').trim();
+    if (/\bbuy now\b/i.test(rowText)) return 'Buy now';
+    if (/\bpurchased\b/i.test(rowText)) return 'Purchased';
+    if (/\bincluded\b/i.test(rowText)) return 'Included';
 
     // Check Buy Now — freemium / standard
     const buyNow = row
@@ -722,14 +862,14 @@ export class MyAccountPage {
       console.log('⚠️ PPV row not found when checking image');
       return false;
     }
-    const img = row.locator('img').first();
-    const isVisible = await img.isVisible({ timeout: 2000 }).catch(() => false);
+    const media = row.locator('img, picture, [role="img"], [style*="background-image"]').first();
+    const isVisible = await media.isVisible({ timeout: 2000 }).catch(() => false);
     if (isVisible) {
       console.log('✅ PPV image is visible in row');
       return true;
     }
-    const count = await row.locator('img').count().catch(() => 0);
-    console.log(`ℹ️ PPV image count in row: ${count}`);
+    const count = await row.locator('img, picture, [role="img"], [style*="background-image"]').count().catch(() => 0);
+    console.log(`ℹ️ PPV media count in row: ${count}`);
     return count > 0;
   }
 

@@ -256,6 +256,10 @@ for (const stateKey of userStatesToRun) {
       isUltimateUpgrade || tier === 'ultimate'
         ? 'ultimate'
         : 'standard';
+    eventData.TIER = effectiveTier;
+    eventData['TIER'] = effectiveTier;
+    eventData.RATE_PLAN = ratePlan;
+    eventData['RATE_PLAN'] = ratePlan;
     const isUltimateLoginFirstUser = LOGIN_FIRST && isActiveUltimateState(userStateKey);
     const isUltimateLoginFirstBoxingMyAccountFlow =
       isUltimateLoginFirstUser &&
@@ -1782,16 +1786,29 @@ for (const stateKey of userStatesToRun) {
         await myAccountPage.scrollToPPVSection();
         const hasPPV = await myAccountPage.hasPPV(eventData.PPV_NAME);
         const myAccountData = getMyAccountData();
-        const filteredMyAccountData = hasPPV
-          ? myAccountData
-          : myAccountData.filter((r: any) => !['PPV Name', 'PPV Date', 'PPV Price', 'PPV Status', 'PPV Image Present'].includes(r.Field));
+        const eventHasConfiguredPPV =
+          !!eventData.PPV_NAME &&
+          eventData.PPV_NAME !== 'N/A' &&
+          eventData.PPV_NAME !== 'none';
+        const shouldValidatePPVRows = eventHasConfiguredPPV;
+        const myAccountPPVFields = new Set([
+          'PPV Name',
+          'PPV Date',
+          'PPV Price',
+          'PPV Status',
+          'PPV Image Present',
+        ]);
+        const overviewData = myAccountData.filter((r: any) => !myAccountPPVFields.has(r.Field));
+        const ppvData = myAccountData.filter((r: any) => myAccountPPVFields.has(r.Field));
 
 
         const expectedPPVStatus = (eventData.PPV_STATUS || '').toLowerCase();
-        for (const row of filteredMyAccountData) {
-          if (row.Field === 'PPV Section Present' && !hasPPV) {
+        for (const row of overviewData) {
+          if (row.Field === 'PPV Section Present' && !hasPPV && !shouldValidatePPVRows) {
             row.Expected = 'Yes|No';
           }
+        }
+        for (const row of ppvData) {
           if (row.Field === 'PPV Price' && (expectedPPVStatus === 'purchased' || expectedPPVStatus === 'included')) {
             row.Expected = 'N/A';
           }
@@ -1812,8 +1829,22 @@ for (const stateKey of userStatesToRun) {
 
 
         await validateVariant(
-          page, 'myaccount', filteredMyAccountData, results, eventData, 'My Account'
+          page, 'myaccount', overviewData, results, eventData, 'My Account'
         );
+
+        if (shouldValidatePPVRows) {
+          // The overview intentionally surfaces only a few featured PPVs. Move
+          // to the full /myaccount/ppv listing before reading event-specific
+          // fields, otherwise those checks are scoped to unrelated featured
+          // cards or return N/A.
+          const ppvReady = hasPPV || await myAccountPage.preparePPVValidation(eventData.PPV_NAME);
+          if (!ppvReady) {
+            console.warn(`⚠️ Configured PPV "${eventData.PPV_NAME}" was not found in the My Account PPV listing. PPV rows will correctly report N/A.`);
+          }
+          await validateVariant(
+            page, 'myaccount', ppvData, results, eventData, 'My Account'
+          );
+        }
 
         // Verify user state matches the expected state. If not, fail early with clear logging.
         const expectedUserStates: Record<string, { subscription: string; status: string; label: string }> = {

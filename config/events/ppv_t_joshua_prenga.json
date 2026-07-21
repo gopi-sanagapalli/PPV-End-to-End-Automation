@@ -6,8 +6,8 @@
   "PPV_TYPE": "normal",
   "HAS_BUNDLE": false,
   "PPV_DEV_MODE": false,
-  "DEFAULT_SIGNUP_DEVMODE": true,
-  "HAS_DEFAULT_SIGNUP_PPV": true,
+  "DEFAULT_SIGNUP_DEVMODE": false,
+  "HAS_DEFAULT_SIGNUP_PPV": false,
   "global": {
     "PPV_PROMOTER": "Matchroom Boxing",
     "PPV_DESCRIPTION": "Catch the biggest moment of the year. Select a DAZN plan to pair with your pay-per-view.",

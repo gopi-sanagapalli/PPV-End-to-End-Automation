@@ -272,8 +272,8 @@ export const validateVariant = async (
     console.log(`📋 End snapshot\n`);
   }
 
-  // ── Run ALL field validations in parallel ─────────────────────
-  const validations = rules.map(async (rule) => {
+  // ── Validate one field ────────────────────────────────────────
+  const validateRule = async (rule: any) => {
     const field = (rule.Field || '').trim();
     if (!field) return null;
     const fieldLowerNormalized = field.toLowerCase().replace(/\s+/g, ' ').trim();
@@ -344,8 +344,11 @@ export const validateVariant = async (
     ]);
     const fieldLowerForFallback = field.toLowerCase().replace(/\s+/g, ' ').trim();
     const requiresExactActual = strictActualFields.has(fieldLowerForFallback);
+    const isMyAccountPPVField =
+      pageName.trim().toLowerCase() === 'my account' &&
+      ['ppv name', 'ppv date', 'ppv price', 'ppv status', 'ppv image present'].includes(fieldLowerForFallback);
 
-    if (actual === 'N/A' && !isExpectedNA && !isPresenceCheck && !requiresExactActual) {
+    if (actual === 'N/A' && !isExpectedNA && !isPresenceCheck && !requiresExactActual && !isMyAccountPPVField) {
       try {
         const fieldLower = fieldLowerForFallback;
         const isPopupField = fieldLower.startsWith('popup');
@@ -475,9 +478,22 @@ export const validateVariant = async (
 
     const status = compare(actual, expected, rule.Type) ? 'PASS' : 'FAIL';
     return { field, expected, actual, status };
-  });
+  };
 
-  const validationResults = await Promise.all(validations);
+  // The My Account PPV fields all query the same card. Running them in
+  // parallel allows their locator searches to race over the dynamically
+  // rendered card DOM, producing a title from one element and N/A for its
+  // sibling values. Keep normal pages parallel, but resolve My Account in
+  // rule order so every PPV field reads a stable, fully rendered page.
+  const serializeMyAccount = pageNameLower === 'my account';
+  const validationResults: Array<{ field: string; expected: string; actual: string; status: string } | null> = [];
+  if (serializeMyAccount) {
+    for (const rule of rules) {
+      validationResults.push(await validateRule(rule));
+    }
+  } else {
+    validationResults.push(...await Promise.all(rules.map(validateRule)));
+  }
 
   for (const result of validationResults) {
     if (!result) continue;

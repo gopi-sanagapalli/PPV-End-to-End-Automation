@@ -3457,7 +3457,21 @@ export async function getActualValue(
     case 'event name':
     case 'event name on top': {
       const ppvName = (eventData?.PPV_NAME || '').toLowerCase();
-      const firstWord = ppvName.split(' ')[0];
+      const normalizedPpvName = ppvName.replace(/[\-–—:]/g, ' ').replace(/\s+/g, ' ').trim();
+      const titleWords = normalizedPpvName
+        .split(/\s+/)
+        .filter(w => w.length > 2 && !/^(the|and|for|with|from|ppv)$/i.test(w));
+      const firstWord = titleWords[0] || '';
+      const normalizeTitle = (value: string): string =>
+        value.replace(/[\-–—:]/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+      const hasExpectedTitle = (value: string): boolean => {
+        const normalizedValue = normalizeTitle(value);
+        if (!normalizedValue || value.length >= 80 || /\d{1,2}:\d{2}/.test(value)) return false;
+        if (normalizedPpvName && normalizedValue === normalizedPpvName) return true;
+        if (titleWords.length === 0) return false;
+        const matched = titleWords.filter(w => normalizedValue.includes(w)).length;
+        return matched >= Math.min(2, titleWords.length);
+      };
 
       const url = page.url();
       if (url.includes('welcome/boxing') || url.includes('/p/boxing') || url.includes('/boxing')) {
@@ -3469,6 +3483,14 @@ export async function getActualValue(
         );
         if (boxingTitle !== 'N/A') return boxingTitle;
       }
+
+      const titleMatch = snapFind(n =>
+        hasExpectedTitle(n.text) &&
+        !n.text.toLowerCase().includes('buy') &&
+        !n.text.toLowerCase().includes('choose') &&
+        (n.childCount === 0 || ['h1', 'h2', 'h3', 'h4', 'strong', 'b', 'p', 'span'].includes(n.tag))
+      );
+      if (titleMatch !== 'N/A') return titleMatch;
 
       const withPPV = snapFind(n =>
         matchesVsPattern(n.text) &&
@@ -6970,7 +6992,15 @@ export async function getActualValue(
 
     case 'ppv section present': {
       const ppvName = (eventData?.PPV_NAME || '').toLowerCase();
-      const firstWord = ppvName.split(' ')[0];
+      const ppvWords = ppvName
+        .replace(/[^a-z0-9]+/g, ' ')
+        .split(/\s+/)
+        .filter(w => w.length > 2 && !['the', 'and', 'for', 'with', 'from', 'ppv'].includes(w));
+      const firstWord = ppvWords[0] || '';
+      const matchesPpvWords = (text: string): boolean => {
+        const lower = text.toLowerCase();
+        return ppvWords.length > 0 && ppvWords.every(w => lower.includes(w));
+      };
 
       // Check for "pay-per-view" section heading
       const hasSection = snapFind(n =>
@@ -6979,11 +7009,11 @@ export async function getActualValue(
       );
       if (hasSection !== 'N/A') return 'Yes';
 
-      // Check for event name with "vs"
-      if (firstWord) {
+      // Check for configured PPV name. This supports both boxing "vs" titles
+      // and non-boxing titles whose live copy drops punctuation.
+      if (ppvWords.length > 0) {
         const hasEvent = snapFind(n =>
-          n.text.toLowerCase().includes(firstWord) &&
-          n.text.toLowerCase().includes('vs') &&
+          matchesPpvWords(n.text) &&
           n.text.length < 80
         );
         if (hasEvent !== 'N/A') return 'Yes';
@@ -7012,11 +7042,10 @@ export async function getActualValue(
       if (hasBuyNow) return 'Yes';
 
       // FIX: Check for PPV name directly using snap.find (bypass childCount)
-      if (firstWord) {
+      if (ppvWords.length > 0) {
         const hasName = snap.find(n =>
           !n.isInModal &&
-          n.text.toLowerCase().includes(firstWord) &&
-          n.text.toLowerCase().includes('vs') &&
+          matchesPpvWords(n.text) &&
           n.text.length < 60
         );
         if (hasName) return 'Yes';
@@ -7026,7 +7055,7 @@ export async function getActualValue(
       // Check if PPV row exists anywhere in DOM
       try {
         const livePPV = await page.locator('div, li')
-          .filter({ hasText: new RegExp(ppvName.split(' ')[0], 'i') })
+          .filter({ hasText: new RegExp(firstWord || ppvName.split(' ')[0] || 'ppv', 'i') })
           .filter({ hasText: /buy now/i })
           .first()
           .isVisible({ timeout: 1000 });
@@ -7477,7 +7506,20 @@ export async function getActualValue(
 
     case 'order summary ppv name': {
       const ppvName = (eventData?.PPV_NAME || '').toLowerCase();
-      const firstWord = ppvName.split(' ')[0];
+      const ppvWords = ppvName
+        .replace(/[^a-z0-9]+/g, ' ')
+        .split(/\s+/)
+        .filter(w => w.length > 2 && !['the', 'and', 'for', 'with', 'from', 'ppv'].includes(w));
+      const firstWord = ppvWords[0] || '';
+
+      const titleMatch = snapFind(n => {
+        const lower = n.text.toLowerCase();
+        return ppvWords.length > 0 &&
+          ppvWords.every(w => lower.includes(w)) &&
+          n.text.length < 80 &&
+          !/(buy|flex|annual|monthly|subscribe|payment|pay|change|dazn standard|dazn ultimate)/i.test(n.text);
+      });
+      if (titleMatch !== 'N/A') return titleMatch;
 
       return snapFind(n =>
         n.text.toLowerCase().includes('vs') &&

@@ -84,7 +84,7 @@ export class PPVPage {
     }
 
     // Capture red-boxed screenshots for any failed fields
-    await captureFailures(this.page, results, pageName);
+    await captureFailures(this.page, results, pageName, eventData);
   }
 
   // ─────────────────────────────

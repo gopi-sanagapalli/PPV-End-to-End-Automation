@@ -846,6 +846,24 @@ export class PaymentPage extends BasePage {
       const match = bodyText.match(regex);
       if (match) return match[0].trim();
 
+      const titleWords = ppvName
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, ' ')
+        .split(/\s+/)
+        .filter(w => w.length > 2 && !['the', 'and', 'for', 'with', 'from', 'ppv'].includes(w));
+      if (titleWords.length > 0) {
+        for (const line of lines) {
+          const lowerLine = line.toLowerCase();
+          if (
+            line.length < 100 &&
+            titleWords.every(w => lowerLine.includes(w)) &&
+            !/(flex|annual|monthly|subscribe|payment|pay|change|dazn standard|dazn ultimate)/i.test(line)
+          ) {
+            return line.trim();
+          }
+        }
+      }
+
       // Fallback: match by fighter names (handles "v" vs "vs." mismatch)
       // Extract distinct name parts (words > 3 chars, excluding separators)
       const nameParts = ppvName
