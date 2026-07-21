@@ -55,19 +55,19 @@ switch (mode) {
     ];
     break;
   case 'live-new': {
-    const sources = applicable(['boxing-banner-ultimate', 'boxing-join-the-club', 'boxing-page-banner', 'boxing-page-bundle', 'boxing-standard-subscription', 'boxing-upcoming-fights', 'boxing-ultimate-subscription', 'home-biggest-fights', 'home-boxing-banner', 'home-boxing-tile', 'home-boxing-upcoming', 'home-kickboxing-tile', 'home-page-banner', 'home-page-dazntile', 'home-page-dont-miss', 'home-page-get-started', 'landing-page-banner', 'landing-page-dont-miss-live', 'schedule', 'search']);
+    const sources = applicable(['boxing-banner-ultimate', 'boxing-join-the-club', 'boxing-page-banner', 'boxing-page-bundle', 'boxing-standard-subscription', 'boxing-upcoming-fights', 'boxing-ultimate-subscription', 'home-biggest-fights', 'home-boxing-banner', 'home-boxing-tile', 'home-boxing-upcoming', 'home-kickboxing-tile', 'home-page-banner', 'home-page-dazntile', 'home-page-dont-miss', 'home-page-get-started', 'landing-page-banner', 'landing-page-dont-miss-live', 'schedule', 'search'], false);
     matrix = sources.flatMap((source) => standardPlans.filter((plan) => !ultimateOnly.has(source) || plan.startsWith('ultimate_')).map((plan) => ({ source, plan })));
     matrix.push({ source: 'landing-page-dont-miss-live-switch', plan: 'standard_monthly', switch: 'true' }, { source: 'landing-page-dont-miss-live-switch', plan: 'standard_apm', switch: 'true' });
     break;
   }
   case 'live-existing': {
-    const sources = applicable(['landing-page-banner', 'home-page-banner', 'home-page-dont-miss', 'home-biggest-fights', 'home-page-dazntile', 'home-boxing-banner', 'home-boxing-tile', 'home-boxing-upcoming', 'home-kickboxing-tile', 'boxing-page-banner', 'boxing-page-bundle', 'boxing-upcoming-fights', 'boxing-banner-ultimate', 'boxing-ultimate-subscription', 'boxing-standard-subscription', 'boxing-join-the-club', 'search', 'schedule', 'myaccount']);
+    const sources = applicable(['landing-page-banner', 'home-page-banner', 'home-page-dont-miss', 'home-biggest-fights', 'home-page-dazntile', 'home-boxing-banner', 'home-boxing-tile', 'home-boxing-upcoming', 'home-kickboxing-tile', 'boxing-page-banner', 'boxing-page-bundle', 'boxing-upcoming-fights', 'boxing-banner-ultimate', 'boxing-ultimate-subscription', 'boxing-standard-subscription', 'boxing-join-the-club', 'search', 'schedule', 'myaccount'], false);
     matrix = sources.flatMap((source) => regularProfiles.filter((profile) => !ultimateOnly.has(source) || validUltimateProfiles.has(profile)).map((profile) => ({ source, profile })));
     matrix.push({ source: 'landing-page-dont-miss-live-switch', profile: 'freemium/standard_monthly', switch: 'true' }, { source: 'landing-page-dont-miss-live-switch', profile: 'freemium/standard_apm', switch: 'true' });
     break;
   }
   case 'live-signed': {
-    const sources = applicable(['home-page-banner', 'home-page-dont-miss', 'home-biggest-fights', 'home-page-dazntile', 'home-boxing-banner', 'home-boxing-tile', 'home-boxing-upcoming', 'home-kickboxing-tile', 'boxing-page-banner', 'boxing-page-bundle', 'boxing-upcoming-fights', 'boxing-banner-ultimate', 'boxing-ultimate-subscription', 'boxing-standard-subscription', 'boxing-join-the-club', 'search', 'schedule', 'myaccount']);
+    const sources = applicable(['home-page-banner', 'home-page-dont-miss', 'home-biggest-fights', 'home-page-dazntile', 'home-boxing-banner', 'home-boxing-tile', 'home-boxing-upcoming', 'home-kickboxing-tile', 'boxing-page-banner', 'boxing-page-bundle', 'boxing-upcoming-fights', 'boxing-banner-ultimate', 'boxing-ultimate-subscription', 'boxing-standard-subscription', 'boxing-join-the-club', 'search', 'schedule', 'myaccount'], false);
     matrix = sources.flatMap((source) => regularProfiles.filter((profile) => !ultimateOnly.has(source) || validUltimateProfiles.has(profile)).map((profile) => ({ source, profile })));
     break;
   }
