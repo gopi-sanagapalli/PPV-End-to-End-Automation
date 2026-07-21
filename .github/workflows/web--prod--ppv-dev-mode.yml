@@ -44,5 +44,6 @@ jobs:
       DEV_MODE_ON: 'on'
       SWITCH: 'false'
     steps:
+      - uses: actions/checkout@v4
       - uses: ./.github/actions/ppv-generic-runner
         with: { journey: dev-mode-my-account }
