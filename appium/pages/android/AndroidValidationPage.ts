@@ -689,11 +689,17 @@ export class AndroidValidationPage extends AndroidBasePage {
       await pushResult('Description', expectedDesc, isDescPresent ? expectedDesc : 'Not found', isDescPresent);
 
       // 5. Fight Card Button
+      const isLandingPage = String(source || '').trim().toLowerCase() === 'landing-page-banner';
       const hasFightCard = texts.some(t => {
         const tl = t.toLowerCase().replace(/\s+/g, '');
         return tl.includes('fightcard') || tl.includes('fightcards');
       }) || pageSource.toLowerCase().replace(/\s+/g, '').includes('fightcard');
-      await pushResult('Fight Card Button', 'Fight Card', hasFightCard ? 'Fight Card' : 'Not found', hasFightCard);
+
+      if (isLandingPage) {
+        await pushResult('Fight Card Button', 'Absent', hasFightCard ? 'Present' : 'Absent', !hasFightCard);
+      } else {
+        await pushResult('Fight Card Button', 'Fight Card', hasFightCard ? 'Fight Card' : 'Not found', hasFightCard);
+      }
 
       // Conditional validations based on user type:
       if (!isUltimateUser) {
