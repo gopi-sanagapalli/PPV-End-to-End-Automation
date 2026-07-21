@@ -79,9 +79,9 @@ function findConfig(dir: string, filename: string): string | null {
 
 export function loadEventConfig(eventConfigOrKey?: string, planKeyOverride?: string): Record<string, any> {
   const configSource = process.env.PPV_CONFIG || process.env.PPV_EVENT || eventConfigOrKey || 'ppv_t_joshua_prenga.json';
-  
+
   let filePath: string | null = null;
-  
+
   // If it's a direct path that exists, use it
   if (fs.existsSync(configSource) && fs.statSync(configSource).isFile()) {
     filePath = configSource;
