@@ -8,10 +8,10 @@ import {
 import { getAndroidValidationSheet } from './AndroidSurfacingPoint';
 
 // Timezone-aware date utilities loaded dynamically to avoid tsconfig rootDir restrictions
-let getDynamicDateTimeBadge: ((template: string, region?: string) => string) | undefined;
+let getDynamicDateTimeBadge: ((template: string, referenceDate?: Date) => string) | undefined;
 let getNowForRegion: ((region?: string) => Date) | undefined;
 try {
-  const dateUtils = require('../../../../utils/dateUtils');
+  const dateUtils = require('../../../utils/dateUtils');
   getDynamicDateTimeBadge = dateUtils.getDynamicDateTimeBadge;
   getNowForRegion = dateUtils.getNowForRegion;
 } catch (e) {
@@ -588,6 +588,42 @@ export class AndroidValidationPage extends AndroidBasePage {
           : undefined;
         if (semanticMatch) return { isMatch: true, actualVal: semanticMatch };
 
+        // Fallback for cases like "Saturday at 8:00pm" matching "Sat 25th Jul at 20:00"
+        const parseTimeAndWeekday = (val: string) => {
+          const normalized = normalizeDateString(val);
+          const weekday = normalized.match(/\b(sun|mon|tue|wed|thu|fri|sat)[a-z]*\b/i)?.[1]?.toLowerCase();
+          const timeMatch = normalized.match(/(?:\bat\b|•|\s|^)\s*(\d{1,2}):(\d{2})(?:\s*(am|pm))?\b/i) || 
+                            normalized.match(/(?:\bat\b|•|\s|^)\s*(\d{1,2})\s*(am|pm)\b/i);
+          if (!timeMatch) return null;
+          
+          let hour = parseInt(timeMatch[1], 10);
+          let minute = 0;
+          let meridiem;
+
+          if (timeMatch[2] && !isNaN(parseInt(timeMatch[2], 10))) {
+            minute = parseInt(timeMatch[2], 10);
+            meridiem = timeMatch[3]?.toLowerCase();
+          } else {
+            meridiem = timeMatch[2]?.toLowerCase();
+          }
+
+          if (meridiem === 'pm' && hour < 12) hour += 12;
+          if (meridiem === 'am' && hour === 12) hour = 0;
+          return { weekday, hour, minute };
+        };
+
+        const expectedTimeWk = parseTimeAndWeekday(expectedVal);
+        if (expectedTimeWk) {
+          const actualMatch = texts.find(t => {
+            const actualTimeWk = parseTimeAndWeekday(t);
+            return !!actualTimeWk &&
+              actualTimeWk.hour === expectedTimeWk.hour &&
+              actualTimeWk.minute === expectedTimeWk.minute &&
+              (!expectedTimeWk.weekday || !actualTimeWk.weekday || actualTimeWk.weekday === expectedTimeWk.weekday);
+          });
+          if (actualMatch) return { isMatch: true, actualVal: actualMatch };
+        }
+
         const joined = normalizeDateString(texts.join(' '));
         if (joined.includes(expClean)) return { isMatch: true, actualVal: expectedVal };
         if (normalizeDateString(pageSource).includes(expClean)) return { isMatch: true, actualVal: expectedVal };
@@ -637,7 +673,7 @@ export class AndroidValidationPage extends AndroidBasePage {
       const region = (eventData.DAZN_REGION || process.env.DAZN_REGION || 'GB').toUpperCase();
       const dateTimeTemplate = eventData.MOBILE_BANNER_DATE_TIME || eventData.MOBILE_BANNER_DATE || eventData.PPV_DATE;
       const expectedDate = getDynamicDateTimeBadge 
-        ? getDynamicDateTimeBadge(dateTimeTemplate, region) 
+        ? getDynamicDateTimeBadge(dateTimeTemplate, getNowForRegion ? getNowForRegion(region) : undefined) 
         : dateTimeTemplate;
       
       const dateCheck = checkDateTimeMatch(expectedDate);
@@ -653,11 +689,17 @@ export class AndroidValidationPage extends AndroidBasePage {
       await pushResult('Description', expectedDesc, isDescPresent ? expectedDesc : 'Not found', isDescPresent);
 
       // 5. Fight Card Button
+      const isLandingPage = String(source || '').trim().toLowerCase() === 'landing-page-banner';
       const hasFightCard = texts.some(t => {
         const tl = t.toLowerCase().replace(/\s+/g, '');
         return tl.includes('fightcard') || tl.includes('fightcards');
       }) || pageSource.toLowerCase().replace(/\s+/g, '').includes('fightcard');
-      await pushResult('Fight Card Button', 'Fight Card', hasFightCard ? 'Fight Card' : 'Not found', hasFightCard);
+
+      if (isLandingPage) {
+        await pushResult('Fight Card Button', 'Absent', hasFightCard ? 'Present' : 'Absent', !hasFightCard);
+      } else {
+        await pushResult('Fight Card Button', 'Fight Card', hasFightCard ? 'Fight Card' : 'Not found', hasFightCard);
+      }
 
       // Conditional validations based on user type:
       if (!isUltimateUser) {
