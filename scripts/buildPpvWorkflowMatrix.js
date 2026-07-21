@@ -30,6 +30,14 @@ const regularProfiles = [
 ];
 const ultimateOnly = new Set(['boxing-banner-ultimate', 'boxing-ultimate-subscription', 'boxing-join-the-club']);
 const validUltimateProfiles = new Set(['active_standard_monthly/ultimate_apm', 'active_standard_monthly/ultimate_upfront', 'active_standard_apm/ultimate_apm']);
+const androidNewSources = ['landing-page-banner', 'home-page-banner', 'home-page-dont-miss', 'home-boxing-banner', 'home-boxing-upcoming', 'home-boxing-tile', 'schedule', 'search'];
+const androidExistingSources = androidNewSources.filter(source => source !== 'landing-page-banner');
+const androidProfiles = regularProfiles;
+const androidDevices = [
+  { deviceSerial: 'RZCW308EJKZ', appiumPort: 4723, appiumSystemPort: 8200, chromedriverPort: 9515 },
+  { deviceSerial: 'RZCX22324AF', appiumPort: 4724, appiumSystemPort: 8201, chromedriverPort: 9516 },
+];
+const assignAndroidDevices = (entries) => entries.map((entry, index) => ({ ...entry, ...androidDevices[index % androidDevices.length] }));
 
 const applicable = (sources, allowDefaultSignup = hasDefaultSignup) => sources.filter((source) => {
   if (source === 'home-kickboxing-tile' && !isKickboxing) return false;
@@ -71,6 +79,12 @@ switch (mode) {
     matrix = sources.flatMap((source) => regularProfiles.filter((profile) => !ultimateOnly.has(source) || validUltimateProfiles.has(profile)).map((profile) => ({ source, profile })));
     break;
   }
+  case 'android-full-new': matrix = assignAndroidDevices(androidNewSources.flatMap(source => standardPlans.map(plan => ({ source, plan })))); break;
+  case 'android-full-signin': matrix = assignAndroidDevices(androidNewSources.flatMap(source => androidProfiles.map(profile => ({ source, profile })))); break;
+  case 'android-full-signed': matrix = assignAndroidDevices(androidExistingSources.flatMap(source => androidProfiles.map(profile => ({ source, profile })))); break;
+  case 'android-sanity-new': matrix = assignAndroidDevices(androidNewSources.map((source, index) => ({ source, plan: standardPlans[index % standardPlans.length] }))); break;
+  case 'android-sanity-signin': matrix = assignAndroidDevices(androidNewSources.map((source, index) => ({ source, profile: androidProfiles[index] }))); break;
+  case 'android-sanity-signed': matrix = assignAndroidDevices(androidExistingSources.map((source, index) => ({ source, profile: androidProfiles[index + androidNewSources.length] }))); break;
   case 'default-new':
     matrix = ['boxing-standard-subscription', 'home-page-get-started', 'home-page-dazntile'].flatMap((source) => standardPlans.map((plan) => ({ source, plan })));
     matrix.push({ source: 'subscribe-without-pay-per-view', plan: 'standard_monthly' });

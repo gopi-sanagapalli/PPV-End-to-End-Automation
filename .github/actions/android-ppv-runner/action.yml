@@ -1,0 +1,40 @@
+name: Run Android PPV journey
+inputs:
+  journey: { required: true }
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: npm ci
+    - shell: bash
+      run: cd appium && npm ci
+    - name: Verify assigned Android device
+      shell: bash
+      run: |
+        set -euo pipefail
+        adb start-server
+        adb -s "$DEVICE_SERIAL" wait-for-device
+        adb -s "$DEVICE_SERIAL" get-state | grep -qx device
+    - if: ${{ env.PROFILE != '' }}
+      shell: bash
+      run: |
+        IFS='/' read -r state plan <<< "$PROFILE"
+        echo "USER_STATE=$state" >> "$GITHUB_ENV"
+        echo "PLAN=$plan" >> "$GITHUB_ENV"
+    - shell: bash
+      run: |
+        cd appium
+        if [ "${{ inputs.journey }}" = "new-user" ]; then
+          npx wdio run config/wdio.android.conf.ts --spec tests/android/ppv.handoff.spec.ts
+        else
+          npx wdio run config/wdio.android.conf.ts --spec tests/android/existingusermobile.ppv.spec.ts
+        fi
+    - name: Upload Android test results
+      if: ${{ always() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: ppv-android-${{ env.SOURCE }}-${{ env.PROFILE || env.PLAN }}-${{ github.run_attempt }}
+        path: |
+          appium/test-results/
+          reports/
+        if-no-files-found: warn

@@ -1,0 +1,127 @@
+name: Android · Prod · PPV live
+
+on:
+  workflow_dispatch:
+    inputs:
+      PPV_CONFIG:
+        description: PPV JSON filename from config/events
+        required: true
+        type: string
+      COUNTRY:
+        description: Country
+        required: true
+        type: choice
+        default: GB
+        options: [GB, US, AU, BR, AE]
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    name: Validate PPV and build matrix
+    runs-on: [self-hosted, macOS, ARM64, sridevi-runners]
+    outputs:
+      new_matrix: ${{ steps.matrix.outputs.new_matrix }}
+      signin_matrix: ${{ steps.matrix.outputs.signin_matrix }}
+      signed_matrix: ${{ steps.matrix.outputs.signed_matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          for mode in android-full-new android-full-signin android-full-signed; do
+            output_file="$(mktemp)"
+            GITHUB_OUTPUT="$output_file" node scripts/buildPpvWorkflowMatrix.js "$mode" '${{ inputs.PPV_CONFIG }}' '${{ inputs.COUNTRY }}'
+            case "$mode" in
+              android-full-new) key=new_matrix ;;
+              android-full-signin) key=signin_matrix ;;
+              android-full-signed) key=signed_matrix ;;
+            esac
+            sed "s/^matrix=/$key=/" "$output_file" >> "$GITHUB_OUTPUT"
+            rm "$output_file"
+          done
+
+  new-user:
+    needs: prepare
+    name: New user | ${{ matrix.source }} | ${{ matrix.plan }}
+    runs-on: [self-hosted, macOS, ARM64, sridevi-runners]
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include: ${{ fromJSON(needs.prepare.outputs.new_matrix) }}
+    env:
+      CI: 'true'
+      DAZN_ENV: prod
+      DAZN_REGION: ${{ inputs.COUNTRY }}
+      PPV_CONFIG: ${{ inputs.PPV_CONFIG }}
+      SOURCE: ${{ matrix.source }}
+      PLAN: ${{ matrix.plan }}
+      DEVICE_SERIAL: ${{ matrix.deviceSerial }}
+      APPIUM_PORT: ${{ matrix.appiumPort }}
+      APPIUM_SYSTEM_PORT: ${{ matrix.appiumSystemPort }}
+      CHROMEDRIVER_PORT: ${{ matrix.chromedriverPort }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/android-ppv-runner
+        with:
+          journey: new-user
+
+  existing-sign-in-during-flow:
+    needs: prepare
+    name: Existing user · Sign in during flow | ${{ matrix.source }} | ${{ matrix.profile }}
+    runs-on: [self-hosted, macOS, ARM64, sridevi-runners]
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include: ${{ fromJSON(needs.prepare.outputs.signin_matrix) }}
+    env:
+      CI: 'true'
+      DAZN_ENV: prod
+      DAZN_REGION: ${{ inputs.COUNTRY }}
+      PPV_CONFIG: ${{ inputs.PPV_CONFIG }}
+      SOURCE: ${{ matrix.source }}
+      PROFILE: ${{ matrix.profile }}
+      LOGIN_FIRST: 'false'
+      DEVICE_SERIAL: ${{ matrix.deviceSerial }}
+      APPIUM_PORT: ${{ matrix.appiumPort }}
+      APPIUM_SYSTEM_PORT: ${{ matrix.appiumSystemPort }}
+      CHROMEDRIVER_PORT: ${{ matrix.chromedriverPort }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/android-ppv-runner
+        with:
+          journey: sign-in-during-flow
+
+  existing-already-signed-in:
+    needs: prepare
+    name: Existing user · Already signed in | ${{ matrix.source }} | ${{ matrix.profile }}
+    runs-on: [self-hosted, macOS, ARM64, sridevi-runners]
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include: ${{ fromJSON(needs.prepare.outputs.signed_matrix) }}
+    env:
+      CI: 'true'
+      DAZN_ENV: prod
+      DAZN_REGION: ${{ inputs.COUNTRY }}
+      PPV_CONFIG: ${{ inputs.PPV_CONFIG }}
+      SOURCE: ${{ matrix.source }}
+      PROFILE: ${{ matrix.profile }}
+      LOGIN_FIRST: 'true'
+      DEVICE_SERIAL: ${{ matrix.deviceSerial }}
+      APPIUM_PORT: ${{ matrix.appiumPort }}
+      APPIUM_SYSTEM_PORT: ${{ matrix.appiumSystemPort }}
+      CHROMEDRIVER_PORT: ${{ matrix.chromedriverPort }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/android-ppv-runner
+        with:
+          journey: already-signed-in
