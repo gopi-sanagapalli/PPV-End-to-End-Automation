@@ -3457,7 +3457,21 @@ export async function getActualValue(
     case 'event name':
     case 'event name on top': {
       const ppvName = (eventData?.PPV_NAME || '').toLowerCase();
-      const firstWord = ppvName.split(' ')[0];
+      const normalizedPpvName = ppvName.replace(/[\-–—:]/g, ' ').replace(/\s+/g, ' ').trim();
+      const titleWords = normalizedPpvName
+        .split(/\s+/)
+        .filter(w => w.length > 2 && !/^(the|and|for|with|from|ppv)$/i.test(w));
+      const firstWord = titleWords[0] || '';
+      const normalizeTitle = (value: string): string =>
+        value.replace(/[\-–—:]/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+      const hasExpectedTitle = (value: string): boolean => {
+        const normalizedValue = normalizeTitle(value);
+        if (!normalizedValue || value.length >= 80 || /\d{1,2}:\d{2}/.test(value)) return false;
+        if (normalizedPpvName && normalizedValue === normalizedPpvName) return true;
+        if (titleWords.length === 0) return false;
+        const matched = titleWords.filter(w => normalizedValue.includes(w)).length;
+        return matched >= Math.min(2, titleWords.length);
+      };
 
       const url = page.url();
       if (url.includes('welcome/boxing') || url.includes('/p/boxing') || url.includes('/boxing')) {
@@ -3469,6 +3483,14 @@ export async function getActualValue(
         );
         if (boxingTitle !== 'N/A') return boxingTitle;
       }
+
+      const titleMatch = snapFind(n =>
+        hasExpectedTitle(n.text) &&
+        !n.text.toLowerCase().includes('buy') &&
+        !n.text.toLowerCase().includes('choose') &&
+        (n.childCount === 0 || ['h1', 'h2', 'h3', 'h4', 'strong', 'b', 'p', 'span'].includes(n.tag))
+      );
+      if (titleMatch !== 'N/A') return titleMatch;
 
       const withPPV = snapFind(n =>
         matchesVsPattern(n.text) &&
@@ -4699,8 +4721,7 @@ export async function getActualValue(
         n.text.toLowerCase() !== 'pay-per-views included' &&
         !n.text.toLowerCase().includes('all these fights included') &&
         !n.text.toLowerCase().startsWith('pay-per-views included\n') &&
-        !n.text.toLowerCase().includes('7-day') &&
-        !n.text.toLowerCase().includes('7 days') &&
+        !/\d+[-\s]?days?\b/i.test(n.text) &&
         !n.text.toLowerCase().includes('cancel anytime') &&
         !n.text.toLowerCase().includes('monthly flex') &&
         !n.text.toLowerCase().includes('free access to dazn') &&
@@ -5125,7 +5146,7 @@ export async function getActualValue(
     case 'bundle card description': {
       const found = snapFind(n =>
         (n.text.toLowerCase().includes('just the fight') ||
-          n.text.toLowerCase().includes('plus 7 days of dazn standard')) &&
+          /plus\s+\d+\s+days\s+of\s+dazn\s+standard/i.test(n.text)) &&
         n.text.length < 100
       );
       if (found !== 'N/A') return found;
@@ -6167,7 +6188,7 @@ export async function getActualValue(
       const trialFeatures = snapFindAll(n =>
         n.tag === 'li' &&
         n.text.length > 5 &&
-        (n.text.toLowerCase().includes('7-day') ||
+        (/\d+-day/i.test(n.text) ||
           n.text.toLowerCase().includes('cancel anytime') ||
           n.text.toLowerCase().includes('free access'))
       );
@@ -6189,7 +6210,7 @@ export async function getActualValue(
           n.classes.toLowerCase().includes('highlight') ||
           n.classes.toLowerCase().includes('accent') ||
           n.classes.toLowerCase().includes('gold')) &&
-        n.text.toLowerCase().includes('7-days') &&
+        /\d+-days?/i.test(n.text) &&
         n.text.toLowerCase().includes('free') &&
         n.text.toLowerCase().includes('access') &&
         n.text.length < 80
@@ -6203,7 +6224,7 @@ export async function getActualValue(
         if (!await el.isVisible().catch(() => false)) continue;
         const t = clean(await el.innerText({ timeout: T }).catch(() => ''));
         if (
-          t.toLowerCase().includes('7-days') &&
+          /\d+-days?/i.test(t) &&
           t.toLowerCase().includes('free') &&
           t.toLowerCase().includes('access') &&
           t.length < 80
@@ -6662,7 +6683,7 @@ export async function getActualValue(
     }
 
     // ════════════════════════════════════════════════════════════
-    // PAYMENT PAGE — 7 DAYS FREE
+    // PAYMENT PAGE — N DAYS FREE
     // ════════════════════════════════════════════════════════════
     case '7 days free badge':
     case '7-days free badge':
@@ -6670,10 +6691,7 @@ export async function getActualValue(
     case '7-day free text': {
       return snapFind(n =>
         n.childCount === 0 &&
-        (n.text.toLowerCase().includes('7-day') ||
-          n.text.toLowerCase().includes('7 day') ||
-          n.text.toLowerCase().includes('7-days') ||
-          n.text.toLowerCase().includes('7 days')) &&
+        /\d+[-\s]?days?/i.test(n.text) &&
         n.text.toLowerCase().includes('free') &&
         n.text.length < 40
       );
@@ -6686,8 +6704,7 @@ export async function getActualValue(
         for (const el of allEls) {
           const text = (el.innerText || '').trim().toLowerCase();
           if (
-            !(text.includes('7-day') || text.includes('7 day') ||
-              text.includes('7-days') || text.includes('7 days')) ||
+            !/\d+[-\s]?days?/.test(text) ||
             !text.includes('free') ||
             text.length > 40
           ) continue;
@@ -6970,7 +6987,15 @@ export async function getActualValue(
 
     case 'ppv section present': {
       const ppvName = (eventData?.PPV_NAME || '').toLowerCase();
-      const firstWord = ppvName.split(' ')[0];
+      const ppvWords = ppvName
+        .replace(/[^a-z0-9]+/g, ' ')
+        .split(/\s+/)
+        .filter(w => w.length > 2 && !['the', 'and', 'for', 'with', 'from', 'ppv'].includes(w));
+      const firstWord = ppvWords[0] || '';
+      const matchesPpvWords = (text: string): boolean => {
+        const lower = text.toLowerCase();
+        return ppvWords.length > 0 && ppvWords.every(w => lower.includes(w));
+      };
 
       // Check for "pay-per-view" section heading
       const hasSection = snapFind(n =>
@@ -6979,11 +7004,11 @@ export async function getActualValue(
       );
       if (hasSection !== 'N/A') return 'Yes';
 
-      // Check for event name with "vs"
-      if (firstWord) {
+      // Check for configured PPV name. This supports both boxing "vs" titles
+      // and non-boxing titles whose live copy drops punctuation.
+      if (ppvWords.length > 0) {
         const hasEvent = snapFind(n =>
-          n.text.toLowerCase().includes(firstWord) &&
-          n.text.toLowerCase().includes('vs') &&
+          matchesPpvWords(n.text) &&
           n.text.length < 80
         );
         if (hasEvent !== 'N/A') return 'Yes';
@@ -7012,11 +7037,10 @@ export async function getActualValue(
       if (hasBuyNow) return 'Yes';
 
       // FIX: Check for PPV name directly using snap.find (bypass childCount)
-      if (firstWord) {
+      if (ppvWords.length > 0) {
         const hasName = snap.find(n =>
           !n.isInModal &&
-          n.text.toLowerCase().includes(firstWord) &&
-          n.text.toLowerCase().includes('vs') &&
+          matchesPpvWords(n.text) &&
           n.text.length < 60
         );
         if (hasName) return 'Yes';
@@ -7026,7 +7050,7 @@ export async function getActualValue(
       // Check if PPV row exists anywhere in DOM
       try {
         const livePPV = await page.locator('div, li')
-          .filter({ hasText: new RegExp(ppvName.split(' ')[0], 'i') })
+          .filter({ hasText: new RegExp(firstWord || ppvName.split(' ')[0] || 'ppv', 'i') })
           .filter({ hasText: /buy now/i })
           .first()
           .isVisible({ timeout: 1000 });
@@ -7477,7 +7501,20 @@ export async function getActualValue(
 
     case 'order summary ppv name': {
       const ppvName = (eventData?.PPV_NAME || '').toLowerCase();
-      const firstWord = ppvName.split(' ')[0];
+      const ppvWords = ppvName
+        .replace(/[^a-z0-9]+/g, ' ')
+        .split(/\s+/)
+        .filter(w => w.length > 2 && !['the', 'and', 'for', 'with', 'from', 'ppv'].includes(w));
+      const firstWord = ppvWords[0] || '';
+
+      const titleMatch = snapFind(n => {
+        const lower = n.text.toLowerCase();
+        return ppvWords.length > 0 &&
+          ppvWords.every(w => lower.includes(w)) &&
+          n.text.length < 80 &&
+          !/(buy|flex|annual|monthly|subscribe|payment|pay|change|dazn standard|dazn ultimate)/i.test(n.text);
+      });
+      if (titleMatch !== 'N/A') return titleMatch;
 
       return snapFind(n =>
         n.text.toLowerCase().includes('vs') &&
@@ -8312,7 +8349,7 @@ export async function getActualValue(
     }
 
     case 'flex today text': {
-      // "Only pay for the fight and start your 7-day free trial of DAZN Standard"
+      // "Only pay for the fight and start your N-day free trial of DAZN Standard"
       const todayText = snapFind(n =>
         n.text.toLowerCase().includes('today') &&
         n.text.toLowerCase().includes('pay') &&
@@ -8321,10 +8358,10 @@ export async function getActualValue(
       );
       if (todayText !== 'N/A') return todayText;
 
-      // Also try: "Only pay for the fight and start your 7-day free trial"
+      // Also try: "Only pay for the fight and start your N-day free trial"
       const altText = snapFind(n =>
         n.text.toLowerCase().includes('only pay') &&
-        n.text.toLowerCase().includes('7-day') &&
+        /\d+-day/i.test(n.text) &&
         n.text.length < 150
       );
       if (altText !== 'N/A') return altText;
@@ -8342,9 +8379,9 @@ export async function getActualValue(
       );
       if (futureText !== 'N/A') return futureText;
 
-      // Also try "In 7 days" pattern
+      // Also try an "In N days" pattern
       const inDays = snapFind(n =>
-        n.text.toLowerCase().includes('in 7 days') &&
+        /in\s+\d+\s+days/i.test(n.text) &&
         n.text.length < 200
       );
       if (inDays !== 'N/A') return inDays;
@@ -8354,7 +8391,7 @@ export async function getActualValue(
     }
 
     case 'flex future date': {
-      // "In 7 days • 4 June 2026" or "In 7 days • June 4, 2026" or "In 1 month • 28 June 2026"
+      // "In N days • 4 June 2026" or "In N days • June 4, 2026" or "In 1 month • 28 June 2026"
       const futureDateLabel = snapFind(n =>
         /(in\s+\d+\s+days?|in\s+\d+\s+months?).*\d{4}/i.test(n.text.trim()) &&
         n.text.length < 60

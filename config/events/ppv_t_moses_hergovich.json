@@ -9,6 +9,7 @@
   "DEFAULT_SIGNUP_DEVMODE": false,
   "HAS_DEFAULT_SIGNUP_PPV": false,
   "global": {
+    "FREE_TRIAL_DAYS": 8,
     "PPV_PROMOTER": "Queensberry Promotions",
     "PPV_ENTITLEMENT_ID": "ppv_t_moses_hergovich",
     "PPV_DESCRIPTION": "Catch the biggest moment of the year. Select a DAZN plan to pair with your pay-per-view.",
@@ -26,7 +27,7 @@
     "LANDING_DONT_MISS_DATE": "AUG 29",
     "PPV_PAGE_DATE": "Sat 29th Aug at 17:00",
     "PPV_CARD_TITLE": "Moses vs. Hrgovic",
-    "PPV_CARD_DESCRIPTION": "Just the fight - plus 7 days of DAZN Standard, free",
+    "PPV_CARD_DESCRIPTION": "Just the fight - plus {{FREE_TRIAL_DAYS}} days of DAZN Standard, free",
     "BANNER_DESCRIPTION": "Undefeated. Unexplained. A Natural Born Thriller. Boxing's next superstar meets his most dangerous test yet",
     "HOME_POPUP_DATE": "SAT 29TH AUG AT 17:00",
     "HOME_POPUP_DESCRIPTION": "Undefeated. Unexplained. A Natural Born Thriller. Boxing's next superstar meets his most dangerous test yet"
@@ -133,7 +134,7 @@
     "variant2": {
       "detection": "choose your subscription",
       "ppvSelector": "input[type='checkbox']",
-      "ctaText": "Continue with PPV + 7-day free trial"
+      "ctaText": "Continue with PPV"
     }
   },
   "pages": {

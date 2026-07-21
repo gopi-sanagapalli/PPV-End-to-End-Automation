@@ -9,7 +9,7 @@ export function validateField(
   let exp = normalizeText(String(expected));
   let act = normalizeText(String(actual));
 
-let status = exp === act ? 'PASS' : 'FAIL';
+  let status = exp === act ? 'PASS' : 'FAIL';
 
   if (status === 'FAIL') {
     // Date fields
@@ -39,29 +39,29 @@ let status = exp === act ? 'PASS' : 'FAIL';
       }
     }
 
-   // Currency fields
-if (status === 'FAIL' && /currency/i.test(field)) {
-  if ((exp === '$' && act.includes('$')) || (exp === '£' && act.includes('£')) || (exp.toLowerCase() === 'aud' && /aud/i.test(act))) {
-    status = 'PASS';
-  }
-}
+    // Currency fields
+    if (status === 'FAIL' && /currency/i.test(field)) {
+      if ((exp === '$' && act.includes('$')) || (exp === '£' && act.includes('£')) || (exp.toLowerCase() === 'aud' && /aud/i.test(act))) {
+        status = 'PASS';
+      }
+    }
 
-// Name / text flexibility - but only if values are reasonably close
-if (status === 'FAIL' && /name|title|header/i.test(field)) {
-  // Only pass if the expected value is a substantial part of actual (more than 50% match)
-  const expLower = exp.toLowerCase();
-  const actLower = act.toLowerCase();
-  
-  // Check if expected is contained in actual and expected is at least 50% of actual length
-  if (actLower.includes(expLower) && expLower.length >= actLower.length * 0.5) {
-    status = 'PASS';
+    // Name / text flexibility - but only if values are reasonably close
+    if (status === 'FAIL' && /name|title|header/i.test(field)) {
+      // Only pass if the expected value is a substantial part of actual (more than 50% match)
+      const expLower = exp.toLowerCase();
+      const actLower = act.toLowerCase();
+
+      // Check if expected is contained in actual and expected is at least 50% of actual length
+      if (actLower.includes(expLower) && expLower.length >= actLower.length * 0.5) {
+        status = 'PASS';
+      }
+      // Check if actual is contained in expected and actual is at least 50% of expected length
+      else if (expLower.includes(actLower) && actLower.length >= expLower.length * 0.5) {
+        status = 'PASS';
+      }
+    }
   }
-  // Check if actual is contained in expected and actual is at least 50% of expected length
-  else if (expLower.includes(actLower) && actLower.length >= expLower.length * 0.5) {
-    status = 'PASS';
-  }
-}
-}
 
   results.push({
     page,

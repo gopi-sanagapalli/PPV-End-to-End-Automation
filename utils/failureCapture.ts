@@ -13,6 +13,7 @@ import path from 'path';
 
 const SHOTS_DIR = path.resolve(process.cwd(), 'test-results', 'failure-shots');
 const FAILURE_BANNER_MARKER = 'data-ppv-failure-banner';
+const FAILURE_FIELD_MARKER = 'data-ppv-failure-field-target';
 const BANNER_ROOT_SELECTORS = [
   'main [class*="hero-banner" i]',
   'main [class*="heroBanner" i]',
@@ -89,6 +90,101 @@ async function findTarget(page: any, candidates: string[]): Promise<any | null> 
     } catch { /* try next candidate */ }
   }
   return null;
+}
+
+async function findPpvTitleTarget(page: any, field: string, candidates: string[]): Promise<any | null> {
+  const fieldKey = String(field || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!['event name', 'ppv name', 'ppv card title'].includes(fieldKey)) return null;
+
+  const marked = await page.evaluate(({ marker, fieldKey, candidates }: {
+    marker: string;
+    fieldKey: string;
+    candidates: string[];
+  }) => {
+    const clean = (value: string | null | undefined) =>
+      String(value ?? '').replace(/\s+/g, ' ').trim();
+    const comparable = (value: string) =>
+      clean(value)
+        .replace(/\bppv\b/gi, '')
+        .replace(/[^a-z0-9]+/gi, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase();
+    const wanted = candidates
+      .map(comparable)
+      .filter(value => value.length > 2);
+    if (!wanted.length) return false;
+
+    document.querySelectorAll(`[${marker}]`).forEach(node => node.removeAttribute(marker));
+
+    const isVisible = (el: HTMLElement) => {
+      const rect = el.getBoundingClientRect();
+      const style = window.getComputedStyle(el);
+      return rect.width > 0 &&
+        rect.height > 0 &&
+        style.visibility !== 'hidden' &&
+        style.display !== 'none' &&
+        style.opacity !== '0';
+    };
+
+    const nodes = Array.from(document.querySelectorAll<HTMLElement>(
+      'h1,h2,h3,h4,h5,p,span,strong,b,div'
+    ));
+
+    let best: HTMLElement | null = null;
+    let bestScore = -Infinity;
+
+    for (const node of nodes) {
+      if (!isVisible(node)) continue;
+      const text = clean(node.innerText || node.textContent);
+      if (text.length < 2 || text.length > 100) continue;
+
+      const normalizedText = comparable(text);
+      const isMatch = wanted.some(value =>
+        normalizedText === value ||
+        (normalizedText.includes(value) && normalizedText.length <= value.length + 20)
+      );
+      if (!isMatch) continue;
+
+      const rect = node.getBoundingClientRect();
+      const style = window.getComputedStyle(node);
+      const fontSize = Number.parseFloat(style.fontSize || '0') || 0;
+      const parentText = clean((node.parentElement?.innerText || node.parentElement?.textContent || '')).toLowerCase();
+      const grandText = clean((node.parentElement?.parentElement?.innerText || node.parentElement?.parentElement?.textContent || '')).toLowerCase();
+      const surroundingText = `${parentText} ${grandText}`;
+      const nearPpvDetails = /(?:AED\s?|[£$€₹]\s?)\d|\/fight|\b(?:sun|mon|tue|wed|thu|fri|sat)day?\b|\b\d{1,2}:\d{2}\b/i.test(surroundingText);
+      const nearCardCopy = surroundingText.includes('just the fight') || surroundingText.includes('pay-per-view');
+
+      let score = 100;
+      score -= rect.top / 100;
+
+      if (fieldKey === 'ppv card title') {
+        score += fontSize * 8;
+        if (nearCardCopy) score += 40;
+        if (nearPpvDetails) score -= 20;
+      } else {
+        if (nearPpvDetails) score += 70;
+        score -= fontSize * 2;
+        if (fieldKey === 'event name' && /\b(?:sun|mon|tue|wed|thu|fri|sat)day?\b|\b\d{1,2}:\d{2}\b/i.test(surroundingText)) {
+          score += 25;
+        }
+      }
+
+      if (score > bestScore) {
+        best = node;
+        bestScore = score;
+      }
+    }
+
+    if (!best) return false;
+    best.setAttribute(marker, 'true');
+    return true;
+  }, { marker: FAILURE_FIELD_MARKER, fieldKey, candidates }).catch(() => false);
+
+  if (!marked) return null;
+  const target = page.locator(`[${FAILURE_FIELD_MARKER}="true"]`).first();
+  await target.waitFor({ state: 'visible', timeout: 1000 }).catch(() => { });
+  return target;
 }
 
 /**
@@ -265,6 +361,7 @@ export async function captureFailures(
         ? await activatePpvBannerForEvidence(page, ppvName)
         : null;
       const target = (isPopupField ? await findPopupTarget(page, candidates) : null) ||
+        await findPpvTitleTarget(page, field, candidates) ||
         (banner ? await findTarget(banner, candidates) : null) ||
         await findTarget(page, candidates);
 
@@ -350,6 +447,9 @@ export async function captureFailures(
       }
       await page.locator(`[${FAILURE_BANNER_MARKER}]`).evaluateAll((nodes: Element[]) => {
         nodes.forEach((node: Element) => node.removeAttribute(FAILURE_BANNER_MARKER));
+      }).catch(() => { });
+      await page.locator(`[${FAILURE_FIELD_MARKER}]`).evaluateAll((nodes: Element[]) => {
+        nodes.forEach((node: Element) => node.removeAttribute(FAILURE_FIELD_MARKER));
       }).catch(() => { });
     }
   }

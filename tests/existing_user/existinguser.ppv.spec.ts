@@ -256,6 +256,10 @@ for (const stateKey of userStatesToRun) {
       isUltimateUpgrade || tier === 'ultimate'
         ? 'ultimate'
         : 'standard';
+    eventData.TIER = effectiveTier;
+    eventData['TIER'] = effectiveTier;
+    eventData.RATE_PLAN = ratePlan;
+    eventData['RATE_PLAN'] = ratePlan;
     const isUltimateLoginFirstUser = LOGIN_FIRST && isActiveUltimateState(userStateKey);
     const isUltimateLoginFirstBoxingMyAccountFlow =
       isUltimateLoginFirstUser &&
@@ -298,7 +302,7 @@ for (const stateKey of userStatesToRun) {
 
     // Resolve payment page expected variables to avoid skipping validation
     const offerType = (eventData.OFFER_TYPE || '1_month_free').toLowerCase();
-    const isTrial = ratePlan === 'monthly' && offerType === '7_day_trial';
+    const isTrial = ratePlan === 'monthly' && /^\d+_day_trial$/.test(offerType);
     const isNoOffer = offerType === 'no_offer' || offerType === 'none';
     const activeOfferPresent = eventData.ACTIVE_OFFER_PRESENT === 'true';
 
@@ -310,7 +314,7 @@ for (const stateKey of userStatesToRun) {
       if (isNoOffer) {
         eventData.PLAN_CTA_BUTTON = eventData.PLAN_CTA_BUTTON_STANDARD || 'Continue with DAZN Standard';
       } else {
-        eventData.PLAN_CTA_BUTTON = eventData.PLAN_CTA_BUTTON_STANDARD || 'Continue with 7-day Free Trial';
+        eventData.PLAN_CTA_BUTTON = eventData.PLAN_CTA_BUTTON_STANDARD || `Continue with ${eventData.FREE_TRIAL_DAYS || '7'}-day Free Trial`;
       }
       eventData.DAZN_TIER = 'DAZN Standard';
     }
@@ -322,8 +326,8 @@ for (const stateKey of userStatesToRun) {
       eventData.CANCELLATION_TEXT = eventData.CANCELLATION_TEXT_TRIAL || '';
     } else if (isTrial) {
       eventData.PAYMENT_PAGE_TITLE = eventData.PAYMENT_PAGE_TITLE_TRIAL || 'Choose how to pay after your free trial';
-      eventData.PAYMENT_PLAN_NAME = eventData.PAYMENT_FREE_TEXT_TRIAL || '7-days free';
-      eventData.PAYMENT_FREE_TEXT = eventData.PAYMENT_FREE_TEXT_TRIAL || '7-days free';
+      eventData.PAYMENT_PLAN_NAME = eventData.PAYMENT_FREE_TEXT_TRIAL || `${eventData.FREE_TRIAL_DAYS || '7'}-days free`;
+      eventData.PAYMENT_FREE_TEXT = eventData.PAYMENT_FREE_TEXT_TRIAL || `${eventData.FREE_TRIAL_DAYS || '7'}-days free`;
       eventData.CANCELLATION_TEXT = eventData.CANCELLATION_TEXT_TRIAL || '';
     } else if (ratePlan === 'annual pay monthly' || ratePlan === 'annual pay upfront') {
       // APM / APU
@@ -361,8 +365,8 @@ for (const stateKey of userStatesToRun) {
       eventData.CANCELLATION_TEXT = eventData.CANCELLATION_TEXT_TRIAL || '';
     }
 
-    // Frozen users on a 7-day monthly trial still show trial values in the
-    // purchase summary (Plan Name / Free Text = "7-days free"). Only the payment
+    // Frozen users on an N-day monthly trial still show trial values in the
+    // purchase summary. Only the payment
     // page heading differs from the new/freemium trial heading.
     if (userStateKey === 'frozen' && isTrial) {
       eventData.PAYMENT_PAGE_TITLE = eventData.PAYMENT_PAGE_TITLE_STANDARD || 'Choose how to pay';
@@ -1782,16 +1786,29 @@ for (const stateKey of userStatesToRun) {
         await myAccountPage.scrollToPPVSection();
         const hasPPV = await myAccountPage.hasPPV(eventData.PPV_NAME);
         const myAccountData = getMyAccountData();
-        const filteredMyAccountData = hasPPV
-          ? myAccountData
-          : myAccountData.filter((r: any) => !['PPV Name', 'PPV Date', 'PPV Price', 'PPV Status', 'PPV Image Present'].includes(r.Field));
+        const eventHasConfiguredPPV =
+          !!eventData.PPV_NAME &&
+          eventData.PPV_NAME !== 'N/A' &&
+          eventData.PPV_NAME !== 'none';
+        const shouldValidatePPVRows = eventHasConfiguredPPV;
+        const myAccountPPVFields = new Set([
+          'PPV Name',
+          'PPV Date',
+          'PPV Price',
+          'PPV Status',
+          'PPV Image Present',
+        ]);
+        const overviewData = myAccountData.filter((r: any) => !myAccountPPVFields.has(r.Field));
+        const ppvData = myAccountData.filter((r: any) => myAccountPPVFields.has(r.Field));
 
 
         const expectedPPVStatus = (eventData.PPV_STATUS || '').toLowerCase();
-        for (const row of filteredMyAccountData) {
-          if (row.Field === 'PPV Section Present' && !hasPPV) {
+        for (const row of overviewData) {
+          if (row.Field === 'PPV Section Present' && !hasPPV && !shouldValidatePPVRows) {
             row.Expected = 'Yes|No';
           }
+        }
+        for (const row of ppvData) {
           if (row.Field === 'PPV Price' && (expectedPPVStatus === 'purchased' || expectedPPVStatus === 'included')) {
             row.Expected = 'N/A';
           }
@@ -1812,8 +1829,22 @@ for (const stateKey of userStatesToRun) {
 
 
         await validateVariant(
-          page, 'myaccount', filteredMyAccountData, results, eventData, 'My Account'
+          page, 'myaccount', overviewData, results, eventData, 'My Account'
         );
+
+        if (shouldValidatePPVRows) {
+          // The overview intentionally surfaces only a few featured PPVs. Move
+          // to the full /myaccount/ppv listing before reading event-specific
+          // fields, otherwise those checks are scoped to unrelated featured
+          // cards or return N/A.
+          const ppvReady = hasPPV || await myAccountPage.preparePPVValidation(eventData.PPV_NAME);
+          if (!ppvReady) {
+            console.warn(`⚠️ Configured PPV "${eventData.PPV_NAME}" was not found in the My Account PPV listing. PPV rows will correctly report N/A.`);
+          }
+          await validateVariant(
+            page, 'myaccount', ppvData, results, eventData, 'My Account'
+          );
+        }
 
         // Verify user state matches the expected state. If not, fail early with clear logging.
         const expectedUserStates: Record<string, { subscription: string; status: string; label: string }> = {
@@ -3620,9 +3651,8 @@ for (const stateKey of userStatesToRun) {
 
             const planBtn = page.locator(
               'button:has-text("Continue with DAZN Ultimate"), ' +
-              'button:has-text("Continue with 7-day Free Trial"), ' +
+              'button:has-text("Continue with"), ' +
               'button:has-text("Continue with 1st Month Free"), ' +
-              'button:has-text("Continue with PPV + 7-day free trial"), ' +
               'button:has-text("Continue with PPV"), ' +
               'button:has-text("Continue")'
             ).first();

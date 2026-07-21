@@ -5,10 +5,11 @@
   "SPORT": "Boxing",
   "PPV_TYPE": "normal",
   "HAS_BUNDLE": false,
-  "PPV_DEV_MODE": true,
+  "PPV_DEV_MODE": false,
   "DEFAULT_SIGNUP_DEVMODE": false,
   "HAS_DEFAULT_SIGNUP_PPV": false,
   "global": {
+    "FREE_TRIAL_DAYS": 8,
     "PPV_PROMOTER": "TBC",
     "PPV_ENTITLEMENT_ID": "ppv_t_rolly_teofimo",
     "PPV_DESCRIPTION": "PUT UP OR SHUT UP! Two of boxing's biggest names collide for the WBA Welterweight World Championship.",
@@ -26,7 +27,7 @@
     "LANDING_DONT_MISS_DATE": "AUG 22",
     "PPV_PAGE_DATE": "Sat 22nd Aug at 23:30",
     "PPV_CARD_TITLE": "Rolly vs. Teofimo",
-    "PPV_CARD_DESCRIPTION": "Just the fight - plus 7 days of DAZN Standard, free",
+    "PPV_CARD_DESCRIPTION": "Just the fight - plus {{FREE_TRIAL_DAYS}} days of DAZN Standard, free",
     "BANNER_DESCRIPTION": "PUT UP OR SHUT UP! Two of boxing's biggest names collide for the WBA Welterweight World Championship.",
     "HOME_POPUP_DATE": "SAT 22ND AUG AT 23:30",
     "HOME_POPUP_DESCRIPTION": "PUT UP OR SHUT UP! Two of boxing's biggest names collide for the WBA Welterweight World Championship."
@@ -133,7 +134,7 @@
     "variant2": {
       "detection": "choose your subscription",
       "ppvSelector": "input[type='checkbox']",
-      "ctaText": "Continue with PPV + 7-day free trial"
+      "ctaText": "Continue with PPV"
     }
   },
   "pages": {

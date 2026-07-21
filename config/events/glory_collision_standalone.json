@@ -6,6 +6,7 @@
   "SPORT": "Kickboxing",
   "PPV_TYPE": "standalone",
   "global": {
+    "FREE_TRIAL_DAYS": 8,
     "PPV_PROMOTER": "Glory Kickboxing",
     "PPV_LOCATION": "Rotterdam",
     "LANDING_DESCRIPTION": "A new Light Heavyweight king will be crowned as eight elite fighters battle through a one-night Grand Prix in Rotterdam.",

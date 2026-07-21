@@ -88,11 +88,25 @@ function formatHomeBoxingUpcomingTime(...values: Array<string | undefined>): str
   return '';
 }
 
+function isDayTrialOffer(offerType: unknown): boolean {
+  return /^(?:\d+)_day_trial$/.test(String(offerType || '').toLowerCase());
+}
+
+function getTrialDays(value: unknown): number {
+  const days = Number(value);
+  return Number.isInteger(days) && days > 0 ? days : 7;
+}
+
+function replaceTrialDayPlaceholders(value: unknown, trialDays: number): unknown {
+  return typeof value === 'string'
+    ? value.replace(/\{\{FREE_TRIAL_DAYS\}\}/g, String(trialDays))
+    : value;
+}
+
 
 const GLOBAL_DEFAULTS: Record<string, string> = {
   PPV_CTA_TEXT: "Continue with pay-per-view",
   PLAN_PAGE_TITLE: "Choose a plan that's right for you|Choose the right plan for you|Choose the right plan for you.|Choose your plan|Choose a plan",
-  PLAN_CTA_BUTTON_STANDARD: "Continue with 7-day Free Trial",
   PLAN_CTA_BUTTON_ULTIMATE: "Continue with DAZN Ultimate",
   PPV_PAGE_TITLE: "Choose the right plan for you.",
   PPV_PAGE_SUBTITLE: "To watch your pay-per-view, you'll need a DAZN plan.",
@@ -102,9 +116,7 @@ const GLOBAL_DEFAULTS: Record<string, string> = {
   UPSELL_FEATURE_1: "Minimum 12 pay-per-views a year included at no extra cost.",
   UPSELL_FEATURE_2: "185+ fights a year from the world's best promoters.",
   UPSELL_FEATURE_3: "HDR and Dolby 5.1 surround sound on select events.",
-  FLEX_BADGE: "7 DAY FREE TRIAL",
   FLEX_DESCRIPTION: "Only pay for the fight. Cancel anytime before the end of the trial.",
-  FLEX_TODAY_TEXT: "Only pay for the fight and start your 7-day free trial of DAZN Standard",
   FLEX_FUTURE_TEXT: "You will start your DAZN Standard plan at {{CURRENCY}}{{MONTHLY_PRICE}}/month. Cancel anytime before the end of the trial.",
   ANNUAL_BADGE: "1 MONTH FREE",
   ANNUAL_SAVINGS_BADGE: "SAVE {{CURRENCY}}135.99 A YEAR",
@@ -116,9 +128,7 @@ const GLOBAL_DEFAULTS: Record<string, string> = {
   ANNUAL_PAY_UPFRONT_CONTRACT_TEXT: "",
   PAYMENT_PAGE_TITLE_TRIAL: "Choose how to pay after your free trial",
   PAYMENT_PAGE_TITLE_STANDARD: "Choose how to pay",
-  PAYMENT_FREE_TEXT_TRIAL: "7-days free",
   PAYMENT_FREE_TEXT_MONTHLY: "First month free",
-  CANCELLATION_TEXT_TRIAL: "In 7 days, you'll be charged {{CURRENCY}}{{MONTHLY_PRICE}}/month. Cancel anytime before the end of the trial.",
   CANCELLATION_TEXT_ANNUAL: "First month free, then {{CURRENCY}}{{ANNUAL_PRICE}}/month for 11 months ({{CURRENCY}}{{ANNUAL_TOTAL}} total over 12 months). 12-month minimum term. On {{RENEWAL_DATE}} your plan renews automatically|First month free, then {{CURRENCY}}{{ANNUAL_PRICE}}/month for 11 months",
   CANCELLATION_TEXT_ULTIMATE_APM: "Your Annual (pay over time) plan will renew automatically on {{RENEWAL_DATE}}. Manage or cancel your annual renewal anytime in My Account. 12-month minimum term",
   CANCELLATION_TEXT_ULTIMATE_APU: "You can cancel the renewal to this subscription in My Account. You will still have full access to DAZN until the end of your annual cycle.",
@@ -165,7 +175,10 @@ export function buildEventData(
     );
   }
 
-  const regional = deepMerge(deepMerge(GLOBAL_DEFAULTS, regionalBase), eventRegional);
+  const regional = deepMerge(
+    deepMerge(deepMerge(GLOBAL_DEFAULTS, merged.global || {}), regionalBase),
+    eventRegional
+  );
 
   const base: Record<string, any> = {
     PPV_NAME: merged.PPV_NAME,
@@ -174,6 +187,9 @@ export function buildEventData(
     SPORT: merged.SPORT,
     PPV_TYPE: merged.PPV_TYPE,
     SECONDARY_PPV: merged.SECONDARY_PPV,
+    // Event configuration owns the duration, so a PPV can have a different
+    // trial from the next PPV while still sharing the same plan definition.
+    FREE_TRIAL_DAYS: merged.global?.FREE_TRIAL_DAYS ?? merged.FREE_TRIAL_DAYS,
     ...merged.global,
     ...regional,
   };
@@ -186,6 +202,30 @@ export function buildEventData(
     base.OFFER_TYPE = '1_month_free';
   }
 
+  // FREE_TRIAL_DAYS is global within an event (across its regions). It controls
+  // every displayed duration and date offset; OFFER_TYPE remains the stable
+  // plan identifier (for example, "7_day_trial").
+  const trialDays = getTrialDays(base.FREE_TRIAL_DAYS);
+  base.FREE_TRIAL_DAYS = String(trialDays);
+  const hasDayTrial = isDayTrialOffer(base.OFFER_TYPE);
+
+  if (hasDayTrial) {
+    if (!base.FLEX_BADGE) base.FLEX_BADGE = `${trialDays} DAY FREE TRIAL`;
+    if (!base.PLAN_CTA_BUTTON_STANDARD) base.PLAN_CTA_BUTTON_STANDARD = `Continue with ${trialDays}-day Free Trial`;
+    if (!base.PAYMENT_FREE_TEXT_TRIAL) base.PAYMENT_FREE_TEXT_TRIAL = `${trialDays}-days free`;
+    if (!base.PAYMENT_PAGE_TITLE_TRIAL) base.PAYMENT_PAGE_TITLE_TRIAL = 'Choose how to pay after your free trial';
+    if (!base.CANCELLATION_TEXT_TRIAL) base.CANCELLATION_TEXT_TRIAL = `In ${trialDays} days, you'll be charged {{CURRENCY}}{{MONTHLY_PRICE}}/month. Cancel anytime before the end of the trial.`;
+    if (!base.FLEX_TODAY_TEXT) base.FLEX_TODAY_TEXT = `Only pay for the fight and start your ${trialDays}-day free trial of DAZN Standard`;
+    if (!base.FLEX_FUTURE_TEXT) base.FLEX_FUTURE_TEXT = 'You will start your DAZN Standard plan at {{CURRENCY}}{{MONTHLY_PRICE}}/month. Cancel anytime before the end of the trial.';
+    base.NEXT_PAYMENT_DAYS_OFFSET = trialDays;
+  }
+
+  // Regional wording may differ (for example, currency spacing), but it must
+  // never carry its own trial duration.
+  for (const key of Object.keys(base)) {
+    base[key] = replaceTrialDayPlaceholders(base[key], trialDays);
+  }
+
   // PPV1_UPSELL_TILE_DATE: fallback to LANDING_PAGE_PPV_DATE (same short-date format)
   if (!base.PPV1_UPSELL_TILE_DATE && base.LANDING_PAGE_PPV_DATE) {
     base.PPV1_UPSELL_TILE_DATE = base.LANDING_PAGE_PPV_DATE;
@@ -194,8 +234,8 @@ export function buildEventData(
   // Auto-compute NEXT_PAYMENT_DAYS_OFFSET from OFFER_TYPE if not explicitly set
   if (!base.NEXT_PAYMENT_DAYS_OFFSET) {
     const ot = (base.OFFER_TYPE || '1_month_free').toLowerCase();
-    if (ot === '7_day_trial') {
-      base.NEXT_PAYMENT_DAYS_OFFSET = 7;
+    if (isDayTrialOffer(ot)) {
+      base.NEXT_PAYMENT_DAYS_OFFSET = trialDays;
     } else if (ot === 'no_offer' || ot === 'none') {
       base.NEXT_PAYMENT_DAYS_OFFSET = 30; // No trial/free period, next payment in ~1 month
     } else {
@@ -607,10 +647,10 @@ export function buildEventData(
     base.RENEWAL_DATE = isUSRegion
       ? formatNextPaymentDateYearlyUS()
       : formatNextPaymentDateYearly();
-  } else if (merged.NEXT_PAYMENT_DAYS_OFFSET !== undefined) {
+  } else if (base.NEXT_PAYMENT_DAYS_OFFSET !== undefined) {
     base.NEXT_PAYMENT_DATE = isUSRegion
-      ? formatNextPaymentDateUS(Number(merged.NEXT_PAYMENT_DAYS_OFFSET))
-      : formatNextPaymentDate(Number(merged.NEXT_PAYMENT_DAYS_OFFSET));
+      ? formatNextPaymentDateUS(Number(base.NEXT_PAYMENT_DAYS_OFFSET))
+      : formatNextPaymentDate(Number(base.NEXT_PAYMENT_DAYS_OFFSET));
     base.RENEWAL_DATE = isUSRegion
       ? formatNextPaymentDateYearlyUS()
       : formatNextPaymentDateYearly();
@@ -641,8 +681,8 @@ export function buildEventData(
   }
 
   const offerType = (base.OFFER_TYPE || '1_month_free').toLowerCase();
-  if (offerType === '7_day_trial') {
-    base.FLEX_FUTURE_DATE = formatFlexFutureDate(7);
+  if (isDayTrialOffer(offerType)) {
+    base.FLEX_FUTURE_DATE = formatFlexFutureDate(trialDays);
     // Trial payment page shows trial cancellation text, not legacy "Cancel with 30 days' notice"
     base.PAYMENT_FLEX_CANCEL_NOTICE = 'N/A';
     base.PAYMENT_FLEX_LEGAL_TEXT = 'N/A';
@@ -918,6 +958,12 @@ export function buildEventData(
         }
       }
     }
+  }
+
+  // Direct event fields are merged later in this function, so materialize any
+  // duration tokens once more before the data is exposed to tests.
+  for (const key of Object.keys(base)) {
+    base[key] = replaceTrialDayPlaceholders(base[key], trialDays);
   }
 
   const keys = Object.keys(base);
