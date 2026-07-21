@@ -34,6 +34,7 @@ import {
   getUpsellFirstSuccessData,
   getUpsellSecondSuccessData,
   getUpsellPaymentData,
+  getSubscribeWithoutPPVData,
 } from '../../utils/excelReader';
 import { detectVariant } from '../../flows/detectVariant';
 import { validateVariant, validateCtaAfterUltimateSelection } from '../../flows/validateVariant';
@@ -57,7 +58,7 @@ import {
   assertCountryMatch,
   waitForHomePageAuthRedirect,
 } from '../../utils/testHelpers';
-import { handleNoPpvClick } from '../../utils/flowHelpers';
+import { findNoPpvLink, handleNoPpvClick } from '../../utils/flowHelpers';
 import { AuthenticationManager } from '../../auth/AuthenticationManager';
 
 
@@ -101,6 +102,7 @@ function isMyAccountDestination(url: string): boolean {
 }
 const ENV = (process.env.DAZN_ENV || 'stag').toLowerCase();
 const PAYMENT_METHOD = (process.env.PAYMENT_METHOD || 'credit_card').toLowerCase();
+const isHeadless = process.env.HEADLESS === 'true';
 const EXISTING_FLOW_TIMEOUT_MS = Number(process.env.PPV_TEST_TIMEOUT_MS) || 420_000;
 
 function throwLogged(error: Error): never {
@@ -136,6 +138,7 @@ for (const stateKey of userStatesToRun) {
     process.env.USER_STATE = stateKey;
     let defaultSignupPPVValidated = false;
     let noPpvClick = false;
+    let isNoPpvFlow = false;
     let srcEndPage = 'payment'; // endPage from surfacingpoint.json for current SOURCE
     let srcResolvedSource = SOURCE; // actual source CTA from surfacingpoint.json (may differ from SOURCE key)
 
@@ -186,6 +189,7 @@ for (const stateKey of userStatesToRun) {
       }
       if (sources[SOURCE]?.noPpvClick) {
         noPpvClick = true;
+        isNoPpvFlow = true;
       }
       if (sources[SOURCE]?.endPage) {
         srcEndPage = sources[SOURCE].endPage;
@@ -398,7 +402,8 @@ for (const stateKey of userStatesToRun) {
 
     console.log(`Creating browser context with Locale: ${regionLocale}, Timezone: ${regionTimezone}...`);
     const context = await browser.newContext({
-      viewport: { width: 1920, height: 1080 },
+      // Keep the CI viewport stable; headed local runs follow the maximised window.
+      viewport: isHeadless ? { width: 1920, height: 1080 } : null,
       colorScheme: 'dark',
       reducedMotion: 'no-preference',
       locale: regionLocale,
@@ -508,6 +513,16 @@ for (const stateKey of userStatesToRun) {
       // Upgrade confirmation page — must be checked BEFORE the /signup email fallback
       if (urlLower.includes('upgradeplan')) return 'confirmation';
       if (urlLower.includes('upgradetier') && !urlLower.includes('isupgradetierflow')) return 'confirmation';
+
+      if (
+        noPpvClick &&
+        urlLower.includes('page=tierplans') &&
+        !urlLower.includes('upselltiershown') &&
+        !(await findNoPpvLink(p, 500))
+      ) {
+        eventData.SUBSCRIBE_WITHOUT_PPV_DIRECT = 'true';
+        return 'plan';
+      }
 
       // Default signup page with plan details/tier plans (e.g. from My Account Upgrade/Resubscribe CTA)
       // Exclude noPpv=true — that URL means the user already clicked "Subscribe without a pay-per-view"
@@ -1143,7 +1158,10 @@ for (const stateKey of userStatesToRun) {
 
           // Validate entry page
           const isBoxingSourceInner = SOURCE.startsWith('boxing-page') || SOURCE.startsWith('boxing');
-          const isHomePageSourceInner = SOURCE.startsWith('home-page-') || SOURCE === 'home-biggest-fights';
+          const isHomePageSourceInner = SOURCE.startsWith('home-page-') ||
+            SOURCE === 'home-biggest-fights' ||
+            SOURCE === 'subscribe-without-pay-per-view' ||
+            srcResolvedSource.startsWith('home-page-');
           const isHomeSportInner = HOME_SPORT_DROPDOWN_SOURCES.has(SOURCE.toLowerCase());
 
           let sheetName = 'Landing page';
@@ -1658,7 +1676,7 @@ for (const stateKey of userStatesToRun) {
           const hasPPVOption = stdBody.includes('subscribe without a pay-per-view') ||
             stdBody.includes('continue without pay-per-view') ||
             stdBody.includes('continue without a pay-per-view');
-          if (!hasPPVOption && !noPpvClick) {
+          if (!hasPPVOption && !isNoPpvFlow) {
             const skipMsg =
               `⚠️ [${SOURCE}] No PPV option found on plan/signup page — ` +
               `PPV is not configured for this event on this source. Skipping flow gracefully.\n` +
@@ -2491,7 +2509,7 @@ for (const stateKey of userStatesToRun) {
             SOURCE === 'boxing-page-bundle' ||
             SOURCE === 'boxing-upcoming-fights' ||
             SOURCE === 'boxing-join-the-club';
-          if (process.env.DEFAULT_SIGNUP === 'true' && !ppvValidated && !isBoxingSubSource && !noPpvClick) {
+          if (process.env.DEFAULT_SIGNUP === 'true' && !ppvValidated && !isBoxingSubSource && !isNoPpvFlow) {
             const url = page.url().toLowerCase();
             if (url.includes('page=tierplans') || url.includes('page=plandetails') || pageType === 'plan' || pageType === 'email' || pageType === 'default-signup') {
               const bodyText = await page.locator('body').innerText({ timeout: 2000 }).then((t: string) => t.toLowerCase()).catch(() => '');
@@ -3424,6 +3442,37 @@ for (const stateKey of userStatesToRun) {
             // ── subscribe-without-pay-per-view: endPage=plan → stop on TierPlans ──
             if (page.url().toLowerCase().includes('page=tierplans') && srcEndPage === 'plan') {
               console.log('✅ [subscribe-without-pay-per-view] Reached TierPlans page — flow complete (endPage=plan).');
+
+              // ── Excel-driven validations for subscribe-without-pay-per-view ──
+              try {
+                const noPpvRules = getSubscribeWithoutPPVData();
+                const isTierPlans = page.url().toLowerCase().includes('tierplans');
+                const fieldActualMap: Record<string, string> = {
+                  'dazn tile clicked': eventData.DAZN_TILE_CLICKED ? 'Yes' : 'No',
+                  'subscribe without ppv cta': eventData.SUBSCRIBE_WITHOUT_PPV_CTA_TEXT || 'N/A',
+                  'tier page displayed': isTierPlans ? 'Yes' : 'No',
+                };
+                for (const rule of noPpvRules) {
+                  const field = (rule.Field || '').trim();
+                  const expected = (rule.Expected || '').trim();
+                  const fieldKey = field.toLowerCase();
+                  const actual = fieldActualMap[fieldKey] || 'N/A';
+                  const isDirectExistingRoute =
+                    fieldKey === 'subscribe without ppv cta' &&
+                    eventData.SUBSCRIBE_WITHOUT_PPV_DIRECT === 'true';
+                  const status = isDirectExistingRoute
+                    ? 'SKIP'
+                    : actual.toLowerCase().includes(expected.toLowerCase()) ? 'PASS' : 'FAIL';
+                  const displayedActual = isDirectExistingRoute
+                    ? 'N/A (existing user was already on TierPlans)'
+                    : actual;
+                  console.log(`  ${status === 'PASS' ? '✅' : status === 'SKIP' ? '⏭️' : '❌'} [${field}] expected="${expected}" actual="${displayedActual}"`);
+                  results.push({ page: 'Subscribe Without PPV', field, expected, actual: displayedActual, status });
+                }
+              } catch (e: any) {
+                console.warn('⚠️ Subscribe Without PPV validation error:', e.message);
+              }
+
               reachedEndPage = true;
               break;
             }

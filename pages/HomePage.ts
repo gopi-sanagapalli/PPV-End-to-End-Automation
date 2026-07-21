@@ -467,6 +467,10 @@ export class HomePage extends LandingPage {
         `from rail "${clicked.railTitle}"`
       );
 
+      // Store clicked tile info so it can be used in validation results
+      eventData.DAZN_TILE_CLICKED = clicked.tileTitle;
+      eventData.DAZN_TILE_RAIL = clicked.railTitle;
+
       return;
     }
 

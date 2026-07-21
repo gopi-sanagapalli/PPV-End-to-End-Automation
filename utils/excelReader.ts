@@ -131,6 +131,15 @@ export const getPlanDataByTier = (tier: string) => {
 };
 
 // =========================
+// SUBSCRIBE WITHOUT PPV DATA (Field | Expected)
+// =========================
+export const getSubscribeWithoutPPVData = () => {
+  const data = readSheet('Subscribe Without PPV');
+  console.log(`📊 Subscribe Without PPV rows: ${data.length}`);
+  return data;
+};
+
+// =========================
 // PAYMENT DATA BY TIER & RATE PLAN (Tier | Rate Plan | Field | Expected)
 // =========================
 export const getPaymentDataByTierAndPlan = (

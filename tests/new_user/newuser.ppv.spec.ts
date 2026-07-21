@@ -30,6 +30,7 @@ import {
   getUpsellFirstSuccessData,
   getUpsellSecondSuccessData,
   getUpsellPaymentData,
+  getSubscribeWithoutPPVData,
 } from '../../utils/excelReader';
 import { detectVariant } from '../../flows/detectVariant';
 import { validateVariant, validateCtaAfterUltimateSelection } from '../../flows/validateVariant';
@@ -67,6 +68,7 @@ const PPV_TYPE = (process.env.PPV_TYPE || 'normal').toLowerCase();
 const SWITCH_TO_ULTIMATE = (process.env.SWITCH || '').toLowerCase() === 'true';
 const ENV = (process.env.DAZN_ENV || 'stag').toLowerCase();
 const PAYMENT_METHOD = (process.env.PAYMENT_METHOD || 'credit_card').toLowerCase();
+const isHeadless = process.env.HEADLESS === 'true';
 const NORMAL_FLOW_TIMEOUT_MS = Number(process.env.PPV_TEST_TIMEOUT_MS) || 420_000;
 const UPSELL_FLOW_TIMEOUT_MS = Math.max(Number(process.env.PPV_UPSELL_TEST_TIMEOUT_MS) || 480_000, NORMAL_FLOW_TIMEOUT_MS);
 const HOME_SPORT_DROPDOWN_SOURCES = new Set([
@@ -284,11 +286,12 @@ async function runFlow(
   const pagesConfig = json.pages;
 
   const regionUpper = region.toUpperCase();
-  // Create a deterministic desktop context in both local and CI runs.
-  // Do not use viewport: null: headless Chrome can render responsive/mobile UI.
+  // CI stays at its validated desktop viewport. In a headed local run, use the
+  // maximised physical window so the page is not vertically clipped on laptops.
   const context = await browser.newContext({
-    viewport: { width: 1920, height: 1080 },
-    deviceScaleFactor: 1,
+    ...(isHeadless
+      ? { viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 1 }
+      : { viewport: null }),
     isMobile: false,
     hasTouch: false,
     colorScheme: 'dark',
@@ -1783,6 +1786,29 @@ async function runFlow(
           // Do NOT click any CTA — just confirm landing and break.
           if (flowConfig.endPage === 'plan') {
             console.log('✅ [subscribe-without-pay-per-view] Reached TierPlans page — flow complete (endPage=plan).');
+
+            // ── Excel-driven validations for subscribe-without-pay-per-view ──
+            try {
+              const noPpvRules = getSubscribeWithoutPPVData();
+              const isTierPlans = page.url().toLowerCase().includes('tierplans');
+              const fieldActualMap: Record<string, string> = {
+                'dazn tile clicked': eventData.DAZN_TILE_CLICKED ? 'Yes' : 'No',
+                'subscribe without ppv cta': eventData.SUBSCRIBE_WITHOUT_PPV_CTA_TEXT || 'N/A',
+                'tier page displayed': isTierPlans ? 'Yes' : 'No',
+              };
+              for (const rule of noPpvRules) {
+                const field = (rule.Field || '').trim();
+                const expected = (rule.Expected || '').trim();
+                const fieldKey = field.toLowerCase();
+                const actual = fieldActualMap[fieldKey] || 'N/A';
+                const status = actual.toLowerCase().includes(expected.toLowerCase()) ? 'PASS' : 'FAIL';
+                console.log(`  ${status === 'PASS' ? '✅' : '❌'} [${field}] expected="${expected}" actual="${actual}"`);
+                results.push({ page: 'Subscribe Without PPV', field, expected, actual, status });
+              }
+            } catch (e: any) {
+              console.warn('⚠️ Subscribe Without PPV validation error:', e.message);
+            }
+
             reachedEndPage = true;
             break;
           }
