@@ -16,7 +16,7 @@ on:
 permissions: { contents: read }
 jobs:
   prepare:
-    runs-on: [self-hosted, macOS, ARM64, sridevi-runners]
+    runs-on: [self-hosted, macOS, ARM64]
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
@@ -25,17 +25,24 @@ jobs:
         run: node scripts/buildPpvWorkflowMatrix.js dev-account '${{ inputs.PPV_CONFIG }}' '${{ inputs.COUNTRY }}'
   my-account:
     needs: prepare
+    name: Dev mode My Account | ${{ matrix.profile }}
+    runs-on: [self-hosted, macOS, ARM64]
     strategy:
       fail-fast: false
-      max-parallel: 8
+      max-parallel: 10
       matrix:
         include: ${{ fromJSON(needs.prepare.outputs.matrix) }}
-    uses: ./.github/workflows/_ppv-generic-runner.yml
-    with:
-      journey: dev-mode-my-account
-      country: ${{ inputs.COUNTRY }}
-      ppv_config: ${{ inputs.PPV_CONFIG }}
-      source: ${{ matrix.source }}
-      profile: ${{ matrix.profile }}
-      login_first: 'true'
-      dev_mode_on: 'on'
+    env:
+      CI: 'true'
+      HEADLESS: 'true'
+      DAZN_ENV: prod
+      DAZN_REGION: ${{ inputs.COUNTRY }}
+      PPV_CONFIG: ${{ inputs.PPV_CONFIG }}
+      SOURCE: ${{ matrix.source }}
+      PROFILE: ${{ matrix.profile }}
+      LOGIN_FIRST: 'true'
+      DEV_MODE_ON: 'on'
+      SWITCH: 'false'
+    steps:
+      - uses: ./.github/actions/ppv-generic-runner
+        with: { journey: dev-mode-my-account }

@@ -1,0 +1,25 @@
+name: Run generic PPV journey
+inputs:
+  journey:
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v4
+    - shell: bash
+      run: npm ci
+    - shell: bash
+      run: npx playwright install chromium
+    - if: ${{ env.PROFILE != '' }}
+      shell: bash
+      run: |
+        IFS='/' read -r state plan <<< "$PROFILE"
+        echo "USER_STATE=$state" >> "$GITHUB_ENV"
+        echo "PLAN=$plan" >> "$GITHUB_ENV"
+    - shell: bash
+      run: |
+        if [ "${{ inputs.journey }}" = "new-user" ]; then
+          npx playwright test tests/new_user/newuser.ppv.spec.ts --project=chromium --timeout=600000
+        else
+          npx playwright test tests/existing_user/existinguser.ppv.spec.ts --project=chromium --timeout=600000
+        fi

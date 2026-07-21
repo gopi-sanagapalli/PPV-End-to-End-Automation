@@ -16,7 +16,7 @@ on:
 permissions: { contents: read }
 jobs:
   prepare:
-    runs-on: [self-hosted, macOS, ARM64, sridevi-runners]
+    runs-on: [self-hosted, macOS, ARM64]
     outputs:
       new_matrix: ${{ steps.matrix.outputs.new_matrix }}
       signin_matrix: ${{ steps.matrix.outputs.signin_matrix }}
@@ -39,52 +39,70 @@ jobs:
           done
   new-user:
     needs: prepare
+    name: New user | ${{ matrix.source }} | ${{ matrix.plan }}
+    runs-on: [self-hosted, macOS, ARM64]
     strategy:
       fail-fast: false
-      max-parallel: 8
+      max-parallel: 10
       matrix:
         include: ${{ fromJSON(needs.prepare.outputs.new_matrix) }}
-    uses: ./.github/workflows/_ppv-generic-runner.yml
-    with:
-      journey: new-user
-      country: ${{ inputs.COUNTRY }}
-      ppv_config: ${{ inputs.PPV_CONFIG }}
-      source: ${{ matrix.source }}
-      plan: ${{ matrix.plan }}
-      login_first: 'false'
-      dev_mode_on: 'off'
-      switch: ${{ matrix.switch || 'false' }}
+    env:
+      CI: 'true'
+      HEADLESS: 'true'
+      DAZN_ENV: prod
+      DAZN_REGION: ${{ inputs.COUNTRY }}
+      PPV_CONFIG: ${{ inputs.PPV_CONFIG }}
+      SOURCE: ${{ matrix.source }}
+      PLAN: ${{ matrix.plan }}
+      LOGIN_FIRST: 'false'
+      DEV_MODE_ON: 'off'
+      SWITCH: ${{ matrix.switch || 'false' }}
+    steps:
+      - uses: ./.github/actions/ppv-generic-runner
+        with: { journey: new-user }
   sign-in-during-flow:
     needs: prepare
+    name: Sign in during flow | ${{ matrix.source }} | ${{ matrix.profile }}
+    runs-on: [self-hosted, macOS, ARM64]
     strategy:
       fail-fast: false
-      max-parallel: 8
+      max-parallel: 10
       matrix:
         include: ${{ fromJSON(needs.prepare.outputs.signin_matrix) }}
-    uses: ./.github/workflows/_ppv-generic-runner.yml
-    with:
-      journey: sign-in-during-flow
-      country: ${{ inputs.COUNTRY }}
-      ppv_config: ${{ inputs.PPV_CONFIG }}
-      source: ${{ matrix.source }}
-      profile: ${{ matrix.profile }}
-      login_first: 'false'
-      dev_mode_on: 'off'
-      switch: ${{ matrix.switch || 'false' }}
+    env:
+      CI: 'true'
+      HEADLESS: 'true'
+      DAZN_ENV: prod
+      DAZN_REGION: ${{ inputs.COUNTRY }}
+      PPV_CONFIG: ${{ inputs.PPV_CONFIG }}
+      SOURCE: ${{ matrix.source }}
+      PROFILE: ${{ matrix.profile }}
+      LOGIN_FIRST: 'false'
+      DEV_MODE_ON: 'off'
+      SWITCH: ${{ matrix.switch || 'false' }}
+    steps:
+      - uses: ./.github/actions/ppv-generic-runner
+        with: { journey: sign-in-during-flow }
   already-signed-in:
     needs: prepare
+    name: Already signed in | ${{ matrix.source }} | ${{ matrix.profile }}
+    runs-on: [self-hosted, macOS, ARM64]
     strategy:
       fail-fast: false
-      max-parallel: 8
+      max-parallel: 10
       matrix:
         include: ${{ fromJSON(needs.prepare.outputs.signed_matrix) }}
-    uses: ./.github/workflows/_ppv-generic-runner.yml
-    with:
-      journey: already-signed-in
-      country: ${{ inputs.COUNTRY }}
-      ppv_config: ${{ inputs.PPV_CONFIG }}
-      source: ${{ matrix.source }}
-      profile: ${{ matrix.profile }}
-      login_first: 'true'
-      dev_mode_on: 'off'
-      switch: ${{ matrix.switch || 'false' }}
+    env:
+      CI: 'true'
+      HEADLESS: 'true'
+      DAZN_ENV: prod
+      DAZN_REGION: ${{ inputs.COUNTRY }}
+      PPV_CONFIG: ${{ inputs.PPV_CONFIG }}
+      SOURCE: ${{ matrix.source }}
+      PROFILE: ${{ matrix.profile }}
+      LOGIN_FIRST: 'true'
+      DEV_MODE_ON: 'off'
+      SWITCH: ${{ matrix.switch || 'false' }}
+    steps:
+      - uses: ./.github/actions/ppv-generic-runner
+        with: { journey: already-signed-in }
