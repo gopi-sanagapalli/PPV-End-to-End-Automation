@@ -205,11 +205,14 @@ export function buildEventData(
   // FREE_TRIAL_DAYS is global within an event (across its regions). It controls
   // every displayed duration and date offset; OFFER_TYPE remains the stable
   // plan identifier (for example, "7_day_trial").
+  const hasConfiguredTrialDuration = base.FREE_TRIAL_DAYS !== undefined && base.FREE_TRIAL_DAYS !== '';
   const trialDays = getTrialDays(base.FREE_TRIAL_DAYS);
   base.FREE_TRIAL_DAYS = String(trialDays);
   const hasDayTrial = isDayTrialOffer(base.OFFER_TYPE);
-
-  if (hasDayTrial) {
+  // The plan page can show the monthly Flex option while an annual plan is
+  // selected. Its trial card still uses the PPV's configured duration, so
+  // populate display values whenever the event defines FREE_TRIAL_DAYS.
+  if (hasConfiguredTrialDuration || hasDayTrial) {
     if (!base.FLEX_BADGE) base.FLEX_BADGE = `${trialDays} DAY FREE TRIAL`;
     if (!base.PLAN_CTA_BUTTON_STANDARD) base.PLAN_CTA_BUTTON_STANDARD = `Continue with ${trialDays}-day Free Trial`;
     if (!base.PAYMENT_FREE_TEXT_TRIAL) base.PAYMENT_FREE_TEXT_TRIAL = `${trialDays}-days free`;
@@ -217,8 +220,11 @@ export function buildEventData(
     if (!base.CANCELLATION_TEXT_TRIAL) base.CANCELLATION_TEXT_TRIAL = `In ${trialDays} days, you'll be charged {{CURRENCY}}{{MONTHLY_PRICE}}/month. Cancel anytime before the end of the trial.`;
     if (!base.FLEX_TODAY_TEXT) base.FLEX_TODAY_TEXT = `Only pay for the fight and start your ${trialDays}-day free trial of DAZN Standard`;
     if (!base.FLEX_FUTURE_TEXT) base.FLEX_FUTURE_TEXT = 'You will start your DAZN Standard plan at {{CURRENCY}}{{MONTHLY_PRICE}}/month. Cancel anytime before the end of the trial.';
-    base.NEXT_PAYMENT_DAYS_OFFSET = trialDays;
   }
+  // Only an actual monthly N-day offer changes the next-payment offset.
+  // Annual plans may still display the Flex trial card, but keep their normal
+  // annual payment schedule.
+  if (hasDayTrial) base.NEXT_PAYMENT_DAYS_OFFSET = trialDays;
 
   // Regional wording may differ (for example, currency spacing), but it must
   // never carry its own trial duration.

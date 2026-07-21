@@ -36,13 +36,28 @@ function alignRegions(data: any) {
 function findConfig(dir: string, filename: string): string | null {
   if (!fs.existsSync(dir)) return null;
 
-  // 1. Check config/events/filename first if dir is config/
+  // Search event files recursively so completed events can live under
+  // config/events/completed without breaking filename-based invocations.
+  function findInEvents(eventsRoot: string): string | null {
+    if (!fs.existsSync(eventsRoot)) return null;
+    const entries = fs.readdirSync(eventsRoot, { withFileTypes: true });
+    for (const entry of entries) {
+      const full = path.join(eventsRoot, entry.name);
+      if (entry.isDirectory()) {
+        const found = findInEvents(full);
+        if (found) return found;
+      } else if (entry.name === filename) {
+        return full;
+      }
+    }
+    return null;
+  }
+
+  // 1. Check config/events and its subfolders first if dir is config/
   const eventsDir = path.join(dir, 'events');
   if (fs.existsSync(eventsDir)) {
-    const eventsPath = path.join(eventsDir, filename);
-    if (fs.existsSync(eventsPath) && fs.statSync(eventsPath).isFile()) {
-      return eventsPath;
-    }
+    const eventsPath = findInEvents(eventsDir);
+    if (eventsPath) return eventsPath;
   }
 
   // 2. Check config/filename
@@ -64,9 +79,9 @@ function findConfig(dir: string, filename: string): string | null {
 
 export function loadEventConfig(eventConfigOrKey?: string, planKeyOverride?: string): Record<string, any> {
   const configSource = process.env.PPV_CONFIG || process.env.PPV_EVENT || eventConfigOrKey || 'ppv_t_joshua_prenga.json';
-  
+
   let filePath: string | null = null;
-  
+
   // If it's a direct path that exists, use it
   if (fs.existsSync(configSource) && fs.statSync(configSource).isFile()) {
     filePath = configSource;
