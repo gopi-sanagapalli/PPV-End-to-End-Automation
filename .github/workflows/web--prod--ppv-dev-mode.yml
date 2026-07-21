@@ -39,6 +39,7 @@ jobs:
         run: node scripts/buildPpvWorkflowMatrix.js dev-account '${{ inputs.PPV_CONFIG }}' '${{ inputs.COUNTRY }}'
   my-account:
     needs: prepare
+    environment: prod
     name: Dev mode My Account | ${{ matrix.profile }}
     runs-on: [self-hosted, macOS, ARM64]
     strategy:

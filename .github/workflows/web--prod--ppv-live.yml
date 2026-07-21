@@ -53,6 +53,7 @@ jobs:
           done
   new-user:
     needs: prepare
+    environment: prod
     name: New user | ${{ matrix.source }} | ${{ matrix.plan }}
     runs-on: [self-hosted, macOS, ARM64]
     strategy:
@@ -78,6 +79,7 @@ jobs:
         with: { journey: new-user }
   sign-in-during-flow:
     needs: prepare
+    environment: prod
     name: Sign in during flow | ${{ matrix.source }} | ${{ matrix.profile }}
     runs-on: [self-hosted, macOS, ARM64]
     strategy:
@@ -103,6 +105,7 @@ jobs:
         with: { journey: sign-in-during-flow }
   already-signed-in:
     needs: prepare
+    environment: prod
     name: Already signed in | ${{ matrix.source }} | ${{ matrix.profile }}
     runs-on: [self-hosted, macOS, ARM64]
     strategy:

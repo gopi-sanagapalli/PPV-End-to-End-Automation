@@ -51,6 +51,7 @@ jobs:
           done
   new-user:
     needs: prepare
+    environment: prod
     strategy:
       fail-fast: false
       max-parallel: 10
@@ -76,6 +77,7 @@ jobs:
         with: { journey: new-user }
   sign-in-during-flow:
     needs: prepare
+    environment: prod
     strategy:
       fail-fast: false
       max-parallel: 10
@@ -101,6 +103,7 @@ jobs:
         with: { journey: sign-in-during-flow }
   already-signed-in:
     needs: prepare
+    environment: prod
     strategy:
       fail-fast: false
       max-parallel: 10
