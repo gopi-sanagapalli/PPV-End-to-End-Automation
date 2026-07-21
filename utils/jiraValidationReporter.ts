@@ -275,7 +275,7 @@ function validationFingerprint(context: JiraContext, failures: ValidationResult[
   // PPV surface, plan, or user flow discovered it.
   const signature = failures
     .map(failure => [
-      normalise(asText(failure.field)),
+      canonicalFailureField(asText(failure.field)),
       normalise(asText(failure.expected)),
       normalise(asText(failure.actual)),
     ].join('|'))
@@ -289,6 +289,13 @@ function validationFingerprint(context: JiraContext, failures: ValidationResult[
     signature,
   ].join('||');
   return createHash('sha256').update(identity).digest('hex').slice(0, 24);
+}
+
+function canonicalFailureField(field: string): string {
+  const normalised = normalise(field);
+  return /(?:ppv\s*(?:name|card\s*title)|event\s*name)/.test(normalised)
+    ? 'ppv-name'
+    : normalised;
 }
 
 async function findOpenIssueByFingerprint(

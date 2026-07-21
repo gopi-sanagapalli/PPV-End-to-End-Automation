@@ -83,7 +83,7 @@ jobs:
       max-parallel: 10
       matrix:
         include: ${{ fromJSON(needs.prepare.outputs.signin_matrix) }}
-    name: Sign in during flow | ${{ matrix.source }} | ${{ matrix.profile }}
+    name: Existing user · Sign in during flow | ${{ matrix.source }} | ${{ matrix.profile }}
     runs-on: [self-hosted, macOS, ARM64]
     env:
       ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
@@ -109,7 +109,7 @@ jobs:
       max-parallel: 10
       matrix:
         include: ${{ fromJSON(needs.prepare.outputs.signed_matrix) }}
-    name: Already signed in | ${{ matrix.source }} | ${{ matrix.profile }}
+    name: Existing user · Already signed in | ${{ matrix.source }} | ${{ matrix.profile }}
     runs-on: [self-hosted, macOS, ARM64]
     env:
       ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'

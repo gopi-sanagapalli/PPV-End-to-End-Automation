@@ -80,7 +80,7 @@ jobs:
   sign-in-during-flow:
     needs: prepare
     environment: prod
-    name: Sign in during flow | ${{ matrix.source }} | ${{ matrix.profile }}
+    name: Existing user · Sign in during flow | ${{ matrix.source }} | ${{ matrix.profile }}
     runs-on: [self-hosted, macOS, ARM64]
     strategy:
       fail-fast: false
@@ -106,7 +106,7 @@ jobs:
   already-signed-in:
     needs: prepare
     environment: prod
-    name: Already signed in | ${{ matrix.source }} | ${{ matrix.profile }}
+    name: Existing user · Already signed in | ${{ matrix.source }} | ${{ matrix.profile }}
     runs-on: [self-hosted, macOS, ARM64]
     strategy:
       fail-fast: false

@@ -40,7 +40,7 @@ jobs:
   my-account:
     needs: prepare
     environment: prod
-    name: Dev mode My Account | ${{ matrix.profile }}
+    name: Existing user · Dev mode My Account | ${{ matrix.profile }}
     runs-on: [self-hosted, macOS, ARM64]
     strategy:
       fail-fast: false
