@@ -180,8 +180,8 @@ export class PaymentPage extends BasePage {
       // Annual plans always have next payment visible — use 'annual' planType
       // regardless of offer type (7_day_trial, 1_month_free, no_offer, etc.)
       planType = 'annual';
-    } else if (offerType === '7_day_trial') {
-      // Only monthly flex with 7-day trial should skip next payment
+    } else if (/^\d+_day_trial$/.test(offerType)) {
+      // Only monthly flex with an N-day trial should skip next payment
       planType = '7_day_free_trial';
     }
 
@@ -217,9 +217,9 @@ export class PaymentPage extends BasePage {
     console.log(`🔍 Running validateNextPaymentDetails: region = "${regionUpper}", planType = "${planType}"`);
 
     if (regionUpper === 'GB' || regionUpper === 'UK' || regionUpper === 'IE' || planType === '7_day_free_trial') {
-      // Skip next payment validations for GB, IE, UK and 7-day trial regions
-      // These regions/offers do not display next payment details
-      console.log('  ⏭️  Skipping [Next Payment Label/Price] — not applicable for GB, IE, or 7-day trial');
+      // Skip next payment validations for GB, IE, UK and N-day trial regions.
+      // These regions/offers do not display next payment details.
+      console.log('  ⏭️  Skipping [Next Payment Label/Price] — not applicable for GB, IE, or an N-day trial');
       return;
 
     } else {
@@ -822,7 +822,7 @@ export class PaymentPage extends BasePage {
       }
 
       // Strategy 3: Fall back to free text badges if no plan name found
-      const freeMatch = bodyText.match(/7[-\s]?days?\s+free/i);
+      const freeMatch = bodyText.match(/\d+[-\s]?days?\s+free/i);
       if (freeMatch) return freeMatch[0].trim();
       const monthFreeMatch = bodyText.match(/(?:first|1st)\s+month\s+free/i);
       if (monthFreeMatch) return monthFreeMatch[0].trim();
@@ -982,24 +982,25 @@ export class PaymentPage extends BasePage {
       const lines = bodyText.split('\n').map(l => l.trim());
       for (const line of lines) {
         if (/first\s+month\s+free/i.test(line) && line.length < 60) return line;
-        if (/7[-\s]?days?\s+free/i.test(line) && line.length < 40) return line;
+        if (/\d+[-\s]?days?\s+free/i.test(line) && line.length < 40) return line;
       }
       if (lower.includes('first month free')) return 'First month free';
-      if (lower.includes('7-days free') || lower.includes('7 days free')) return '7-days free';
+      const trialText = bodyText.match(/\d+[-\s]?days?\s+free/i)?.[0];
+      if (trialText) return trialText;
       return 'N/A';
     }
     
-    // ── 7 Days Free Badge ──────────────────────────────────────
-    if (fieldLower.includes('7 days free') || fieldLower.includes('7-days free')) {
+    // ── N Days Free Badge ──────────────────────────────────────
+    if (/\d+[-\s]?days?\s+free/i.test(fieldLower)) {
       if (fieldLower.includes('price')) {
         const match = bodyText.match(/(?:AED\s?|[\$£€₹]\s?)0/);
         return match ? match[0].trim() : 'N/A';
       }
       const lines = bodyText.split('\n').map(l => l.trim());
       for (const line of lines) {
-        if (/7[-\s]?days?\s+free/i.test(line) && line.length < 40) return line;
+        if (/\d+[-\s]?days?\s+free/i.test(line) && line.length < 40) return line;
       }
-      return lower.includes('7-days free') || lower.includes('7 days free') ? '7-days free' : 'N/A';
+      return bodyText.match(/\d+[-\s]?days?\s+free/i)?.[0] || 'N/A';
     }
 
     // ── Today You Pay Text ─────────────────────────────────────

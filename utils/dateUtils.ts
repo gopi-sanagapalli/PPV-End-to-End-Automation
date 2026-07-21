@@ -130,8 +130,8 @@ export function formatNextPaymentDateUS(daysOffset: number): string {
   return `${mm}/${dd}/${yyyy}`;
 }
 
-// ── Flex Future Date — "In 7 days • 4 June 2026" ────────────
-export function formatFlexFutureDate(daysOffset: number = 7): string {
+// ── Flex Future Date — "In N days • 4 June 2026" ────────────
+export function formatFlexFutureDate(daysOffset: number): string {
   const date = getNowForRegion();
   date.setDate(date.getDate() + daysOffset);
 

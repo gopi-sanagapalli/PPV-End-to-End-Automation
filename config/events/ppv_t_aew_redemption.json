@@ -10,6 +10,7 @@
   "DEFAULT_SIGNUP_DEVMODE": false,
   "HAS_DEFAULT_SIGNUP_PPV": false,
   "global": {
+    "FREE_TRIAL_DAYS": 7,
     "PPV_PROMOTER": "All Elite Wrestling",
     "PPV_ENTITLEMENT_ID": "ppv_t_aew_redemption",
     "PPV_DESCRIPTION": "A historic night as All Elite Wrestling returns to Canada for AEW Redemption from the Bell Centre in Montreal, Quebec",
@@ -27,7 +28,7 @@
     "LANDING_DONT_MISS_DATE": "JUL 26",
     "PPV_PAGE_DATE": "Mon 27th Jul at 01:00",
     "PPV_CARD_TITLE": "AEW: Redemption",
-    "PPV_CARD_DESCRIPTION": "Just the fight - plus 7 days of DAZN Standard, free.",
+    "PPV_CARD_DESCRIPTION": "Just the fight - plus {{FREE_TRIAL_DAYS}} days of DAZN Standard, free.",
     "BANNER_DESCRIPTION": "A historic night as All Elite Wrestling returns to Canada for AEW Redemption from the Bell Centre in Montreal, Quebec",
     "HOME_POPUP_DATE": "SUN 26TH JUL AT 01:00",
     "HOME_POPUP_DESCRIPTION": "A historic night as All Elite Wrestling returns to Canada for AEW Redemption from the Bell Centre in Montreal, Quebec",
@@ -125,7 +126,7 @@
     "variant2": {
       "detection": "choose your subscription",
       "ppvSelector": "input[type='checkbox']",
-      "ctaText": "Continue with PPV + 7-day free trial"
+      "ctaText": "Continue with PPV"
     }
   },
   "pages": {

@@ -7,8 +7,9 @@
   "HAS_BUNDLE": false,
   "PPV_DEV_MODE": false,
   "DEFAULT_SIGNUP_DEVMODE": false,
-  "HAS_DEFAULT_SIGNUP_PPV": false,
+  "HAS_DEFAULT_SIGNUP_PPV": true,
   "global": {
+    "FREE_TRIAL_DAYS": 8,
     "PPV_PROMOTER": "Matchroom Boxing",
     "PPV_DESCRIPTION": "Catch the biggest moment of the year. Select a DAZN plan to pair with your pay-per-view.",
     "PPV_UTC_DATE": "2025-07-25T19:00:00Z",
@@ -25,7 +26,7 @@
     "LANDING_DONT_MISS_DATE": "JUL 25",
     "PPV_PAGE_DATE": "Sun 26th Jul at 00:30",
     "PPV_CARD_TITLE": "Joshua vs. Prenga",
-    "PPV_CARD_DESCRIPTION": "Just the fight - plus 7 days of DAZN Standard, free",
+    "PPV_CARD_DESCRIPTION": "Just the fight - plus {{FREE_TRIAL_DAYS}} days of DAZN Standard, free",
     "BANNER_DESCRIPTION": "Danger before destiny. AJ returns to the ring against Prenga, an unknown entity with nothing to lose.",
     "HOME_POPUP_DATE": "SUN 26TH JUL AT 00:30",
     "HOME_POPUP_DESCRIPTION": "Danger before destiny. AJ returns to the ring against Prenga, an unknown entity with nothing to lose.",
@@ -36,7 +37,7 @@
     "BUNDLE_FIGHT_COUNT": "2-fight bundle",
     "BUNDLE_SECTION_TITLE": "Save with a fight bundle",
     "BUNDLE_SECTION_SUBTITLE": "More fights, pay less. Pick your bundle.",
-    "BUNDLE_PPV_CARD_DESCRIPTION": "Just the fight - plus 7 days of DAZN Standard, free.",
+    "BUNDLE_PPV_CARD_DESCRIPTION": "Just the fight - plus {{FREE_TRIAL_DAYS}} days of DAZN Standard, free.",
     "BUNDLE_PPV1_NAME": "Joshua vs. Prenga",
     "BUNDLE_PPV1_FULL_NAME": "Joshua vs. Prenga",
     "BUNDLE_PPV1_DATE": "Sat 26th Jul at 00:30",
@@ -168,7 +169,7 @@
     "variant2": {
       "detection": "choose your subscription",
       "ppvSelector": "input[type='checkbox']",
-      "ctaText": "Continue with PPV + 7-day free trial"
+      "ctaText": "Continue with PPV"
     }
   },
   "pages": {

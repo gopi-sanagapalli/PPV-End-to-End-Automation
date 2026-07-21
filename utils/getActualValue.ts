@@ -4721,8 +4721,7 @@ export async function getActualValue(
         n.text.toLowerCase() !== 'pay-per-views included' &&
         !n.text.toLowerCase().includes('all these fights included') &&
         !n.text.toLowerCase().startsWith('pay-per-views included\n') &&
-        !n.text.toLowerCase().includes('7-day') &&
-        !n.text.toLowerCase().includes('7 days') &&
+        !/\d+[-\s]?days?\b/i.test(n.text) &&
         !n.text.toLowerCase().includes('cancel anytime') &&
         !n.text.toLowerCase().includes('monthly flex') &&
         !n.text.toLowerCase().includes('free access to dazn') &&
@@ -5147,7 +5146,7 @@ export async function getActualValue(
     case 'bundle card description': {
       const found = snapFind(n =>
         (n.text.toLowerCase().includes('just the fight') ||
-          n.text.toLowerCase().includes('plus 7 days of dazn standard')) &&
+          /plus\s+\d+\s+days\s+of\s+dazn\s+standard/i.test(n.text)) &&
         n.text.length < 100
       );
       if (found !== 'N/A') return found;
@@ -6189,7 +6188,7 @@ export async function getActualValue(
       const trialFeatures = snapFindAll(n =>
         n.tag === 'li' &&
         n.text.length > 5 &&
-        (n.text.toLowerCase().includes('7-day') ||
+        (/\d+-day/i.test(n.text) ||
           n.text.toLowerCase().includes('cancel anytime') ||
           n.text.toLowerCase().includes('free access'))
       );
@@ -6211,7 +6210,7 @@ export async function getActualValue(
           n.classes.toLowerCase().includes('highlight') ||
           n.classes.toLowerCase().includes('accent') ||
           n.classes.toLowerCase().includes('gold')) &&
-        n.text.toLowerCase().includes('7-days') &&
+        /\d+-days?/i.test(n.text) &&
         n.text.toLowerCase().includes('free') &&
         n.text.toLowerCase().includes('access') &&
         n.text.length < 80
@@ -6225,7 +6224,7 @@ export async function getActualValue(
         if (!await el.isVisible().catch(() => false)) continue;
         const t = clean(await el.innerText({ timeout: T }).catch(() => ''));
         if (
-          t.toLowerCase().includes('7-days') &&
+          /\d+-days?/i.test(t) &&
           t.toLowerCase().includes('free') &&
           t.toLowerCase().includes('access') &&
           t.length < 80
@@ -6684,7 +6683,7 @@ export async function getActualValue(
     }
 
     // ════════════════════════════════════════════════════════════
-    // PAYMENT PAGE — 7 DAYS FREE
+    // PAYMENT PAGE — N DAYS FREE
     // ════════════════════════════════════════════════════════════
     case '7 days free badge':
     case '7-days free badge':
@@ -6692,10 +6691,7 @@ export async function getActualValue(
     case '7-day free text': {
       return snapFind(n =>
         n.childCount === 0 &&
-        (n.text.toLowerCase().includes('7-day') ||
-          n.text.toLowerCase().includes('7 day') ||
-          n.text.toLowerCase().includes('7-days') ||
-          n.text.toLowerCase().includes('7 days')) &&
+        /\d+[-\s]?days?/i.test(n.text) &&
         n.text.toLowerCase().includes('free') &&
         n.text.length < 40
       );
@@ -6708,8 +6704,7 @@ export async function getActualValue(
         for (const el of allEls) {
           const text = (el.innerText || '').trim().toLowerCase();
           if (
-            !(text.includes('7-day') || text.includes('7 day') ||
-              text.includes('7-days') || text.includes('7 days')) ||
+            !/\d+[-\s]?days?/.test(text) ||
             !text.includes('free') ||
             text.length > 40
           ) continue;
@@ -8354,7 +8349,7 @@ export async function getActualValue(
     }
 
     case 'flex today text': {
-      // "Only pay for the fight and start your 7-day free trial of DAZN Standard"
+      // "Only pay for the fight and start your N-day free trial of DAZN Standard"
       const todayText = snapFind(n =>
         n.text.toLowerCase().includes('today') &&
         n.text.toLowerCase().includes('pay') &&
@@ -8363,10 +8358,10 @@ export async function getActualValue(
       );
       if (todayText !== 'N/A') return todayText;
 
-      // Also try: "Only pay for the fight and start your 7-day free trial"
+      // Also try: "Only pay for the fight and start your N-day free trial"
       const altText = snapFind(n =>
         n.text.toLowerCase().includes('only pay') &&
-        n.text.toLowerCase().includes('7-day') &&
+        /\d+-day/i.test(n.text) &&
         n.text.length < 150
       );
       if (altText !== 'N/A') return altText;
@@ -8384,9 +8379,9 @@ export async function getActualValue(
       );
       if (futureText !== 'N/A') return futureText;
 
-      // Also try "In 7 days" pattern
+      // Also try an "In N days" pattern
       const inDays = snapFind(n =>
-        n.text.toLowerCase().includes('in 7 days') &&
+        /in\s+\d+\s+days/i.test(n.text) &&
         n.text.length < 200
       );
       if (inDays !== 'N/A') return inDays;
@@ -8396,7 +8391,7 @@ export async function getActualValue(
     }
 
     case 'flex future date': {
-      // "In 7 days • 4 June 2026" or "In 7 days • June 4, 2026" or "In 1 month • 28 June 2026"
+      // "In N days • 4 June 2026" or "In N days • June 4, 2026" or "In 1 month • 28 June 2026"
       const futureDateLabel = snapFind(n =>
         /(in\s+\d+\s+days?|in\s+\d+\s+months?).*\d{4}/i.test(n.text.trim()) &&
         n.text.length < 60

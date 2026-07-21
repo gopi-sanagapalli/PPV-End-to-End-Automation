@@ -6,6 +6,7 @@
   "SPORT": "Wrestling",
   "PPV_TYPE": "normal",
   "global": {
+    "FREE_TRIAL_DAYS": 8,
     "PPV_PROMOTER": "All Elite Wrestling",
     "PPV_ENTITLEMENT_ID": "ppv_t_aew_forbiddendoor",
     "PPV_DESCRIPTION": "All Elite Wrestling lands in San Jose, California for AEW x NJPW Forbidden Door from the SAP Center",
@@ -14,7 +15,7 @@
     "PPV_DATE": "Mon 29th Jun at 05:30",
     "PPV_TIME": "05:30",
     "PPV_CARD_TITLE": "AEW: Forbidden Door",
-    "PPV_CARD_DESCRIPTION": "Just the fight - plus 7 days of DAZN Standard, free.",
+    "PPV_CARD_DESCRIPTION": "Just the fight - plus {{FREE_TRIAL_DAYS}} days of DAZN Standard, free.",
     "BOXING_BANNER_SUBTITLE": "",
     "ANNUAL_BADGE": "N/A",
     "ANNUAL_FREE_BADGE": "N/A"
@@ -72,7 +73,7 @@
     "variant2": {
       "detection": "choose your subscription",
       "ppvSelector": "input[type='checkbox']",
-      "ctaText": "Continue with PPV + 7-day free trial"
+      "ctaText": "Continue with PPV"
     }
   },
   "pages": {

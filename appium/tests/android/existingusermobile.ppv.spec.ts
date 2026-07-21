@@ -870,7 +870,7 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
           if (isNoOffer) {
             eventData.PLAN_CTA_BUTTON = eventData.PLAN_CTA_BUTTON_STANDARD || 'Continue with DAZN Standard';
           } else {
-            eventData.PLAN_CTA_BUTTON = eventData.PLAN_CTA_BUTTON_STANDARD || 'Continue with 7-day Free Trial';
+            eventData.PLAN_CTA_BUTTON = eventData.PLAN_CTA_BUTTON_STANDARD || `Continue with ${eventData.FREE_TRIAL_DAYS || '7'}-day Free Trial`;
           }
           eventData.DAZN_TIER = 'DAZN Standard';
         }
@@ -881,10 +881,10 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
           eventData.PAYMENT_PLAN_NAME = eventData.PAYMENT_PLAN_LABEL || 'Flex – Pay Monthly - First Month Only';
           eventData.PAYMENT_FREE_TEXT = 'N/A';
           eventData.CANCELLATION_TEXT = eventData.CANCELLATION_TEXT_TRIAL || '';
-        } else if (offerType === '7_day_trial' && planTier === 'standard' && ratePlan === 'monthly') {
+        } else if (/^\d+_day_trial$/.test(offerType) && planTier === 'standard' && ratePlan === 'monthly') {
           eventData.PAYMENT_PAGE_TITLE = eventData.PAYMENT_PAGE_TITLE_TRIAL || 'Choose how to pay after your free trial';
-          eventData.PAYMENT_PLAN_NAME = eventData.PAYMENT_FREE_TEXT_TRIAL || '7-days free';
-          eventData.PAYMENT_FREE_TEXT = eventData.PAYMENT_FREE_TEXT_TRIAL || '7-days free';
+          eventData.PAYMENT_PLAN_NAME = eventData.PAYMENT_FREE_TEXT_TRIAL || `${eventData.FREE_TRIAL_DAYS || '7'}-days free`;
+          eventData.PAYMENT_FREE_TEXT = eventData.PAYMENT_FREE_TEXT_TRIAL || `${eventData.FREE_TRIAL_DAYS || '7'}-days free`;
           eventData.CANCELLATION_TEXT = eventData.CANCELLATION_TEXT_TRIAL || '';
         } else if (ratePlan === 'annual pay monthly' || ratePlan === 'annual pay upfront' || ratePlan.includes('annual')) {
           eventData.PAYMENT_PAGE_TITLE = eventData.PAYMENT_PAGE_TITLE_STANDARD || 'Choose how to pay';
@@ -2035,7 +2035,7 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
                       'button:has-text("Continue with Ultimate")',
                       'button:has-text("Continue with DAZN Standard")',
                       'button:has-text("Continue with Standard")',
-                      'button:has-text("Continue with 7-day Free Trial")',
+                      'button:has-text("Continue with")',
                       'button:has-text("Continue with 1st Month Free")',
                       'button:has-text("Continue with pay-per-view")',
                     ];
@@ -2079,7 +2079,7 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
             if (!planValidated && !page.url().includes('page=TierPlans')) {
               // Wait for the full CTA button text to render before taking snapshot
               await page.waitForSelector(
-                'button:has-text("Continue with DAZN Ultimate"), button:has-text("Continue with DAZN Standard"), button:has-text("Continue with 7-day")',
+                'button:has-text("Continue with DAZN Ultimate"), button:has-text("Continue with DAZN Standard"), button:has-text("Continue with")',
                 { state: 'visible', timeout: 6000 }
               ).catch(() => {});
               await page.waitForTimeout(500);
@@ -2191,7 +2191,7 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
                 'button:has-text("Continue with pay-per-view"), ' +
                 'button:has-text("Continue with PPV"), ' +
                 'button:has-text("Buy"), ' +
-                'button:has-text("Continue with 7-day Free Trial"), ' +
+                'button:has-text("Continue with"), ' +
                 'button:has-text("Continue with 1st Month Free"), ' +
                 'button:has-text("Continue")'
               ).first();

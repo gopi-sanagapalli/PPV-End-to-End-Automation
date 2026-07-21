@@ -129,14 +129,16 @@ export class PPVPage {
 
     // ── Trial Card fields ──────────────────────────────────────
     if (fieldLower === 'trial card present') {
-      const hasTrialCard = bodyText.toLowerCase().includes('trial') ||
-        bodyText.toLowerCase().includes('free trial') ||
-        bodyText.toLowerCase().includes('7-day free');
+      const lower = bodyText.toLowerCase();
+      const hasTrialCard = lower.includes('trial') ||
+        lower.includes('free trial') ||
+        /\d+-day free/i.test(bodyText) ||
+        lower.includes('day free');
       return hasTrialCard ? 'Yes' : 'No';
     }
 
     if (fieldLower === 'trial title') {
-      return this.extractCardText(bodyText, ['trial', '7-day', '7 day'], 'title');
+      return this.extractCardText(bodyText, ['trial', 'day free'], 'title');
     }
 
     if (fieldLower === 'trial description') {

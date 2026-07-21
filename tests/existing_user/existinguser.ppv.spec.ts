@@ -302,7 +302,7 @@ for (const stateKey of userStatesToRun) {
 
     // Resolve payment page expected variables to avoid skipping validation
     const offerType = (eventData.OFFER_TYPE || '1_month_free').toLowerCase();
-    const isTrial = ratePlan === 'monthly' && offerType === '7_day_trial';
+    const isTrial = ratePlan === 'monthly' && /^\d+_day_trial$/.test(offerType);
     const isNoOffer = offerType === 'no_offer' || offerType === 'none';
     const activeOfferPresent = eventData.ACTIVE_OFFER_PRESENT === 'true';
 
@@ -314,7 +314,7 @@ for (const stateKey of userStatesToRun) {
       if (isNoOffer) {
         eventData.PLAN_CTA_BUTTON = eventData.PLAN_CTA_BUTTON_STANDARD || 'Continue with DAZN Standard';
       } else {
-        eventData.PLAN_CTA_BUTTON = eventData.PLAN_CTA_BUTTON_STANDARD || 'Continue with 7-day Free Trial';
+        eventData.PLAN_CTA_BUTTON = eventData.PLAN_CTA_BUTTON_STANDARD || `Continue with ${eventData.FREE_TRIAL_DAYS || '7'}-day Free Trial`;
       }
       eventData.DAZN_TIER = 'DAZN Standard';
     }
@@ -326,8 +326,8 @@ for (const stateKey of userStatesToRun) {
       eventData.CANCELLATION_TEXT = eventData.CANCELLATION_TEXT_TRIAL || '';
     } else if (isTrial) {
       eventData.PAYMENT_PAGE_TITLE = eventData.PAYMENT_PAGE_TITLE_TRIAL || 'Choose how to pay after your free trial';
-      eventData.PAYMENT_PLAN_NAME = eventData.PAYMENT_FREE_TEXT_TRIAL || '7-days free';
-      eventData.PAYMENT_FREE_TEXT = eventData.PAYMENT_FREE_TEXT_TRIAL || '7-days free';
+      eventData.PAYMENT_PLAN_NAME = eventData.PAYMENT_FREE_TEXT_TRIAL || `${eventData.FREE_TRIAL_DAYS || '7'}-days free`;
+      eventData.PAYMENT_FREE_TEXT = eventData.PAYMENT_FREE_TEXT_TRIAL || `${eventData.FREE_TRIAL_DAYS || '7'}-days free`;
       eventData.CANCELLATION_TEXT = eventData.CANCELLATION_TEXT_TRIAL || '';
     } else if (ratePlan === 'annual pay monthly' || ratePlan === 'annual pay upfront') {
       // APM / APU
@@ -365,8 +365,8 @@ for (const stateKey of userStatesToRun) {
       eventData.CANCELLATION_TEXT = eventData.CANCELLATION_TEXT_TRIAL || '';
     }
 
-    // Frozen users on a 7-day monthly trial still show trial values in the
-    // purchase summary (Plan Name / Free Text = "7-days free"). Only the payment
+    // Frozen users on an N-day monthly trial still show trial values in the
+    // purchase summary. Only the payment
     // page heading differs from the new/freemium trial heading.
     if (userStateKey === 'frozen' && isTrial) {
       eventData.PAYMENT_PAGE_TITLE = eventData.PAYMENT_PAGE_TITLE_STANDARD || 'Choose how to pay';
@@ -3651,9 +3651,8 @@ for (const stateKey of userStatesToRun) {
 
             const planBtn = page.locator(
               'button:has-text("Continue with DAZN Ultimate"), ' +
-              'button:has-text("Continue with 7-day Free Trial"), ' +
+              'button:has-text("Continue with"), ' +
               'button:has-text("Continue with 1st Month Free"), ' +
-              'button:has-text("Continue with PPV + 7-day free trial"), ' +
               'button:has-text("Continue with PPV"), ' +
               'button:has-text("Continue")'
             ).first();

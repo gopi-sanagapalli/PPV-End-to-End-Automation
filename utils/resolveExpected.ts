@@ -154,11 +154,11 @@ export function resolveExpected(
       return userState === 'freemium' ? 'No' : 'Yes';
     }
 
-    // ── Next Payment fields: skip for GB, IE, and 7-day trial ──
+    // ── Next Payment fields: skip for GB, IE, and N-day trials ──
     if (field === 'next payment label' || field === 'next payment price') {
       const region = (eventData.DAZN_REGION || process.env.DAZN_REGION || '').toUpperCase();
       const offerType = (eventData.OFFER_TYPE || '').toLowerCase();
-      if (region === 'GB' || region === 'IE' || offerType === '7_day_trial') {
+      if (region === 'GB' || region === 'IE' || /^\d+_day_trial$/.test(offerType)) {
         return 'N/A';
       }
     }
@@ -379,7 +379,7 @@ export function resolveExpected(
     isPlanPage
   ) {
     const isMonthlyTrial =
-      currentOfferType === '7_day_trial' &&
+      /^\d+_day_trial$/.test(currentOfferType) &&
       (currentRatePlan === 'monthly' || currentRatePlan === '' || currentRatePlan.includes('flex'));
 
     if (!isMonthlyTrial) {
@@ -418,8 +418,8 @@ export function resolveExpected(
 
     // Payment page overrides for non-1-month-free offers
     if (isPaymentPage || isUnspecifiedPage) {
-      // Payment page header for 7-day trial (monthly only — APM/APU always shows 'Choose how to pay')
-      if (currentOfferType === '7_day_trial' && !currentRatePlan.includes('annual') && (field === 'header' || field === 'payment page title')) {
+      // Payment page header for an N-day trial (monthly only — APM/APU always shows 'Choose how to pay')
+      if (/^\d+_day_trial$/.test(currentOfferType) && !currentRatePlan.includes('annual') && (field === 'header' || field === 'payment page title')) {
         return eventData.PAYMENT_PAGE_TITLE || eventData.PAYMENT_PAGE_TITLE_TRIAL || 'Choose how to pay after your free trial';
       }
       if (field === 'rate plan original price' || field === 'rate plan discounted price') {
@@ -454,7 +454,7 @@ export function resolveExpected(
   }
 
   // ── Monthly flex with no offer at all (no_offer / none) ──
-  // For PPVs/regions with no 7-day trial and no 1-month-free
+  // For PPVs/regions with no N-day trial and no 1-month-free
   const isNoOffer = currentOfferType === 'no_offer' || currentOfferType === 'none';
   const isMonthlyNoOffer = isNoOffer && (currentRatePlan === 'monthly' || currentRatePlan === '');
 
@@ -799,8 +799,9 @@ export function resolveExpected(
   }
 
   if (field === 'cta button' || field === 'cta button text') {
-    if (template === 'Continue with PPV + 7-day free trial') {
-      template = 'Continue with 7-day Free Trial';
+    const trialDays = eventData.FREE_TRIAL_DAYS || '7';
+    if (/^Continue with PPV \+ \d+-day free trial$/i.test(template.trim())) {
+      template = `Continue with ${trialDays}-day Free Trial`;
     }
   } else if (field === 'cancellation text' || field === 'cancel text') {
     const currentTierVal = (eventData.TIER || '').toLowerCase();
@@ -820,9 +821,10 @@ export function resolveExpected(
       } else {
         template = eventData.CANCELLATION_TEXT_STANDARD_APM || eventData.CANCELLATION_TEXT_ANNUAL || '';
       }
-    } else if (offerTypeVal === '7_day_trial') {
-      // 7-day trial (monthly flex)
-      template = eventData.CANCELLATION_TEXT_TRIAL || "In 7 days, you'll be charged {{CURRENCY}}{{MONTHLY_PRICE}}/month. Cancel anytime before the end of the trial.";
+    } else if (/^\d+_day_trial$/.test(offerTypeVal)) {
+      // N-day trial (monthly flex)
+      const trialDays = eventData.FREE_TRIAL_DAYS || '7';
+      template = eventData.CANCELLATION_TEXT_TRIAL || `In ${trialDays} days, you'll be charged {{CURRENCY}}{{MONTHLY_PRICE}}/month. Cancel anytime before the end of the trial.`;
     } else if (offerTypeVal === '1_month_free') {
       // 1 month free (non-trial regions or monthly flex with 1-month offer)
       template = eventData.CANCELLATION_TEXT || eventData.CANCELLATION_TEXT_TRIAL || '';
