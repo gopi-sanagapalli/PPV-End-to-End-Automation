@@ -16,7 +16,7 @@ on:
 permissions: { contents: read }
 jobs:
   prepare:
-    runs-on: [self-hosted, macOS, ARM64]
+    runs-on: [self-hosted, macOS, ARM64, sridevi-runners]
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
     steps:

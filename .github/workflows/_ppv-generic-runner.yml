@@ -14,7 +14,7 @@ on:
 jobs:
   run:
     name: ${{ inputs.journey }} | ${{ inputs.source }} | ${{ inputs.profile || inputs.plan }}
-    runs-on: [self-hosted, macOS, ARM64]
+    runs-on: [self-hosted, macOS, ARM64, sridevi-runners]
     timeout-minutes: 30
     env:
       CI: 'true'

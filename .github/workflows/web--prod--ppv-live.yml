@@ -16,7 +16,7 @@ on:
 permissions: { contents: read }
 jobs:
   prepare:
-    runs-on: [self-hosted, macOS, ARM64]
+    runs-on: [self-hosted, macOS, ARM64, sridevi-runners]
     outputs:
       new_matrix: ${{ steps.matrix.outputs.new_matrix }}
       signin_matrix: ${{ steps.matrix.outputs.signin_matrix }}
