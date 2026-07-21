@@ -31,9 +31,16 @@ runs:
         fi
     - name: Upload Android test results
       if: ${{ always() }}
+      shell: bash
+      run: |
+        report_id="${SOURCE}-${PLAN:-$PROFILE}"
+        report_id="$(echo "$report_id" | tr '/ :|*?<>\"' '_' | tr -cd '[:alnum:]_.-')"
+        echo "REPORT_ARTIFACT_NAME=ppv-android-${report_id}" >> "$GITHUB_ENV"
+    - name: Upload Android test results
+      if: ${{ always() }}
       uses: actions/upload-artifact@v4
       with:
-        name: ppv-android-${{ env.SOURCE }}-${{ env.PROFILE || env.PLAN }}-${{ github.run_attempt }}
+        name: ${{ env.REPORT_ARTIFACT_NAME }}
         path: |
           appium/test-results/
           reports/

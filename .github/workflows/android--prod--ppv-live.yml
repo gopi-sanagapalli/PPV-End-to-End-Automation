@@ -125,3 +125,19 @@ jobs:
       - uses: ./.github/actions/android-ppv-runner
         with:
           journey: already-signed-in
+  workflow-summary:
+    needs: [prepare, new-user, existing-sign-in-during-flow, existing-already-signed-in]
+    if: ${{ always() }}
+    name: Consolidated workflow report
+    runs-on: [self-hosted, macOS, ARM64, sridevi-runners]
+    steps:
+      - uses: ./.github/actions/ppv-workflow-summary
+        with:
+          title: Android PPV live workflow report
+          ppv_config: ${{ inputs.PPV_CONFIG }}
+          country: ${{ inputs.COUNTRY }}
+          artifact_pattern: ppv-android-*
+          artifact_name: ppv-android-workflow-summary-${{ github.run_attempt }}
+          new_user_status: ${{ needs.new-user.result }}
+          sign_in_status: ${{ needs.existing-sign-in-during-flow.result }}
+          signed_in_status: ${{ needs.existing-already-signed-in.result }}

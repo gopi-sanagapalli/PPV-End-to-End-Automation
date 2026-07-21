@@ -1,0 +1,76 @@
+name: Create PPV workflow summary
+description: Downloads all job reports and publishes one consolidated workflow report.
+inputs:
+  title:
+    required: true
+  ppv_config:
+    required: true
+  country:
+    required: true
+  artifact_pattern:
+    required: true
+  artifact_name:
+    required: true
+  new_user_status:
+    required: false
+    default: not-run
+  sign_in_status:
+    required: false
+    default: not-run
+  signed_in_status:
+    required: false
+    default: not-run
+runs:
+  using: composite
+  steps:
+    - name: Download job reports
+      uses: actions/download-artifact@v4
+      with:
+        pattern: ${{ inputs.artifact_pattern }}
+        path: ppv-workflow-summary/job-artifacts
+    - name: Build workflow summary
+      shell: bash
+      env:
+        REPORT_TITLE: ${{ inputs.title }}
+        PPV_CONFIG: ${{ inputs.ppv_config }}
+        COUNTRY: ${{ inputs.country }}
+        NEW_USER_STATUS: ${{ inputs.new_user_status }}
+        SIGN_IN_STATUS: ${{ inputs.sign_in_status }}
+        SIGNED_IN_STATUS: ${{ inputs.signed_in_status }}
+      run: |
+        set -euo pipefail
+        report_dir=ppv-workflow-summary
+        mkdir -p "$report_dir/job-artifacts"
+        artifact_count="$(find "$report_dir/job-artifacts" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')"
+        cat > "$report_dir/index.html" <<EOF
+        <!doctype html><html><head><meta charset="utf-8"><title>$REPORT_TITLE</title></head><body>
+        <h1>$REPORT_TITLE</h1><p><strong>PPV:</strong> $PPV_CONFIG &nbsp; <strong>Country:</strong> $COUNTRY</p>
+        <table border="1" cellpadding="6"><tr><th>Stage</th><th>Status</th></tr>
+        <tr><td>New user</td><td>$NEW_USER_STATUS</td></tr>
+        <tr><td>Existing user — sign in during flow</td><td>$SIGN_IN_STATUS</td></tr>
+        <tr><td>Existing user — already signed in</td><td>$SIGNED_IN_STATUS</td></tr></table>
+        <p>Collected job report artifacts: $artifact_count</p><h2>Job report folders</h2><ul>
+        EOF
+        find "$report_dir/job-artifacts" -mindepth 1 -maxdepth 1 -type d -print | sort | while read -r directory; do
+          printf '<li>%s</li>\n' "$(basename "$directory")" >> "$report_dir/index.html"
+        done
+        printf '</ul></body></html>\n' >> "$report_dir/index.html"
+        {
+          echo "## $REPORT_TITLE"
+          echo
+          echo "PPV: \`$PPV_CONFIG\` · Country: \`$COUNTRY\` · Collected reports: **$artifact_count**"
+          echo
+          echo '| Stage | Status |'
+          echo '| --- | --- |'
+          echo "| New user | $NEW_USER_STATUS |"
+          echo "| Existing user — sign in during flow | $SIGN_IN_STATUS |"
+          echo "| Existing user — already signed in | $SIGNED_IN_STATUS |"
+          echo
+          echo "Download the **$REPORT_TITLE** artifact to open \`index.html\` and all individual job reports."
+        } >> "$GITHUB_STEP_SUMMARY"
+    - name: Upload consolidated workflow report
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.artifact_name }}
+        path: ppv-workflow-summary/
+        if-no-files-found: error

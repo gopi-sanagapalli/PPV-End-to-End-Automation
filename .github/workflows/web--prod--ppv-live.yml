@@ -129,3 +129,19 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/ppv-generic-runner
         with: { journey: already-signed-in }
+  workflow-summary:
+    needs: [prepare, new-user, sign-in-during-flow, already-signed-in]
+    if: ${{ always() }}
+    name: Consolidated workflow report
+    runs-on: [self-hosted, macOS, ARM64]
+    steps:
+      - uses: ./.github/actions/ppv-workflow-summary
+        with:
+          title: Web PPV live workflow report
+          ppv_config: ${{ inputs.PPV_CONFIG }}
+          country: ${{ inputs.COUNTRY }}
+          artifact_pattern: ppv-web-*
+          artifact_name: ppv-web-workflow-summary-${{ github.run_attempt }}
+          new_user_status: ${{ needs.new-user.result }}
+          sign_in_status: ${{ needs.sign-in-during-flow.result }}
+          signed_in_status: ${{ needs.already-signed-in.result }}
