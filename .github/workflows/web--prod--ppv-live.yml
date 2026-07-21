@@ -1,0 +1,90 @@
+name: "Web · Prod · PPV live · All surfacing points"
+
+on:
+  workflow_dispatch:
+    inputs:
+      PPV_CONFIG:
+        description: "PPV JSON filename (for example: ppv_t_joshua_prenga.json)"
+        required: true
+        type: string
+      COUNTRY:
+        description: "Country"
+        required: true
+        type: choice
+        default: GB
+        options: [GB, US, AU, BR, AE]
+permissions: { contents: read }
+jobs:
+  prepare:
+    runs-on: [self-hosted, macOS, ARM64]
+    outputs:
+      new_matrix: ${{ steps.matrix.outputs.new_matrix }}
+      signin_matrix: ${{ steps.matrix.outputs.signin_matrix }}
+      signed_matrix: ${{ steps.matrix.outputs.signed_matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: matrix
+        shell: bash
+        run: |
+          for mode in live-new live-existing live-signed; do
+            file="$(mktemp)"
+            GITHUB_OUTPUT="$file" node scripts/buildPpvWorkflowMatrix.js "$mode" '${{ inputs.PPV_CONFIG }}' '${{ inputs.COUNTRY }}'
+            case "$mode" in
+              live-new) key=new_matrix ;;
+              live-existing) key=signin_matrix ;;
+              live-signed) key=signed_matrix ;;
+            esac
+            sed "s/^matrix=/$key=/" "$file" >> "$GITHUB_OUTPUT"
+            rm "$file"
+          done
+  new-user:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        include: ${{ fromJSON(needs.prepare.outputs.new_matrix) }}
+    uses: ./.github/workflows/_ppv-generic-runner.yml
+    with:
+      journey: new-user
+      country: ${{ inputs.COUNTRY }}
+      ppv_config: ${{ inputs.PPV_CONFIG }}
+      source: ${{ matrix.source }}
+      plan: ${{ matrix.plan }}
+      login_first: 'false'
+      dev_mode_on: 'off'
+      switch: ${{ matrix.switch || 'false' }}
+  sign-in-during-flow:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        include: ${{ fromJSON(needs.prepare.outputs.signin_matrix) }}
+    uses: ./.github/workflows/_ppv-generic-runner.yml
+    with:
+      journey: sign-in-during-flow
+      country: ${{ inputs.COUNTRY }}
+      ppv_config: ${{ inputs.PPV_CONFIG }}
+      source: ${{ matrix.source }}
+      profile: ${{ matrix.profile }}
+      login_first: 'false'
+      dev_mode_on: 'off'
+      switch: ${{ matrix.switch || 'false' }}
+  already-signed-in:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        include: ${{ fromJSON(needs.prepare.outputs.signed_matrix) }}
+    uses: ./.github/workflows/_ppv-generic-runner.yml
+    with:
+      journey: already-signed-in
+      country: ${{ inputs.COUNTRY }}
+      ppv_config: ${{ inputs.PPV_CONFIG }}
+      source: ${{ matrix.source }}
+      profile: ${{ matrix.profile }}
+      login_first: 'true'
+      dev_mode_on: 'off'
+      switch: ${{ matrix.switch || 'false' }}

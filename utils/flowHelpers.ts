@@ -7,7 +7,7 @@ export async function detectPageType(
   p: any,
   pc: Record<string, { detection: string }>,
   planClickCount: number
-): Promise<'ppv' | 'plan' | 'email' | 'payment' | 'phone' | 'otp' | 'unknown' | 'standalone-ppv' | 'success-upsell' | 'saved-card-payment' | 'bet-upsell' | 'default-signup' | 'choose-how-to-buy' | 'confirmation' | 'myaccount-ppv'> {
+): Promise<'ppv' | 'plan' | 'email' | 'payment' | 'phone' | 'otp' | 'unknown' | 'standalone-ppv' | 'success-upsell' | 'saved-card-payment' | 'bet-upsell' | 'default-signup' | 'choose-how-to-buy' | 'confirmation' | 'myaccount-ppv' | 'welcome'> {
   if (!p || p.isClosed()) return 'unknown';
 
   // ── Wait for SPA routing / initial load to settle if needed ──
@@ -82,6 +82,8 @@ export async function detectPageType(
   // ── URL-based detection ──────────────
   const url = p.url();
   const urlLower = url.toLowerCase();
+
+  if (urlLower.includes('/welcome')) return 'welcome';
 
   // My Account PPV page — ultimate users auto-redirected here after login.
   // After login, the URL may STILL show page=emailDetails (DAZN SPA doesn't change it)

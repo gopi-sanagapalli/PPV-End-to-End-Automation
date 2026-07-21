@@ -357,6 +357,7 @@ export class LandingPage extends BasePage {
         // has one matchup and is either exact or has a small date/label suffix.
         if ((title.match(/\bvs\b/g) || []).length > 1) return false;
         return title === expected ||
+          title.includes(expected) ||
           (title.startsWith(`${expected} `) && title.length <= expected.length + 40);
       };
 
@@ -376,10 +377,23 @@ export class LandingPage extends BasePage {
       // this fallback to complete short visual lines, not the whole marketing
       // paragraph, so a generic "Introducing Ultimate" slide is still rejected.
       const text = (node as HTMLElement).innerText || node.textContent || '';
-      return text.split(/\r?\n/)
+      const lines = text.split(/\r?\n/)
         .map(line => line.trim())
-        .filter(line => line.length > 0 && line.length <= 100)
-        .some(matchesTitle);
+        .filter(line => line.length > 0 && line.length <= 100);
+      if (lines.some(matchesTitle)) return true;
+
+      // Some banner slides render content without line breaks (date + title +
+      // description concatenated), resulting in a single long string that
+      // exceeds the per-line limit. Try the full text as a fallback, but
+      // still guard against multi-fight generic promotions.
+      if (text.length > 0) {
+        const truncated = text.substring(0, 500);
+        const normalised = normalise(truncated);
+        if ((normalised.match(/\bvs\b/g) || []).length <= 1) {
+          return matchesTitle(truncated);
+        }
+      }
+      return false;
     }, ppvName).catch(() => false);
   }
 

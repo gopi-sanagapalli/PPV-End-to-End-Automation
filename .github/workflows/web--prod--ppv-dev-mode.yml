@@ -1,0 +1,41 @@
+name: "Web · Prod · PPV enabled · Dev mode"
+
+on:
+  workflow_dispatch:
+    inputs:
+      PPV_CONFIG:
+        description: "PPV JSON filename (for example: ppv_t_joshua_prenga.json)"
+        required: true
+        type: string
+      COUNTRY:
+        description: "Country"
+        required: true
+        type: choice
+        default: GB
+        options: [GB, US, AU, BR, AE]
+permissions: { contents: read }
+jobs:
+  prepare:
+    runs-on: [self-hosted, macOS, ARM64]
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: matrix
+        run: node scripts/buildPpvWorkflowMatrix.js dev-account '${{ inputs.PPV_CONFIG }}' '${{ inputs.COUNTRY }}'
+  my-account:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        include: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    uses: ./.github/workflows/_ppv-generic-runner.yml
+    with:
+      journey: dev-mode-my-account
+      country: ${{ inputs.COUNTRY }}
+      ppv_config: ${{ inputs.PPV_CONFIG }}
+      source: ${{ matrix.source }}
+      profile: ${{ matrix.profile }}
+      login_first: 'true'
+      dev_mode_on: 'on'
