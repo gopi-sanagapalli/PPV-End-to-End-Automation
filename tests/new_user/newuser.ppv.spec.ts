@@ -159,11 +159,13 @@ async function runFlow(
   }
   const results: any[] = [];
 
-  // Standard-only surfacing points must not run Ultimate tier plans —
-  // UNLESS the PPV is in DEFAULT_SIGNUP_DEVMODE, where boxing-standard-subscription
-  // leads to the default signup page and all tiers (including ultimate) are purchaseable.
+  // Standard-only surfacing points must not run Ultimate tier plans unless the
+  // source is a default-signup journey and the selected PPV is configured there.
+  // In that case the default signup page exposes all tiers, including Ultimate.
+  const hasDefaultSignupPpv = requiresDefaultSignup && json?.HAS_DEFAULT_SIGNUP_PPV === true;
   const isDefaultSignupDevMode = json?.DEFAULT_SIGNUP_DEVMODE === true;
-  if (source === 'boxing-standard-subscription' && tier === 'ultimate' && !isDefaultSignupDevMode) {
+  const canRunDefaultSignupUltimate = hasDefaultSignupPpv || isDefaultSignupDevMode;
+  if (source === 'boxing-standard-subscription' && tier === 'ultimate' && !canRunDefaultSignupUltimate) {
     console.log(`INFO: SOURCE "${source}" is a Standard-only surfacing point — skipping Ultimate plan "${rawRatePlan}".`);
     return { results, reachedEndPage: false, skipped: true };
   }

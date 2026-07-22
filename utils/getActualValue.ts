@@ -1076,6 +1076,68 @@ export async function getActualValue(
     }
   }
 
+  // The subscription option repeats the PPV inside its "included" section. Keep
+  // these values scoped to that card so a matching PPV option elsewhere on the
+  // Choose How To Buy page cannot make the included-content checks pass.
+  const getUltimateIncludedPpv = async (): Promise<{
+    present: boolean;
+    image: boolean;
+    name: string;
+    date: string;
+    tag: boolean;
+  }> => page.evaluate((expectedName: string) => {
+    const clean = (value: string | null | undefined) => String(value || '').replace(/\s+/g, ' ').trim();
+    const visible = (el: HTMLElement) => {
+      const style = window.getComputedStyle(el);
+      const rect = el.getBoundingClientRect();
+      return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+    };
+    const words = clean(expectedName).toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .split(' ')
+      .filter(word => word.length > 2 && !['the', 'and', 'with', 'from', 'ppv'].includes(word));
+    const hasEventName = (text: string) => words.length > 0 && words.every(word => text.toLowerCase().includes(word));
+
+    // The live page uses a tier radio followed by a matching label[for].
+    // This is the most reliable scope for the included PPV card. Do not infer
+    // the card from generic ancestor divs because styled-component wrappers
+    // vary across sources and builds.
+    const tierInput = Array.from(document.querySelectorAll<HTMLInputElement>('input[type="radio"]'))
+      .find(input => /tier|ultimate/i.test(`${input.id} ${input.value} ${input.name}`));
+    const directLabel = tierInput?.id
+      ? document.querySelector<HTMLElement>(`label[for="${tierInput.id}"]`)
+      : null;
+    const fallbackLabel = Array.from(document.querySelectorAll<HTMLElement>('label'))
+      .filter(visible)
+      .filter(label => {
+        const leafTexts = Array.from(label.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6,p,span,strong,b,time,div'))
+          .filter(el => visible(el) && el.children.length === 0)
+          .map(el => clean(el.innerText || el.textContent))
+          .filter(Boolean);
+        const text = leafTexts.join(' ');
+        return hasEventName(text) && leafTexts.some(leaf => /^included$/i.test(leaf));
+      })
+      .sort((a, b) => clean(a.innerText || a.textContent).length - clean(b.innerText || b.textContent).length)[0];
+    const card = directLabel && visible(directLabel) ? directLabel : fallbackLabel;
+    if (!card) return { present: false, image: false, name: '', date: '', tag: false };
+
+    const leaves = Array.from(card.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6,p,span,strong,b,time,div'))
+      .filter(el => visible(el) && el.children.length === 0)
+      .map(el => clean(el.innerText || el.textContent))
+      .filter(Boolean);
+    const name = leaves.find(text => hasEventName(text) && text.length < 120) || '';
+    const date = leaves.find(text => /\b(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)\b(?:\s+\d{1,2}(?:st|nd|rd|th)?\s+[a-z]{3,}|\s+at\s+\d{1,2}:\d{2})/i.test(text)) || '';
+    const tag = leaves.some(text => /^included$/i.test(text));
+    const image = Array.from(card.querySelectorAll<HTMLElement>('img, picture, [role="img"], div, span'))
+      .some(el => visible(el) && (
+        el.tagName.toLowerCase() === 'img' ||
+        el.tagName.toLowerCase() === 'picture' ||
+        el.getAttribute('role') === 'img' ||
+        window.getComputedStyle(el).backgroundImage !== 'none'
+      ));
+    return { present: true, image, name, date, tag };
+  }, eventData?.PPV_NAME || '').catch(() => ({ present: false, image: false, name: '', date: '', tag: false }));
+
   switch (key) {
 
     // ════════════════════════════════════════════════════════════
@@ -7454,6 +7516,28 @@ export async function getActualValue(
         n.text.length < 20
       );
       return found !== 'N/A' ? 'Yes' : 'No';
+    }
+
+    // These four checks validate the PPV content nested inside the DAZN
+    // subscription card, rather than the separate PPV-only card on the same page.
+    case 'included ppv image present': {
+      const included = await getUltimateIncludedPpv();
+      return included.image ? 'Yes' : 'No';
+    }
+
+    case 'included ppv name': {
+      const included = await getUltimateIncludedPpv();
+      return included.name || 'N/A';
+    }
+
+    case 'included ppv date and time': {
+      const included = await getUltimateIncludedPpv();
+      return included.date || 'N/A';
+    }
+
+    case 'included ppv tag': {
+      const included = await getUltimateIncludedPpv();
+      return included.tag ? 'Yes' : 'No';
     }
 
     case 'cta after ultimate selection': {
