@@ -41,7 +41,7 @@ runs:
         report_dir="${reports_root}/${GITHUB_RUN_ID}/${report_name}"
         mkdir -p "$report_dir"
         found=false
-        for source_dir in appium/test-results reports; do
+        for source_dir in appium/test-results appium/reports; do
           if [ -e "$source_dir" ]; then
             cp -R "$source_dir" "$report_dir/"
             found=true
