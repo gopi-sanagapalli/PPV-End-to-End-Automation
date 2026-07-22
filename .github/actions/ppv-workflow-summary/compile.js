@@ -51,14 +51,18 @@ if (fs.existsSync(artifactsDir)) {
       stage = 'signin-during';
     }
 
-    // Find custom PDF and HTML reports recursively
+    // Find custom PDF, HTML, Excel, and Video files recursively
     const pdfFiles = findFiles(jobPath, name => name.toLowerCase().endsWith('.pdf'));
     const htmlFiles = findFiles(jobPath, (name, filepath) => {
       return name.toLowerCase().endsWith('.html') && !filepath.includes('playwright-report');
     });
+    const xlsxFiles = findFiles(jobPath, name => name.toLowerCase().endsWith('.xlsx'));
+    const videoFiles = findFiles(jobPath, name => name.toLowerCase().endsWith('.webm') || name.toLowerCase().endsWith('.mp4'));
 
     const pdfRelative = pdfFiles.length > 0 ? path.relative(baseDir, pdfFiles[0]) : null;
     const customHtmlRelative = htmlFiles.length > 0 ? path.relative(baseDir, htmlFiles[0]) : null;
+    const xlsxRelative = xlsxFiles.length > 0 ? path.relative(baseDir, xlsxFiles[0]) : null;
+    const videoRelative = videoFiles.length > 0 ? path.relative(baseDir, videoFiles[0]) : null;
 
     // Check Playwright JSON report
     const jsonFiles = findFiles(jobPath, name => name === 'results.json');
@@ -143,6 +147,8 @@ if (fs.existsSync(artifactsDir)) {
           jiraKey,
           pdfPath: pdfRelative,
           customHtmlPath: customHtmlRelative,
+          xlsxPath: xlsxRelative,
+          videoPath: videoRelative,
           playwrightHtmlPath: playwrightHtmlRelative,
           rawDirLink: path.relative(baseDir, jobPath)
         };
@@ -176,6 +182,8 @@ if (fs.existsSync(artifactsDir)) {
         jiraKey: null,
         pdfPath: pdfRelative,
         customHtmlPath: customHtmlRelative,
+        xlsxPath: xlsxRelative,
+        videoPath: videoRelative,
         playwrightHtmlPath: null,
         rawDirLink: path.relative(baseDir, jobPath)
       };
@@ -297,8 +305,10 @@ function renderRunRow(run, stageKey, source) {
 
   // Determine links
   const links = [];
-  if (run.pdfPath) links.push(`<a href="${run.pdfPath}" target="_blank">PDF Report</a>`);
-  if (run.customHtmlPath) links.push(`<a href="${run.customHtmlPath}" target="_blank">HTML Report</a>`);
+  if (run.pdfPath) links.push(`<a href="${run.pdfPath}" target="_blank">PDF</a>`);
+  if (run.customHtmlPath) links.push(`<a href="${run.customHtmlPath}" target="_blank">HTML</a>`);
+  if (run.xlsxPath) links.push(`<a href="${run.xlsxPath}" target="_blank">Excel</a>`);
+  if (run.videoPath) links.push(`<a href="${run.videoPath}" target="_blank">Video</a>`);
   if (run.playwrightHtmlPath) links.push(`<a href="${run.playwrightHtmlPath}" target="_blank">Playwright</a>`);
   
   if (links.length === 0 && run.rawDirLink) {
@@ -825,11 +835,13 @@ if (summaryFile) {
       failuresMd += `#### 🔴 ${stat.title} Failures (${failedRuns.length})\n\n`;
       
       failedRuns.forEach((run, index) => {
-        const jiraLabel = run.jiraUrl ? ` &nbsp;**Jira Ticket**: [${run.jiraKey}](${run.jiraUrl})` : '';
-        const pdfLinkText = run.pdfPath ? ` &nbsp;**PDF Report**: [PPV_Report.pdf](${run.pdfPath})` : '';
-        const customHtmlText = run.customHtmlPath ? ` &nbsp;**Custom HTML**: [PPV_Report.html](${run.customHtmlPath})` : '';
+        const jiraLabel = run.jiraUrl ? ` &nbsp;**Jira**: [${run.jiraKey}](${run.jiraUrl})` : '';
+        const pdfLinkText = run.pdfPath ? ` &nbsp;**PDF**: [pdf](${run.pdfPath})` : '';
+        const customHtmlText = run.customHtmlPath ? ` &nbsp;**HTML**: [html](${run.customHtmlPath})` : '';
+        const xlsxLinkText = run.xlsxPath ? ` &nbsp;**Excel**: [xlsx](${run.xlsxPath})` : '';
+        const videoLinkText = run.videoPath ? ` &nbsp;**Video**: [video](${run.videoPath})` : '';
         
-        failuresMd += `${index + 1}. **Source**: \`${run.dirName}\` &nbsp;**Duration**: \`${run.duration}\`${jiraLabel}${pdfLinkText}${customHtmlText}\n`;
+        failuresMd += `${index + 1}. **Source**: \`${run.dirName}\` &nbsp;**Duration**: \`${run.duration}\`${jiraLabel}${pdfLinkText}${customHtmlText}${xlsxLinkText}${videoLinkText}\n`;
         if (run.errorMsg) {
           // clean stack trace output for markdown details block
           const cleanErr = run.errorMsg.replace(/</g, '&lt;').replace(/>/g, '&gt;');
