@@ -118,6 +118,30 @@
         "ULTIMATE_ANNUAL_PAY_MONTHLY_PRICE": "AED 72.99",
         "TODAY_YOU_PAY_ULTIMATE_APM": "AED 72.99",
         "offers": []
+      },
+      "BR": {
+        "BASE_URL": "https://www.dazn.com/en-BR",
+        "CURRENCY": "R$",
+        "DAZN_TIER": "DAZN Standard",
+        "OFFER_TYPE": "no_trial",
+        "MONTHLY_PRICE": "34.90",
+        "ANNUAL_PRICE": "199.90",
+        "ANNUAL_PAY_MONTHLY_PRICE": "34.90",
+        "ANNUAL_UPFRONT_PRICE": "199.90",
+        "ANNUAL_MONTHS": "12",
+        "NEXT_PAYMENT_PRICE": "R$34.90",
+        "TRIAL_MONTHLY_PRICE": "R$34.90",
+        "UPFRONT_SAVE_AMOUNT": "218.90",
+        "ANNUAL_SAVINGS_BADGE": "Save R$218.90",
+        "ANNUAL_PAY_MONTHLY_CONTRACT_TEXT": "Annual contract. Auto renews.",
+        "CANCELLATION_TEXT_TRIAL": "Monthly subscription. Cancel with 30 days' notice. T&Cs apply. Your subscription auto-renews unless you cancel.",
+        "CANCELLATION_TEXT_ULTIMATE_APM": "Your Annual (pay over time) plan will renew automatically on {{RENEWAL_DATE}}. Manage or cancel your annual renewal anytime in My Account. 12-month minimum term",
+        "CANCELLATION_TEXT_ULTIMATE_APU": "You can cancel the renewal to this subscription in My Account. You will still have full access to DAZN until the end of your annual cycle.",
+        "ULTIMATE_FEATURE_2": "185+ fights a year from the world's best promoters.",
+        "ULTIMATE_FEATURE_3": "HDR and Dolby 5.1 surround sound on select events.",
+        "ULTIMATE_ANNUAL_PAY_MONTHLY_PRICE": "R$106.90",
+        "TODAY_YOU_PAY_ULTIMATE_APM": "R$106.90",
+        "offers": []
       }
     }
   },
@@ -306,6 +330,25 @@
         "ANNUAL_PAY_MONTHLY_CONTRACT_TEXT": "Annual contract. Auto renews.",
         "ANNUAL_SAVINGS_BADGE": "SAVE AED 140.89 A YEAR",
         "offers": []
+      },
+      "BR": {
+        "BASE_URL": "https://www.dazn.com/en-BR",
+        "CURRENCY": "R$",
+        "DAZN_TIER": "DAZN Ultimate",
+        "OFFER_TYPE": "no_trial",
+        "MONTHLY_PRICE": "34.90",
+        "ANNUAL_PRICE": "106.90",
+        "ANNUAL_PAY_MONTHLY_PRICE": "106.90",
+        "ANNUAL_UPFRONT_PRICE": "1070",
+        "ANNUAL_MONTHS": "12",
+        "NEXT_PAYMENT_PRICE": "R$106.90",
+        "TRIAL_MONTHLY_PRICE": "R$34.90",
+        "CANCELLATION_TEXT_ULTIMATE_APM": "Your Annual (pay over time) plan will renew automatically on {{RENEWAL_DATE}}. Manage or cancel your annual renewal anytime in My Account. 12-month minimum term",
+        "CANCELLATION_TEXT_ULTIMATE_APU": "You can cancel the renewal to this subscription in My Account. You will still have full access to DAZN until the end of your annual cycle.",
+        "ANNUAL_PAY_MONTHLY_CONTRACT_TEXT": "Annual contract. Auto renews.",
+        "ANNUAL_SAVINGS_BADGE": "Save R$212.80",
+        "UPFRONT_SAVE_AMOUNT": "212.80",
+        "offers": []
       }
     }
   },
@@ -386,6 +429,24 @@
         "CANCELLATION_TEXT_TRIAL": "In {{FREE_TRIAL_DAYS}} days, you'll be charged {{CURRENCY}} {{MONTHLY_PRICE}}/month. Cancel anytime before the end of the trial.",
         "ANNUAL_SAVINGS_BADGE": "SAVE AED 140.89",
         "UPFRONT_SAVE_AMOUNT": "140.89",
+        "ANNUAL_PAY_MONTHLY_CONTRACT_TEXT": "Annual contract. Auto renews.",
+        "offers": []
+      },
+      "BR": {
+        "BASE_URL": "https://www.dazn.com/en-BR",
+        "CURRENCY": "R$",
+        "DAZN_TIER": "DAZN Ultimate",
+        "OFFER_TYPE": "no_trial",
+        "MONTHLY_PRICE": "34.90",
+        "ANNUAL_PRICE": "106.90",
+        "ANNUAL_PAY_MONTHLY_PRICE": "106.90",
+        "ANNUAL_UPFRONT_PRICE": "1070",
+        "ANNUAL_MONTHS": "12",
+        "NEXT_PAYMENT_PRICE": "R$1,070",
+        "TRIAL_MONTHLY_PRICE": "R$34.90",
+        "CANCELLATION_TEXT_ULTIMATE_APU": "You can cancel the renewal to this subscription in My Account. You will still have full access to DAZN until the end of your annual cycle.",
+        "ANNUAL_SAVINGS_BADGE": "Save R$212.80",
+        "UPFRONT_SAVE_AMOUNT": "212.80",
         "ANNUAL_PAY_MONTHLY_CONTRACT_TEXT": "Annual contract. Auto renews.",
         "offers": []
       }
