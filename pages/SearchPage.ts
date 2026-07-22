@@ -3,6 +3,7 @@ import { BasePage } from './BasePage';
 import { dismissMarketingPopup } from '../utils/helpers';
 import { validateVariant } from '../flows/validateVariant';
 import { readSheet } from '../utils/excelReader';
+import { resolveSearchPPVTile } from '../utils/searchPpvTileResolver';
 
 export class SearchPage extends BasePage {
   constructor(page: Page) {
@@ -48,16 +49,7 @@ export class SearchPage extends BasePage {
       const text = rawText.toLowerCase();
       const normalisedText = normalise(rawText);
       if (!normalisedText.includes(expectedTitle)) continue;
-      if (
-        text.includes('press conference') ||
-        text.includes('weigh-in') ||
-        text.includes('workout') ||
-        text.includes('replay') ||
-        text.includes('highlights') ||
-        text.includes('preview')
-      ) {
-        continue;
-      }
+      if (/\b(press conference|weigh[\s-]?in|prelims?|preliminary|undercard|workout|replay|highlights?|preview|promo|interview|behind the scenes|episode|documentary|face[\s-]?off|kickboxing)\b/i.test(text)) continue;
 
       console.log(`🖱️ [Search] Clicking entitled PPV event tile: "${text.replace(/\s+/g, ' ').trim().substring(0, 100)}"`);
       await tile.scrollIntoViewIfNeeded().catch(() => { });
@@ -107,83 +99,7 @@ export class SearchPage extends BasePage {
   }
 
   private async hasVisiblePPVTile(eventName: string): Promise<boolean> {
-    let matchPattern = eventName;
-    if (eventName.includes(':')) {
-      matchPattern = eventName.split(':').pop()?.trim() || eventName;
-    }
-
-    const regexesToTry = [new RegExp(matchPattern.replace(/\s+/g, '.*'), 'i')];
-    const isStaging = (process.env.DAZN_ENV || 'prod').toLowerCase() === 'stag';
-    if (isStaging) {
-      const firstWord = matchPattern.split(/\s+/)[0]?.trim();
-      if (firstWord && firstWord.length > 2 && firstWord.toLowerCase() !== 'the') {
-        regexesToTry.push(new RegExp(firstWord, 'i'));
-      }
-    }
-
-    const selectors = [
-      'article',
-      '[class*="EventTile" i]',
-      '[class*="event-tile" i]',
-      '[class*="SearchResult" i]',
-      '[class*="search-result" i]',
-      '[class*="tile" i]',
-      '[class*="card" i]',
-      'li[class*="result" i]',
-      'li',
-    ];
-
-    for (const regex of regexesToTry) {
-      for (const selector of selectors) {
-        const tiles = this.page.locator(selector).filter({ hasText: regex });
-        const count = await tiles.count().catch(() => 0);
-
-        for (let i = 0; i < count; i++) {
-          const tile = tiles.nth(i);
-          if (!await tile.isVisible().catch(() => false)) continue;
-
-          const text = await tile.textContent().catch(() => '');
-          if (!text || text.length > 800) continue;
-
-          const textLower = text.toLowerCase();
-          const isAncillary = [
-            'press conference',
-            'weigh-in',
-            'workout',
-            'replay',
-            'highlights',
-            'preview',
-            'promo',
-            'interview',
-            'behind the scenes',
-            'episode',
-            'documentary',
-            'face off',
-            'kickboxing'
-          ].some(term => textLower.includes(term));
-          if (isAncillary) continue;
-
-          const heading = await tile.locator('h1, h2, h3, h4, h5, [class*="title" i], [class*="heading" i]').first().textContent().catch(() => '');
-          if (heading) {
-            const headingLower = heading.toLowerCase();
-            if (headingLower.includes(':') || headingLower.includes('press') || headingLower.includes('weigh')) {
-              if (!headingLower.includes('(test)')) {
-                continue;
-              }
-            }
-          }
-
-          const hasDate = await tile.locator('[class*="badge" i], [class*="date" i], time').isVisible({ timeout: 500 }).catch(() => false);
-          const hasLock = await tile.locator('[class*="lock" i], [class*="ppv" i]').isVisible({ timeout: 500 }).catch(() => false);
-          const hasMay = text.includes('MAY') || text.includes('May') || text.includes('9 MAY') || text.includes('20:30') || text.toLowerCase().includes('test');
-
-          if (hasDate || hasLock || hasMay) {
-            return true;
-          }
-        }
-      }
-    }
-    return false;
+    return Boolean(await resolveSearchPPVTile(this.page, eventName));
   }
 
   async searchForPPVTileWithUpcomingFallback(eventName: string): Promise<void> {
@@ -273,118 +189,36 @@ export class SearchPage extends BasePage {
   // ── FIND AND CLICK PPV TILE ───────────────────────────────────
   async clickPPVTile(eventName: string): Promise<void> {
     console.log(`🎯 Looking for PPV tile: ${eventName}`);
+    const bestTile = await resolveSearchPPVTile(this.page, eventName);
+    if (bestTile) {
+      const bestText = await bestTile.textContent().catch(() => '') || '';
+      console.log(`✅ PPV tile found: "${bestText.substring(0, 80).trim()}"`);
 
-    let matchPattern = eventName;
-    if (eventName.includes(':')) {
-      matchPattern = eventName.split(':').pop()?.trim() || eventName;
-    }
+      const scrollY = await this.page.evaluate(() => window.scrollY);
+      await bestTile.scrollIntoViewIfNeeded().catch(() => { });
+      await this.page.waitForTimeout(300);
 
-    const regexesToTry = [new RegExp(matchPattern.replace(/\s+/g, '.*'), 'i')];
-    const isStaging = (process.env.DAZN_ENV || 'prod').toLowerCase() === 'stag';
-    if (isStaging) {
-      const firstWord = matchPattern.split(/\s+/)[0]?.trim();
-      if (firstWord && firstWord.length > 2 && firstWord.toLowerCase() !== 'the') {
-        regexesToTry.push(new RegExp(firstWord, 'i'));
-      }
-    }
+      const box = await bestTile.boundingBox();
+      if (box) {
+        await this.page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
 
-    // Try multiple selectors for search result tiles
-    const selectors = [
-      'article',
-      '[class*="EventTile" i]',
-      '[class*="event-tile" i]',
-      '[class*="SearchResult" i]',
-      '[class*="search-result" i]',
-      '[class*="tile" i]',
-      '[class*="card" i]',
-      'li[class*="result" i]',
-      'li',
-    ];
+        const buyNowButton = this.page.locator(
+          'a:has-text("Buy now"), button:has-text("Buy now"), ' +
+          'a:has-text("Buy Now"), button:has-text("Buy Now"), ' +
+          'a:has-text("Continue"), button:has-text("Continue")'
+        ).first();
 
-    for (const regex of regexesToTry) {
-      console.log(`🔍 Trying regex pattern: ${regex}`);
-      for (const selector of selectors) {
-        const tiles = this.page.locator(selector).filter({ hasText: regex });
-        const count = await tiles.count().catch(() => 0);
+        await expect(buyNowButton).toBeVisible({ timeout: 15000 });
 
-        if (count > 0) {
-          console.log(`🔍 Found ${count} tiles with selector: ${selector} for regex ${regex}`);
+        await this.page.evaluate((y) => {
+          window.scrollTo(0, y);
+          document.body.style.overflow = 'hidden';
+          document.documentElement.style.overflow = 'hidden';
+        }, scrollY);
 
-          for (let i = 0; i < count; i++) {
-            const tile = tiles.nth(i);
-            const text = await tile.textContent().catch(() => '');
-            if (!text || text.length > 800) continue;
-
-            // Exclude ancillary content like press conferences, weigh-ins, etc.
-            const textLower = text.toLowerCase();
-            const isAncillary = [
-              'press conference',
-              'weigh-in',
-              'workout',
-              'replay',
-              'highlights',
-              'preview',
-              'promo',
-              'interview',
-              'behind the scenes',
-              'episode',
-              'documentary',
-              'face off',
-              'kickboxing'
-            ].some(term => textLower.includes(term));
-            if (isAncillary) continue;
-
-            // Extra safety check: if the main title/heading has a colon or press/weigh terms, skip it
-            const heading = await tile.locator('h1, h2, h3, h4, h5, [class*="title" i], [class*="heading" i]').first().textContent().catch(() => '');
-            if (heading) {
-              const headingLower = heading.toLowerCase();
-              if (headingLower.includes(':') || headingLower.includes('press') || headingLower.includes('weigh')) {
-                // Keep it if it is a test event, e.g. "Glory 108: Petch v Miguel Trindade (TEST)"
-                if (!headingLower.includes('(test)')) {
-                  continue;
-                }
-              }
-            }
-
-            console.log(`  Tile ${i}: "${text.substring(0, 80).trim()}"`);
-
-            // Check for date badge (PPV tile indicator)
-            const hasDate = await tile.locator('[class*="badge" i], [class*="date" i], time').isVisible({ timeout: 500 }).catch(() => false);
-            const hasLock = await tile.locator('[class*="lock" i], [class*="ppv" i]').isVisible({ timeout: 500 }).catch(() => false);
-            const hasMay = text.includes('MAY') || text.includes('May') || text.includes('9 MAY') || text.includes('20:30') || text.toLowerCase().includes('test');
-
-            if (hasDate || hasLock || hasMay) {
-              console.log(`✅ PPV tile found: "${text.substring(0, 80).trim()}"`);
-
-              const scrollY = await this.page.evaluate(() => window.scrollY);
-              await tile.scrollIntoViewIfNeeded().catch(() => { });
-              await this.page.waitForTimeout(300);
-
-              const box = await tile.boundingBox();
-              if (!box) continue;
-
-              await this.page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-
-              const buyNowButton = this.page.locator(
-                'a:has-text("Buy now"), button:has-text("Buy now"), ' +
-                'a:has-text("Buy Now"), button:has-text("Buy Now"), ' +
-                'a:has-text("Continue"), button:has-text("Continue")'
-              ).first();
-
-              await expect(buyNowButton).toBeVisible({ timeout: 15000 });
-
-              await this.page.evaluate((y) => {
-                window.scrollTo(0, y);
-                document.body.style.overflow = 'hidden';
-                document.documentElement.style.overflow = 'hidden';
-              }, scrollY);
-
-              console.log('🔒 Background scroll locked');
-              console.log('✅ PPV popup opened & Buy button located');
-              return;
-            }
-          }
-        }
+        console.log('🔒 Background scroll locked');
+        console.log('✅ PPV popup opened & Buy button located');
+        return;
       }
     }
 

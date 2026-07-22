@@ -179,14 +179,28 @@ export class SchedulePage {
       'i'
     );
 
-    // Non-PPV event keywords to skip
-    const skipKeywords = [
-      'press conference', 'weigh-in', 'weigh in',
-      'preview', 'undercard', 'open workout',
-    ];
+    const cleanStr = (value: string) =>
+      (value || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+    const eventTitle = cleanStr(eventName);
+    const variantPattern = /\b(press\s*conference|weigh\s*in|weigh-in|prelims?|preliminary|undercard|open\s*workout|face\s*off|highlights?|trailer|preview|countdown|full\s*fight|replay)\b/i;
+    const scoreEventText = (text: string): number => {
+      const cleaned = cleanStr(text);
+      const lines = text.split(/\n+/).map(line => line.trim()).filter(Boolean);
+      const hasVariantSuffix = variantPattern.test(text);
+      const exactTitleLine = lines.some(line => cleanStr(line) === eventTitle);
+      const startsWithTitle = !!eventTitle && cleaned.startsWith(eventTitle);
+
+      if (cleaned === eventTitle || exactTitleLine) return hasVariantSuffix ? 80 : 100;
+      if (startsWithTitle) return hasVariantSuffix ? 50 : 90;
+      return hasVariantSuffix ? 10 : 60;
+    };
 
     await this.page.evaluate(() => window.scrollTo(0, 0));
     await this.page.waitForTimeout(300);
+
+    let bestEvent: Locator | null = null;
+    let bestScore = 0;
+    let bestLabel = '';
 
     for (let i = 0; i < 25; i++) {
       const articles = this.page
@@ -199,18 +213,27 @@ export class SchedulePage {
         const article = articles.nth(j);
         if (await article.isVisible().catch(() => false)) {
           const text = await article.innerText().catch(() => '');
-          const lower = text.toLowerCase();
+          const score = scoreEventText(text);
+          const label = text.split('\n').find(l => l.trim()) || text.slice(0, 40);
 
-          // Skip non-PPV events (press conferences, weigh-ins, etc.)
-          const isNonPPV = skipKeywords.some(kw => lower.includes(kw));
-          if (isNonPPV) {
-            const label = text.split('\n').find(l => l.trim()) || text.slice(0, 40);
-            console.log(`⏭️  Skipping non-PPV: "${label.trim()}"`);
-            continue;
+          if (variantPattern.test(text)) {
+            console.log(`⏭️  Deprioritising non-main event tile score=${score}: "${label.trim()}"`);
           }
 
-          console.log('✅ Event found');
-          return article;
+          if (score > bestScore) {
+            bestEvent = article;
+            bestScore = score;
+            bestLabel = label.trim();
+          }
+
+          if (score >= 100) {
+            console.log(`✅ Event found: "${bestLabel}"`);
+            return article;
+          }
+
+          if (score < 60) {
+            continue;
+          }
         }
       }
 
@@ -218,6 +241,11 @@ export class SchedulePage {
         window.scrollBy({ top: window.innerHeight, behavior: 'instant' });
       });
       await this.page.waitForTimeout(300);
+    }
+
+    if (bestEvent && bestScore >= 60) {
+      console.log(`✅ Event found by best available score=${bestScore}: "${bestLabel}"`);
+      return bestEvent;
     }
 
     throw new Error(`❌ Event "${eventName}" not found on schedule page`);

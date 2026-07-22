@@ -164,6 +164,8 @@ export class HomePage extends LandingPage {
 
       const cleanStr = (s: string) =>
         (s || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+      const isVariantTileText = (text: string): boolean =>
+        /\b(press\s*conference|weigh\s*in|weigh-in|prelims?|preliminary|face\s*off|highlights?|trailer|preview|countdown|full\s*fight|replay)\b/i.test(text);
       const nameParts = ppvName.split(/[:\-–]/).map(p => p.trim()).filter(p => p.length > 3);
       const partsWordLists = nameParts
         .map(part => cleanStr(part).split(/\s+/).filter(Boolean))
@@ -384,18 +386,45 @@ export class HomePage extends LandingPage {
         '[class*="next" i]',
       ].join(', ')).first();
 
+      const scoreComingUpTile = (text: string): number => {
+        const ct = cleanStr(text);
+        const title = cleanStr(ppvName);
+        if (!matchesTileText(text)) return 0;
+
+        const hasVariantSuffix = isVariantTileText(text);
+        const exactTitle = ct === title;
+        const startsWithTitle = title && ct.startsWith(title);
+        const titleOnlyLine = text
+          .split(/\n+/)
+          .map(line => line.trim())
+          .some(line => cleanStr(line) === title);
+
+        if (exactTitle || titleOnlyLine) return hasVariantSuffix ? 80 : 100;
+        if (startsWithTitle) return hasVariantSuffix ? 50 : 90;
+        return hasVariantSuffix ? 10 : 60;
+      };
+
       const findComingUpTile = async (): Promise<any> => {
+        let bestTile: any = null;
+        let bestScore = 0;
+        let bestText = '';
         const count = await comingUpTiles.count().catch(() => 0);
         for (let i = 0; i < count; i++) {
           const tile = comingUpTiles.nth(i);
           if (!await tile.isVisible().catch(() => false)) continue;
           const text = (await tile.textContent().catch(() => '')) || '';
-          if (matchesTileText(text)) {
-            console.log(`🔍 [Coming Up] Matched tile: "${text.replace(/\s+/g, ' ').trim().substring(0, 80)}"`);
-            return tile;
+          const score = scoreComingUpTile(text);
+          if (score > bestScore) {
+            bestTile = tile;
+            bestScore = score;
+            bestText = text;
+            if (score >= 100) break;
           }
         }
-        return null;
+        if (bestTile) {
+          console.log(`🔍 [Coming Up] Matched tile score=${bestScore}: "${bestText.replace(/\s+/g, ' ').trim().substring(0, 100)}"`);
+        }
+        return bestTile;
       };
 
       await comingUpRail.hover({ force: true }).catch(() => { });

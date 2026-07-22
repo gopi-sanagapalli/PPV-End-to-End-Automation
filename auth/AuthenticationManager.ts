@@ -245,21 +245,44 @@ export class EmailLoginStrategy extends BaseLoginStrategy {
         ).first();
         await clickAndWaitForNav(page, signInBtn, `Sign In (attempt ${attempt})`);
 
-        // Check for "No key found!" DAZN error modal (error code 10-600-059)
+        // Check for "No key found!" DAZN error modal. This is a transient DAZN
+        // auth issue; dismiss it, refresh the auth page, and retry the password.
         const noKeyDismissed = await this.dismissNoKeyFoundModal(page);
         if (!noKeyDismissed) break; // No error modal — login proceeded normally
 
         if (attempt === maxSignInRetries) {
           throw new Error(
             `❌ [EmailLoginStrategy] "No key found!" error persisted after ${maxSignInRetries} attempts. ` +
-            `This is a transient DAZN auth service issue (error 10-600-059). Try again later.`
+            `This is a transient DAZN auth service issue. Try again later.`
           );
         }
 
-        // Wait for password field to reappear before retrying
+        console.log('🔄 [Email Auth] Refreshing auth page after "No key found!" before retrying login...');
+        await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => { });
+        await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });
+        await this.handleCookieBanner(page, 8000);
+        await stabilisePage(page);
+
+        const emailAfterRefresh = await emailInput.isVisible({ timeout: 1500 }).catch(() => false);
+        if (emailAfterRefresh) {
+          console.log(`📧 [Email Auth] Re-entering email after refresh: ${email}`);
+          await emailInput.fill(email);
+          const nextBtn = page.locator(
+            'button:has-text("Next"), button:has-text("Continue"), button[type="submit"]'
+          ).first();
+          await clickAndWaitForNav(page, nextBtn, `Email → Next after No Key retry ${attempt}`);
+          await this.throwIfBlocked(page, 'password page retry');
+        }
+
+        // Wait for password field to reappear before retrying.
         await passwordInput.waitFor({ state: 'visible', timeout: 8000 }).catch(() => {});
         const pwdStillVisible = await passwordInput.isVisible({ timeout: 1000 }).catch(() => false);
-        if (!pwdStillVisible) break;
+        if (!pwdStillVisible) {
+          throw new Error(
+            `❌ [EmailLoginStrategy] Password input did not reappear after "No key found!" retry ${attempt}. ` +
+            `Current URL: ${page.url()}`
+          );
+        }
       }
     } else {
       await this.throwIfBlocked(page, 'password field lookup');
@@ -278,32 +301,45 @@ export class EmailLoginStrategy extends BaseLoginStrategy {
 
     const verified = await this.verifyAuthenticatedSession(page);
     if (!verified) {
-      console.warn('⚠️  [Email Auth] Could not confirm login success — continuing anyway');
+      throw new Error(
+        `❌ [Email Auth] Could not confirm login success after sign-in. ` +
+        `Still not authenticated at URL: ${page.url()}`
+      );
     }
   }
 
   /**
-   * Detects the DAZN "No key found!" error modal (error 10-600-059) that can
-   * appear intermittently after clicking "Log in". Dismisses it by clicking
-   * "Ok" and returns true if the modal was found.
+   * Detects the DAZN "No key found!" error modal that can appear
+   * intermittently after clicking "Log in". Dismisses it by clicking "Ok" and
+   * returns true if the modal was found.
    */
   private async dismissNoKeyFoundModal(page: Page): Promise<boolean> {
     if (page.isClosed()) return false;
 
     try {
-      const noKeyLocator = page.locator(
-        'text="No key found!", ' +
-        '[class*="modal" i] >> text="No key found!", ' +
-        '[role="dialog"] >> text="No key found!"'
-      ).first();
+      const noKeyMarkers = [
+        page.getByText(/No key found/i).first(),
+        page.getByText(/10-000-000|10-600-059/i).first(),
+        page.locator('[role="dialog"], [aria-modal="true"], [class*="modal" i]')
+          .filter({ hasText: /No key found|10-000-000|10-600-059/i })
+          .first(),
+      ];
 
-      const isVisible = await noKeyLocator.isVisible({ timeout: 3000 }).catch(() => false);
+      let isVisible = false;
+      for (let index = 0; index < noKeyMarkers.length; index++) {
+        isVisible = await noKeyMarkers[index].isVisible({ timeout: index === 0 ? 10000 : 1000 }).catch(() => false);
+        if (isVisible) break;
+      }
+      if (!isVisible) {
+        const bodyText = await page.locator('body').innerText({ timeout: 1000 }).catch(() => '');
+        isVisible = /No key found|10-000-000|10-600-059/i.test(bodyText);
+      }
       if (!isVisible) return false;
 
-      console.warn('⚠️ [Email Auth] "No key found!" error modal detected (error 10-600-059) — dismissing and retrying...');
+      console.warn('⚠️ [Email Auth] "No key found!" error modal detected — dismissing and retrying...');
 
       const okBtn = page.locator(
-        'button:has-text("Ok"), button:has-text("OK"), button:has-text("Okay")'
+        'button:has-text("Ok"), button:has-text("OK"), button:has-text("Okay"), [role="button"]:has-text("Ok")'
       ).first();
       await okBtn.click({ force: true }).catch(() => {});
       await page.waitForTimeout(1500);

@@ -1356,6 +1356,11 @@ for (const stateKey of userStatesToRun) {
                   : sheetName === 'Home of Boxing'
                     ? getHomeOfBoxingData(flowParam)
                     : readSheet(sheetName);
+                if (SOURCE.toLowerCase() === 'home-page-dont-miss') {
+                  landingData = landingData.filter((row: any) =>
+                    !String(row.Field || '').trim().toLowerCase().startsWith('popup')
+                  );
+                }
                 if (isUltimateLoginFirstBoxingMyAccountFlow) {
                   // The boxing banner/upcoming-fights CTA flow does not use a
                   // Purchased tag or Fight Card. Keep every other Boxing page

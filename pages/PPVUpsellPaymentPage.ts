@@ -539,13 +539,13 @@ export class PPVUpsellPaymentPage extends BasePage {
   }
 
   // ─────────────────────────────
-  // ORCHESTRATOR: Select card → Enter CVV → Pay
+  // ORCHESTRATOR: Enter CVV -> Pay
+  // Saved cards are auto-selected by checkout when the page loads.
   // CVV is read from eventData.UPSELL_CVV (fallback: '737')
   // ─────────────────────────────
   async fillAndSubmit(eventData: Record<string, string>): Promise<void> {
     const cvv = eventData.UPSELL_CVV || eventData.UPSELL_PPV_CVV || eventData.FURY_CVV || '737';
     console.log(`💳 Saved card payment flow — CVV length: ${cvv.length}`);
-    await this.selectSavedCard();
     await this.enterCVV(cvv);
     await this.clickPayNow();
   }
