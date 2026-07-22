@@ -6,7 +6,7 @@
   "SPORT": "Wrestling",
   "PPV_TYPE": "normal",
   "HAS_BUNDLE": false,
-  "PPV_DEV_MODE": true,
+  "PPV_DEV_MODE": false,
   "DEFAULT_SIGNUP_DEVMODE": false,
   "HAS_DEFAULT_SIGNUP_PPV": false,
   "global": {
