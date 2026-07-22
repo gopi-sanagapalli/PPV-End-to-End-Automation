@@ -115,16 +115,12 @@ export function loadEventConfig(eventConfigOrKey?: string, planKeyOverride?: str
     eventData.PPV_DEV_MODE = false;
   }
 
-  if (process.env.HAS_DEFAULT_SIGNUP_PPV === 'true') {
-    eventData.HAS_DEFAULT_SIGNUP_PPV = true;
-  } else if (process.env.HAS_DEFAULT_SIGNUP_PPV === 'false') {
-    eventData.HAS_DEFAULT_SIGNUP_PPV = false;
-  }
-
   if (process.env.DEFAULT_SIGNUP_DEVMODE === 'true') {
     eventData.DEFAULT_SIGNUP_DEVMODE = true;
+    eventData.HAS_DEFAULT_SIGNUP_PPV = false;
   } else if (process.env.DEFAULT_SIGNUP_DEVMODE === 'false') {
     eventData.DEFAULT_SIGNUP_DEVMODE = false;
+    eventData.HAS_DEFAULT_SIGNUP_PPV = true;
   }
 
   // Load plan data if needed

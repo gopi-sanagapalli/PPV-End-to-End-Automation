@@ -15,21 +15,14 @@ on:
         default: GB
         options: [GB, US, AU, BR, AE]
       DEFAULT_SIGNUP_DEVMODE:
-        description: "Override DEFAULT_SIGNUP_DEVMODE (runs default signup in dev mode)"
+        description: "Run default signup in dev mode (if false, it runs as live)"
         required: true
         type: choice
-        default: default
-        options: [default, "true", "false"]
-      HAS_DEFAULT_SIGNUP_PPV:
-        description: "Override HAS_DEFAULT_SIGNUP_PPV (runs default signup as live)"
-        required: true
-        type: choice
-        default: default
-        options: [default, "true", "false"]
+        default: "false"
+        options: ["true", "false"]
 permissions: { contents: read }
 env:
   DEFAULT_SIGNUP_DEVMODE: ${{ inputs.DEFAULT_SIGNUP_DEVMODE }}
-  HAS_DEFAULT_SIGNUP_PPV: ${{ inputs.HAS_DEFAULT_SIGNUP_PPV }}
   JIRA_REGION: ${{ inputs.COUNTRY }}
   JIRA_REGION_FIELD_NAME: Region
   JIRA_DAZN_ENVIRONMENT_FIELD_NAME: DAZN Environment

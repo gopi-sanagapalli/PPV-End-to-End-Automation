@@ -15,11 +15,11 @@ on:
         default: GB
         options: [GB, US, AU, BR, AE]
       PPV_DEV_MODE:
-        description: "Override PPV_DEV_MODE (if default, uses value from event JSON)"
+        description: "Enable PPV_DEV_MODE validation"
         required: true
         type: choice
-        default: default
-        options: [default, "true", "false"]
+        default: "true"
+        options: ["true", "false"]
 permissions: { contents: read }
 env:
   PPV_DEV_MODE: ${{ inputs.PPV_DEV_MODE }}

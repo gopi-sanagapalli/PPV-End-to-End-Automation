@@ -16,16 +16,12 @@ if (process.env.PPV_DEV_MODE === 'true') {
   event.PPV_DEV_MODE = false;
 }
 
-if (process.env.HAS_DEFAULT_SIGNUP_PPV === 'true') {
-  event.HAS_DEFAULT_SIGNUP_PPV = true;
-} else if (process.env.HAS_DEFAULT_SIGNUP_PPV === 'false') {
-  event.HAS_DEFAULT_SIGNUP_PPV = false;
-}
-
 if (process.env.DEFAULT_SIGNUP_DEVMODE === 'true') {
   event.DEFAULT_SIGNUP_DEVMODE = true;
+  event.HAS_DEFAULT_SIGNUP_PPV = false;
 } else if (process.env.DEFAULT_SIGNUP_DEVMODE === 'false') {
   event.DEFAULT_SIGNUP_DEVMODE = false;
+  event.HAS_DEFAULT_SIGNUP_PPV = true;
 }
 const eventDate = new Date(event.global?.PPV_UTC_DATE);
 if (Number.isNaN(eventDate.getTime()) || eventDate.getTime() <= Date.now()) {
