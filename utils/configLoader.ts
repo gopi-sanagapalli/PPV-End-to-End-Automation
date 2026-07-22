@@ -101,13 +101,30 @@ export function loadEventConfig(eventConfigOrKey?: string, planKeyOverride?: str
     throw new Error(`❌ Configuration file "${configSource}" not found recursively under config/`);
   }
 
-  // Load and parse event configuration directly
   let eventData: any = {};
   try {
     eventData = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
     console.log(`📄 Loaded event configuration file: ${filePath}`);
   } catch (err: any) {
     throw new Error(`❌ Failed to parse event config file ${filePath}: ${err.message}`);
+  }
+
+  if (process.env.PPV_DEV_MODE === 'true') {
+    eventData.PPV_DEV_MODE = true;
+  } else if (process.env.PPV_DEV_MODE === 'false') {
+    eventData.PPV_DEV_MODE = false;
+  }
+
+  if (process.env.HAS_DEFAULT_SIGNUP_PPV === 'true') {
+    eventData.HAS_DEFAULT_SIGNUP_PPV = true;
+  } else if (process.env.HAS_DEFAULT_SIGNUP_PPV === 'false') {
+    eventData.HAS_DEFAULT_SIGNUP_PPV = false;
+  }
+
+  if (process.env.DEFAULT_SIGNUP_DEVMODE === 'true') {
+    eventData.DEFAULT_SIGNUP_DEVMODE = true;
+  } else if (process.env.DEFAULT_SIGNUP_DEVMODE === 'false') {
+    eventData.DEFAULT_SIGNUP_DEVMODE = false;
   }
 
   // Load plan data if needed

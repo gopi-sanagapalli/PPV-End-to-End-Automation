@@ -1,5 +1,5 @@
 name: Create PPV workflow summary
-description: Downloads all job reports and publishes one consolidated workflow report.
+description: Collects locally stored job reports and publishes one consolidated workflow report.
 inputs:
   title:
     required: true
@@ -23,11 +23,6 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Download job reports
-      uses: actions/download-artifact@v4
-      with:
-        pattern: ${{ inputs.artifact_pattern }}
-        path: ppv-workflow-summary/job-artifacts
     - name: Build workflow summary
       shell: bash
       env:
@@ -37,10 +32,18 @@ runs:
         NEW_USER_STATUS: ${{ inputs.new_user_status }}
         SIGN_IN_STATUS: ${{ inputs.sign_in_status }}
         SIGNED_IN_STATUS: ${{ inputs.signed_in_status }}
+        ARTIFACT_PATTERN: ${{ inputs.artifact_pattern }}
       run: |
         set -euo pipefail
         report_dir=ppv-workflow-summary
         mkdir -p "$report_dir/job-artifacts"
+        reports_root="${PPV_REPORTS_ROOT:-/tmp/ppv-reports}"
+        run_reports_dir="${reports_root}/${GITHUB_RUN_ID}"
+        if [ -d "$run_reports_dir" ]; then
+          find "$run_reports_dir" -mindepth 1 -maxdepth 1 -type d -name "$ARTIFACT_PATTERN" -exec cp -R {} "$report_dir/job-artifacts/" \;
+        else
+          echo "No local PPV report directory found at $run_reports_dir"
+        fi
         artifact_count="$(find "$report_dir/job-artifacts" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')"
         cat > "$report_dir/index.html" <<EOF
         <!doctype html><html><head><meta charset="utf-8"><title>$REPORT_TITLE</title></head><body>
@@ -49,7 +52,8 @@ runs:
         <tr><td>New user</td><td>$NEW_USER_STATUS</td></tr>
         <tr><td>Existing user — sign in during flow</td><td>$SIGN_IN_STATUS</td></tr>
         <tr><td>Existing user — already signed in</td><td>$SIGNED_IN_STATUS</td></tr></table>
-        <p>Collected job report artifacts: $artifact_count</p><h2>Job report folders</h2><ul>
+        <p><strong>Local report path:</strong> $run_reports_dir</p>
+        <p>Collected job report folders: $artifact_count</p><h2>Job report folders</h2><ul>
         EOF
         find "$report_dir/job-artifacts" -mindepth 1 -maxdepth 1 -type d -print | sort | while read -r directory; do
           printf '<li>%s</li>\n' "$(basename "$directory")" >> "$report_dir/index.html"
@@ -58,7 +62,9 @@ runs:
         {
           echo "## $REPORT_TITLE"
           echo
-          echo "PPV: \`$PPV_CONFIG\` · Country: \`$COUNTRY\` · Collected reports: **$artifact_count**"
+          echo "PPV: \`$PPV_CONFIG\` · Country: \`$COUNTRY\` · Collected local reports: **$artifact_count**"
+          echo
+          echo "Local report path: \`$run_reports_dir\`"
           echo
           echo '| Stage | Status |'
           echo '| --- | --- |'
@@ -66,11 +72,17 @@ runs:
           echo "| Existing user — sign in during flow | $SIGN_IN_STATUS |"
           echo "| Existing user — already signed in | $SIGNED_IN_STATUS |"
           echo
-          echo "Download the **$REPORT_TITLE** artifact to open \`index.html\` and all individual job reports."
+          echo "Reports are stored on the self-hosted runner disk under the local report path above."
         } >> "$GITHUB_STEP_SUMMARY"
-    - name: Upload consolidated workflow report
-      uses: actions/upload-artifact@v4
-      with:
-        name: ${{ inputs.artifact_name }}
-        path: ppv-workflow-summary/
-        if-no-files-found: error
+    - name: Store consolidated workflow report locally
+      shell: bash
+      env:
+        ARTIFACT_NAME: ${{ inputs.artifact_name }}
+      run: |
+        set -euo pipefail
+        reports_root="${PPV_REPORTS_ROOT:-/tmp/ppv-reports}"
+        summary_dir="${reports_root}/${GITHUB_RUN_ID}/${ARTIFACT_NAME}"
+        rm -rf "$summary_dir"
+        mkdir -p "$summary_dir"
+        cp -R ppv-workflow-summary/. "$summary_dir/"
+        echo "Stored consolidated workflow report locally at $summary_dir"

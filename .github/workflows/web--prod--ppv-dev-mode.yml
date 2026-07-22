@@ -14,8 +14,15 @@ on:
         type: choice
         default: GB
         options: [GB, US, AU, BR, AE]
+      PPV_DEV_MODE:
+        description: "Override PPV_DEV_MODE (if default, uses value from event JSON)"
+        required: true
+        type: choice
+        default: default
+        options: [default, "true", "false"]
 permissions: { contents: read }
 env:
+  PPV_DEV_MODE: ${{ inputs.PPV_DEV_MODE }}
   JIRA_REGION: ${{ inputs.COUNTRY }}
   JIRA_REGION_FIELD_NAME: Region
   JIRA_DAZN_ENVIRONMENT_FIELD_NAME: DAZN Environment
