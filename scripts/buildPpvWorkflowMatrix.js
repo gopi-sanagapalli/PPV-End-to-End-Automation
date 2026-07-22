@@ -44,8 +44,8 @@ const regularProfiles = [
 ];
 const ultimateOnly = new Set(['boxing-banner-ultimate', 'boxing-ultimate-subscription', 'boxing-join-the-club']);
 const validUltimateProfiles = new Set(['active_standard_monthly/ultimate_apm', 'active_standard_monthly/ultimate_upfront', 'active_standard_apm/ultimate_apm']);
-const androidNewSources = ['landing-page-banner', 'home-page-banner', 'home-page-dont-miss', 'home-boxing-banner', 'home-boxing-upcoming', 'home-boxing-tile', 'schedule', 'search'];
-const androidExistingSources = androidNewSources.filter(source => source !== 'landing-page-banner');
+let androidNewSources = ['landing-page-banner', 'home-page-banner', 'home-page-dont-miss', 'home-boxing-banner', 'home-boxing-upcoming', 'home-boxing-tile', 'schedule', 'search'];
+let androidExistingSources = androidNewSources.filter(source => source !== 'landing-page-banner');
 const androidProfiles = regularProfiles;
 const androidDevices = [
   { deviceSerial: 'RZCW308EJKZ', appiumPort: 4723, appiumSystemPort: 8200, chromedriverPort: 9515 },
@@ -53,11 +53,24 @@ const androidDevices = [
 ];
 const assignAndroidDevices = (entries) => entries.map((entry, index) => ({ ...entry, ...androidDevices[index % androidDevices.length] }));
 
-const applicable = (sources, allowDefaultSignup = hasDefaultSignup) => sources.filter((source) => {
-  if (source === 'home-kickboxing-tile' && !isKickboxing) return false;
-  if (source === 'boxing-page-bundle' && !hasBundle) return false;
-  return !sourceConfig[source]?.defaultSignup || allowDefaultSignup;
-});
+const filterBanners = (sources) => {
+  if (process.env.BANNERS_CONFIGURED === 'false') {
+    return sources.filter(source => !source.toLowerCase().includes('banner'));
+  }
+  return sources;
+};
+
+androidNewSources = filterBanners(androidNewSources);
+androidExistingSources = filterBanners(androidExistingSources);
+
+const applicable = (sources, allowDefaultSignup = hasDefaultSignup) => {
+  const filtered = sources.filter((source) => {
+    if (source === 'home-kickboxing-tile' && !isKickboxing) return false;
+    if (source === 'boxing-page-bundle' && !hasBundle) return false;
+    return !sourceConfig[source]?.defaultSignup || allowDefaultSignup;
+  });
+  return filterBanners(filtered);
+};
 const withOutput = (name, value) => fs.appendFileSync(process.env.GITHUB_OUTPUT, `${name}=${JSON.stringify(value)}\n`);
 
 let matrix;

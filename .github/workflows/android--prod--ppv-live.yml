@@ -14,6 +14,12 @@ on:
         type: choice
         default: GB
         options: [GB, US, AU, BR, AE]
+      BANNERS_CONFIGURED:
+        description: "Banners Configured/Available"
+        required: true
+        type: choice
+        default: "true"
+        options: ["true", "false"]
 
 permissions:
   contents: read
@@ -30,6 +36,8 @@ jobs:
       - uses: actions/checkout@v4
       - id: matrix
         shell: bash
+        env:
+          BANNERS_CONFIGURED: ${{ inputs.BANNERS_CONFIGURED }}
         run: |
           set -euo pipefail
           for mode in android-full-new android-full-signin android-full-signed; do

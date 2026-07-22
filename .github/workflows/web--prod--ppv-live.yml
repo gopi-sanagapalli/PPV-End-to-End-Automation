@@ -14,6 +14,12 @@ on:
         type: choice
         default: GB
         options: [GB, US, AU, BR, AE]
+      BANNERS_CONFIGURED:
+        description: "Banners Configured/Available"
+        required: true
+        type: choice
+        default: "true"
+        options: ["true", "false"]
 permissions: { contents: read }
 env:
   JIRA_REGION: ${{ inputs.COUNTRY }}
@@ -40,6 +46,8 @@ jobs:
       - uses: actions/checkout@v4
       - id: matrix
         shell: bash
+        env:
+          BANNERS_CONFIGURED: ${{ inputs.BANNERS_CONFIGURED }}
         run: |
           for mode in live-new live-existing live-signed; do
             file="$(mktemp)"
