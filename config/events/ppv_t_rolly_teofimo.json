@@ -10,11 +10,11 @@
   "HAS_DEFAULT_SIGNUP_PPV": false,
   "global": {
     "FREE_TRIAL_DAYS": 8,
-    "PPV_PROMOTER": "TBC",
+    "PPV_PROMOTER": "PBC",
     "PPV_ENTITLEMENT_ID": "ppv_t_rolly_teofimo",
     "PPV_DESCRIPTION": "PUT UP OR SHUT UP! Two of boxing's biggest names collide for the WBA Welterweight World Championship.",
     "PPV_UTC_DATE": "2026-08-22T22:30:00Z",
-    "PPV_LOCATION": "TBC",
+    "PPV_LOCATION": "T-Mobile Arena, Las Vegas",
     "PPV_DATE": "Sat 22nd Aug at 23:30",
     "PPV_POPUP_DATE": "22 AUG 23:30PM",
     "SEARCH_PPV_DATE_TIME": "22 AUG 23:30PM",

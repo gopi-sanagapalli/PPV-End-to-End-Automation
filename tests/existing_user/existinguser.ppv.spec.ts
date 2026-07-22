@@ -1938,70 +1938,77 @@ for (const stateKey of userStatesToRun) {
           console.log(`✅ PPV Actual Status: "${ppvStatus}"`);
 
           // --- Schedule Page validation (Post-Payment) ---
+          // When PPV_DEV_MODE is true in the event JSON config, the event
+          // tile won't appear on Schedule because the PPV isn't truly live.
+          // Skip schedule navigation and end the test at My Account.
           if (PPV_TYPE !== 'upsell') {
-            try {
-              console.log('\n📅 [Post-Purchase] Navigating to Schedule page to verify purchased event...');
-              const schedulePagePostPayment = new SchedulePage(page);
-              await schedulePagePostPayment.navigate(baseUrl);
-              if (devModeEnabled) {
-                console.log('\n🎭 Dev mode flow detected — enabling dev mode before Schedule entitlement click...');
-                const searchPage = new SearchPage(page);
-                await searchPage.enableDevMode();
+            if (PPV_DEV_MODE) {
+              console.log('\n🎭 [PPV_DEV_MODE] Skipping Schedule page navigation — PPV is deployed but not live. Test ends at My Account.');
+            } else {
+              try {
+                console.log('\n📅 [Post-Purchase] Navigating to Schedule page to verify purchased event...');
+                const schedulePagePostPayment = new SchedulePage(page);
+                await schedulePagePostPayment.navigate(baseUrl);
+                if (devModeEnabled) {
+                  console.log('\n🎭 Dev mode flow detected — enabling dev mode before Schedule entitlement click...');
+                  const searchPage = new SearchPage(page);
+                  await searchPage.enableDevMode();
+                }
+                await schedulePagePostPayment.selectSport(sport);
+
+                console.log(`🔍 Finding event tile: "${eventData.PPV_NAME}"`);
+                const eventCard = await schedulePagePostPayment.findEvent(eventData.PPV_NAME);
+
+                console.log('🖱️ Clicking PPV event tile...');
+                await eventCard.click();
+
+                console.log('⏳ Waiting for navigation off the Schedule page...');
+                await page.waitForURL((url: URL) => !url.href.includes('/schedule'), { timeout: 15000 });
+                await page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => { });
+
+                const currentUrl = page.url();
+                console.log(`🔗 Post-Purchase redirected URL: ${currentUrl}`);
+
+                const lowerUrl = currentUrl.toLowerCase();
+                let navStatus: 'PASS' | 'FAIL' = 'FAIL';
+                let actualPage = 'Unknown Page';
+
+                if (lowerUrl.includes('preview')) {
+                  actualPage = 'Preview Page';
+                  navStatus = 'PASS';
+                } else if (
+                  lowerUrl.includes('fixture') ||
+                  lowerUrl.includes('event') ||
+                  lowerUrl.includes('stream') ||
+                  lowerUrl.includes('player')
+                ) {
+                  actualPage = 'Fixture Page';
+                  navStatus = 'PASS';
+                }
+
+                results.push({
+                  page: 'Schedule',
+                  field: 'Post-Purchase Navigation Target',
+                  expected: 'Preview Page or Fixture Page',
+                  actual: `Navigated to: ${currentUrl} (${actualPage})`,
+                  status: navStatus,
+                });
+
+                if (navStatus === 'FAIL') {
+                  console.error(`❌ Post-Purchase navigation target check failed. URL: ${currentUrl}`);
+                } else {
+                  console.log(`✅ Post-Purchase navigation target check passed: ${actualPage}`);
+                }
+              } catch (scheduleErr: any) {
+                console.warn(`⚠️ [Post-Purchase] Schedule page validation error: ${scheduleErr.message}`);
+                results.push({
+                  page: 'Schedule',
+                  field: 'Post-Purchase Navigation Target',
+                  expected: 'Preview Page or Fixture Page',
+                  actual: `Error: ${scheduleErr.message}`,
+                  status: 'FAIL',
+                });
               }
-              await schedulePagePostPayment.selectSport(sport);
-
-              console.log(`🔍 Finding event tile: "${eventData.PPV_NAME}"`);
-              const eventCard = await schedulePagePostPayment.findEvent(eventData.PPV_NAME);
-
-              console.log('🖱️ Clicking PPV event tile...');
-              await eventCard.click();
-
-              console.log('⏳ Waiting for navigation off the Schedule page...');
-              await page.waitForURL((url: URL) => !url.href.includes('/schedule'), { timeout: 15000 });
-              await page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => { });
-
-              const currentUrl = page.url();
-              console.log(`🔗 Post-Purchase redirected URL: ${currentUrl}`);
-
-              const lowerUrl = currentUrl.toLowerCase();
-              let navStatus: 'PASS' | 'FAIL' = 'FAIL';
-              let actualPage = 'Unknown Page';
-
-              if (lowerUrl.includes('preview')) {
-                actualPage = 'Preview Page';
-                navStatus = 'PASS';
-              } else if (
-                lowerUrl.includes('fixture') ||
-                lowerUrl.includes('event') ||
-                lowerUrl.includes('stream') ||
-                lowerUrl.includes('player')
-              ) {
-                actualPage = 'Fixture Page';
-                navStatus = 'PASS';
-              }
-
-              results.push({
-                page: 'Schedule',
-                field: 'Post-Purchase Navigation Target',
-                expected: 'Preview Page or Fixture Page',
-                actual: `Navigated to: ${currentUrl} (${actualPage})`,
-                status: navStatus,
-              });
-
-              if (navStatus === 'FAIL') {
-                console.error(`❌ Post-Purchase navigation target check failed. URL: ${currentUrl}`);
-              } else {
-                console.log(`✅ Post-Purchase navigation target check passed: ${actualPage}`);
-              }
-            } catch (scheduleErr: any) {
-              console.warn(`⚠️ [Post-Purchase] Schedule page validation error: ${scheduleErr.message}`);
-              results.push({
-                page: 'Schedule',
-                field: 'Post-Purchase Navigation Target',
-                expected: 'Preview Page or Fixture Page',
-                actual: `Error: ${scheduleErr.message}`,
-                status: 'FAIL',
-              });
             }
           }
 

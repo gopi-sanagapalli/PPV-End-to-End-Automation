@@ -56,6 +56,14 @@ export function resolveExpected(
   const isUnspecifiedPage = normalizedPageName === '';
   const isPlanPage = normalizedPageName === 'dazn plan' || normalizedPageName === 'plan' || isUnspecifiedPage;
   const isPaymentPage = normalizedPageName === 'payment';
+  // The add-on checkout has its own price semantics.  For this page the
+  // amount beside "Today you pay" is the one-time PPV charge, even when the
+  // account is already on an annual standard plan (whose plan total is also
+  // present in eventData.TODAY_YOU_PAY_PRICE).
+  const isPpvPaymentPage = normalizedPageName.includes('ppv payment') ||
+    normalizedPageName.includes('upsell payment') ||
+    pageName.includes('/addon/purchase');
+  const ppvPaymentPrice = eventData.OFFER_EFFECTIVE_PPV_PRICE || eventData.PPV_PRICE || eventData.TODAY_YOU_PAY_PRICE || '';
   const currentUserState = String(eventData.USER_STATE || process.env.USER_STATE || '').trim().toLowerCase();
   const isActiveStandardUser = [
     'active_standard',
@@ -337,6 +345,7 @@ export function resolveExpected(
       }
     }
     if (field === 'today you pay price' || field === 'today price' || (field.includes('today you pay') && !field.includes('text'))) {
+      if (isPpvPaymentPage) return ppvPaymentPrice;
       const currentTierVal = (eventData.TIER || '').toLowerCase();
       if (currentTierVal === 'ultimate') {
         return eventData.ANNUAL_PAY_MONTHLY_PRICE || '';
@@ -426,7 +435,7 @@ export function resolveExpected(
         return 'N/A| |';
       }
       if (field === 'today you pay price' || field === 'today price' || (field.includes('today you pay') && !field.includes('text'))) {
-        return eventData.TODAY_YOU_PAY_PRICE || '';
+        return isPpvPaymentPage ? ppvPaymentPrice : (eventData.TODAY_YOU_PAY_PRICE || '');
       }
       if (currentRatePlan.includes('annual')) {
         if (field === 'cancellation text' || field === 'cancel text') {
@@ -493,7 +502,7 @@ export function resolveExpected(
         return 'N/A| |';
       }
       if (field === 'today you pay price' || field === 'today price' || (field.includes('today you pay') && !field.includes('text'))) {
-        return eventData.TODAY_YOU_PAY_PRICE || '';
+        return isPpvPaymentPage ? ppvPaymentPrice : (eventData.TODAY_YOU_PAY_PRICE || '');
       }
       if (field === 'cancellation text' || field === 'cancel text') {
         return eventData.CANCELLATION_TEXT || "Monthly subscription. Cancel with 30 days' notice. Your subscription auto-renews unless you cancel.";
@@ -662,7 +671,7 @@ export function resolveExpected(
       }
     } else if (field === 'today you pay price' || field === 'today price' || (field.includes('today you pay') && !field.includes('text'))) {
       if (eventData.TODAY_YOU_PAY_PRICE) {
-        raw = eventData.TODAY_YOU_PAY_PRICE;
+        raw = isPpvPaymentPage ? ppvPaymentPrice : eventData.TODAY_YOU_PAY_PRICE;
       } else {
         const offerAvailable = String(eventData.OFFER_AVAILABLE || 'false').toLowerCase() === 'true';
         if (offerAvailable && (eventData.OFFER_EFFECTIVE_PPV_PRICE || eventData.UPSELL_PRICE)) {
@@ -711,7 +720,7 @@ export function resolveExpected(
       return cancelTemplate;
     }
     if (field === 'today you pay price' || field === 'today price' || (field.includes('today you pay') && !field.includes('text'))) {
-      return eventData.TODAY_YOU_PAY_PRICE || '';
+      return isPpvPaymentPage ? ppvPaymentPrice : (eventData.TODAY_YOU_PAY_PRICE || '');
     }
     if (field === 'plan name' || field === 'plan label') {
       return eventData.PAYMENT_PLAN_LABEL || eventData.PLAN_LABEL || '';

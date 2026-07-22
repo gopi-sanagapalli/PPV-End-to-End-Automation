@@ -46,6 +46,13 @@ export class PPVUpsellPaymentPage extends BasePage {
   ): Promise<void> {
     console.log(`🔍 Validating ${pageName} page...`);
 
+    // This validator is also used by the active-standard saved-card flow,
+    // which reaches /addon/purchase without going through validateVariant.
+    // Set the page context here so resolveExpected does not reuse the annual
+    // subscription total as the PPV checkout amount.
+    eventData.CURRENT_PAGE = pageName;
+    eventData['CURRENT_PAGE'] = pageName;
+
     // ── Wait for page to be ready ──
     // Wait specifically for the Pay Now button — it is the last element to render
     // on the saved card payment page, so its visibility confirms the page is fully loaded.
@@ -110,29 +117,20 @@ export class PPVUpsellPaymentPage extends BasePage {
 
         // ── PPV Description ──
       } else if (key === 'ppv description') {
-        // Return actual description text; fall back to 'Yes'/'No' if expected is Yes/No
+        // The payment page must contain the configured event description,
+        // not merely any non-empty paragraph.
+        const clean = (value: string) => value.replace(/\s+/g, ' ').trim();
+        // The checkout card renders the event marketing description
+        // (BANNER_DESCRIPTION), not the generic plan-pairing PPV_DESCRIPTION.
+        const expectedDescription = clean(eventData.BANNER_DESCRIPTION || eventData.PPV_DESCRIPTION || expected || '');
         const paras = await this.page.locator('p, [class*="description" i], [class*="subtitle" i]')
           .allTextContents().catch(() => []);
         const cardTerms = /payment|visa|mastercard|amex|maestro|\*{4}|exp\s*\d|one time|today you pay|secure|promo|terms|privacy|cvv|cvc/i;
-        const expectedLower = (expected || '').trim().toLowerCase();
-        // Prefer a paragraph whose text overlaps with the expected description words
-        const expectedWords = expectedLower.split(/\s+/).filter(w => w.length > 4);
-        let desc = paras.find((p: string) => {
-          const t = p.trim();
-          if (t.length < 20 || cardTerms.test(t)) return false;
-          return expectedWords.length > 0
-            ? expectedWords.some(w => t.toLowerCase().includes(w))
-            : true;
-        });
-        // Fallback: any long non-card paragraph
-        if (!desc) {
-          desc = paras.find((p: string) => p.trim().length > 20 && !cardTerms.test(p));
-        }
-        if (expectedLower === 'yes' || expectedLower === 'no') {
-          actual = desc ? 'Yes' : 'No';
-        } else {
-          actual = desc ? desc.trim() : 'N/A';
-        }
+        const allText = paras.map(clean).filter((text: string) => text.length >= 20 && text.length <= 300);
+        const expectedNorm = expectedDescription.toLowerCase();
+        const exact = allText.find((text: string) => clean(text).toLowerCase() === expectedNorm);
+        const candidates = allText.filter((text: string) => !cardTerms.test(text));
+        actual = exact || candidates[0] || 'N/A';
 
         // ── PPV Image Present ──
       } else if (key === 'ppv image present' || key.includes('ppv image') || key.includes('image present')) {
@@ -170,6 +168,41 @@ export class PPVUpsellPaymentPage extends BasePage {
           return tLower.includes(mainName.toLowerCase());
         });
         actual = matchEl ? matchEl.trim() : 'N/A';
+
+        // ── Order Summary PPV Price (price beside the PPV name) ──
+      } else if (key === 'order summary ppv price') {
+        const pricePattern = /(?:AED\s?|[£$€₹])\s*\d+(?:[.,]\d{2})?/i;
+        const summaryPrice = await this.page.evaluate(({ ppvName, pricePatternSource }) => {
+          const cleanText = (value: string | null | undefined) => String(value || '').replace(/\s+/g, ' ').trim();
+          const pricePattern = new RegExp(pricePatternSource, 'i');
+          const words = ppvName.toLowerCase().replace(/[^a-z0-9]+/g, ' ').split(/\s+/).filter(w => w.length > 2);
+          const visible = (el: HTMLElement) => {
+            const rect = el.getBoundingClientRect();
+            const style = window.getComputedStyle(el);
+            return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+          };
+          const leaves = Array.from(document.querySelectorAll<HTMLElement>('h1,h2,h3,h4,p,span,div'))
+            .filter(el => visible(el) && el.children.length === 0);
+          const nameEl = leaves.find(el => {
+            const text = cleanText(el.innerText || el.textContent).toLowerCase();
+            return words.length > 0 && words.every(word => text.includes(word));
+          });
+          if (!nameEl) return '';
+          let parent: HTMLElement | null = nameEl.parentElement;
+          for (let depth = 0; depth < 6 && parent; depth++, parent = parent.parentElement) {
+            const prices = Array.from(parent.querySelectorAll<HTMLElement>('h1,h2,h3,h4,p,span,div'))
+              .filter(el => visible(el) && el.children.length === 0)
+              .map(el => ({ el, text: cleanText(el.innerText || el.textContent), rect: el.getBoundingClientRect() }))
+              .filter(item => pricePattern.test(item.text) && !item.text.includes('/'));
+            if (prices.length) {
+              const nameRect = nameEl.getBoundingClientRect();
+              prices.sort((a, b) => Math.abs(a.rect.top - nameRect.top) - Math.abs(b.rect.top - nameRect.top));
+              return prices[0].text;
+            }
+          }
+          return '';
+        }, { ppvName: eventData.PPV_NAME || '', pricePatternSource: pricePattern.source }).catch(() => '');
+        actual = summaryPrice || 'N/A';
 
         // ── Today You Pay Text ──
       } else if (key === 'today you pay text') {
