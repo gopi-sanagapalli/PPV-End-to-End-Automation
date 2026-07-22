@@ -1,4 +1,5 @@
 name: "Web · Prod · PPV enabled · Dev mode"
+run-name: "Web · Prod · PPV enabled · Dev mode · ${{ inputs.COUNTRY }} · ${{ inputs.PPV_CONFIG }}"
 
 on:
   workflow_dispatch:
@@ -66,16 +67,19 @@ jobs:
   workflow-summary:
     needs: [prepare, my-account]
     if: ${{ always() }}
-    name: Consolidated workflow report
+    name: Consolidated workflow report · ${{ inputs.COUNTRY }}
     runs-on: [self-hosted, macOS, ARM64]
+    env:
+      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
     steps:
+      - uses: actions/checkout@v4
       - uses: ./.github/actions/ppv-workflow-summary
         with:
-          title: Web PPV dev-mode workflow report
+          title: Web PPV dev-mode workflow report · ${{ inputs.COUNTRY }}
           ppv_config: ${{ inputs.PPV_CONFIG }}
           country: ${{ inputs.COUNTRY }}
           artifact_pattern: ppv-web-*
-          artifact_name: ppv-web-workflow-summary-${{ github.run_attempt }}
+          artifact_name: ppv-web-${{ inputs.COUNTRY }}-workflow-summary-${{ github.run_attempt }}
           new_user_status: not applicable
           sign_in_status: not applicable
           signed_in_status: ${{ needs.my-account.result }}
