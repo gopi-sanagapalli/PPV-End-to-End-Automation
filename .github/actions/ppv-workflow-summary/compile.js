@@ -493,6 +493,7 @@ const htmlReport = `<!doctype html>
       gap: 8px;
       margin-bottom: 20px;
       overflow-x: auto;
+      overflow-y: hidden;
     }
     .tab-link {
       background: none;
