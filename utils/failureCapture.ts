@@ -92,6 +92,51 @@ async function findTarget(page: any, candidates: string[]): Promise<any | null> 
   return null;
 }
 
+// A payment summary contains the PPV price twice: once beside the PPV name
+// and once beside "Today you pay".  Generic text matching always picks the
+// first occurrence, which made failure evidence box the wrong price.  Scope
+// this field to the price in the same row as the Today-you-pay label.
+async function findTodayYouPayPriceTarget(page: any): Promise<any | null> {
+  const marked = await page.evaluate((marker: string) => {
+    const clean = (value: string | null | undefined) => String(value || '').replace(/\s+/g, ' ').trim();
+    const isVisible = (el: HTMLElement) => {
+      const rect = el.getBoundingClientRect();
+      const style = window.getComputedStyle(el);
+      return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+    };
+    const isPrice = (value: string) => /^(?:AED\s?|[£$€₹])\s*\d+(?:[.,]\d{2})?$/.test(clean(value));
+
+    document.querySelectorAll(`[${marker}]`).forEach(node => node.removeAttribute(marker));
+    const labels = Array.from(document.querySelectorAll<HTMLElement>('h1,h2,h3,h4,p,span,strong,b,div'))
+      .filter(el => isVisible(el) && el.children.length <= 2 && /^today\s+you\s+pay$/i.test(clean(el.innerText || el.textContent)));
+    for (const label of labels) {
+      const labelRect = label.getBoundingClientRect();
+      let parent: HTMLElement | null = label.parentElement;
+      for (let depth = 0; depth < 6 && parent; depth++, parent = parent.parentElement) {
+        const prices = Array.from(parent.querySelectorAll<HTMLElement>('h1,h2,h3,h4,p,span,strong,b,div'))
+          .filter(el => isVisible(el) && el.children.length === 0 && !el.closest('del,s'))
+          .map(el => ({ el, rect: el.getBoundingClientRect(), text: clean(el.innerText || el.textContent) }))
+          .filter(item => isPrice(item.text) && item.rect.top >= labelRect.top - 8);
+        if (prices.length) {
+          prices.sort((a, b) => {
+            const aDistance = Math.abs(a.rect.top - labelRect.top) + Math.abs(a.rect.left - labelRect.left) / 100;
+            const bDistance = Math.abs(b.rect.top - labelRect.top) + Math.abs(b.rect.left - labelRect.left) / 100;
+            return aDistance - bDistance;
+          });
+          prices[0].el.setAttribute(marker, 'true');
+          return true;
+        }
+      }
+    }
+    return false;
+  }, FAILURE_FIELD_MARKER).catch(() => false);
+
+  if (!marked) return null;
+  const target = page.locator(`[${FAILURE_FIELD_MARKER}="true"]`).first();
+  await target.waitFor({ state: 'visible', timeout: 1000 }).catch(() => { });
+  return target;
+}
+
 async function findPpvTitleTarget(page: any, field: string, candidates: string[]): Promise<any | null> {
   const fieldKey = String(field || '').toLowerCase().replace(/\s+/g, ' ').trim();
   if (!['event name', 'ppv name', 'ppv card title'].includes(fieldKey)) return null;
@@ -360,7 +405,11 @@ export async function captureFailures(
       const banner = isBannerField && source.includes('banner') && ppvName
         ? await activatePpvBannerForEvidence(page, ppvName)
         : null;
-      const target = (isPopupField ? await findPopupTarget(page, candidates) : null) ||
+      const normalizedField = String(field).toLowerCase().replace(/\s+/g, ' ').trim();
+      const target = (normalizedField === 'today you pay price'
+        ? await findTodayYouPayPriceTarget(page)
+        : null) ||
+        (isPopupField ? await findPopupTarget(page, candidates) : null) ||
         await findPpvTitleTarget(page, field, candidates) ||
         (banner ? await findTarget(banner, candidates) : null) ||
         await findTarget(page, candidates);

@@ -4022,23 +4022,26 @@ export async function getActualValue(
 
       // PPV Payment page (active_standard): presence + content check
       const isPPVPayment = url.includes('/addon/purchase') ||
-        (eventData?.CURRENT_PAGE && ['ppv payment', 'ppv payment page'].includes(eventData.CURRENT_PAGE.toLowerCase()));
+        String(eventData?.CURRENT_PAGE || '').toLowerCase().includes('ppv payment');
       if (isPPVPayment) {
-        const ppvDesc = (eventData?.PPV_DESCRIPTION || '').toLowerCase();
-        const firstWord = ppvDesc.split(' ')[0];
+        const configured = String(eventData?.BANNER_DESCRIPTION || eventData?.PPV_DESCRIPTION || '').replace(/\s+/g, ' ').trim();
+        const normalise = (value: string) => value.replace(/\s+/g, ' ').trim().toLowerCase();
+        const configuredNorm = normalise(configured);
 
-        // Try exact match with PPV_DESCRIPTION first word
-        const found = snapFind(n =>
+        // Return the rendered description itself.  Presence-only (Yes/No)
+        // allowed unrelated payment copy to pass this check.
+        const exact = snapFind(n =>
           (n.tag === 'p' || n.tag === 'span' || n.tag === 'div') &&
           n.text.length > 20 &&
           !matchesVsPattern(n.text) &&
           !isDateText(n.text) &&
           !isPriceText(n.text) &&
-          (firstWord ? n.text.toLowerCase().includes(firstWord) : true)
+          configuredNorm !== '' && normalise(n.text) === configuredNorm
         );
-        if (found !== 'N/A') return 'Yes';
+        if (exact !== 'N/A') return exact;
 
-        // Broader fallback: any long text that looks like a description
+        // Keep a useful actual value when the copy differs, so the report
+        // shows the mismatch instead of collapsing it to a boolean.
         const broader = snapFind(n =>
           (n.tag === 'p' || n.tag === 'span' || n.tag === 'div') &&
           n.childCount <= 2 &&
@@ -4052,9 +4055,11 @@ export async function getActualValue(
           !n.text.toLowerCase().includes('payment method') &&
           !n.text.toLowerCase().includes('today you pay') &&
           !n.text.toLowerCase().includes('one time payment') &&
-          !n.text.toLowerCase().includes('secure checkout')
+          !n.text.toLowerCase().includes('secure checkout') &&
+          !n.text.toLowerCase().includes('payment options') &&
+          !n.text.toLowerCase().includes('please choose')
         );
-        return broader !== 'N/A' ? 'Yes' : 'No';
+        return broader;
       }
 
       const isLandingOrHome = url.includes('/welcome') || url.includes('/home') || url.includes('/boxing') ||
@@ -7522,6 +7527,41 @@ export async function getActualValue(
         n.text.length < 80 &&
         !n.text.toLowerCase().includes('buy')
       );
+    }
+
+    case 'order summary ppv price': {
+      const ppvName = String(eventData?.PPV_NAME || '');
+      const price = await page.evaluate((name: string) => {
+        const cleanText = (value: string | null | undefined) => String(value || '').replace(/\s+/g, ' ').trim();
+        const pricePattern = /^(?:AED\s?|[£$€₹])\s*\d+(?:[.,]\d{2})?$/i;
+        const words = name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').split(/\s+/).filter(w => w.length > 2);
+        const visible = (el: HTMLElement) => {
+          const rect = el.getBoundingClientRect();
+          const style = window.getComputedStyle(el);
+          return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+        };
+        const leaves = Array.from(document.querySelectorAll<HTMLElement>('h1,h2,h3,h4,p,span,div'))
+          .filter(el => visible(el) && el.children.length === 0);
+        const nameEl = leaves.find(el => {
+          const text = cleanText(el.innerText || el.textContent).toLowerCase();
+          return words.length > 0 && words.every(word => text.includes(word));
+        });
+        if (!nameEl) return '';
+        let parent: HTMLElement | null = nameEl.parentElement;
+        for (let depth = 0; depth < 6 && parent; depth++, parent = parent.parentElement) {
+          const prices = Array.from(parent.querySelectorAll<HTMLElement>('h1,h2,h3,h4,p,span,div'))
+            .filter(el => visible(el) && el.children.length === 0 && !el.closest('del,s'))
+            .map(el => ({ text: cleanText(el.innerText || el.textContent), rect: el.getBoundingClientRect() }))
+            .filter(item => pricePattern.test(item.text));
+          if (prices.length) {
+            const nameRect = nameEl.getBoundingClientRect();
+            prices.sort((a, b) => Math.abs(a.rect.top - nameRect.top) - Math.abs(b.rect.top - nameRect.top));
+            return prices[0].text;
+          }
+        }
+        return '';
+      }, ppvName).catch(() => '');
+      return price || 'N/A';
     }
 
     case 'payment method present': {
