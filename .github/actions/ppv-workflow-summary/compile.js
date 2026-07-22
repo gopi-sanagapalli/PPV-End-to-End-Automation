@@ -29,8 +29,8 @@ function findFiles(dir, filter, files = []) {
 // Group stats for each of the 3 main workflows
 const workflowStats = {
   'new-user': { title: 'New User', total: 0, passed: 0, failed: 0, skipped: 0, runs: [] },
-  'signin-during': { title: 'Sign In During Flow', total: 0, passed: 0, failed: 0, skipped: 0, runs: [] },
-  'already-signed': { title: 'Already Signed In', total: 0, passed: 0, failed: 0, skipped: 0, runs: [] }
+  'signin-during': { title: 'Existing User - Sign In During Flow', total: 0, passed: 0, failed: 0, skipped: 0, runs: [] },
+  'already-signed': { title: 'Existing User - Already Signed In', total: 0, passed: 0, failed: 0, skipped: 0, runs: [] }
 };
 
 if (fs.existsSync(artifactsDir)) {
