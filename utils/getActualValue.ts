@@ -1,4 +1,5 @@
 import { DOMNode } from './helpers';
+import { resolveSearchPPVTile } from './searchPpvTileResolver';
 
 async function getScopedLandingPPVContainer(
   page: any,
@@ -371,73 +372,7 @@ export async function getActualValue(
     if (searchTileCache !== undefined) return searchTileCache;
 
     const rawName = eventData?.PPV_NAME || eventData?.PPV_DISPLAY_NAME || '';
-    const namePart = rawName.includes(':') ? rawName.split(':').slice(1).join(':') : rawName;
-    const words = namePart
-      .toLowerCase()
-      .replace(/\bppv\b/g, ' ')
-      .replace(/[^a-z0-9]+/g, ' ')
-      .split(/\s+/)
-      .filter(w => w.length > 2 && !['the', 'and', 'for', 'with', 'from'].includes(w));
-
-    const firstWord = words[0] || namePart.toLowerCase().split(/\s+/)[0] || '';
-    if (!firstWord) {
-      searchTileCache = null;
-      return null;
-    }
-
-    const selector = [
-      'article',
-      'a[class*="tile" i]',
-      'div[class*="tile" i]',
-      'div[class*="card" i]',
-      'div[class*="result" i]',
-      'li',
-    ].join(', ');
-
-    const candidates = page.locator(selector);
-    const count = await candidates.count().catch(() => 0);
-
-    for (let i = 0; i < Math.min(count, 250); i++) {
-      const tile = candidates.nth(i);
-      if (!await tile.isVisible().catch(() => false)) continue;
-
-      const combined = await tile.evaluate((el: HTMLElement) => {
-        const clean = (value: string | null | undefined) =>
-          String(value ?? '').replace(/\s+/g, ' ').trim();
-        const imageText = Array.from(el.querySelectorAll('img'))
-          .map(img => clean((img as HTMLImageElement).alt || img.getAttribute('aria-label') || img.getAttribute('title')))
-          .filter(Boolean)
-          .join(' ');
-        return clean(`${el.innerText || el.textContent || ''} ${imageText} ${el.getAttribute('aria-label') || ''} ${el.getAttribute('title') || ''}`);
-      }).catch(() => '');
-
-      const lower = combined.toLowerCase();
-      if (!lower.includes(firstWord)) continue;
-      if (
-        lower.includes('press conference') ||
-        lower.includes('weigh-in') ||
-        lower.includes('weigh in') ||
-        lower.includes('highlights') ||
-        lower.includes('replay') ||
-        lower.includes('preview')
-      ) {
-        continue;
-      }
-
-      const matchesAllWords = words.length > 0 && words.every(w => lower.includes(w));
-      const hasPpvSignals =
-        /\b\d{1,2}\s*(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/i.test(combined) ||
-        /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s*\d{1,2}\b/i.test(combined) ||
-        /\b\d{1,2}:\d{2}\s*(?:am|pm)?\b/i.test(combined) ||
-        /pay-per-view|ppv/i.test(combined);
-
-      if (matchesAllWords && hasPpvSignals) {
-        searchTileCache = tile;
-        return tile;
-      }
-    }
-
-    searchTileCache = null;
+    searchTileCache = rawName ? await resolveSearchPPVTile(page, rawName) : null;
     return searchTileCache;
   };
 
