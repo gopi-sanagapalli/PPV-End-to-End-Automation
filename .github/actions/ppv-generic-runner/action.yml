@@ -26,7 +26,7 @@ runs:
       if: ${{ always() }}
       shell: bash
       run: |
-        report_id="${SOURCE}-${PLAN:-$PROFILE}"
+        report_id="${SOURCE}-${PROFILE:-$PLAN}"
         report_id="$(echo "$report_id" | tr '/ :|*?<>"' '_' | tr -cd '[:alnum:]_.-')"
         echo "REPORT_ARTIFACT_NAME=ppv-web-${report_id}" >> "$GITHUB_ENV"
     - name: Upload Playwright reports
