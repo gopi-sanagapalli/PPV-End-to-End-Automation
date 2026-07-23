@@ -10,7 +10,7 @@
   "DEFAULT_SIGNUP_DEVMODE": false,
   "HAS_DEFAULT_SIGNUP_PPV": false,
   "global": {
-    "FREE_TRIAL_DAYS": 7,
+    "FREE_TRIAL_DAYS": 8,
     "PPV_PROMOTER": "All Elite Wrestling",
     "PPV_ENTITLEMENT_ID": "ppv_t_aew_redemption",
     "PPV_DESCRIPTION": "A historic night as All Elite Wrestling returns to Canada for AEW Redemption from the Bell Centre in Montreal, Quebec",

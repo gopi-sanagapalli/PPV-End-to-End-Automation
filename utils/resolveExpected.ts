@@ -537,22 +537,8 @@ export function resolveExpected(
     }
   }
 
-  if (field === 'popup description' || field === 'popup - event description') {
-    // home-page-popup has separate Home Popup fields that resolve from HOME_POPUP_*.
-    // Let those template rows resolve naturally.
-    const currentSrc = (eventData.SOURCE || eventData.source || '').trim().toLowerCase();
-    if (currentSrc !== 'home-page-popup') {
-      const isLoginFirst = String(eventData.LOGIN_FIRST ?? process.env.LOGIN_FIRST ?? process.env.LOGIN ?? '').toLowerCase() === 'true';
-
-      if (isActiveStandardUser && isLoginFirst) {
-        // User is already logged in — app knows they're active standard
-        raw = ACTIVE_STANDARD_PPV_POPUP_DESCRIPTION;
-      } else {
-        // User not logged in yet (mid-signup) OR freemium/frozen — app shows generic text
-        raw = eventData.PPV_DESCRIPTION || DEFAULT_PPV_POPUP_DESCRIPTION;
-      }
-    }
-  }
+  // Popup descriptions are content-managed in PPV_Input.xlsx. Do not replace
+  // the spreadsheet expectation with JSON or user-state-specific copy.
 
   if (raw !== undefined && raw !== null) {
     const currentRatePlan = (eventData.RATE_PLAN || eventData.ratePlan || '').trim().toLowerCase();

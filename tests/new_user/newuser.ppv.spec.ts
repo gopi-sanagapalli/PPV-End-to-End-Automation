@@ -170,13 +170,6 @@ async function runFlow(
     return { results, reachedEndPage: false, skipped: true };
   }
 
-  const eventSport = String(json?.SPORT || '').trim().toLowerCase();
-  if (source.toLowerCase() === 'home-kickboxing-tile' && eventSport !== 'kickboxing') {
-    const skipReason = `SOURCE "${source}" only applies to Kickboxing events; selected event SPORT is "${json?.SPORT || 'not set'}".`;
-    console.log(`INFO: ${skipReason} Skipping flow.`);
-    return { results, reachedEndPage: false, skipped: true, skipReason };
-  }
-
   if (source.toLowerCase() === 'boxing-page-bundle' && json?.HAS_BUNDLE !== true) {
     const skipReason = `SOURCE "${source}" requires HAS_BUNDLE: true; selected event does not have a bundle configured.`;
     console.log(`INFO: ${skipReason} Skipping flow.`);
