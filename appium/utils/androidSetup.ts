@@ -50,7 +50,7 @@ async function clickIfVisible(el: WdElement, label: string, driver: WdBrowser): 
         const rect = await el.getRect();
         const tapX = Math.round(rect.x + rect.width / 2);
         const tapY = Math.round(rect.y + rect.height / 2);
-        const caps: any = await driver.getCapabilities().catch(() => ({}));
+        const caps: any = driver.capabilities || {};
         const udid = caps['appium:udid'] || caps.udid || caps['appium:deviceUDID'] || caps.deviceUDID || process.env.DEVICE_SERIAL || '';
         const serialArg = udid ? `-s ${udid}` : '';
         const { execSync } = require('child_process');
@@ -317,7 +317,7 @@ export async function prepareAndroidApp(driver: WdBrowser, options: PrepareAndro
   };
   const targetTz = tzMap[REGION] || 'Europe/London';
   // Get device UDID from active session capabilities or env for targeted ADB calls
-  const caps: any = await driver.getCapabilities().catch(() => ({}));
+  const caps: any = driver.capabilities || {};
   const serial = caps['appium:udid'] || caps.udid || caps['appium:deviceUDID'] || caps.deviceUDID || process.env.DEVICE_SERIAL || '';
 
   try {

@@ -275,7 +275,7 @@ export class AndroidMyAccountPage extends AndroidBasePage {
           const ADB = `${ANDROID_SDK}/platform-tools/adb`;
 
           // Get the UDID capability from the Appium driver to support multi-device/multi-runner environments
-          const caps: any = await this.driver.getCapabilities().catch(() => ({}));
+          const caps: any = (this.driver as any).capabilities || {};
           const udid = caps['appium:udid'] || caps.udid || caps['appium:deviceUDID'] || caps.deviceUDID || process.env.DEVICE_SERIAL || '';
           const serialArg = udid ? `-s ${udid}` : '';
 

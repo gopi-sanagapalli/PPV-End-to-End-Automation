@@ -62,7 +62,7 @@ describe('DAZN TV PPV Android Handoff', () => {
       await browser.pause(1500);
     }
 
-    const caps: any = await browser.getCapabilities().catch(() => ({}));
+    const caps: any = browser.capabilities || {};
     const resolvedDeviceName =
       caps['appium:deviceName'] ||
       caps.deviceName ||

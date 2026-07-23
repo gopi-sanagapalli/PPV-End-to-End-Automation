@@ -387,7 +387,7 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
                     const rect = await btn.getRect();
                     const tapX = Math.round(rect.x + rect.width / 2);
                     const tapY = Math.round(rect.y + rect.height / 2);
-                    const caps: any = await driver.getCapabilities().catch(() => ({}));
+                    const caps: any = driver.capabilities || {};
                     const udid = caps['appium:udid'] || caps.udid || caps['appium:deviceUDID'] || caps.deviceUDID || process.env.DEVICE_SERIAL || '';
                     const serialArg = udid ? `-s ${udid}` : '';
                     const { execSync } = require('child_process');
