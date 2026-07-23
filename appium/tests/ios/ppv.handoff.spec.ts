@@ -518,7 +518,7 @@ describe('DAZN iOS PPV — New User Handoff Flow', () => {
         if (page.isClosed()) throw new Error('❌ Page closed unexpectedly');
 
         pageType = await detectPageType(page, json.pages, 0);
-        await handleCookies(page, 500);
+        await handleCookies(page, 5000);
         await stabilisePage(page);
         await dismissMarketingPopup(page);
         console.log(`\nstep ${step + 1} → pageType: ${pageType} | url: ${page.url()}`);

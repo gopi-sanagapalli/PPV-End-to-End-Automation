@@ -230,15 +230,9 @@ export async function ensureAttDialogClosed(driver: WdBrowser, timeoutMs = 18000
       '~Log in',
     ]);
 
-    if (authHeaderVisible && !forcedAuthHeaderCycleDone) {
-      const { width, height } = await driver.getWindowRect();
-      const x = Math.round(width * 0.5);
-      console.log('[ATT Guard] Auth header visible; running mandatory ATT close tap cycle before proceeding.');
-      await tapByCoordinates(driver, x, Math.round(height * 0.66));
-      await driver.pause(500);
-      await tapByCoordinates(driver, x, Math.round(height * 0.75));
-      await driver.pause(650);
-      forcedAuthHeaderCycleDone = true;
+    if (authHeaderVisible) {
+      console.log('[ATT Guard] Auth header (landing/login elements) detected. App is ready.');
+      return;
     }
 
     const attPresent = await isAttPopupPresent(driver);

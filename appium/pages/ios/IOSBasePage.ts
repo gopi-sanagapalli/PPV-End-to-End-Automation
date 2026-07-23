@@ -85,10 +85,11 @@ export class IOSBasePage {
     await this.driver.action('pointer')
       .move({ x: Math.round(width * 0.8), y: Math.round(height * 0.35) })
       .down()
+      .pause(250)
       .move({ x: Math.round(width * 0.2), y: Math.round(height * 0.35) })
       .up()
       .perform();
-    await this.driver.pause(1500);
+    await this.driver.pause(1000);
   }
 
   async scrollDown(): Promise<void> {
@@ -96,6 +97,7 @@ export class IOSBasePage {
     await this.driver.action('pointer')
       .move({ x: Math.round(width / 2), y: Math.round(height * 0.7) })
       .down()
+      .pause(250)
       .move({ x: Math.round(width / 2), y: Math.round(height * 0.3) })
       .up()
       .perform();
@@ -103,15 +105,16 @@ export class IOSBasePage {
   }
 
   async findPPVBanner(ppvName = this.ppvName): Promise<boolean> {
-    if (await this.isVisible(ppvName, 4000)) return true;
+    const simplifiedName = ppvName.split(/ vs/i)[0].trim().replace(/\./g, '');
+    if (await this.isVisible(simplifiedName, 4000)) return true;
     for (let i = 0; i < 5; i++) {
       await this.swipeLeft();
-      if (await this.isVisible(ppvName, 1500)) return true;
+      if (await this.isVisible(simplifiedName, 1500)) return true;
     }
-    if (await this.scrollToText(ppvName)) return true;
+    if (await this.scrollToText(simplifiedName)) return true;
     for (let i = 0; i < 8; i++) {
       await this.scrollDown();
-      if (await this.isVisible(ppvName, 1500)) return true;
+      if (await this.isVisible(simplifiedName, 1500)) return true;
     }
     return false;
   }
@@ -123,8 +126,10 @@ export class IOSBasePage {
     const horizontalSwipes = options.horizontalSwipes ?? 8;
     const verticalScrolls = options.verticalScrolls ?? 5;
 
+    const simplifiedName = ppvName.split(/ vs/i)[0].trim().replace(/\./g, '');
+
     const isCurrentBannerPPV = async (timeoutMs: number): Promise<boolean> => {
-      const titleVisible = await this.isVisible(ppvName, timeoutMs);
+      const titleVisible = await this.isVisible(simplifiedName, timeoutMs);
       if (!titleVisible) return false;
       for (const cta of ['Go to dazn.com/start', 'dazn.com/start', 'dazn.com']) {
         if (await this.isVisible(cta, 200)) return true;
@@ -141,13 +146,13 @@ export class IOSBasePage {
     console.log(`  PPV banner not immediately visible. Swiping left to find "${ppvName}"...`);
     for (let i = 0; i < horizontalSwipes; i++) {
       await this.swipeLeft();
-      if (await isCurrentBannerPPV(750)) return true;
+      if (await isCurrentBannerPPV(150)) return true;
     }
 
     console.log('  Swiping left exhausted. Trying vertical scroll down...');
     for (let i = 0; i < verticalScrolls; i++) {
       await this.scrollDown();
-      if (await isCurrentBannerPPV(750)) return true;
+      if (await isCurrentBannerPPV(150)) return true;
     }
 
     return false;
@@ -222,52 +227,137 @@ export class IOSBasePage {
   }
 
   async captureCheckoutUrl(): Promise<string> {
-    // Perform precise sequential two-step coordinate taps for both the App Store warning sheet and the Safari prompt
     try {
-      const { width, height } = await this.driver.getWindowSize();
-
-      // Step 1: Tap "Continue" on the App Store webview sheet (vertically stacked centered button at Y ~0.84)
-      const x1 = Math.round(width * 0.5);
-      const y1 = Math.round(height * 0.84);
-      console.log(`📱 Step 1: Tapping App Store sheet "Continue" button at (${x1}, ${y1})`);
-      await this.driver.action('pointer')
-        .move({ x: x1, y: y1 })
-        .down()
-        .pause(100)
-        .up()
-        .perform();
-
-      // Pause to let any subsequent Safari confirmation popup render
-      await this.driver.pause(3000);
-
-      // Step 2: Tap "Open" on standard Safari confirmation alerts (horizontally aligned right button at Y ~0.56)
-      const x2 = Math.round(width * 0.67);
-      const y2 = Math.round(height * 0.56);
-      console.log(`📱 Step 2: Tapping Safari prompt "Open" button at (${x2}, ${y2})`);
-      await this.driver.action('pointer')
-        .move({ x: x2, y: y2 })
-        .down()
-        .pause(100)
-        .up()
-        .perform();
-
-      // Pause to let Safari launch and load the deep link naturally
-      await this.driver.pause(6000);
+      const fs = require('fs');
+      if (!fs.existsSync('./test-results')) {
+        fs.mkdirSync('./test-results', { recursive: true });
+      }
+      await this.driver.saveScreenshot("./test-results/alert_screen.png");
+      console.log('📸 Saved alert screen screenshot to ./test-results/alert_screen.png');
     } catch (e: any) {
-      console.warn('⚠️ Coordinate tap sequence failed:', e.message);
+      console.warn('⚠️ Failed to save alert screenshot:', e.message);
+    }
+
+    // 1. Try to click native Continue / Open buttons first (visible across apps on active screen)
+    let alertHandled = false;
+    console.log('🔍 Checking for App Store sheet "Continue" or standard "Open" buttons...');
+    for (let attempt = 0; attempt < 5; attempt++) {
+      for (const selector of [
+        '//XCUIElementTypeButton[@name="Continue"]',
+        '~Continue',
+        '//XCUIElementTypeButton[@name="Open"]',
+        '~Open',
+        '//XCUIElementTypeButton[@name="Allow"]',
+        '~Allow'
+      ]) {
+        try {
+          const el = await this.driver.$(selector);
+          if (await el.isDisplayed().catch(() => false)) {
+            await el.click();
+            console.log(`✅ Clicked redirect alert button via element locator: ${selector}`);
+            alertHandled = true;
+            await this.driver.pause(2000);
+            break;
+          }
+        } catch {}
+      }
+      if (alertHandled) {
+        // Wait a bit more and re-check if a second pop-up (e.g. Open) is now visible
+        await this.driver.pause(1000);
+        for (const selector of ['//XCUIElementTypeButton[@name="Open"]', '~Open']) {
+          try {
+            const el = await this.driver.$(selector);
+            if (await el.isDisplayed().catch(() => false)) {
+              await el.click();
+              console.log(`✅ Clicked second redirect alert button: ${selector}`);
+              await this.driver.pause(2000);
+              break;
+            }
+          } catch {}
+        }
+        break;
+      }
+      await this.driver.pause(1000);
+    }
+
+    // 2. Fallback: perform precise sequential vertical-sweep coordinate taps
+    if (!alertHandled) {
+      try {
+        const { width, height } = await this.driver.getWindowSize();
+
+        // Step 1: Tap App Store sheet "Continue" (vertically stacked centered button area near bottom)
+        const x1 = Math.round(width * 0.5);
+        const yOffsets = [110, 140, 170];
+        console.log(`📱 Fallback Step 1: Tapping App Store sheet "Continue" area at X=${x1} with Y-sweeps [110, 140, 170]...`);
+        for (const offset of yOffsets) {
+          const y = height - offset;
+          await this.driver.action('pointer')
+            .move({ x: x1, y })
+            .down()
+            .pause(100)
+            .up()
+            .perform();
+          await this.driver.pause(200);
+        }
+
+        // Check if Chrome or Safari is already active in the foreground before doing Step 2
+        let activeApp = await this.driver.execute('mobile: activeAppInfo').catch(() => null);
+        const isBrowserActive = activeApp && (activeApp.bundleId === 'com.google.chrome.ios' || activeApp.bundleId === 'com.apple.mobilesafari');
+
+        if (isBrowserActive) {
+          console.log(`📱 Browser ${activeApp.bundleId} is already in the foreground. Skipping Step 2 tap to avoid click interference.`);
+        } else {
+          // Pause to let any subsequent browser confirmation popup render
+          await this.driver.pause(3000);
+
+          // Step 2: Tap "Open" on standard browser confirmation alerts (horizontally aligned right button near middle)
+          const x2 = Math.round(width * 0.67);
+          const yCenter = Math.round(height * 0.56);
+          console.log(`📱 Fallback Step 2: Tapping browser prompt "Open" area at X=${x2} with Y-sweeps around Y=${yCenter}...`);
+          for (const y of [yCenter - 15, yCenter, yCenter + 15]) {
+            await this.driver.action('pointer')
+              .move({ x: x2, y })
+              .down()
+              .pause(100)
+              .up()
+              .perform();
+            await this.driver.pause(200);
+          }
+        }
+
+        // Pause to let Safari/Chrome launch and load the deep link naturally
+        await this.driver.pause(6000);
+      } catch (e: any) {
+        console.warn('⚠️ Coordinate tap sequence failed:', e.message);
+      }
     }
 
     // Switch automation context to the active browser app to inspect its UI tree
     let activatedBrowser = '';
-    for (const bundleId of ['com.google.chrome.ios', 'com.apple.mobilesafari']) {
-      try {
-        await this.driver.activateApp(bundleId);
-        console.log(`📱 Activated browser context: ${bundleId}`);
-        activatedBrowser = bundleId;
-        await this.driver.pause(3000);
-        break;
-      } catch (e: any) {
-        console.warn(`⚠️ Failed to activate browser app ${bundleId}:`, e.message);
+
+    // First, check if Safari or Chrome is already active in the foreground to avoid overriding it
+    try {
+      const activeApp = await this.driver.execute('mobile: activeAppInfo').catch(() => null);
+      if (activeApp && (activeApp.bundleId === 'com.apple.mobilesafari' || activeApp.bundleId === 'com.google.chrome.ios')) {
+        console.log(`📱 Browser ${activeApp.bundleId} is already in the foreground. Using it directly.`);
+        activatedBrowser = activeApp.bundleId;
+      }
+    } catch (e: any) {
+      console.warn('⚠️ Failed to query activeAppInfo:', e.message);
+    }
+
+    // Fallback: if neither browser is detected as active, try to activate Safari first, then Chrome
+    if (!activatedBrowser) {
+      for (const bundleId of ['com.apple.mobilesafari', 'com.google.chrome.ios']) {
+        try {
+          await this.driver.activateApp(bundleId);
+          console.log(`📱 Fallback Activated browser context: ${bundleId}`);
+          activatedBrowser = bundleId;
+          await this.driver.pause(3000);
+          break;
+        } catch (e: any) {
+          console.warn(`⚠️ Failed to activate browser app ${bundleId}:`, e.message);
+        }
       }
     }
 
