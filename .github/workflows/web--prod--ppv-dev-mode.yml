@@ -42,7 +42,7 @@ jobs:
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - id: matrix
         run: node scripts/buildPpvWorkflowMatrix.js dev-account '${{ inputs.PPV_CONFIG }}' '${{ inputs.COUNTRY }}'
   my-account:
@@ -68,7 +68,7 @@ jobs:
       DEV_MODE_ON: 'on'
       SWITCH: 'false'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/ppv-generic-runner
         with: { journey: dev-mode-my-account }
   workflow-summary:
@@ -79,7 +79,7 @@ jobs:
     env:
       ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/ppv-workflow-summary
         with:
           title: Web PPV dev-mode workflow report · ${{ inputs.COUNTRY }}

@@ -33,7 +33,7 @@ jobs:
       signin_matrix: ${{ steps.matrix.outputs.signin_matrix }}
       signed_matrix: ${{ steps.matrix.outputs.signed_matrix }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - id: matrix
         shell: bash
         env:
@@ -74,7 +74,7 @@ jobs:
       APPIUM_SYSTEM_PORT: ${{ matrix.appiumSystemPort }}
       CHROMEDRIVER_PORT: ${{ matrix.chromedriverPort }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/android-ppv-runner
         with:
           journey: new-user
@@ -102,7 +102,7 @@ jobs:
       APPIUM_SYSTEM_PORT: ${{ matrix.appiumSystemPort }}
       CHROMEDRIVER_PORT: ${{ matrix.chromedriverPort }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/android-ppv-runner
         with:
           journey: sign-in-during-flow
@@ -130,7 +130,7 @@ jobs:
       APPIUM_SYSTEM_PORT: ${{ matrix.appiumSystemPort }}
       CHROMEDRIVER_PORT: ${{ matrix.chromedriverPort }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/android-ppv-runner
         with:
           journey: already-signed-in
@@ -142,7 +142,7 @@ jobs:
     env:
       ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/ppv-workflow-summary
         with:
           title: Android PPV live workflow report · ${{ inputs.COUNTRY }}

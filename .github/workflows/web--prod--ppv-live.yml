@@ -43,7 +43,7 @@ jobs:
       signin_matrix: ${{ steps.matrix.outputs.signin_matrix }}
       signed_matrix: ${{ steps.matrix.outputs.signed_matrix }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - id: matrix
         shell: bash
         env:
@@ -83,7 +83,7 @@ jobs:
       DEV_MODE_ON: 'off'
       SWITCH: ${{ matrix.switch || 'false' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/ppv-generic-runner
         with: { journey: new-user }
   sign-in-during-flow:
@@ -109,7 +109,7 @@ jobs:
       DEV_MODE_ON: 'off'
       SWITCH: ${{ matrix.switch || 'false' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/ppv-generic-runner
         with: { journey: sign-in-during-flow }
   already-signed-in:
@@ -135,7 +135,7 @@ jobs:
       DEV_MODE_ON: 'off'
       SWITCH: ${{ matrix.switch || 'false' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/ppv-generic-runner
         with: { journey: already-signed-in }
   workflow-summary:
@@ -146,7 +146,7 @@ jobs:
     env:
       ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/ppv-workflow-summary
         with:
           title: Web PPV live workflow report · ${{ inputs.COUNTRY }}
