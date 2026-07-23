@@ -18,8 +18,8 @@ on:
         description: "Banners Configured/Available"
         required: true
         type: choice
-        default: "true"
-        options: ["true", "false"]
+        default: "all"
+        options: ["all", "true", "false"]
 
 permissions:
   contents: read
