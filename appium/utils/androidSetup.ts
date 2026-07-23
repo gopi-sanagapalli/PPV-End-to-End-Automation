@@ -14,9 +14,23 @@ type PrepareAndroidAppOptions = {
   acceptCookiesOnly?: boolean;
 };
 
-function adb(cmd: string): string {
+function adb(cmd: string, targetSerial?: string): string {
   try {
-    return execSync(`${ADB} ${cmd}`, {
+    let serial = targetSerial || process.env.DEVICE_SERIAL || '';
+    if (!serial) {
+      try {
+        const out = execSync(`${ADB} devices`, { encoding: 'utf8', timeout: 5000 });
+        const devices = out
+          .split('\n')
+          .slice(1)
+          .filter(l => l.includes('\tdevice'))
+          .map(l => l.split('\t')[0].trim())
+          .filter(Boolean);
+        if (devices.length === 1) serial = devices[0];
+      } catch {}
+    }
+    const serialArg = serial ? `-s ${serial}` : '';
+    return execSync(`${ADB} ${serialArg} ${cmd}`, {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
       timeout: 15000,
@@ -302,8 +316,12 @@ export async function prepareAndroidApp(driver: WdBrowser, options: PrepareAndro
     JP:  'Asia/Tokyo',
   };
   const targetTz = tzMap[REGION] || 'Europe/London';
+  // Get device UDID from active session capabilities or env for targeted ADB calls
+  const caps: any = await driver.getCapabilities().catch(() => ({}));
+  const serial = caps['appium:udid'] || caps.udid || caps['appium:deviceUDID'] || caps.deviceUDID || process.env.DEVICE_SERIAL || '';
+
   try {
-    adb(`shell setprop persist.sys.timezone ${targetTz}`);
+    adb(`shell setprop persist.sys.timezone ${targetTz}`, serial);
     console.log(`✅ Set Android device timezone to: ${targetTz}`);
   } catch (err: any) {
     console.warn(`⚠️ Failed to set device timezone via ADB: ${err.message}`);
@@ -311,15 +329,35 @@ export async function prepareAndroidApp(driver: WdBrowser, options: PrepareAndro
 
   // Kill app if already running (use adb force-stop for reliability)
   try {
-    adb(`shell am force-stop ${APP_PACKAGE}`);
+    adb(`shell am force-stop ${APP_PACKAGE}`, serial);
     console.log('✅ App terminated');
   } catch {}
 
   if (clearAppData) {
+    let cleared = false;
+    // Attempt 1: ADB pm clear with explicit device serial
     try {
-      adb(`shell pm clear ${APP_PACKAGE}`);
-      console.log('✅ App data cleared');
-    } catch {
+      const res = adb(`shell pm clear ${APP_PACKAGE}`, serial);
+      if (res.toLowerCase().includes('success') || res.trim() === '') {
+        console.log(`✅ App data cleared via ADB pm clear (${APP_PACKAGE})`);
+        cleared = true;
+      }
+    } catch (err: any) {
+      console.warn(`⚠️ ADB pm clear failed: ${err.message}`);
+    }
+
+    // Attempt 2: Appium mobile:shell fallback
+    if (!cleared) {
+      try {
+        await driver.execute('mobile: shell', { command: 'pm', args: ['clear', APP_PACKAGE] });
+        console.log(`✅ App data cleared via Appium mobile:shell (${APP_PACKAGE})`);
+        cleared = true;
+      } catch (err: any) {
+        console.warn(`⚠️ Appium mobile:shell clear failed: ${err.message}`);
+      }
+    }
+
+    if (!cleared) {
       console.log('⚠️ Unable to clear app data');
     }
   } else {
