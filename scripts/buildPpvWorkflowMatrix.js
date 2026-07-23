@@ -57,6 +57,9 @@ const filterBanners = (sources) => {
   if (process.env.BANNERS_CONFIGURED === 'false') {
     return sources.filter(source => !source.toLowerCase().includes('banner'));
   }
+  if (process.env.BANNERS_CONFIGURED === 'true') {
+    return sources.filter(source => source.toLowerCase().includes('banner'));
+  }
   return sources;
 };
 
