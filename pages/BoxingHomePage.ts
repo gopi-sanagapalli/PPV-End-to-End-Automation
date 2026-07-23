@@ -24,34 +24,54 @@ export class BoxingHomePage extends HomePage {
     return 'prod';
   }
 
+  /**
+   * The PPV event configuration is the source of truth for the sport to open.
+   * A source such as `home-boxing-upcoming` describes where the PPV is
+   * surfaced in the automation flow; it must not prevent a Wrestling,
+   * Kickboxing, or other configured event from being selected in All Sports.
+   */
+  private resolveTargetSport(source?: string, eventData?: Record<string, string>): string {
+    const configuredSport = (eventData?.SPORT || '').trim();
+    if (configuredSport) {
+      return configuredSport;
+    }
+
+    // Retain source-based resolution for legacy configurations that do not
+    // provide SPORT.
+    const srcLower = (source || '').toLowerCase();
+    if (srcLower.includes('kickboxing')) return 'Kickboxing';
+    if (srcLower.includes('misfits')) return 'Misfits Boxing';
+    if (srcLower.includes('wrestling')) return 'Wrestling';
+    if (srcLower.includes('boxing')) return 'Boxing';
+
+    return 'Boxing';
+  }
+
+  /** Wait for the selected PPV tile's artwork to be visible and decoded. */
+  private async waitForLoadedTileImage(tile: any, timeoutMs = 8000): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    const images = tile.locator('img');
+
+    while (Date.now() < deadline) {
+      const isLoaded = await images.evaluateAll((nodes: HTMLImageElement[]) =>
+        nodes.some((image) => {
+          const rect = image.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0 && image.complete && image.naturalWidth > 0;
+        })
+      ).catch(() => false);
+
+      if (isLoaded) return true;
+      await this.page.waitForTimeout(200);
+    }
+
+    return false;
+  }
+
   async navigateToSportViaAllSports(source?: string, eventData?: Record<string, string>): Promise<void> {
     await this.dismissConsentIfPresent();
+    const targetSport = this.resolveTargetSport(source, eventData);
 
-    let targetSport = '';
-    const srcLower = (source || '').toLowerCase();
-    if (srcLower.includes('kickboxing')) {
-      targetSport = 'Kickboxing';
-    } else if (srcLower.includes('misfits')) {
-      targetSport = 'Misfits Boxing';
-    } else if (srcLower.includes('wrestling')) {
-      targetSport = 'Wrestling';
-    } else if (srcLower.includes('boxing')) {
-      targetSport = 'Boxing';
-    }
-    if (!targetSport) {
-      targetSport = (eventData?.SPORT || 'Boxing').trim();
-    }
-
-    const eventSport = (eventData?.SPORT || '').trim();
-    if (eventSport && targetSport.toLowerCase() !== eventSport.toLowerCase()) {
-      throw new Error(
-        `❌ [BoxingHomePage] Source "${source}" is for "${targetSport}" events, ` +
-        `but this PPV event's SPORT is "${eventSport}". ` +
-        `Use a "${eventSport.toLowerCase()}" source instead (e.g. "home-${eventSport.toLowerCase()}-tile").`
-      );
-    }
-
-    console.log(`🧭 Navigating to "${targetSport}" landing page via All Sports dropdown...`);
+    console.log(`🧭 Navigating to configured sport "${targetSport}" via All Sports dropdown (source: "${source || ''}")...`);
     const dropdownClicked = await this.clickAllSportsDropdown();
     if (dropdownClicked) {
       const sportSelected = await this.selectSportFromDropdown(targetSport);
@@ -92,36 +112,10 @@ export class BoxingHomePage extends HomePage {
     console.log('🍪 Waiting for cookie banner on Home page...');
     await this.dismissConsentIfPresent();
 
-    // ── Resolve target sport from SOURCE name (source dictates sport page) ──
-    // The source name (e.g. "home-kickboxing-tile") determines which sport
-    // page to navigate to. If the event's SPORT doesn't match, we fail early
-    // with a clear error message.
-    let targetSport = '';
-    const srcLower = (source || '').toLowerCase();
-    if (srcLower.includes('kickboxing')) {
-      targetSport = 'Kickboxing';
-    } else if (srcLower.includes('misfits')) {
-      targetSport = 'Misfits Boxing';
-    } else if (srcLower.includes('wrestling')) {
-      targetSport = 'Wrestling';
-    } else if (srcLower.includes('boxing')) {
-      targetSport = 'Boxing';
-    }
-    // Fallback to event config SPORT if source doesn't specify
-    if (!targetSport) {
-      targetSport = (eventData?.SPORT || 'Boxing').trim();
-    }
-
-    // Validate: source-derived sport must match event SPORT
-    const eventSport = (eventData?.SPORT || '').trim();
-    if (eventSport && targetSport.toLowerCase() !== eventSport.toLowerCase()) {
-      throw new Error(
-        `❌ [BoxingHomePage] Source "${source}" is for "${targetSport}" events, ` +
-        `but this PPV event's SPORT is "${eventSport}". ` +
-        `Use a "${eventSport.toLowerCase()}" source instead (e.g. "home-${eventSport.toLowerCase()}-tile").`
-      );
-    }
-    console.log(`🏅 Target sport resolved for navigation: "${targetSport}" (from source: "${source || ''}", event SPORT: "${eventSport}")`);
+    // SPORT is authoritative whenever it is configured. SOURCE determines the
+    // PPV surfacing flow, not the sport that is clicked from All Sports.
+    const targetSport = this.resolveTargetSport(source, eventData);
+    console.log(`🏅 Target sport resolved for navigation: "${targetSport}" (source: "${source || ''}", event SPORT: "${eventData?.SPORT || ''}")`);
 
     console.log(`🧭 Navigating to "${targetSport}" landing page via All Sports dropdown...`);
     const dropdownClicked = await this.clickAllSportsDropdown();
@@ -385,6 +379,7 @@ export class BoxingHomePage extends HomePage {
           return null;
         }
 
+        const tileImageLoaded = await this.waitForLoadedTileImage(tile);
         const tileCapture = await tile.evaluate((el: HTMLElement) => {
           const clean = (value: string | null | undefined) =>
             String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -415,7 +410,7 @@ export class BoxingHomePage extends HomePage {
         eventData.__HOME_BOXING_TILE_FOUND = 'Yes';
         eventData.__HOME_BOXING_TILE_TEXT = tileCapture.text || '';
         eventData.__HOME_BOXING_TILE_DATE = tileCapture.dateText || eventData.LANDING_PAGE_PPV_DATE || '';
-        eventData.__HOME_BOXING_IMAGE_PRESENT = tileCapture.hasImage ? 'Yes' : 'No';
+        eventData.__HOME_BOXING_IMAGE_PRESENT = (tileImageLoaded || tileCapture.hasImage) ? 'Yes' : 'No';
         console.log(
           `[Home Sport Tile] Pre-captured tile validation data: ` +
           `date="${eventData.__HOME_BOXING_TILE_DATE}", ` +
@@ -704,7 +699,7 @@ export class BoxingHomePage extends HomePage {
     const ppvTile = ppvImg.locator('xpath=ancestor::a[1]');
 
     const isTileInView = async (): Promise<any> => {
-      const tileCandidates = railWrapper.locator('a[class*="tile__link" i], a[class*="tile" i], div[class*="tile" i], div[class*="card" i], a, button');
+      const tileCandidates = railWrapper.locator('article, [data-target="tile"], a[class*="tile__link" i], a[class*="tile" i], div[class*="tile" i], div[class*="card" i], a, button');
       const candidateCount = await tileCandidates.count().catch(() => 0);
 
       let bestTile: any = null;
@@ -720,7 +715,11 @@ export class BoxingHomePage extends HomePage {
               return r.width > 0 && r.right > 0 && r.left < window.innerWidth;
             }).catch(() => false);
             if (inView) {
-              const score = this.scorePPVMatch(text, ppvName);
+              // Prefer the outer card/article that owns the image over a
+              // text-only child div. The latter can still receive the click,
+              // but makes image validation incorrectly report "No".
+              const imageCount = await tile.locator('img').count().catch(() => 0);
+              const score = this.scorePPVMatch(text, ppvName) + (imageCount > 0 ? 100 : 0);
               if (score > bestScore) {
                 bestScore = score;
                 bestTile = tile;

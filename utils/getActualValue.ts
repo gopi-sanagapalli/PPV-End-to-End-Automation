@@ -324,6 +324,55 @@ export async function getActualValue(
     return 'No';
   };
 
+  const waitForLoadedPPVImage = async (scope: any = page, timeoutMs = 8000): Promise<boolean> => {
+    const nameTerms = String(eventData?.PPV_NAME || eventData?.PPV_DISPLAY_NAME || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .split(/\s+/)
+      .filter(term => term.length > 3);
+    const entitlementId = String(eventData?.PPV_ENTITLEMENT_ID || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ');
+    const deadline = Date.now() + timeoutMs;
+    const images = scope.locator('img');
+
+    while (Date.now() < deadline) {
+      const loaded = await images.evaluateAll(
+        (
+          nodes: HTMLImageElement[],
+          args: { nameTerms: string[]; entitlementId: string }
+        ) => nodes.some(image => {
+          const rect = image.getBoundingClientRect();
+          if (rect.width <= 0 || rect.height <= 0 || !image.complete || image.naturalWidth <= 0) {
+            return false;
+          }
+
+          const searchable = [
+            image.alt,
+            image.currentSrc || image.src,
+            image.getAttribute('data-testid'),
+            image.getAttribute('data-test-id'),
+          ]
+            .join(' ')
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, ' ');
+
+          return (
+            (!!args.entitlementId && searchable.includes(args.entitlementId)) ||
+            args.nameTerms.some(term => searchable.includes(term)) ||
+            /(^|\s)ppv(\s|$)/.test(searchable)
+          );
+        }),
+        { nameTerms, entitlementId }
+      ).catch(() => false);
+
+      if (loaded) return true;
+      await page.waitForTimeout(200);
+    }
+
+    return false;
+  };
+
   const isLandingOrHomeContext = (): boolean => {
     const url = page.url();
     const currentPage = eventData?.CURRENT_PAGE?.toLowerCase();
@@ -3292,18 +3341,14 @@ export async function getActualValue(
     case 'hero image':
     case 'ppv image present':
     case 'ppv image': {
-      const source = (eventData?.SOURCE || eventData?.source || '').toLowerCase();
-      if (source === 'home-page-dont-miss' && eventData?.__HOME_DONT_MISS_IMAGE_PRESENT) {
-        return eventData.__HOME_DONT_MISS_IMAGE_PRESENT;
-      }
-      if (source === 'home-boxing-tile' && eventData?.__HOME_BOXING_IMAGE_PRESENT) {
-        return eventData.__HOME_BOXING_IMAGE_PRESENT;
-      }
-
       const url = page.url();
+      if (await waitForLoadedPPVImage()) return 'Yes';
+
       if (isSearchContext()) {
         const tile = await getSearchPPVTile();
         if (!tile) return 'No';
+
+        if (await waitForLoadedPPVImage(tile)) return 'Yes';
 
         const media = tile.locator('img, picture, [role="img"], [style*="background-image"]').first();
         if (await media.isVisible({ timeout: 1500 }).catch(() => false)) return 'Yes';
@@ -3339,6 +3384,8 @@ export async function getActualValue(
       if (isLandingOrHomeContext()) {
         const container = await getScopedLandingPPVContainer(page, eventData);
         if (container) {
+          if (await waitForLoadedPPVImage(container)) return 'Yes';
+
           const img = container.locator('img, picture, [role="img"], [style*="background-image"]').first();
           if (await img.isVisible({ timeout: 2000 }).catch(() => false)) return 'Yes';
 
