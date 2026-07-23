@@ -350,7 +350,6 @@ function renderRunRow(run, stageKey, source) {
   const links = [];
   if (run.pdfPath) links.push(`<a href="${run.pdfPath}" target="_blank">PDF</a>`);
   if (run.customHtmlPath) links.push(`<a href="${run.customHtmlPath}" target="_blank">HTML</a>`);
-  if (run.xlsxPath) links.push(`<a href="${run.xlsxPath}" target="_blank">Excel</a>`);
   if (run.videoPath) links.push(`<a href="${run.videoPath}" target="_blank">Video</a>`);
   if (run.playwrightHtmlPath) links.push(`<a href="${run.playwrightHtmlPath}" target="_blank">Playwright</a>`);
   
@@ -882,10 +881,9 @@ if (summaryFile) {
         const jiraLabel = run.jiraUrl ? ` &nbsp;**Jira**: [${run.jiraKey}](${run.jiraUrl})` : '';
         const pdfLinkText = run.pdfPath ? ` &nbsp;**PDF**: [pdf](${run.pdfPath})` : '';
         const customHtmlText = run.customHtmlPath ? ` &nbsp;**HTML**: [html](${run.customHtmlPath})` : '';
-        const xlsxLinkText = run.xlsxPath ? ` &nbsp;**Excel**: [xlsx](${run.xlsxPath})` : '';
         const videoLinkText = run.videoPath ? ` &nbsp;**Video**: [video](${run.videoPath})` : '';
         
-        failuresMd += `${index + 1}. **Source**: \`${run.dirName}\` &nbsp;**Duration**: \`${run.duration}\`${jiraLabel}${pdfLinkText}${customHtmlText}${xlsxLinkText}${videoLinkText}\n`;
+        failuresMd += `${index + 1}. **Source**: \`${run.dirName}\` &nbsp;**Duration**: \`${run.duration}\`${jiraLabel}${pdfLinkText}${customHtmlText}${videoLinkText}\n`;
         if (run.errorMsg) {
           // clean stack trace output for markdown details block
           const cleanErr = run.errorMsg.replace(/</g, '&lt;').replace(/>/g, '&gt;');
