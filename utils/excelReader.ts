@@ -271,8 +271,19 @@ export const getChooseHowToBuyData = () => {
 // =========================
 export const getPPVPaymentData = () => {
   const data = readSheet('PPV Payment page');
-  console.log(`📊 PPV Payment rows: ${data.length}`);
-  return data;
+  // The saved-card checkout is the only PPV payment surface that shows the
+  // region-specific tax disclaimer. Keep this runtime rule until the shared
+  // spreadsheet contains it, and never duplicate it if it is added later.
+  const hasExcludingTaxRule = data.some((row: any) =>
+    ['excluding tax text', 'excluding tax'].includes(
+      String(row.Field || '').trim().toLowerCase()
+    )
+  );
+  const paymentData = hasExcludingTaxRule
+    ? data
+    : [...data, { Field: 'Excluding Tax Text', Expected: '(excluding tax)' }];
+  console.log(`📊 PPV Payment rows: ${paymentData.length}`);
+  return paymentData;
 };
 
 // =========================
@@ -353,6 +364,23 @@ export const getHomeOfBoxingData = (flowName: string) => {
   );
   console.log(`🥊 Home of Boxing Flow: ${flowName} (mapped to ${queryFlow})`);
   console.log(`📊 Home of Boxing rows: ${flowData.length}`);
+  return flowData;
+};
+
+// =========================
+// HOME OF SPORT DATA
+// Used only by the legacy `home-boxing-tile` source when the configured
+// PPV SPORT is not Boxing. The source name is retained for compatibility;
+// its sport page has a "Coming Up" rail rather than Boxing's rail.
+// =========================
+export const getHomeOfSportData = (flowName: string = 'home-sport-tile') => {
+  const normalize = (val: any) => val?.toString().trim().toLowerCase();
+  const data = readSheet('Home of Sport');
+  const flowData = data.filter(
+    (d: any) => normalize(d.Flow) === normalize(flowName)
+  );
+  console.log(`🏟️ Home of Sport Flow: ${flowName}`);
+  console.log(`📊 Home of Sport rows: ${flowData.length}`);
   return flowData;
 };
 

@@ -380,7 +380,7 @@ export class BoxingHomePage extends HomePage {
         }
 
         const tileImageLoaded = await this.waitForLoadedTileImage(tile);
-        const tileCapture = await tile.evaluate((el: HTMLElement) => {
+        const tileCapture = await tile.evaluate((el: HTMLElement, ppvName: string) => {
           const clean = (value: string | null | undefined) =>
             String(value ?? '').replace(/\s+/g, ' ').trim();
           const text = clean(el.innerText || el.textContent);
@@ -388,6 +388,21 @@ export class BoxingHomePage extends HomePage {
             .map((img: HTMLImageElement) => clean(img.alt || img.getAttribute('aria-label') || img.getAttribute('title')))
             .filter(Boolean);
           const combined = clean(`${text} ${imgTexts.join(' ')} ${el.getAttribute('aria-label') || ''} ${el.getAttribute('title') || ''}`);
+          const expectedWords = ppvName
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, ' ')
+            .split(/\s+/)
+            .filter(word => word.length > 2);
+          const titleCandidates = Array.from(el.querySelectorAll<HTMLElement>(
+            'h1, h2, h3, h4, h5, h6, p, span, [class*="title" i], [class*="name" i]'
+          ))
+            .filter(node => node.children.length === 0)
+            .map(node => clean(node.innerText || node.textContent))
+            .filter(candidate => candidate.length > 2 && candidate.length < 120);
+          const titleText = titleCandidates.find(candidate => {
+            const normalized = candidate.toLowerCase().replace(/[^a-z0-9]+/g, ' ');
+            return expectedWords.length > 0 && expectedWords.every(word => normalized.includes(word));
+          }) || '';
           const hasImage = Array.from(el.querySelectorAll<HTMLElement>('img, picture, [role="img"], div, span, a')).some(node => {
             const rect = node.getBoundingClientRect();
             const style = window.getComputedStyle(node);
@@ -398,17 +413,20 @@ export class BoxingHomePage extends HomePage {
               (hasBackground && rect.width >= 80 && rect.height >= 45);
           });
           const dateMatch =
+            combined.match(/\b(?:MON|TUE|WED|THU|FRI|SAT|SUN)(?:DAY)?\s+\d{1,2}:\d{2}\s*(?:AM|PM)?\b/i) ||
             combined.match(/\b\d{1,2}\s+(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC|January|February|March|April|May|June|July|August|September|October|November|December)\b/i) ||
             combined.match(/\b(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC|January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}\b/i);
           return {
             text: combined,
+            titleText,
             dateText: dateMatch ? dateMatch[0] : '',
             hasImage,
           };
-        }).catch(() => ({ text: '', dateText: '', hasImage: false }));
+        }, eventData.PPV_NAME || '').catch(() => ({ text: '', titleText: '', dateText: '', hasImage: false }));
 
         eventData.__HOME_BOXING_TILE_FOUND = 'Yes';
         eventData.__HOME_BOXING_TILE_TEXT = tileCapture.text || '';
+        eventData.__HOME_BOXING_TILE_TITLE = tileCapture.titleText || '';
         eventData.__HOME_BOXING_TILE_DATE = tileCapture.dateText || eventData.LANDING_PAGE_PPV_DATE || '';
         eventData.__HOME_BOXING_IMAGE_PRESENT = (tileImageLoaded || tileCapture.hasImage) ? 'Yes' : 'No';
         console.log(

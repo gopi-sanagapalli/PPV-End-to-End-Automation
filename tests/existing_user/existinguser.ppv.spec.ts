@@ -35,6 +35,7 @@ import {
   getUpsellSecondSuccessData,
   getUpsellPaymentData,
   getSubscribeWithoutPPVData,
+  getHomeOfSportData,
 } from '../../utils/excelReader';
 import { detectVariant } from '../../flows/detectVariant';
 import { validateVariant, validateCtaAfterUltimateSelection } from '../../flows/validateVariant';
@@ -1177,9 +1178,14 @@ for (const stateKey of userStatesToRun) {
             pageName = 'Home Page';
             flowParam = SOURCE;
           } else if (isHomeSportInner) {
-            sheetName = 'Home of Boxing';
-            pageName = 'Home of Boxing';
-            flowParam = SOURCE.includes('banner')
+            const isNonBoxingSportTile =
+              SOURCE.toLowerCase() === 'home-boxing-tile' &&
+              String(eventData.SPORT || '').trim().toLowerCase() !== 'boxing';
+            sheetName = isNonBoxingSportTile ? 'Home of Sport' : 'Home of Boxing';
+            pageName = isNonBoxingSportTile ? 'Home of Sport' : 'Home of Boxing';
+            flowParam = isNonBoxingSportTile
+              ? 'home-sport-tile'
+              : SOURCE.includes('banner')
               ? 'home-boxing-banner'
               : SOURCE === 'home-boxing-upcoming'
                 ? 'home-boxing-upcoming'
@@ -1348,13 +1354,15 @@ for (const stateKey of userStatesToRun) {
             try {
               const isStandalone = eventData.PPV_TYPE === 'standalone';
               const onOnboarding = page.url().includes('signup') || page.url().includes('PlanDetails') || page.url().includes('payment') || page.url().includes('checkout');
-              if ((sheetName === 'Home of Boxing' || sheetName === 'Home page') && (isStandalone || onOnboarding)) {
+              if ((sheetName === 'Home of Boxing' || sheetName === 'Home of Sport' || sheetName === 'Home page') && (isStandalone || onOnboarding)) {
                 console.log('ℹ️ Standalone flow or direct navigation — skipping popup modal validations');
               } else {
                 let landingData = sheetName === 'Home page'
                   ? getHomePageData(flowParam)
                   : sheetName === 'Home of Boxing'
                     ? getHomeOfBoxingData(flowParam)
+                    : sheetName === 'Home of Sport'
+                      ? getHomeOfSportData(flowParam)
                     : readSheet(sheetName);
                 if (SOURCE.toLowerCase() === 'home-page-dont-miss') {
                   landingData = landingData.filter((row: any) =>
@@ -1372,6 +1380,8 @@ for (const stateKey of userStatesToRun) {
                 }
                 const variantName = sheetName === 'Home of Boxing'
                   ? 'home-boxing'
+                  : sheetName === 'Home of Sport'
+                    ? 'home-sport'
                   : sheetName === 'Home page'
                     ? 'home-page'
                     : 'landing';

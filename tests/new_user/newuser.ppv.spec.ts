@@ -31,6 +31,7 @@ import {
   getUpsellSecondSuccessData,
   getUpsellPaymentData,
   getSubscribeWithoutPPVData,
+  getHomeOfSportData,
 } from '../../utils/excelReader';
 import { detectVariant } from '../../flows/detectVariant';
 import { validateVariant, validateCtaAfterUltimateSelection } from '../../flows/validateVariant';
@@ -721,16 +722,31 @@ async function runFlow(
                 console.log(`ℹ️ No spreadsheet rules for homepage source "${source}" — skipping validation`);
               }
             } else {
-              const queryFlow = source.includes('banner')
+              const isNonBoxingSportTile =
+                source === 'home-boxing-tile' &&
+                String(eventData.SPORT || '').trim().toLowerCase() !== 'boxing';
+              const queryFlow = isNonBoxingSportTile
+                ? 'home-sport-tile'
+                : source.includes('banner')
                 ? 'home-boxing-banner'
                 : source === 'home-boxing-upcoming'
                   ? 'home-boxing-upcoming'
                   : 'home-boxing-tile';
-              const homeOfBoxingData = getHomeOfBoxingData(queryFlow);
-              if (homeOfBoxingData && homeOfBoxingData.length > 0) {
-                await validateVariant(page, 'home-boxing', homeOfBoxingData, results, eventData, 'Home of Boxing', queryFlow);
+              const homeSportData = isNonBoxingSportTile
+                ? getHomeOfSportData(queryFlow)
+                : getHomeOfBoxingData(queryFlow);
+              if (homeSportData && homeSportData.length > 0) {
+                await validateVariant(
+                  page,
+                  isNonBoxingSportTile ? 'home-sport' : 'home-boxing',
+                  homeSportData,
+                  results,
+                  eventData,
+                  isNonBoxingSportTile ? 'Home of Sport' : 'Home of Boxing',
+                  queryFlow
+                );
               } else {
-                console.log(`ℹ️ No spreadsheet rules for home of boxing source "${queryFlow}" — skipping validation`);
+                console.log(`ℹ️ No spreadsheet rules for home sport source "${queryFlow}" — skipping validation`);
               }
             }
           } catch (err: any) {

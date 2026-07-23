@@ -1415,6 +1415,13 @@ export async function getActualValue(
       return await heading.isVisible({ timeout: 2000 }).catch(() => false) ? 'Present' : 'Not found';
     }
 
+    case 'coming up section': {
+      const heading = page.locator(
+        'h1, h2, h3, h4, [role="heading"], [class*="heading" i], [class*="title" i], [data-testid*="title" i]'
+      ).filter({ hasText: /coming\s*up/i }).first();
+      return await heading.isVisible({ timeout: 2000 }).catch(() => false) ? 'Present' : 'Not found';
+    }
+
     case 'upcoming big fights section':
     case 'upcoming big fights heading':
     case 'section heading': {
@@ -2735,30 +2742,13 @@ export async function getActualValue(
     case 'ppv name': {
       const source = (eventData?.SOURCE || eventData?.source || '').toLowerCase();
       if (source === 'home-page-dont-miss' && eventData?.__HOME_DONT_MISS_TILE_TEXT) {
-        const expectedName = eventData?.PPV_NAME || '';
-        const titleParts = expectedName
-          .split(/[:\-–]/)
-          .map(p => p.trim().toLowerCase())
-          .filter(p => p.length > 2);
-        const tileText = eventData.__HOME_DONT_MISS_TILE_TEXT;
-        const matchingPart = titleParts.find(part => {
-          const words = part.replace(/\bppv\b/g, ' ').split(/\s+/).filter(w => w.length > 2);
-          return words.length > 0 && words.every(w => tileText.toLowerCase().includes(w));
-        });
-        if (matchingPart) return expectedName;
+        // Return what the tile rendered. Do not substitute the configured
+        // expected name after a partial word match, otherwise a missing colon
+        // or altered promotion prefix can incorrectly pass validation.
+        return eventData.__HOME_DONT_MISS_TILE_TITLE || eventData.__HOME_DONT_MISS_TILE_TEXT;
       }
       if (source === 'home-boxing-tile' && eventData?.__HOME_BOXING_TILE_TEXT) {
-        const expectedName = eventData?.PPV_NAME || '';
-        const titleParts = expectedName
-          .split(/[:\-–]/)
-          .map(p => p.trim().toLowerCase())
-          .filter(p => p.length > 2);
-        const tileText = eventData.__HOME_BOXING_TILE_TEXT;
-        const matchingPart = titleParts.find(part => {
-          const words = part.replace(/\bppv\b/g, ' ').split(/\s+/).filter(w => w.length > 2);
-          return words.length > 0 && words.every(w => tileText.toLowerCase().includes(w));
-        });
-        if (matchingPart) return expectedName;
+        return eventData.__HOME_BOXING_TILE_TITLE || eventData.__HOME_BOXING_TILE_TEXT;
       }
 
       // ── Pre-captured from event card on schedule page ──
@@ -3001,6 +2991,22 @@ export async function getActualValue(
       }
       return 'N/A';
     }
+    case 'excluding tax text':
+    case 'excluding tax': {
+      const taxText = await page.locator(
+        '[data-testid*="excluding-tax" i], ' +
+        '[id*="excluding-tax" i], ' +
+        'span:has-text("(excluding tax)"), ' +
+        'span:has-text("excluding tax"), ' +
+        'p:has-text("excluding tax")'
+      ).filter({ visible: true }).first().innerText({ timeout: 2000 }).catch(() => '');
+      if (taxText.trim()) return taxText.trim();
+
+      const bodyText = await page.locator('body').innerText({ timeout: 2000 }).catch(() => '');
+      const match = bodyText.match(/\(?excluding tax\)?/i);
+      return match ? match[0] : 'N/A';
+    }
+
     // ════════════════════════════════════════════════════════════
     // PPV DATE (schedule page)
     // ════════════════════════════════════════════════════════════
@@ -3020,6 +3026,9 @@ export async function getActualValue(
       if (source === 'home-boxing-tile') {
         const dateText = eventData?.__HOME_BOXING_TILE_DATE || eventData?.LANDING_PAGE_PPV_DATE || '';
         if (!dateText) return 'N/A';
+        if ((eventData?.CURRENT_PAGE || '').toLowerCase() === 'home of sport') {
+          return dateText;
+        }
         const monthPattern = '(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC|January|February|March|April|May|June|July|August|September|October|November|December)';
         const dayMonthMatch = dateText.match(new RegExp(`(?:^|[^0-9])([1-9]|[12]\\d|3[01])(?:st|nd|rd|th)?\\s*${monthPattern}`, 'i'));
         const monthDayMatch = dateText.match(new RegExp(`${monthPattern}\\s*([1-9]|[12]\\d|3[01])(?:st|nd|rd|th)?`, 'i'));
