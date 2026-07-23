@@ -1121,7 +1121,7 @@ if (summaryFile) {
       failedRuns.forEach((run, index) => {
         const jiraLabel = run.jiraUrl ? ` &nbsp;**Jira**: [${run.jiraKey}](${run.jiraUrl})` : '';
         const pdfLinkText = run.pdfPath ? ` &nbsp;**PDF**: [pdf](${run.pdfPath})` : '';
-        const customHtmlText = run.customHtmlPath ? ` &nbsp;**HTML**: [html](${run.customHtmlText})` : '';
+        const customHtmlText = run.customHtmlPath ? ` &nbsp;**HTML**: [html](${run.customHtmlPath})` : '';
         const videoLinkText = run.videoPath ? ` &nbsp;**Video**: [video](${run.videoPath})` : '';
         const playwrightLinkText = run.playwrightHtmlPath ? ` &nbsp;**Playwright**: [playwright](${run.playwrightHtmlPath})` : '';
         
