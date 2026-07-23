@@ -4,6 +4,44 @@ import { compare } from '../utils/compare';
 import { resolveExpected } from '../utils/resolveExpected';
 import { captureFailures } from '../utils/failureCapture';
 
+function matchesSavedCardDateTime(actual: string, expected: string): boolean {
+  const weekday = (value: string) => {
+    const match = value.match(/\b(mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)\b/i);
+    return match ? match[1].slice(0, 3).toLowerCase() : '';
+  };
+  const time = (value: string) => {
+    const match = value.match(/\b(\d{1,2}):(\d{2})\s*(am|pm)?\b/i);
+    if (!match) return null;
+    const hour = Number(match[1]);
+    const minute = Number(match[2]);
+    const meridian = (match[3] || '').toLowerCase();
+    if (minute > 59 || hour > 23) return null;
+    const in24Hour = meridian
+      ? (meridian === 'pm' && hour < 12 ? hour + 12 : meridian === 'am' && hour === 12 ? 0 : hour)
+      : hour;
+    return { hour, minute, meridian, in24Hour };
+  };
+
+  const actualDay = weekday(actual);
+  const expectedDay = weekday(expected);
+  const actualTime = time(actual);
+  const expectedTime = time(expected);
+  if (!actualDay || !expectedDay || actualDay !== expectedDay || !actualTime || !expectedTime) {
+    return false;
+  }
+  if (actualTime.in24Hour === expectedTime.in24Hour && actualTime.minute === expectedTime.minute) {
+    return true;
+  }
+
+  // The saved-card checkout can omit AM/PM (for example, "Sunday at 8:00")
+  // while the event configuration uses 24-hour time ("Sun at 20:00").
+  // Treat those as equivalent only when the displayed clock hour matches.
+  return !actualTime.meridian &&
+    expectedTime.in24Hour >= 12 &&
+    actualTime.hour === expectedTime.in24Hour % 12 &&
+    actualTime.minute === expectedTime.minute;
+}
+
 /**
  * PPVUpsellPaymentPage — Generic page object for purchasing a PPV
  * using a previously saved payment card (no VGS iframes needed).
@@ -150,6 +188,16 @@ export class PPVUpsellPaymentPage extends BasePage {
           if (match) { actual = match[0].trim(); break; }
         }
 
+        // ── Excluding Tax ──
+      } else if (key === 'excluding tax text' || key === 'excluding tax') {
+        const taxText = await this.page.locator(
+          '[data-testid*="excluding-tax" i], [id*="excluding-tax" i], ' +
+          'span:has-text("(excluding tax)"), span:has-text("excluding tax"), ' +
+          'p:has-text("excluding tax")'
+        ).filter({ visible: true }).first().innerText({ timeout: 2000 }).catch(() => '');
+        const fallback = bodyText.match(/\(?excluding tax\)?/i)?.[0] || '';
+        actual = taxText.trim() || fallback || 'N/A';
+
         // ── Order Summary PPV Name (PPV name in the price/summary section) ──
       } else if (key === 'order summary ppv name') {
         // The PPV name appears next to the price in the order summary row
@@ -295,7 +343,10 @@ export class PPVUpsellPaymentPage extends BasePage {
         actual = bodyLower.includes('redeem promo code') ? 'Redeem promo code' : 'N/A';
       }
 
-      const status = compare(actual, expected) ? 'PASS' : 'FAIL';
+      const matches =
+        compare(actual, expected) ||
+        (key === 'ppv date and time' && matchesSavedCardDateTime(actual, expected));
+      const status = matches ? 'PASS' : 'FAIL';
       const icon = status === 'PASS' ? '✅' : '❌';
       console.log(`  ${icon} [${field}] expected="${expected}" actual="${actual}"`);
       results.push({ page: pageName, field, expected, actual, status });

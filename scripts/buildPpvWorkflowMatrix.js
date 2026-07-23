@@ -46,20 +46,20 @@ const regularProfiles = [
 const ultimateOnly = new Set(['boxing-banner-ultimate', 'boxing-ultimate-subscription', 'boxing-join-the-club']);
 const validUltimateProfiles = new Set(['active_standard_monthly/ultimate_apm', 'active_standard_monthly/ultimate_upfront', 'active_standard_apm/ultimate_apm']);
 // Boxing PPVs are surfaced through the complete set of boxing-specific entry
-// points. Other sports only use the sport tile, Search, Schedule, and (for
-// authenticated users) My Account. `home-boxing-tile` is the legacy source
-// key for the sport tile; the page object resolves the actual destination from
-// event.SPORT.
+// points. Other sports use the sport tile, the home-page Don't Miss tile,
+// Search, Schedule, and (for authenticated users) My Account.
+// `home-boxing-tile` is the legacy source key for the sport tile; the page
+// object resolves the actual destination from event.SPORT.
 const liveSources = {
   new: isBoxing
     ? ['boxing-banner-ultimate', 'boxing-join-the-club', 'boxing-page-banner', 'boxing-page-bundle', 'boxing-standard-subscription', 'boxing-upcoming-fights', 'boxing-ultimate-subscription', 'home-biggest-fights', 'home-boxing-banner', 'home-boxing-tile', 'home-boxing-upcoming', 'home-kickboxing-tile', 'home-page-banner', 'home-page-dazntile', 'home-page-dont-miss', 'home-page-get-started', 'landing-page-banner', 'landing-page-dont-miss-live', 'schedule', 'search']
-    : ['home-boxing-tile', 'schedule', 'search'],
+    : ['home-boxing-tile', 'home-page-dont-miss', 'schedule', 'search'],
   existing: isBoxing
     ? ['landing-page-banner', 'home-page-banner', 'home-page-dont-miss', 'home-biggest-fights', 'home-page-dazntile', 'home-boxing-banner', 'home-boxing-tile', 'home-boxing-upcoming', 'home-kickboxing-tile', 'boxing-page-banner', 'boxing-page-bundle', 'boxing-upcoming-fights', 'boxing-banner-ultimate', 'boxing-ultimate-subscription', 'boxing-standard-subscription', 'boxing-join-the-club', 'search', 'schedule', 'myaccount']
-    : ['home-boxing-tile', 'schedule', 'search', 'myaccount'],
+    : ['home-boxing-tile', 'home-page-dont-miss', 'schedule', 'search', 'myaccount'],
   signed: isBoxing
     ? ['home-page-banner', 'home-page-dont-miss', 'home-biggest-fights', 'home-page-dazntile', 'home-boxing-banner', 'home-boxing-tile', 'home-boxing-upcoming', 'home-kickboxing-tile', 'boxing-page-banner', 'boxing-page-bundle', 'boxing-upcoming-fights', 'boxing-banner-ultimate', 'boxing-ultimate-subscription', 'boxing-standard-subscription', 'boxing-join-the-club', 'search', 'schedule', 'myaccount']
-    : ['home-boxing-tile', 'schedule', 'search', 'myaccount'],
+    : ['home-boxing-tile', 'home-page-dont-miss', 'schedule', 'search', 'myaccount'],
 };
 let androidNewSources = ['landing-page-banner', 'home-page-banner', 'home-page-dont-miss', 'home-boxing-banner', 'home-boxing-upcoming', 'home-boxing-tile', 'schedule', 'search'];
 let androidExistingSources = androidNewSources.filter(source => source !== 'landing-page-banner');

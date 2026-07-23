@@ -125,10 +125,12 @@ export function resolveExpected(
       return `${baseExpected}|${baseExpected.replace('promoters', 'promotors')}|185+ fights a year from the world's best promotors`;
     }
     if (field === 'upsell feature 4') {
-      return (
-        eventData.UPSELL_FEATURE_4 ||
-        'Every match from Lega Serie A, and highlights from LALIGA, Bundesliga and the Saudi Pro League.'
-      );
+      if (eventData.UPSELL_FEATURE_4) return eventData.UPSELL_FEATURE_4;
+      const region = (eventData.DAZN_REGION || process.env.DAZN_REGION || '').toUpperCase();
+      if (region === 'US') {
+        return 'Exclusive UFEA Champions League and Serie A in Spanish language, plus highlights from LALIGA, Bundesliga and Saudi Pro League.';
+      }
+      return 'Every match from Lega Serie A, and highlights from LALIGA, Bundesliga and the Saudi Pro League.';
     }
   }
 
@@ -293,6 +295,18 @@ export function resolveExpected(
     )
   ) {
     return 'N/A';
+  }
+
+  // Non-Boxing sport pages surface their PPV in a "Coming Up" tile. The
+  // Home of Sport spreadsheet intentionally uses SEARCH_PPV_DATE_TIME for
+  // this field, so do not run the value through the generic date-only badge
+  // formatter (which would discard the time component).
+  if (
+    field === 'ppv date' &&
+    pageName === 'home of sport' &&
+    currentSource === 'home-boxing-tile'
+  ) {
+    return replacePlaceholders(String(raw ?? ''), eventData);
   }
 
   // Check if a PPV event is active. If a PPV event is active, the boxing subscription-only sources
