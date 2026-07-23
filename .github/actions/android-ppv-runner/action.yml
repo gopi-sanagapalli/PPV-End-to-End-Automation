@@ -34,9 +34,12 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
+        journey="${{ inputs.journey }}"
         report_id="${SOURCE}-${PROFILE:-$PLAN}"
         report_id="$(echo "$report_id" | tr '/ :|*?<>\"' '_' | tr -cd '[:alnum:]_.-')"
-        report_name="ppv-android-${report_id}"
+        # Keep each journey separate; source/profile identifiers are shared by
+        # the sign-in-during-flow and already-signed-in matrices.
+        report_name="ppv-android-${journey}-${report_id}"
         reports_root="${PPV_REPORTS_ROOT:-/tmp/ppv-reports}"
         report_dir="${reports_root}/${GITHUB_RUN_ID}/${report_name}"
         mkdir -p "$report_dir"

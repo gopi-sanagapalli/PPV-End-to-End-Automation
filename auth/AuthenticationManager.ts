@@ -87,7 +87,33 @@ export abstract class BaseLoginStrategy implements LoginStrategy {
   async verifyAuthenticatedSession(page: Page): Promise<boolean> {
     if (page.isClosed()) return false;
 
+    // DAZN's authenticated web header exposes the account control as a circular
+    // button containing the member's initials (for example, "U" in the UAT
+    // account).  It does not consistently expose "profile" or "avatar" in an
+    // attribute/class, so that visual account control is the primary login
+    // signal.  Restrict the match to the header to avoid treating page content
+    // such as a team/player initial as an authenticated session.
+    const profileInitialButton = page
+      .locator('header button, header [role="button"], [role="banner"] button, [role="banner"] [role="button"]')
+      .filter({ hasText: /^\s*[A-Z]{1,3}\s*$/ })
+      .last();
+
+    const profileInitialVisible = await profileInitialButton
+      .isVisible({ timeout: 10000 })
+      .catch(() => false);
+    if (profileInitialVisible) {
+      const initials = (await profileInitialButton.textContent().catch(() => ''))?.trim();
+      console.log(`✅ [Auth] Login verified via header profile icon${initials ? `: "${initials}"` : ''}`);
+      return true;
+    }
+
+    // Keep the semantic selectors as a compatibility fallback for DAZN header
+    // variants that expose a labelled account/profile control instead of the
+    // initials button.
     const authSelectors = [
+      'header button[aria-haspopup="menu"]',
+      'header [role="button"][aria-haspopup="menu"]',
+      'header button[aria-expanded]',
       '[data-test-id*="user-menu" i]',
       '[data-test-id*="profile" i]',
       '[data-test-id*="avatar" i]',
@@ -111,29 +137,7 @@ export abstract class BaseLoginStrategy implements LoginStrategy {
       } catch { /* continue */ }
     }
 
-    const url = page.url().toLowerCase();
-    const isAuthPage = url.includes('/signin') || url.includes('/signup') || url.includes('/content/');
-    const isDaznPage = url.includes('dazn.com');
-    if (isDaznPage && !isAuthPage) {
-      const subscribeGone = await page
-        .locator('button:has-text("Subscribe"), a:has-text("Subscribe")')
-        .first()
-        .isVisible({ timeout: 1000 })
-        .catch(() => false);
-
-      const navVisible = await page
-        .locator('nav a, header a, [class*="nav" i] a')
-        .first()
-        .isVisible({ timeout: 1000 })
-        .catch(() => false);
-
-      if (navVisible && !subscribeGone) {
-        console.log('✅ [Auth] Login verified via page context (no signin redirect, nav visible)');
-        return true;
-      }
-    }
-
-    console.warn('⚠️  [Auth] Could not verify login — no auth signal found');
+    console.warn('⚠️  [Auth] Could not verify login — the header profile/account control was not found');
     return false;
   }
 

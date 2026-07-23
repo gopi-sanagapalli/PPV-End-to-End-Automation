@@ -11,6 +11,61 @@ const summaryFile = process.env.GITHUB_STEP_SUMMARY;
 const baseDir = path.resolve(process.cwd(), 'ppv-workflow-summary');
 const artifactsDir = path.join(baseDir, 'job-artifacts');
 
+/**
+ * Report directories are written by the runners as:
+ *   ppv-<platform>-<journey>-<source>-<profile-or-plan>
+ *
+ * Do not infer the journey from the Playwright test title. Both existing-user
+ * journeys run the same test file and consequently have the same spec title.
+ */
+function getStage(dirName) {
+  const name = dirName.toLowerCase();
+  if (/^ppv-(web|android)-new-user-/.test(name) || name.includes('new-user') || name.includes('new_user')) {
+    return 'new-user';
+  }
+  if (
+    /^ppv-(web|android)-(already-signed-in|dev-mode-my-account)-/.test(name) ||
+    name.includes('already-signed') ||
+    name.includes('already_signed')
+  ) {
+    return 'already-signed';
+  }
+  if (/^ppv-(web|android)-sign-in-during-flow-/.test(name) || name.includes('signin') || name.includes('sign-in')) {
+    return 'signin-during';
+  }
+
+  // Compatibility for reports produced before the journey was part of the
+  // directory name. Those reports cannot be assigned accurately.
+  console.warn(`Unable to identify journey for legacy report directory "${dirName}"; assigning it to Sign In During Flow.`);
+  return 'signin-during';
+}
+
+function getMatrixIdentity(dirName) {
+  const reportId = dirName.replace(
+    /^ppv-(web|android)-(new-user|sign-in-during-flow|already-signed-in|dev-mode-my-account)-/i,
+    ''
+  );
+  const profileMatch = reportId.match(
+    /-(freemium|frozen|active_standard_monthly|active_standard_apm|active_ultimate_apm|active_ultimate_upfront)_(standard_monthly|standard_apm|ultimate_apm|ultimate_upfront)$/i
+  );
+  if (profileMatch) {
+    return {
+      source: reportId.slice(0, -profileMatch[0].length),
+      label: `${profileMatch[1]} / ${profileMatch[2]}`
+    };
+  }
+
+  const planMatch = reportId.match(/-(standard_monthly|standard_apm|ultimate_apm|ultimate_upfront)$/i);
+  if (planMatch) {
+    return {
+      source: reportId.slice(0, -planMatch[0].length),
+      label: planMatch[1]
+    };
+  }
+
+  return { source: reportId, label: reportId };
+}
+
 // Helper to find files recursively
 function findFiles(dir, filter, files = []) {
   if (!fs.existsSync(dir)) return files;
@@ -41,15 +96,8 @@ if (fs.existsSync(artifactsDir)) {
   for (const dirName of jobDirs) {
     const jobPath = path.join(artifactsDir, dirName);
     
-    // Determine the workflow/stage from directory name or spec file inside
-    let stage = 'signin-during'; // fallback default
-    if (dirName.includes('new-user') || dirName.includes('new_user') || dirName.includes('-new-') || dirName.includes('-new')) {
-      stage = 'new-user';
-    } else if (dirName.includes('already-signed') || dirName.includes('already_signed') || dirName.includes('-signed-in') || dirName.includes('-signed')) {
-      stage = 'already-signed';
-    } else if (dirName.includes('signin') || dirName.includes('sign-in')) {
-      stage = 'signin-during';
-    }
+    const stage = getStage(dirName);
+    const matrixIdentity = getMatrixIdentity(dirName);
 
     // Find custom PDF, HTML, Excel, and Video files recursively
     const pdfFiles = findFiles(jobPath, name => name.toLowerCase().endsWith('.pdf'));
@@ -139,6 +187,8 @@ if (fs.existsSync(artifactsDir)) {
 
         const record = {
           dirName,
+          source: matrixIdentity.source,
+          matrixLabel: matrixIdentity.label,
           specTitle,
           status,
           duration,
@@ -174,6 +224,8 @@ if (fs.existsSync(artifactsDir)) {
       
       const record = {
         dirName,
+        source: matrixIdentity.source,
+        matrixLabel: matrixIdentity.label,
         specTitle: dirName.replace('ppv-android-', 'Android: ').replace(/-/g, ' '),
         status,
         duration: 'N/A',
@@ -204,18 +256,9 @@ for (const stage of Object.keys(workflowStats)) {
   const groups = {};
 
   runs.forEach(run => {
-    // Extract source name (e.g. "boxing-standard-subscription" from "ppv-web-boxing-standard-subscription-...")
-    let source = run.dirName.replace(/^ppv-web-|^ppv-android-/, '');
-    // Strip profile/plan suffix if present to find source name
-    const match = source.match(/^(.*?)-(freemium|frozen|active|standard_monthly|standard_apm|ultimate_apm|ultimate_upfront)/);
-    if (match) {
-      source = match[1];
-    } else {
-      // strip last hyphen segment if it looks like a plan key
-      const parts = source.split('-');
-      if (parts.length > 1) parts.pop();
-      source = parts.join('-');
-    }
+    // source and matrixLabel come from the stored artifact identity, rather
+    // than from the generic Playwright spec title.
+    const source = run.source;
 
     if (!groups[source]) {
       groups[source] = { source, status: 'PASS', runs: [] };
@@ -321,7 +364,7 @@ function renderRunRow(run, stageKey, source) {
   return `
     <tr class="${isFail ? 'failed-row' : ''}">
       <td>
-        <div><strong>${run.specTitle.split(' | ').pop() || run.specTitle}</strong></div>
+        <div><strong>${run.matrixLabel}</strong></div>
         ${isFail ? `<div style="font-size: 11px; margin-top: 4px; color: var(--text-muted);">Failed spec: <code>${run.specTitle}</code></div>` : ''}
       </td>
       <td>

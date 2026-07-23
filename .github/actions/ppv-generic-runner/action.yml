@@ -27,9 +27,13 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
+        journey="${{ inputs.journey }}"
         report_id="${SOURCE}-${PROFILE:-$PLAN}"
         report_id="$(echo "$report_id" | tr '/ :|*?<>"' '_' | tr -cd '[:alnum:]_.-')"
-        report_name="ppv-web-${report_id}"
+        # The same source/profile can run in more than one journey. Include the
+        # journey so reports cannot overwrite each other and the consolidated
+        # report can place them in the correct matrix lane.
+        report_name="ppv-web-${journey}-${report_id}"
         reports_root="${PPV_REPORTS_ROOT:-/tmp/ppv-reports}"
         report_dir="${reports_root}/${GITHUB_RUN_ID}/${report_name}"
         mkdir -p "$report_dir"
