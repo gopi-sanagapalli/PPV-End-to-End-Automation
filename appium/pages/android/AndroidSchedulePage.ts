@@ -1,24 +1,129 @@
 import { AndroidBasePage, AndroidFlowHooks, WdBrowser, WdElement, adbSwipe, adbTap, getScreenSize } from './AndroidBasePage';
 import { navigateToPPVTile } from '../../utils/scheduleNavigator';
+import { sendTvKeyevent, TV_KEYCODES } from '../../utils/androidTvControls';
 
 export class AndroidSchedulePage extends AndroidBasePage {
+  private async tapElementCenter(el: WdElement, label: string): Promise<boolean> {
+    try {
+      const rect = await el.getRect();
+      adbTap(Math.round(rect.x + rect.width / 2), Math.round(rect.y + rect.height / 2));
+      await this.driver.pause(1500);
+      console.log(`  ${label} tapped by center coordinates`);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private async waitForSchedulePage(timeoutMs = 8000): Promise<boolean> {
+    const monthPattern = '(January|February|March|April|May|June|July|August|September|October|November|December|JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)';
+    const contentSelectors = [
+      'android=new UiSelector().text("Boxing")',
+      'android=new UiSelector().textContains("Boxing")',
+      'android=new UiSelector().textContains("Today")',
+      'android=new UiSelector().textContains("Tomorrow")',
+      `android=new UiSelector().textMatches("(?i).*${monthPattern}.*")`,
+    ];
+    const deadline = Date.now() + timeoutMs;
+
+    while (Date.now() < deadline) {
+      for (const selector of contentSelectors) {
+        try {
+          const el = await this.driver.$(selector);
+          if (await el.isDisplayed({ timeout: 400 }).catch(() => false)) {
+            return true;
+          }
+        } catch {}
+      }
+      await this.driver.pause(500);
+    }
+
+    return false;
+  }
+
+  private async getFocusedLabel(): Promise<string> {
+    try {
+      const focused = await this.driver.$('//*[@focused="true"]');
+      if (await focused.isDisplayed({ timeout: 400 }).catch(() => false)) {
+        const text = String(await focused.getText().catch(() => '')).trim();
+        const desc = String(await focused.getAttribute('contentDescription').catch(() => '')).trim();
+        return (text || desc || '').trim();
+      }
+    } catch {}
+
+    return '';
+  }
+
+  private async focusAndClickBoxingForFireTv(): Promise<void> {
+    console.log('Fire TV Schedule flow: move focus to Boxing (UP + RIGHT), verify focus, then click...');
+    await this.driver.pause(1200);
+
+    sendTvKeyevent(TV_KEYCODES.DPAD_UP);
+    await this.driver.pause(450);
+    sendTvKeyevent(TV_KEYCODES.DPAD_RIGHT);
+    await this.driver.pause(600);
+
+    const focusedLabel = (await this.getFocusedLabel()).toLowerCase();
+    if (!focusedLabel.includes('boxing')) {
+      await this.driver.saveScreenshot('./test-results/firetv_schedule_boxing_focus_failed.png').catch(() => {});
+      throw new Error(`Schedule->Boxing focus assertion failed. Expected focus on Boxing after UP+RIGHT, got "${focusedLabel || 'unknown'}".`);
+    }
+    console.log('✅ Boxing is focused after UP + RIGHT');
+
+    sendTvKeyevent(TV_KEYCODES.DPAD_CENTER);
+    await this.driver.pause(1500);
+
+    const boxingSelected = await this.driver
+      .$('android=new UiSelector().text("Boxing").selected(true)')
+      .isDisplayed({ timeout: 1200 })
+      .catch(() => false);
+
+    if (!boxingSelected) {
+      await this.driver.saveScreenshot('./test-results/firetv_schedule_boxing_click_failed.png').catch(() => {});
+      throw new Error('Boxing selection assertion failed after clicking Boxing on Schedule.');
+    }
+
+    await this.driver.saveScreenshot('./test-results/firetv_schedule_boxing_selected.png').catch(() => {});
+    console.log('✅ Boxing selected on Schedule page');
+  }
+
   async navigate(): Promise<void> {
     console.log('Navigating to Schedule tab...');
     await this.driver.saveScreenshot('./test-results/before_schedule_click.png');
 
-    console.log('  Looking for Schedule button by text...');
-    try {
-      const scheduleText = await this.driver.$('android=new UiSelector().text("Schedule")');
-      if (await scheduleText.isDisplayed()) {
-        console.log('  Found Schedule button by text, clicking...');
-        await scheduleText.click();
-        await this.driver.pause(3000);
-        console.log('Schedule tab clicked by text');
-        await this.driver.saveScreenshot('./test-results/after_schedule_click.png');
-        return;
+    console.log('  Looking for Schedule button by text/description...');
+    const scheduleSelectors = [
+      'android=new UiSelector().text("Schedule")',
+      'android=new UiSelector().textMatches("(?i)^schedule$")',
+      'android=new UiSelector().descriptionContains("Schedule")',
+      '//android.widget.TextView[@text="Schedule"]',
+      '//*[@content-desc[contains(.,"Schedule")]]',
+    ];
+
+    for (const selector of scheduleSelectors) {
+      try {
+        const scheduleEl = await this.driver.$(selector);
+        if (!await scheduleEl.isDisplayed({ timeout: 1000 }).catch(() => false)) continue;
+
+        console.log(`  Found Schedule candidate: ${selector}`);
+        await scheduleEl.click().catch(() => undefined);
+        await this.driver.pause(2000);
+        if (await this.waitForSchedulePage(5000)) {
+          console.log('Schedule tab clicked successfully');
+          await this.driver.saveScreenshot('./test-results/after_schedule_click.png');
+          return;
+        }
+
+        if (await this.tapElementCenter(scheduleEl, 'Schedule')) {
+          if (await this.waitForSchedulePage(5000)) {
+            console.log('Schedule tab clicked successfully');
+            await this.driver.saveScreenshot('./test-results/after_schedule_click.png');
+            return;
+          }
+        }
+      } catch {
+        console.log(`  Schedule candidate not usable: ${selector}`);
       }
-    } catch {
-      console.log('  Schedule text not found as button');
     }
 
     console.log('  Taking screenshot to see home page layout...');
@@ -32,20 +137,10 @@ export class AndroidSchedulePage extends AndroidBasePage {
     await this.driver.pause(3000);
     await this.driver.saveScreenshot('./test-results/after_schedule_click.png');
 
-    try {
-      const scheduleHeader = await this.driver.$('android=new UiSelector().text("SCHEDULE")');
-      const isSchedule = await scheduleHeader.isDisplayed();
-      const homeTab = await this.driver.$('android=new UiSelector().text("Home")');
-      const stillOnHome = await homeTab.isDisplayed();
-
-      if (isSchedule && !stillOnHome) {
-        console.log('Schedule tab clicked successfully');
-        return;
-      }
-      if (stillOnHome) {
-        console.log('  Still on Home page - tap did not navigate to Schedule');
-      }
-    } catch {}
+    if (await this.waitForSchedulePage(5000)) {
+      console.log('Schedule tab clicked successfully');
+      return;
+    }
 
     console.log('Could not navigate to Schedule tab');
   }
@@ -188,33 +283,48 @@ export class AndroidSchedulePage extends AndroidBasePage {
 
   async clickBoxingFilterIfPresent(): Promise<void> {
     console.log('Finding Boxing filter...');
-    let boxingEl = null;
+    const selectors = [
+      'android=new UiSelector().text("Boxing")',
+      'android=new UiSelector().textContains("Boxing")',
+      '//android.widget.TextView[@text="Boxing"]',
+    ];
 
-    try {
-      boxingEl = await this.driver.$('//android.widget.TextView[@text="Boxing"]');
-      console.log('  Found Boxing filter with XPath');
-    } catch {
-      try {
-        boxingEl = await this.driver.$('android=new UiSelector().text("Boxing")');
-        console.log('  Found Boxing filter with UiSelector');
-      } catch {
-        console.log('  Could not find Boxing filter element');
+    const tryClick = async (): Promise<boolean> => {
+      for (const selector of selectors) {
+        try {
+          const boxingEl = await this.driver.$(selector);
+          if (!await boxingEl.isDisplayed({ timeout: 800 }).catch(() => false)) continue;
+
+          await boxingEl.click().catch(() => undefined);
+          await this.driver.pause(1200);
+          console.log(`Boxing filter clicked successfully via ${selector}`);
+          return true;
+        } catch {}
       }
+      return false;
+    };
+
+    if (await tryClick()) return;
+
+    console.log('  Boxing filter not immediately visible - swiping filter rail...');
+    const screen = getScreenSize();
+    for (let i = 0; i < 5; i++) {
+      adbSwipe(
+        Math.round(screen.width * 0.75),
+        Math.round(screen.height * 0.22),
+        Math.round(screen.width * 0.25),
+        Math.round(screen.height * 0.22),
+      );
+      await this.driver.pause(700);
+      if (await tryClick()) return;
     }
 
-    if (!boxingEl) {
-      console.log('  Boxing filter not found - continuing without filter');
-      return;
+    await this.driver.saveScreenshot('./test-results/android_schedule_boxing_not_found.png').catch(() => {});
+    if (String(process.env.TV_TARGET || '').toLowerCase().trim() === 'androidtv') {
+      throw new Error('Boxing filter not found on Schedule page. See test-results/android_schedule_boxing_not_found.png');
     }
 
-    try {
-      if (await boxingEl.isDisplayed()) {
-        await boxingEl.click();
-        console.log('Boxing filter clicked successfully');
-      }
-    } catch (e: any) {
-      console.log(`  Failed to click Boxing filter: ${e.message}`);
-    }
+    console.log('  Boxing filter not found - continuing without filter');
   }
 
   async openPPVPaywall(eventConfig?: any, hooks: AndroidFlowHooks = {}): Promise<boolean> {
@@ -223,31 +333,33 @@ export class AndroidSchedulePage extends AndroidBasePage {
     await this.driver.pause(3000);
 
     let onSchedule = false;
-    let onBoxing = false;
+    const scheduleIndicators = [
+      'android=new UiSelector().textMatches("(?i)^schedule$")',
+      'android=new UiSelector().descriptionContains("Schedule")',
+    ];
 
-    try {
-      const scheduleHeader = await this.driver.$('android=new UiSelector().text("SCHEDULE")');
-      onSchedule = await scheduleHeader.isDisplayed();
-    } catch {}
-
-    try {
-      const boxingHeader = await this.driver.$('android=new UiSelector().text("Boxing")');
-      onBoxing = await boxingHeader.isDisplayed();
-    } catch {}
-
-    if (onBoxing && !onSchedule) {
-      await this.driver.saveScreenshot('./test-results/wrong_page_clicked.png');
-      throw new Error('Clicked Boxing tab instead of Schedule.');
+    for (const selector of scheduleIndicators) {
+      try {
+        const el = await this.driver.$(selector);
+        if (await el.isDisplayed({ timeout: 500 }).catch(() => false)) {
+          onSchedule = true;
+          break;
+        }
+      } catch {}
     }
 
     if (!onSchedule) {
       await this.driver.saveScreenshot('./test-results/schedule_navigation_failed.png');
-      throw new Error('Neither Schedule nor Boxing detected.');
+      throw new Error('Schedule page header was not detected after navigation.');
     }
 
     console.log('On Schedule page');
     await this.driver.pause(2000);
-    await this.clickBoxingFilterIfPresent();
+    if ((process.env.TV_TARGET || '').toLowerCase().trim() === 'firetv') {
+      await this.focusAndClickBoxingForFireTv();
+    } else {
+      await this.clickBoxingFilterIfPresent();
+    }
     await this.driver.pause(3000);
 
     console.log(`Navigating to ${this.ppvName} using schedule navigator...`);

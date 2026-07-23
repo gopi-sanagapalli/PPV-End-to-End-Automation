@@ -2,7 +2,8 @@
 // eslint-disable-next-line no-var
 declare var browser: any;
 
-import { writeHandoffUrl, clearHandoffUrl } from '../../utils/handoff';
+import { execSync } from 'child_process';
+import { writeHandoffUrl, readHandoffUrl, clearHandoffUrl } from '../../utils/handoff';
 import { prepareAndroidApp } from '../../utils/androidSetup';
 import { loadEventConfig } from '../../utils/eventLoader';
 import { openSchedulePPVPaywall } from '../../pages/android/AndroidSchedulePage';
@@ -18,6 +19,502 @@ const event = loadEventConfig();
 const PPV_NAME = event.PPV_NAME;
 const SOURCE = (process.env.SOURCE || 'home-page-banner').trim().toLowerCase();
 const TV_TARGET = (process.env.TV_TARGET || 'androidtv').trim().toLowerCase();
+const APP_PACKAGE = process.env.APP_PACKAGE || 'com.dazn';
+const TV_LOGIN_SETTLE_MS = Number(process.env.TV_LOGIN_SETTLE_MS || 10000);
+const BROWSER_LOGIN_COMPLETE_SETTLE_MS = Number(process.env.BROWSER_LOGIN_COMPLETE_SETTLE_MS || 3000);
+const PPV_PURCHASE_BACK_SETTLE_MS = Number(process.env.PPV_PURCHASE_BACK_SETTLE_MS || 5000);
+
+type RegionCredentials = {
+  email: string;
+  password: string;
+};
+
+function resolveRegionCredentials(): RegionCredentials {
+  const region = (process.env.DAZN_REGION || 'GB').toUpperCase();
+  const environment = (process.env.DAZN_ENV || 'prod').toLowerCase();
+  const userState = String(process.env.USER_STATE || 'active_standard_monthly')
+    .trim()
+    .toLowerCase()
+    .replace(/-/g, '_');
+
+  const userStatusPath = require('path').resolve(__dirname, '../../../config/userstatus.json');
+  const userStatus = JSON.parse(require('fs').readFileSync(userStatusPath, 'utf-8'));
+  const envNode = userStatus?.[userState]?.regions?.[region]?.environments?.[environment] || {};
+
+  const email = String(envNode.USER_EMAIL || '').trim();
+  const password = String(envNode.USER_PASSWORD || '').trim();
+  if (!email || !password) {
+    throw new Error(`Missing credentials for USER_STATE="${userState}", DAZN_REGION="${region}", DAZN_ENV="${environment}".`);
+  }
+
+  return { email, password };
+}
+
+async function clickGetStartedCta(driver: any): Promise<boolean> {
+  const isFireTv = TV_TARGET === 'firetv';
+
+  const adbTapElementCenter = async (el: any): Promise<void> => {
+    const rect = await el.getRect();
+    const tapX = Math.round(rect.x + rect.width / 2);
+    const tapY = Math.round(rect.y + rect.height / 2);
+    const caps: any =
+      typeof driver.getCapabilities === 'function'
+        ? await driver.getCapabilities().catch(() => ({}))
+        : (driver.capabilities || {});
+    const udid =
+      caps['appium:udid'] ||
+      caps.udid ||
+      process.env.FIRETV_SERIAL ||
+      process.env.DEVICE_SERIAL ||
+      '';
+    const serialArg = udid ? `-s ${udid}` : '';
+    const androidSdk = process.env.ANDROID_HOME || `${process.env.HOME}/Library/Android/sdk`;
+    const adb = `${androidSdk}/platform-tools/adb`;
+    execSync(`${adb} ${serialArg} shell input tap ${tapX} ${tapY}`);
+  };
+
+  const isLandingStillVisible = async (): Promise<boolean> => {
+    const landingSelectors = [
+      'android=new UiSelector().textMatches("(?i)^Get started$")',
+      'android=new UiSelector().textMatches("(?i)^Explore$")',
+    ];
+
+    for (const selector of landingSelectors) {
+      try {
+        const el = await driver.$(selector);
+        if (await el.isDisplayed({ timeout: 600 }).catch(() => false)) {
+          return true;
+        }
+      } catch {}
+    }
+
+    return false;
+  };
+
+  const isAlreadyOnFireTvShell = async (): Promise<boolean> => {
+    const shellSelectors = [
+      'android=new UiSelector().text("Home")',
+      'android=new UiSelector().text("Schedule")',
+      'android=new UiSelector().text("Search")',
+      'android=new UiSelector().text("All sports")',
+      'android=new UiSelector().text("Live TV")',
+    ];
+
+    for (const selector of shellSelectors) {
+      try {
+        const el = await driver.$(selector);
+        if (await el.isDisplayed({ timeout: 500 }).catch(() => false)) {
+          return true;
+        }
+      } catch {}
+    }
+
+    return false;
+  };
+
+  const isValidGetStartedTarget = (value: string): boolean => {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) return false;
+    if (normalized.includes('explore')) return false;
+    return /^(get started|log in|sign in)$/.test(normalized);
+  };
+
+  const getFocusedLabel = async (): Promise<string> => {
+    try {
+      const focused = await driver.$('//*[@focused="true"]');
+      if (await focused.isDisplayed({ timeout: 300 }).catch(() => false)) {
+        const text = String(await focused.getText().catch(() => '')).trim();
+        const desc = String(await focused.getAttribute('contentDescription').catch(() => '')).trim();
+        return (text || desc || '').trim();
+      }
+    } catch {}
+
+    return '';
+  };
+
+  const fireTvSelectors = [
+    'android=new UiSelector().textMatches("(?i)^Get started$")',
+    'android=new UiSelector().textMatches("(?i)^Get Started$")',
+    '//android.widget.TextView[@text="Get started"]',
+    '//android.widget.Button[@text="Get started"]',
+    '//android.widget.TextView[@text="Get Started"]',
+    '//android.widget.Button[@text="Get Started"]',
+    'android=new UiSelector().resourceId("com.dazn:id/btn_get_started").textMatches("(?i)^Get started$")',
+    'android=new UiSelector().descriptionMatches("(?i)^Get started$")',
+  ];
+
+  const nonFireTvSelectors = [
+    'android=new UiSelector().textMatches("(?i)^Get started$")',
+    'android=new UiSelector().textMatches("(?i)^Get Started$")',
+    'android=new UiSelector().descriptionMatches("(?i)^Get started$")',
+    'android=new UiSelector().textMatches("(?i)^Log in$")',
+    'android=new UiSelector().textMatches("(?i)^Sign in$")',
+    'android=new UiSelector().descriptionMatches("(?i)^Log in$")',
+    'android=new UiSelector().descriptionMatches("(?i)^Sign in$")',
+  ];
+
+  const selectors = isFireTv ? fireTvSelectors : nonFireTvSelectors;
+
+  if (isFireTv) {
+    const landingVisible = await isLandingStillVisible();
+    if (!landingVisible) {
+      if (await isAlreadyOnFireTvShell()) {
+        console.log('✅ Fire TV already past landing (Home/Schedule shell visible). Skipping Get started CTA.');
+        return true;
+      }
+    }
+  }
+
+  if (isFireTv && await isLandingStillVisible()) {
+    const focusedBeforeCenter = (await getFocusedLabel()).trim();
+    if (!isValidGetStartedTarget(focusedBeforeCenter)) {
+      const focusShot = './test-results/firetv_get_started_focus_assertion_failed.png';
+      await driver.saveScreenshot(focusShot).catch(() => {});
+      throw new Error(
+        `Fire TV default focus assertion failed before DPAD_CENTER. Focused label was "${focusedBeforeCenter || 'unknown'}". Screenshot: ${focusShot}`,
+      );
+    }
+
+    sendTvKeyevent(TV_KEYCODES.DPAD_CENTER);
+    await driver.pause(1400);
+    if (!await isLandingStillVisible()) {
+      console.log('✅ Get started activated via default Fire TV focus (DPAD_CENTER)');
+      return true;
+    }
+    const centerFailShot = './test-results/firetv_get_started_center_no_transition.png';
+    await driver.saveScreenshot(centerFailShot).catch(() => {});
+    throw new Error(
+      `Fire TV default focus did not transition after DPAD_CENTER. Screenshot: ${centerFailShot}`,
+    );
+  }
+
+  if (isFireTv) {
+    return false;
+  }
+
+  for (const selector of selectors) {
+    try {
+      const el = await driver.$(selector);
+      if (await el.isDisplayed({ timeout: 1000 })) {
+        const text = String(await el.getText().catch(() => '')).trim();
+        const desc = String(await el.getAttribute('contentDescription').catch(() => '')).trim();
+        const hasValidLabel = isValidGetStartedTarget(text) || isValidGetStartedTarget(desc);
+
+        if (!hasValidLabel) {
+          console.log(`ℹ️ Skipping non-target CTA for selector ${selector}: text="${text}" desc="${desc}"`);
+          continue;
+        }
+        if (String(text || desc).toLowerCase().includes('explore')) {
+          console.log(`ℹ️ Skipping Explore CTA for selector ${selector}: text="${text}" desc="${desc}"`);
+          continue;
+        }
+
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          // Re-resolve each attempt in case carousel animation changed element bounds.
+          const target = await driver.$(selector);
+          if (!await target.isDisplayed({ timeout: 800 }).catch(() => false)) {
+            continue;
+          }
+
+          if (!isFireTv) {
+            try {
+              await target.click();
+              await driver.pause(1400);
+              const stillLandingAfterClick = await isLandingStillVisible();
+              if (!stillLandingAfterClick) {
+                console.log(`✅ Get started clicked via ${selector} (attempt ${attempt})`);
+                return true;
+              }
+            } catch {}
+          }
+
+          try {
+            await adbTapElementCenter(target);
+            await driver.pause(1400);
+            const stillLandingAfterAdbTap = await isLandingStillVisible();
+            if (!stillLandingAfterAdbTap) {
+              console.log(`✅ Get started clicked via ADB tap fallback (selector ${selector}, attempt ${attempt})`);
+              return true;
+            }
+          } catch {}
+
+          console.log(`ℹ️ Get started tap did not transition screen yet (selector ${selector}, attempt ${attempt}). Retrying...`);
+        }
+      }
+    } catch {}
+  }
+
+  return false;
+}
+
+async function assertQrPageDisplayedAfterGetStarted(driver: any): Promise<void> {
+  const qrPageSelectors = [
+    'android=new UiSelector().textContains("QR")',
+    'android=new UiSelector().textContains("Scan")',
+    'android=new UiSelector().textContains("code")',
+    'android=new UiSelector().textContains("dazn.com")',
+    'android=new UiSelector().resourceIdMatches(".*qr.*")',
+    '//*[@resource-id[contains(.,"qr")]]',
+  ];
+
+  const isQrPageVisible = async (): Promise<boolean> => {
+    for (const selector of qrPageSelectors) {
+      try {
+        const el = await driver.$(selector);
+        if (await el.isDisplayed({ timeout: 500 }).catch(() => false)) {
+          return true;
+        }
+      } catch {}
+    }
+    return false;
+  };
+
+  try {
+    await driver.waitUntil(async () => {
+      return isQrPageVisible();
+    }, {
+      timeout: 20000,
+      interval: 800,
+      timeoutMsg: 'QR code page was not displayed after clicking Get started.',
+    });
+    console.log('✅ QR code page displayed after Get started');
+  } catch {
+    const shot = './test-results/firetv_qr_page_assertion_failed.png';
+    await driver.saveScreenshot(shot).catch(() => {});
+    throw new Error(`QR code page assertion failed after clicking Get started. Screenshot: ${shot}`);
+  }
+}
+
+async function isQrLoginPageVisible(driver: any): Promise<boolean> {
+  const qrLoginSelectors = [
+    'android=new UiSelector().textContains("Scan the QR code")',
+    'android=new UiSelector().textContains("Use remote to log in")',
+    'android=new UiSelector().textContains("dazn.com/loginhelp")',
+  ];
+
+  for (const selector of qrLoginSelectors) {
+    try {
+      const el = await driver.$(selector);
+      if (await el.isDisplayed({ timeout: 500 }).catch(() => false)) {
+        return true;
+      }
+    } catch {}
+  }
+
+  return false;
+}
+
+async function waitForQrLoginPage(driver: any, timeoutMs = 15000): Promise<boolean> {
+  return driver.waitUntil(async () => isQrLoginPageVisible(driver), {
+    timeout: timeoutMs,
+    interval: 1000,
+    timeoutMsg: 'TV QR login page was not displayed.',
+  }).then(() => true).catch(() => false);
+}
+
+async function signInViaQrInBrowser(signInUrl: string, credentials: RegionCredentials): Promise<void> {
+  const { chromium } = require('@playwright/test');
+  const browser = await chromium.launch({
+    headless: false,
+  });
+  const page = await browser.newPage();
+
+  const clickPlansBackIfPresent = async (): Promise<void> => {
+    const waitAfterBackClick = async (): Promise<void> => {
+      if (PPV_PURCHASE_BACK_SETTLE_MS <= 0) return;
+      console.log(`⏳ Waiting ${PPV_PURCHASE_BACK_SETTLE_MS}ms after PPV purchase Back click...`);
+      await page.waitForTimeout(PPV_PURCHASE_BACK_SETTLE_MS);
+    };
+
+    const isPlansPageVisible = async (): Promise<boolean> => {
+      await page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => {});
+      const url = page.url().toLowerCase();
+      const planTextVisible = await page
+        .getByText(/plans?|choose your plan|select your plan|choose how to buy|dazn ultimate|buy .* or get it included/i)
+        .first()
+        .isVisible({ timeout: 500 })
+        .catch(() => false);
+
+      return url.includes('/plans') ||
+        url.includes('/account/addon/purchase') ||
+        url.includes('contextualppvid') ||
+        url.includes('purchase') ||
+        url.includes('plan') ||
+        planTextVisible;
+    };
+
+    const start = Date.now();
+    while (Date.now() - start < 20000) {
+      if (await isPlansPageVisible()) break;
+      await page.waitForTimeout(1000);
+    }
+
+    if (!await isPlansPageVisible()) return;
+
+    console.log('ℹ️ Browser landed on PPV purchase/plans page after login. Clicking top-left Back icon...');
+
+    const clickTopLeftControl = async (): Promise<boolean> => {
+      const controls = await page.locator('button, a, [role="button"]').all();
+      for (const control of controls) {
+        const box = await control.boundingBox().catch(() => null);
+        if (!box || box.x > 100 || box.y > 100) continue;
+        await control.click({ force: true });
+        await page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => {});
+        console.log('✅ Browser PPV purchase back clicked via top-left control');
+        await waitAfterBackClick();
+        return true;
+      }
+
+      return false;
+    };
+
+    if (await clickTopLeftControl()) return;
+
+    const backSelectors = [
+      '[data-testid*="back" i]',
+      '[data-test-id*="back" i]',
+      'button[aria-label*="back" i]',
+      'a[aria-label*="back" i]',
+      '[role="button"][aria-label*="back" i]',
+      'button:has-text("<")',
+      'a:has-text("<")',
+    ];
+
+    for (const selector of backSelectors) {
+      const back = page.locator(selector).first();
+      if (await back.isVisible({ timeout: 1500 }).catch(() => false)) {
+        await back.click({ force: true });
+        await page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => {});
+        console.log(`✅ Browser PPV purchase back clicked via ${selector}`);
+        await waitAfterBackClick();
+        return;
+      }
+    }
+
+    await page.mouse.click(44, 28);
+    await page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => {});
+    console.log('✅ Browser PPV purchase back clicked via top-left coordinate fallback');
+    await waitAfterBackClick();
+  };
+
+  const waitForBrowserLoginCompletion = async (): Promise<void> => {
+    const start = Date.now();
+    await page.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch(() => {});
+    await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+
+    await page.waitForFunction(() => {
+      const path = (window.location.pathname || '').toLowerCase();
+      const href = (window.location.href || '').toLowerCase();
+      const stillOnAuthRoute = /login|signin|sign-in|auth/.test(path) || /login|signin|sign-in|auth/.test(href);
+      const hasAuthFields = !!document.querySelector('input[type="email"], input[name="email"], input[type="password"], input[name="password"]');
+      return !stillOnAuthRoute || !hasAuthFields;
+    }, { timeout: 30000 }).catch(() => {});
+
+    const elapsed = Date.now() - start;
+    console.log(`✅ Browser post-continue wait completed (${elapsed}ms)`);
+  };
+
+  try {
+    await page.goto(signInUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    const emailInput = page.locator('input[type="email"], input[name="email"]').first();
+    await emailInput.waitFor({ state: 'visible', timeout: 20000 });
+    await emailInput.fill(credentials.email);
+
+    const emailContinueSelectors = [
+      'button:has-text("Continue")',
+      'button[type="submit"]',
+      'input[type="submit"]',
+    ];
+
+    const passwordLoginSelectors = [
+      'button:has-text("Log in")',
+      'button:has-text("Login")',
+      'button:has-text("Sign in")',
+      'button[type="submit"]',
+      'input[type="submit"]',
+    ];
+
+    const clickCta = async (selectors: string[], stepLabel: string): Promise<boolean> => {
+      for (const selector of selectors) {
+        const el = page.locator(selector).first();
+        if (await el.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await el.click({ force: true });
+          console.log(`✅ ${stepLabel} via ${selector}`);
+          return true;
+        }
+      }
+
+      return false;
+    };
+
+    const passwordInput = page.locator('input[type="password"], input[name="password"]').first();
+    const passwordVisibleAfterEmail = await passwordInput.isVisible({ timeout: 3000 }).catch(() => false);
+
+    if (!passwordVisibleAfterEmail) {
+      const emailContinueClicked = await clickCta(emailContinueSelectors, 'Email Continue CTA clicked');
+      if (!emailContinueClicked) {
+        throw new Error('Email Continue CTA not found on browser login page.');
+      }
+      await passwordInput.waitFor({ state: 'visible', timeout: 20000 });
+    }
+
+    await passwordInput.waitFor({ state: 'visible', timeout: 20000 });
+    await passwordInput.fill(credentials.password);
+
+    const passwordLoginClicked = await clickCta(passwordLoginSelectors, 'Password Log in CTA clicked');
+    if (!passwordLoginClicked) {
+      throw new Error('Password Log in CTA not found on browser login page.');
+    }
+
+    await waitForBrowserLoginCompletion();
+    if (BROWSER_LOGIN_COMPLETE_SETTLE_MS > 0) {
+      console.log(`⏳ Waiting ${BROWSER_LOGIN_COMPLETE_SETTLE_MS}ms after completing browser login before PPV purchase Back check...`);
+      await page.waitForTimeout(BROWSER_LOGIN_COMPLETE_SETTLE_MS);
+    }
+    console.log('✅ Browser login process completed. Checking for PPV purchase Back icon...');
+    await clickPlansBackIfPresent();
+  } finally {
+    await browser.close().catch(() => {});
+  }
+}
+
+async function runBrowserLoginAndSwitchBack(driver: any, options: { allowHandoffFallback?: boolean } = {}): Promise<void> {
+  const allowHandoffFallback = options.allowHandoffFallback !== false;
+  let qrUrl = '';
+  for (let attempt = 1; attempt <= 6; attempt++) {
+    qrUrl = await decodeCheckoutUrlFromQr(driver, `./test-results/android_tv_qr_capture_attempt_${attempt}.png`);
+    if (qrUrl) {
+      console.log(`✅ QR payload decoded on attempt ${attempt}`);
+      writeHandoffUrl(qrUrl);
+      break;
+    }
+
+    if (attempt < 6) {
+      console.log(`ℹ️ QR payload not available yet (attempt ${attempt}/6). Retrying...`);
+      await driver.pause(2000);
+    }
+  }
+
+  if (!qrUrl && allowHandoffFallback) {
+    qrUrl = readHandoffUrl?.() || '';
+  }
+  if (!qrUrl) {
+    await driver.saveScreenshot('./test-results/android_tv_qr_capture_missing.png').catch(() => {});
+    throw new Error('No fresh QR handoff URL captured from the app.');
+  }
+
+  const credentials = resolveRegionCredentials();
+  await signInViaQrInBrowser(qrUrl, credentials);
+
+  if (TV_LOGIN_SETTLE_MS > 0) {
+    console.log(`⏳ Waiting ${TV_LOGIN_SETTLE_MS}ms for TV login handoff to settle before switching back to app...`);
+    await driver.pause(TV_LOGIN_SETTLE_MS);
+  }
+
+  await driver.activateApp(APP_PACKAGE).catch(() => {});
+  await driver.pause(6000);
+  console.log('✅ Browser login completed and DAZN app reactivated');
+}
 
 async function openTvPpvFlow(driver: any): Promise<boolean> {
   if (SOURCE === 'schedule') {
@@ -48,11 +545,16 @@ describe('DAZN TV PPV Android Handoff', () => {
 
     await prepareAndroidApp(browser, {
       clearAppData: true,
-      waitForHome: !isFireTv,
+      waitForHome: TV_TARGET === 'firetv' ? false : true,
+      acceptCookiesOnly: isFireTv,
     });
 
     if (TV_TARGET === 'androidtv') {
       await primeAndroidTvFocus(browser);
+      if (await waitForQrLoginPage(browser)) {
+        await runBrowserLoginAndSwitchBack(browser, { allowHandoffFallback: false });
+        await primeAndroidTvFocus(browser);
+      }
     }
 
     if (isFireTv) {
@@ -62,7 +564,10 @@ describe('DAZN TV PPV Android Handoff', () => {
       await browser.pause(1500);
     }
 
-    const caps: any = await browser.getCapabilities().catch(() => ({}));
+    const caps: any =
+      typeof browser.getCapabilities === 'function'
+        ? await browser.getCapabilities().catch(() => ({}))
+        : (browser.capabilities || {});
     const resolvedDeviceName =
       caps['appium:deviceName'] ||
       caps.deviceName ||
@@ -102,6 +607,39 @@ describe('DAZN TV PPV Android Handoff', () => {
 
   it('navigates to PPV and captures checkout URL for web handoff', async () => {
     const driver = browser;
+
+    if (TV_TARGET === 'firetv') {
+      let opened = false;
+      let getStartedClicked = false;
+
+      if (SOURCE === 'schedule') {
+        opened = await openTvPpvFlow(driver);
+        if (!opened) {
+          console.log('ℹ️ Schedule flow did not open from current state. Trying Get started recovery...');
+        }
+      }
+
+      if (!opened) {
+        getStartedClicked = await clickGetStartedCta(driver);
+        if (!getStartedClicked) {
+          throw new Error('Could not click Get started CTA on Fire TV.');
+        }
+
+        if (SOURCE === 'schedule') {
+          opened = await openTvPpvFlow(driver);
+          if (!opened) {
+            throw new Error(`TV PPV flow did not reach paywall for SOURCE=${SOURCE}`);
+          }
+        }
+      }
+
+      if (getStartedClicked) {
+        await assertQrPageDisplayedAfterGetStarted(driver);
+      }
+
+      await runBrowserLoginAndSwitchBack(driver, { allowHandoffFallback: false });
+      return;
+    }
 
     const opened = await openTvPpvFlow(driver);
     if (!opened) {

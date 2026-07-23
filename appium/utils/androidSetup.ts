@@ -64,12 +64,23 @@ async function tapFirstVisible(driver: WdBrowser, selectors: string[], label: st
 }
 
 async function acceptCookiesIfPresent(driver: WdBrowser): Promise<boolean> {
-  return tapFirstVisible(driver, [
+  const selectors = [
     COOKIE_BUTTON_XPATH,
     'android=new UiSelector().resourceId("com.dazn:id/btn_accept_cookies")',
-    'android=new UiSelector().textContains("Accept")',
+    'android=new UiSelector().textMatches("(?i)^accept all cookies$")',
+    'android=new UiSelector().textMatches("(?i)^accept all$")',
+    'android=new UiSelector().textMatches("(?i)^accept$")',
     'android=new UiSelector().textContains("I Agree")',
-  ], 'Cookies accepted');
+  ];
+
+  for (let i = 0; i < 5; i++) {
+    if (await tapFirstVisible(driver, selectors, 'Cookies accepted')) {
+      return true;
+    }
+    await driver.pause(800);
+  }
+
+  return false;
 }
 
 async function dismissOneStartupDialog(driver: WdBrowser): Promise<boolean> {
@@ -80,24 +91,31 @@ async function dismissOneStartupDialog(driver: WdBrowser): Promise<boolean> {
     'android=new UiSelector().resourceId("android:id/button1")',
     'android=new UiSelector().descriptionContains("Close")',
     'android=new UiSelector().descriptionContains("Dismiss")',
-    'android=new UiSelector().textMatches("(?i)^(Explore|Continue|Start watching|Done|OK|Allow)$")',
+    'android=new UiSelector().textMatches("(?i)^(Continue|Start watching|Done|OK|Allow)$")',
     'android=new UiSelector().textMatches("(?i)^(Not now|No thanks|Maybe later|Skip|Cancel|Remind me later)$")',
   ], 'Startup dialog dismissed');
 }
 
 async function dismissLandingPage(driver: WdBrowser): Promise<boolean> {
-  // Try to dismiss landing page by tapping Explore or swiping
-  const exploredTapped = await tapFirstVisible(driver, [
-    'android=new UiSelector().textMatches("(?i)^Explore$")',
+  const isFireTv = String(process.env.TV_TARGET || '').toLowerCase().trim() === 'firetv';
+
+  // Prefer only sign-in oriented CTAs for TV startup.
+  const ctaTapped = await tapFirstVisible(driver, [
     'android=new UiSelector().textMatches("(?i)^Get started$")',
-    'android=new UiSelector().textMatches("(?i)^Continue$")',
+    'android=new UiSelector().textContains("Get started")',
+    'android=new UiSelector().textMatches("(?i)^Log in$")',
+    'android=new UiSelector().textMatches("(?i)^Sign in$")',
     'android=new UiSelector().resourceId("com.dazn:id/btn_get_started")',
-    'android=new UiSelector().resourceId("com.dazn:id/btn_continue")',
   ], 'Landing page dismissed');
   
-  if (exploredTapped) {
+  if (ctaTapped) {
     await driver.pause(2000); // Wait for navigation
     return true;
+  }
+
+  if (isFireTv) {
+    console.log('  ⚠️ FireTV landing CTA not found (Get started/Log in). Skipping swipe fallback.');
+    return false;
   }
   
   // If no button found, try swiping left
@@ -174,6 +192,27 @@ async function isLandingPageReady(driver: WdBrowser): Promise<boolean> {
   return false;
 }
 
+async function isTvQrLoginReady(driver: WdBrowser): Promise<boolean> {
+  const qrLoginIndicators = [
+    'android=new UiSelector().textContains("Scan the QR code")',
+    'android=new UiSelector().textContains("Use remote to log in")',
+    'android=new UiSelector().textContains("Watch your favourite sports")',
+    'android=new UiSelector().textContains("dazn.com/loginhelp")',
+  ];
+
+  for (const selector of qrLoginIndicators) {
+    try {
+      const el = await driver.$(selector);
+      if (await el.isDisplayed()) {
+        console.log(`  ✓ TV QR login page indicator found: ${selector}`);
+        return true;
+      }
+    } catch {}
+  }
+
+  return false;
+}
+
 async function hasAnyVisibleElement(driver: WdBrowser): Promise<boolean> {
   // Fallback: check if the app has any visible UI by trying to get the current activity
   // This indicates the app has loaded, even if we can't identify the specific page
@@ -235,6 +274,11 @@ export async function waitForHomePage(driver: WdBrowser, timeoutMs = 120000): Pr
 
       if (await isHomeReady(driver)) {
         console.log('  ✓ Home page detected');
+        return true;
+      }
+
+      if (await isTvQrLoginReady(driver)) {
+        console.log('  ✓ TV QR login page detected');
         return true;
       }
 

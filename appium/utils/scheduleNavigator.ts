@@ -492,6 +492,46 @@ export async function findPPVTileInMonth(
   }
 }
 
+export async function navigateToTargetDay(
+  driver: WdBrowser,
+  dims: ScreenDimensions,
+  targetDay: number,
+  ppvName: string,
+  targetMonthIndex: number,
+  maxSwipes = 12,
+): Promise<void> {
+  if (!targetDay) return;
+
+  console.log(`\n📅 Phase 2.5: Navigating to ${MONTH_FULL[targetMonthIndex]} ${targetDay} before selecting PPV tile…`);
+  const dayPattern = new RegExp(`^${targetDay}(st|nd|rd|th)?$`, 'i');
+
+  for (let i = 0; i < maxSwipes; i++) {
+    const textEls: WdElement[] =
+      await driver.$$('android=new UiSelector().className("android.widget.TextView")').catch(() => []);
+
+    for (const el of textEls) {
+      const text = String(await el.getText().catch(() => '')).trim();
+      if (!text) continue;
+
+      if (text.toLowerCase().includes(ppvName.toLowerCase())) {
+        console.log(`✅ Phase 2.5: PPV tile already visible while navigating to target date.`);
+        return;
+      }
+
+      if (dayPattern.test(text) || text.toLowerCase().includes(`${MONTH_SHORT[targetMonthIndex].toLowerCase()} ${targetDay}`)) {
+        console.log(`✅ Phase 2.5: Target date visible: "${text}"`);
+        return;
+      }
+    }
+
+    console.log(`   Phase 2.5: date swipe ${i + 1}/${maxSwipes}`);
+    await swipeUp(driver, dims, GENTLE_SWIPE_START_Y, GENTLE_SWIPE_END_Y, 220);
+    await driver.pause(350);
+  }
+
+  console.warn(`⚠️ Phase 2.5: Target day ${targetDay} was not found. Continuing to PPV tile search.`);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Phase 4 — Center tile if obstructed
 // ─────────────────────────────────────────────────────────────────────────────
@@ -671,6 +711,7 @@ export async function navigateScheduleToPPVTile(
   const dims = await getScreenDimensions(driver);
 
   await navigateToMonth(driver, dims, targetMonthIndex);
+  await navigateToTargetDay(driver, dims, targetDay, ppvName, targetMonthIndex);
 
   const rawTile = await findPPVTileInMonth(
     driver, dims, ppvName, targetMonthIndex, maxTileSearchSwipes,
