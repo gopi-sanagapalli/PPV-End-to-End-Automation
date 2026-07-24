@@ -277,6 +277,10 @@ function getDynamicDateBadgeSingle(configStr: string, referenceDate: Date = getN
   const fullDayName = fullDayNames[eventDate.getDay()];
   
   const candidates = new Set<string>();
+  // Keep the configured rendering as a valid candidate.  This is important for
+  // future events, whose chips continue to show an absolute date rather than a
+  // relative label (and may use deliberate uppercase styling).
+  candidates.add(configStr.trim());
   
   // Helper to add day-of-week variations
   const addDayVariations = (day: string) => {
@@ -296,6 +300,10 @@ function getDynamicDateBadgeSingle(configStr: string, referenceDate: Date = getN
       candidates.add(`Tomorrow ${t}`);
       candidates.add(`tomorrow at ${t}`);
       candidates.add(`tomorrow ${t}`);
+      candidates.add(`TOMORROW AT ${t}`);
+      candidates.add(`TOMORROW ${t}`);
+      candidates.add(`Tomorrow at ${t.toUpperCase()}`);
+      candidates.add(`TOMORROW AT ${t.toUpperCase()}`);
     }
     addDayVariations(dayName);
     addDayVariations(fullDayName);
@@ -305,6 +313,17 @@ function getDynamicDateBadgeSingle(configStr: string, referenceDate: Date = getN
       candidates.add(`Today ${t}`);
       candidates.add(`today at ${t}`);
       candidates.add(`today ${t}`);
+      candidates.add(`TODAY AT ${t}`);
+      candidates.add(`TODAY ${t}`);
+      candidates.add(`TODAY AT ${t.toUpperCase()}`);
+    }
+    if (hours >= 12 && hours < 17) {
+      for (const t of times) {
+        candidates.add(`This afternoon at ${t}`);
+        candidates.add(`this afternoon at ${t}`);
+        candidates.add(`THIS AFTERNOON AT ${t}`);
+        candidates.add(`THIS AFTERNOON AT ${t.toUpperCase()}`);
+      }
     }
     // DAZN shows "This evening" for same-day events at 17:00+
     if (hours >= 17) {
@@ -317,6 +336,10 @@ function getDynamicDateBadgeSingle(configStr: string, referenceDate: Date = getN
         candidates.add(`Tonight ${t}`);
         candidates.add(`tonight at ${t}`);
         candidates.add(`tonight ${t}`);
+        candidates.add(`THIS EVENING AT ${t}`);
+        candidates.add(`THIS EVENING AT ${t.toUpperCase()}`);
+        candidates.add(`TONIGHT AT ${t}`);
+        candidates.add(`TONIGHT AT ${t.toUpperCase()}`);
       }
     }
     addDayVariations(dayName);
