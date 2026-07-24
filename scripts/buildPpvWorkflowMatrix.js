@@ -30,19 +30,27 @@ if (Number.isNaN(eventDate.getTime()) || eventDate.getTime() <= Date.now()) {
 if (!event.regions?.[country]) throw new Error(`${configName} is not available in ${country}: regions.${country} is missing.`);
 
 const sourceConfig = JSON.parse(fs.readFileSync('config/surfacingpoint.json', 'utf8'));
+const planConfig = JSON.parse(fs.readFileSync('config/DaznPlan.json', 'utf8'));
 const isBoxing = String(event.SPORT || '').trim().toLowerCase() === 'boxing';
 const isKickboxing = String(event.SPORT || '').toLowerCase() === 'kickboxing';
 const hasBundle = event.HAS_BUNDLE === true;
 const defaultSignupDevMode = event.DEFAULT_SIGNUP_DEVMODE === true;
 const hasDefaultSignup = event.HAS_DEFAULT_SIGNUP_PPV === true;
-const standardPlans = ['standard_monthly', 'standard_apm', 'ultimate_apm', 'ultimate_upfront'];
+// The workflow matrix must only contain plans offered in the selected country.
+// `loadEventConfig` validates this too, but filtering here avoids creating CI jobs
+// that are guaranteed to fail (for example, standard_apm is not offered in AE).
+const requestedPlans = ['standard_monthly', 'standard_apm', 'ultimate_apm', 'ultimate_upfront'];
+const standardPlans = requestedPlans.filter((plan) => planConfig[plan]?.regions?.[country]);
+if (standardPlans.length === 0) {
+  throw new Error(`No supported plans are configured for ${country} in DaznPlan.json.`);
+}
 const regularProfiles = [
   'freemium/standard_monthly', 'freemium/standard_apm', 'freemium/ultimate_apm', 'freemium/ultimate_upfront',
   'frozen/standard_monthly', 'frozen/standard_apm', 'frozen/ultimate_apm', 'frozen/ultimate_upfront',
   'active_standard_monthly/standard_monthly', 'active_standard_monthly/ultimate_apm', 'active_standard_monthly/ultimate_upfront',
   'active_standard_apm/standard_apm', 'active_standard_apm/ultimate_apm',
   'active_ultimate_apm/ultimate_apm', 'active_ultimate_upfront/ultimate_upfront',
-];
+].filter((profile) => standardPlans.includes(profile.split('/')[1]));
 const ultimateOnly = new Set(['boxing-banner-ultimate', 'boxing-ultimate-subscription', 'boxing-join-the-club']);
 const validUltimateProfiles = new Set(['active_standard_monthly/ultimate_apm', 'active_standard_monthly/ultimate_upfront', 'active_standard_apm/ultimate_apm']);
 // Boxing PPVs are surfaced through the complete set of boxing-specific entry
@@ -155,6 +163,14 @@ switch (mode) {
     break;
   default: throw new Error(`Unsupported matrix mode: ${mode}`);
 }
+
+// Keep every matrix mode consistent, including explicitly-added switch jobs.
+// New-user jobs use `plan`; authenticated jobs encode the destination plan in
+// the last segment of `profile` (for example, freemium/standard_apm).
+matrix = matrix.filter((entry) => {
+  const plan = entry.plan || entry.profile?.split('/').pop();
+  return standardPlans.includes(plan);
+});
 
 if (mode.startsWith('default-') && !defaultSignupDevMode && !hasDefaultSignup) {
   throw new Error(`${configName} does not enable default signup (set DEFAULT_SIGNUP_DEVMODE or HAS_DEFAULT_SIGNUP_PPV to true).`);
