@@ -174,6 +174,56 @@ export abstract class BaseLoginStrategy implements LoginStrategy {
   protected async handleCookieBanner(page: Page, timeout = 15000): Promise<void> {
     await handleCookies(page, timeout).catch(() => { });
   }
+
+  /**
+   * Recovers once from intermittent DAZN sign-up/sign-in error dialogs.
+   * Dismiss the dialog, retry Continue, then reload if the error persists.
+   * Returns true if an error was detected (and recovery was attempted).
+   *
+   * Merged from utils/authErrorRecovery.ts — covers: "No key found!",
+   * error codes, "something went wrong", "try refreshing the page",
+   * "unexpected error".
+   */
+  protected async recoverTransientAuthError(page: Page, context: string): Promise<boolean> {
+    if (page.isClosed()) return false;
+
+    const TRANSIENT_AUTH_ERROR = /no key found|error code:\s*\d|something went wrong|try refreshing the page|unexpected error/i;
+
+    const hasError = async () => {
+      const body = await page.locator('body').innerText({ timeout: 2000 }).catch(() => '');
+      return TRANSIENT_AUTH_ERROR.test(body);
+    };
+
+    if (!await hasError()) return false;
+
+    console.warn(`⚠️ [${context}] Transient authentication error detected; dismissing and retrying Continue.`);
+    const okButton = page.locator(
+      'button:has-text("OK"), button:has-text("Ok"), button:has-text("Okay"), [role="button"]:has-text("OK"), [role="button"]:has-text("Ok")'
+    ).first();
+    if (await okButton.isVisible({ timeout: 1500 }).catch(() => false)) {
+      await okButton.click({ force: true }).catch(() => { });
+    }
+    await page.waitForLoadState('domcontentloaded').catch(() => { });
+
+    const continueButton = page.locator(
+      'button:has-text("Continue"), button:has-text("Next"), button[type="submit"]'
+    ).first();
+    if (await continueButton.isVisible({ timeout: 1500 }).catch(() => false)) {
+      await continueButton.click({ force: true }).catch(() => { });
+      await page.waitForLoadState('domcontentloaded').catch(() => { });
+    }
+
+    // Brief pause to let the SPA settle after dismissal + retry
+    await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => { });
+
+    if (await hasError()) {
+      console.warn(`🔄 [${context}] Error persisted after Continue; reloading once before retrying the form.`);
+      await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => { });
+      await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => { });
+    }
+
+    return true;
+  }
 }
 
 export class EmailLoginStrategy extends BaseLoginStrategy {

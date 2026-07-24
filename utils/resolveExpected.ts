@@ -205,6 +205,9 @@ export function resolveExpected(
   // ─────────────────────────────────────────────────────────────────────────
 
   let raw = rule.Expected ?? rule.Value;
+  // Keep the spreadsheet expression so relative-date formatting can be scoped
+  // to the specific configured event-date fields after placeholders resolve.
+  const rawExpectation = String(raw ?? '');
 
 
   const currentSource = (eventData.SOURCE || eventData.source || '').trim().toLowerCase();
@@ -533,15 +536,12 @@ export function resolveExpected(
     if (popupDate) raw = popupDate;
   }
 
-  // ── home-biggest-fights popup date ───────────────────────────────────────────
-  // The biggest-fights popup shows PPV_POPUP_DATE format (e.g. "25 JUL 1:30PM").
-  // The Excel template resolves via LANDING_PAGE_PPV_DATE which only has the date
-  // ("25 July"), causing a mismatch. Return PPV_POPUP_DATE directly for this source.
-  if (field === 'popup - event date') {
-    const currentSrc = (eventData.SOURCE || eventData.source || '').trim().toLowerCase();
-    if (currentSrc === 'home-biggest-fights' && eventData.PPV_POPUP_DATE) {
-      raw = String(eventData.PPV_POPUP_DATE);
-    }
+  // ── popup - event date: always use PPV_POPUP_DATE as-is for ALL sources ────────
+  // Some sources (e.g. home-biggest-fights) have {{PPV_DATE}} in the Excel template
+  // but the popup card shows PPV_POPUP_DATE format (e.g. "25 JUL 4:00PM").
+  // Return PPV_POPUP_DATE directly — no Today/Tomorrow conversion — for all sources.
+  if (field === 'popup - event date' && eventData.PPV_POPUP_DATE) {
+    return String(eventData.PPV_POPUP_DATE);
   }
 
 
@@ -572,7 +572,10 @@ export function resolveExpected(
 
     if (field === 'annual pay upfront save badge' || field === 'save badge') {
       const upfrontSaveDisplay = eventData.UPFRONT_SAVE_AMOUNT_DISPLAY || eventData.UPFRONT_SAVE_AMOUNT;
-      if (upfrontSaveDisplay === 'N/A' || !upfrontSaveDisplay || parseFloat(upfrontSaveDisplay.replace(/[^\d.-]/g, '')) <= 0) {
+      // Skip if amount is zero/missing, OR if there are no active offers (badge won't show without a promotion)
+      const offersRaw = eventData.offers ?? eventData.OFFERS ?? '';
+      const hasOffers = Array.isArray(offersRaw) ? offersRaw.length > 0 : (typeof offersRaw === 'string' && offersRaw.trim() !== '' && offersRaw.trim() !== '[]');
+      if (!hasOffers || upfrontSaveDisplay === 'N/A' || !upfrontSaveDisplay || parseFloat(upfrontSaveDisplay.replace(/[^\d.-]/g, '')) <= 0) {
         raw = 'N/A';
       }
     }
@@ -852,12 +855,20 @@ export function resolveExpected(
       .replace(/\{\{RENEWAL_DATE\}\}/g, eventData.RENEWAL_DATE || '');
   }
 
-  // Clean up any duplicate currency symbols (e.g., $$ or ££)
+  // Clean up any duplicate currency symbols (e.g., $$ or ££ or "SAR SAR")
   const currencySymbol = eventData.CURRENCY || '';
   if (currencySymbol) {
+    // Adjacent duplicate: SARSAR → SAR, $$ → $
     const doubleCurrency = `${currencySymbol}${currencySymbol}`;
     while (template.includes(doubleCurrency)) {
       template = template.replace(doubleCurrency, currencySymbol);
+    }
+    // Space-separated duplicate for multi-letter codes: "SAR SAR" → "SAR", "AED AED" → "AED"
+    if (currencySymbol.length > 1) {
+      const doubleCurrencySpaced = `${currencySymbol} ${currencySymbol}`;
+      while (template.includes(doubleCurrencySpaced)) {
+        template = template.replace(doubleCurrencySpaced, currencySymbol);
+      }
     }
   }
 
@@ -909,11 +920,13 @@ export function resolveExpected(
     return hasExplicitDateAndTime(template) ? getDynamicDateTimeBadge(template) : template;
   }
 
-  // Every surface may choose a relative chip (for example, "TOMORROW AT
-  // 18:30").  Apply those candidates to any resolved value that genuinely
-  // contains both a date and a time, independent of field/source names.
-  // Date-only and time-only values deliberately bypass this path.
-  if (hasExplicitDateAndTime(template)) {
+  // Only the configured event-date values can be rendered as relative labels
+  // (for example, "Tomorrow at 16:00"). Do not apply this to popup, search,
+  // schedule, or other date-like fields: those surfaces have their own format.
+  const relativeDateSource = /\{\{\s*(?:PPV_DATE|PPV_PAGE_DATE|LANDING_BANNER_DATE)\s*\}\}/i.test(rawExpectation) ||
+    field === 'banner - event date' ||
+    field === 'ppv date and time text';
+  if (relativeDateSource && hasExplicitDateAndTime(template)) {
     return getDynamicDateTimeBadge(template);
   }
 

@@ -22,6 +22,10 @@ export class HomePage extends LandingPage {
     await this.page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => { });
     await this.dismissConsentIfPresent();
 
+    // Check for VPN/network error BEFORE looking for Explore button.
+    // assertDaznPageAvailable refreshes once if the DAZN "problem opening" page is shown.
+    await assertDaznPageAvailable(this.page, 'welcome page load');
+
     console.log(`✅ [HomePage] Welcome page loaded: ${this.page.url()}`);
     await this.clickExplore();
     await assertDaznPageAvailable(this.page, 'home page navigation');
@@ -50,7 +54,17 @@ export class HomePage extends LandingPage {
 
     const combinedSelector = exploreSelectors.join(', ');
     const anyExplore = this.page.locator(combinedSelector).first();
-    const found = await anyExplore.waitFor({ state: 'visible', timeout: 8000 }).then(() => true).catch(() => false);
+    let found = await anyExplore.waitFor({ state: 'visible', timeout: 8000 }).then(() => true).catch(() => false);
+
+    // If Explore not found, refresh the page (likely VPN/transient issue) and retry
+    if (!found) {
+      console.log('⚠️ Explore button not found — refreshing page and retrying...');
+      await this.page.reload({ waitUntil: 'domcontentloaded' }).catch(() => { });
+      await this.page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => { });
+      await this.dismissConsentIfPresent();
+      await assertDaznPageAvailable(this.page, 'welcome page refresh');
+      found = await anyExplore.waitFor({ state: 'visible', timeout: 8000 }).then(() => true).catch(() => false);
+    }
 
     if (found) {
       console.log(`📍 Found Explore button`);
@@ -58,7 +72,8 @@ export class HomePage extends LandingPage {
       await anyExplore.click({ force: true });
       await this.page.waitForURL((url: URL) => url.toString().includes('/home'), { timeout: 15000 }).catch(() => { });
     } else {
-      console.log('⚠️ Explore button not found — trying direct navigation to /home');
+      // Last resort: direct navigation to /home
+      console.log('⚠️ Explore button still not found after refresh — navigating directly to /home');
       const currentUrl = this.page.url();
       const baseMatch = currentUrl.match(/(https:\/\/[a-z0-9.-]*dazn\.com\/en-[A-Z]+)/i);
       const base = baseMatch?.[1] || this.getFallbackBaseUrl();

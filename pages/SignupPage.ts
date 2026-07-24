@@ -237,8 +237,48 @@ export class SignupPage extends BasePage {
 
     await btn.scrollIntoViewIfNeeded().catch(() => {});
     await btn.click({ force: true });
-
     await this.page.waitForLoadState('domcontentloaded').catch(() => {});
+
+    // ── Transient DAZN error dialog recovery (Error code 10-000-000) ──────────
+    // Pattern: "Try refreshing the page, restarting your app or signing in again."
+    const TRANSIENT_ERROR = /try refreshing the page|error code\s*10-000-000|error code\s*\d{2}-\d{3}-\d{3}/i;
+
+    const hasErrorDialog = async (): Promise<boolean> => {
+      const body = await this.page.locator('body').innerText({ timeout: 2000 }).catch(() => '');
+      return TRANSIENT_ERROR.test(body);
+    };
+
+    const dismissAndRetry = async (label: string): Promise<void> => {
+      console.warn(`⚠️  [SignupPage] Transient error dialog detected (${label}) — clicking Ok and retrying Continue...`);
+      const okBtn = this.page.locator(
+        'button:has-text("Ok"), button:has-text("OK"), button:has-text("Okay"), [role="button"]:has-text("Ok")'
+      ).first();
+      if (await okBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+        await okBtn.click({ force: true }).catch(() => {});
+        await this.page.waitForLoadState('domcontentloaded').catch(() => {});
+      }
+      const retryBtn = this.page.locator(selectors.signup.continueButtonStep2).first();
+      if (await retryBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await retryBtn.scrollIntoViewIfNeeded().catch(() => {});
+        await retryBtn.click({ force: true }).catch(() => {});
+        await this.page.waitForLoadState('domcontentloaded').catch(() => {});
+      }
+    };
+
+    if (await hasErrorDialog()) {
+      // Attempt 1: dismiss Ok + retry Continue
+      await dismissAndRetry('attempt 1');
+
+      if (await hasErrorDialog()) {
+        // Attempt 2: refresh page + retry Continue
+        console.warn('🔄  [SignupPage] Error persisted after first retry — refreshing page and retrying Continue...');
+        await this.page.reload({ waitUntil: 'domcontentloaded' }).catch(() => {});
+        await this.page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
+        await dismissAndRetry('attempt 2 after reload');
+      }
+    }
+    // ──────────────────────────────────────────────────────────────────────────
+
     await assertDaznPageAvailable(this.page, 'after submitting personal details');
     console.log('✅ Personal details Continue clicked');
   }
