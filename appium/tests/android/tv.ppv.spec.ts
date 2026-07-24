@@ -24,6 +24,13 @@ const TV_LOGIN_SETTLE_MS = Number(process.env.TV_LOGIN_SETTLE_MS || 10000);
 const BROWSER_LOGIN_COMPLETE_SETTLE_MS = Number(process.env.BROWSER_LOGIN_COMPLETE_SETTLE_MS || 3000);
 const PPV_PURCHASE_BACK_SETTLE_MS = Number(process.env.PPV_PURCHASE_BACK_SETTLE_MS || 5000);
 
+// TV PPV flow outline:
+// 1. Reset/launch DAZN app and wait for a usable TV entry screen.
+// 2. If Android TV starts on the QR login screen, complete login in browser and switch back.
+// 3. Open the configured PPV source inside the TV app.
+// 4. Capture the handoff URL from QR first, then use checkout URL fallbacks if needed.
+// 5. Store the handoff URL for the downstream web/mobile continuation.
+
 type RegionCredentials = {
   email: string;
   password: string;
@@ -312,6 +319,7 @@ async function waitForQrLoginPage(driver: any, timeoutMs = 15000): Promise<boole
   }).then(() => true).catch(() => false);
 }
 
+// Browser-side QR login: used only after the TV app displays a device sign-in QR.
 async function signInViaQrInBrowser(signInUrl: string, credentials: RegionCredentials): Promise<void> {
   const { chromium } = require('@playwright/test');
   const browser = await chromium.launch({
@@ -319,6 +327,8 @@ async function signInViaQrInBrowser(signInUrl: string, credentials: RegionCreden
   });
   const page = await browser.newPage();
 
+  // Some DAZN QR logins land on the PPV purchase/plans page. Back out once so
+  // the TV session can settle before the native app continues the PPV flow.
   const clickPlansBackIfPresent = async (): Promise<void> => {
     const waitAfterBackClick = async (): Promise<void> => {
       if (PPV_PURCHASE_BACK_SETTLE_MS <= 0) return;
@@ -478,6 +488,8 @@ async function signInViaQrInBrowser(signInUrl: string, credentials: RegionCreden
   }
 }
 
+// Decodes the TV QR, signs in through browser, waits for DAZN to sync login,
+// then reactivates the native TV app.
 async function runBrowserLoginAndSwitchBack(driver: any, options: { allowHandoffFallback?: boolean } = {}): Promise<void> {
   const allowHandoffFallback = options.allowHandoffFallback !== false;
   let qrUrl = '';
@@ -516,6 +528,7 @@ async function runBrowserLoginAndSwitchBack(driver: any, options: { allowHandoff
   console.log('✅ Browser login completed and DAZN app reactivated');
 }
 
+// Routes only this TV PPV spec to the configured in-app source.
 async function openTvPpvFlow(driver: any): Promise<boolean> {
   if (SOURCE === 'schedule') {
     return openSchedulePPVPaywall(driver, PPV_NAME, event);
@@ -538,6 +551,7 @@ async function openTvPpvFlow(driver: any): Promise<boolean> {
 
 describe('DAZN TV PPV Android Handoff', () => {
   before(async () => {
+    // Step 1: start every TV run from a clean handoff state and prepared app.
     clearHandoffUrl();
     require('fs').mkdirSync('./test-results', { recursive: true });
 
@@ -550,6 +564,8 @@ describe('DAZN TV PPV Android Handoff', () => {
     });
 
     if (TV_TARGET === 'androidtv') {
+      // Step 2: Android TV prod can start on QR login after data clear.
+      // Complete QR login in browser, then return focus to DAZN before navigation.
       await primeAndroidTvFocus(browser);
       if (await waitForQrLoginPage(browser)) {
         await runBrowserLoginAndSwitchBack(browser, { allowHandoffFallback: false });
@@ -609,6 +625,8 @@ describe('DAZN TV PPV Android Handoff', () => {
     const driver = browser;
 
     if (TV_TARGET === 'firetv') {
+      // Fire TV flow: reach the QR login entry point, complete browser login,
+      // and stop here because the browser handoff is the expected output.
       let opened = false;
       let getStartedClicked = false;
 
@@ -641,11 +659,13 @@ describe('DAZN TV PPV Android Handoff', () => {
       return;
     }
 
+    // Step 3: Android TV flow opens the configured PPV entry point in the app.
     const opened = await openTvPpvFlow(driver);
     if (!opened) {
       throw new Error(`TV PPV flow did not reach paywall for SOURCE=${SOURCE}`);
     }
 
+    // Step 4: Prefer QR handoff because TV checkout normally presents a QR code.
     let checkoutUrl = await decodeCheckoutUrlFromQr(driver, './test-results/android_tv_qr_capture.png');
     if (checkoutUrl) {
       writeHandoffUrl(checkoutUrl);
@@ -654,6 +674,7 @@ describe('DAZN TV PPV Android Handoff', () => {
       return;
     }
 
+    // Step 5: If QR is unavailable, try the existing checkout URL capture paths.
     const copied = await copyImmediateCheckoutUrl(driver, SOURCE, {
       ppvName: PPV_NAME,
       isLandingPageBanner: SOURCE === 'landing-page-banner',
@@ -670,6 +691,7 @@ describe('DAZN TV PPV Android Handoff', () => {
       throw new Error('Could not capture DAZN checkout URL from TV flow.');
     }
 
+    // Step 6: Save the final DAZN handoff URL for the next automation stage.
     writeHandoffUrl(checkoutUrl);
     await driver.saveScreenshot('./test-results/android_tv_handoff_success.png').catch(() => {});
     console.log(`✅ TV handoff URL captured: ${checkoutUrl}`);
