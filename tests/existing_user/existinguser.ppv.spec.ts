@@ -117,6 +117,187 @@ function readTvHandoffUrl(): string {
   return fileUrl.startsWith('http') ? fileUrl : '';
 }
 
+type TvPpvReportMetadata = {
+  startTime?: string;
+  steps?: Array<{
+    page: string;
+    field: string;
+    expected: string;
+    actual: string;
+    status: 'PASS' | 'FAIL';
+  }>;
+};
+
+function readTvPpvReportMetadata(): TvPpvReportMetadata | null {
+  const metadataFile = process.env.TV_PPV_REPORT_METADATA || path.resolve(process.cwd(), 'tv_ppv_report_metadata.json');
+  if (!fs.existsSync(metadataFile)) return null;
+
+  try {
+    return JSON.parse(fs.readFileSync(metadataFile, 'utf-8')) as TvPpvReportMetadata;
+  } catch (error: any) {
+    console.warn(`⚠️ Could not read TV PPV report metadata: ${error?.message || error}`);
+    return null;
+  }
+}
+
+function parseReportStartTime(value?: string): Date | undefined {
+  if (!value) return undefined;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+}
+
+function appendTvPpvReportSteps(results: any[], metadata: TvPpvReportMetadata | null): void {
+  if (!TV_HANDOFF_MODE || !metadata?.steps?.length) return;
+
+  for (const step of metadata.steps) {
+    results.push({
+      page: step.page || 'TV PPV',
+      field: step.field,
+      expected: step.expected,
+      actual: step.actual,
+      status: step.status || 'PASS',
+    });
+  }
+}
+
+function getReportPlatform(): string {
+  if (!TV_HANDOFF_MODE) return 'Web';
+
+  const tvTarget = String(process.env.TV_TARGET || '').toLowerCase().trim();
+  if (tvTarget === 'firetv') return 'FireTV/Web';
+  if (tvTarget === 'androidtv') return 'AndroidTV/Web';
+
+  return 'TV/Web';
+}
+
+function isYopmailHandoffUrl(url: string): boolean {
+  return url.toLowerCase().includes('yopmail.com');
+}
+
+function getYopmailInboxFromUrl(url: string): string {
+  const parsed = new URL(url);
+  const login = parsed.searchParams.get('login') || '';
+  return login.includes('@') ? login.split('@')[0] : login;
+}
+
+async function completeTvHandoffLoginIfPrompted(page: any, email: string, password: string): Promise<void> {
+  const emailInput = page.locator('input[type="email"], input[name="email"]').first();
+  if (!await emailInput.isVisible({ timeout: 4000 }).catch(() => false)) return;
+
+  await emailInput.fill(email);
+  for (const selector of ['button:has-text("Continue")', 'button[type="submit"]', 'input[type="submit"]']) {
+    const button = page.locator(selector).first();
+    if (await button.isVisible({ timeout: 1500 }).catch(() => false)) {
+      await button.click({ force: true });
+      break;
+    }
+  }
+
+  const passwordInput = page.locator('input[type="password"], input[name="password"]').first();
+  if (await passwordInput.isVisible({ timeout: 15000 }).catch(() => false)) {
+    await passwordInput.fill(password);
+    for (const selector of ['button:has-text("Log in")', 'button:has-text("Login")', 'button:has-text("Sign in")', 'button[type="submit"]', 'input[type="submit"]']) {
+      const button = page.locator(selector).first();
+      if (await button.isVisible({ timeout: 1500 }).catch(() => false)) {
+        await button.click({ force: true });
+        break;
+      }
+    }
+    await page.waitForLoadState('domcontentloaded', { timeout: 20000 }).catch(() => {});
+  }
+}
+
+async function waitForTvHandoffPlansPage(page: any, email: string, password: string): Promise<string> {
+  const deadline = Date.now() + 45000;
+  while (Date.now() < deadline) {
+    await page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => {});
+    await completeTvHandoffLoginIfPrompted(page, email, password);
+
+    const url = String(page.url());
+    const lowerUrl = url.toLowerCase();
+    const hasPlansText = await page
+      .getByText(/choose your plan|select your plan|plans?|tierplans|plandetails|purchase this event/i)
+      .first()
+      .isVisible({ timeout: 1000 })
+      .catch(() => false);
+
+    if (
+      lowerUrl.includes('dazn.com') &&
+      (lowerUrl.includes('/plans') ||
+        lowerUrl.includes('page=tierplans') ||
+        lowerUrl.includes('page=plandetails') ||
+        lowerUrl.includes('/account/addon/purchase') ||
+        lowerUrl.includes('contextualppvid') ||
+        hasPlansText)
+    ) {
+      return url;
+    }
+
+    await page.waitForTimeout(1000);
+  }
+
+  throw new Error(`Yopmail DAZN link did not reach plans page. Last URL: ${page.url()}`);
+}
+
+async function openYopmailHandoffAndReachPlansPage(page: any, handoffUrl: string, email: string, password: string): Promise<string> {
+  const inbox = getYopmailInboxFromUrl(handoffUrl);
+  if (!inbox) throw new Error(`TV handoff Yopmail URL did not include an inbox login: ${handoffUrl}`);
+
+  console.log(`🌐 [TV Handoff] Opening Yopmail in existing-user browser: ${inbox}`);
+  await page.goto('https://www.yopmail.com/', { waitUntil: 'domcontentloaded', timeout: 60000 });
+
+  const loginInput = page.locator('#login, input[name="login"]').first();
+  if (await loginInput.isVisible({ timeout: 4000 }).catch(() => false)) {
+    await loginInput.fill(inbox);
+    const openInboxButton = page.locator('#refreshbut, button:has-text("Check Inbox"), button[title*="Check" i], input[type="submit"]').first();
+    await openInboxButton.click({ force: true, timeout: 5000 });
+  }
+
+  const inboxFrame = page.frameLocator('iframe#ifinbox');
+  let mailOpened = false;
+  for (let attempt = 1; attempt <= 8 && !mailOpened; attempt++) {
+    await page.locator('#refresh').click({ force: true, timeout: 1000 }).catch(() => {});
+    await page.locator('#refreshbut').click({ force: true, timeout: 1000 }).catch(() => {});
+    await page.waitForTimeout(2000);
+
+    const message = inboxFrame
+      .locator('div.m, button, a, [role="button"]')
+      .filter({ hasText: /dazn|joshua|prenga|pay-per-view|purchase|my account/i })
+      .first();
+
+    if (await message.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await message.click({ force: true });
+      mailOpened = true;
+      console.log(`✅ [TV Handoff] Opened DAZN Yopmail message on attempt ${attempt}`);
+    }
+  }
+
+  if (!mailOpened) {
+    throw new Error(`No DAZN purchase email found in Yopmail inbox for ${inbox}.`);
+  }
+
+  const mailFrame = page.frameLocator('iframe#ifmail');
+  const completeSignInLink = mailFrame
+    .locator('a')
+    .filter({ hasText: /complete\s+sign\s*-?\s*in\s+process|complete/i })
+    .first();
+  const daznLinks = mailFrame.locator('a[href*="dazn" i], a[href*="awstrack" i]');
+  const targetLink = await completeSignInLink.count().catch(() => 0) > 0
+    ? completeSignInLink
+    : daznLinks.first();
+
+  const targetHref = await targetLink.getAttribute('href').catch(() => '');
+  if (!targetHref) {
+    throw new Error('Opened Yopmail message, but no Complete Sign in process / DAZN link was found.');
+  }
+
+  console.log('✅ [TV Handoff] Opening Complete Sign in process link in the same existing-user browser page');
+  await page.goto(targetHref, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  const plansUrl = await waitForTvHandoffPlansPage(page, email, password);
+  console.log(`✅ [TV Handoff] Yopmail link reached DAZN plans page: ${plansUrl}`);
+  return plansUrl;
+}
+
 function throwLogged(error: Error): never {
   console.log(error.message);
   throw error;
@@ -413,7 +594,6 @@ for (const stateKey of userStatesToRun) {
       regionLocaleMap[REGION] ?? { locale: 'en-GB', timezoneId: 'Europe/London' };
 
     console.log(`Creating browser context with Locale: ${regionLocale}, Timezone: ${regionTimezone}...`);
-    const tvHandoffStorageState = process.env.TV_HANDOFF_STORAGE_STATE || path.resolve(process.cwd(), 'tv_handoff_storage_state.json');
     const context = await browser.newContext({
       // Keep the CI viewport stable; headed local runs follow the maximised window.
       viewport: isHeadless ? { width: 1920, height: 1080 } : null,
@@ -421,7 +601,6 @@ for (const stateKey of userStatesToRun) {
       reducedMotion: 'no-preference',
       locale: regionLocale,
       timezoneId: regionTimezone,
-      ...(TV_HANDOFF_MODE && fs.existsSync(tvHandoffStorageState) ? { storageState: tvHandoffStorageState } : {}),
       ...(recordVideo ? { recordVideo } : {}),
     });
 
@@ -434,6 +613,9 @@ for (const stateKey of userStatesToRun) {
 
     const page = await context.newPage();
     const results: any[] = [];
+    const tvPpvReportMetadata = TV_HANDOFF_MODE ? readTvPpvReportMetadata() : null;
+    const tvPpvReportStartTime = parseReportStartTime(tvPpvReportMetadata?.startTime);
+    appendTvPpvReportSteps(results, tvPpvReportMetadata);
     let capturedVideoPath: string | null = null;
 
     const finishRun = async (displayTier = tier, userStatusOverride?: string) => {
@@ -457,11 +639,13 @@ for (const stateKey of userStatesToRun) {
         tier,
         env: process.env.DAZN_ENV || 'prod',
         flowName: `${SOURCE} → ${tier} → ${ratePlan}`,
+        startTime: tvPpvReportStartTime,
         endTime: new Date(),
         excelPath,
         videoPath,
-        userStatus: userStatusOverride || (isMyAccount ? (process.env.USER_STATE || 'Freemium') : 'New User'),
+        userStatus: userStatusOverride || ((TV_HANDOFF_MODE || isMyAccount) ? (process.env.USER_STATE || 'Freemium') : 'New User'),
         userType: 'existing-user',
+        platform: getReportPlatform(),
         paymentMethod: PAYMENT_METHOD === 'gpay' ? 'Google Pay' : 'Credit Card',
       });
       if (folderPath) console.log(`\n📂 Report folder: ${folderPath}`);
@@ -1789,9 +1973,13 @@ for (const stateKey of userStatesToRun) {
         eventData['IS_RETURNING_USER'] = eventData.IS_RETURNING_USER;
         eventData['SIGNED_IN_AS_TEXT'] = eventData.SIGNED_IN_AS_TEXT;
 
-        await page.goto(tvHandoffUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
-        await page.waitForLoadState('domcontentloaded').catch(() => {});
-        postClickUrl = page.url();
+        if (isYopmailHandoffUrl(tvHandoffUrl)) {
+          postClickUrl = await openYopmailHandoffAndReachPlansPage(page, tvHandoffUrl, userEmail, userPassword);
+        } else {
+          await page.goto(tvHandoffUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+          await page.waitForLoadState('domcontentloaded').catch(() => {});
+          postClickUrl = page.url();
+        }
       } else if (isMyAccount) {
         console.log('⏳ Waiting for My Account page to fully render...');
 
@@ -2035,11 +2223,13 @@ for (const stateKey of userStatesToRun) {
             tier,
             env: process.env.DAZN_ENV || 'prod',
             flowName: `${SOURCE} → ${tier} → ${ratePlan}`,
+            startTime: tvPpvReportStartTime,
             endTime: new Date(),
             excelPath,
             videoPath,
-            userStatus: isMyAccount ? (process.env.USER_STATE || 'Freemium') : 'New User',
+            userStatus: (TV_HANDOFF_MODE || isMyAccount) ? (process.env.USER_STATE || 'Freemium') : 'New User',
             userType: 'existing-user',
+            platform: getReportPlatform(),
             paymentMethod: PAYMENT_METHOD === 'gpay' ? 'Google Pay' : 'Credit Card',
           });
           if (folderPath) console.log(`\n📂 Report folder: ${folderPath}`);
@@ -2169,11 +2359,13 @@ for (const stateKey of userStatesToRun) {
             tier,
             env: process.env.DAZN_ENV || 'prod',
             flowName: `${SOURCE} → ${tier} → ${ratePlan}`,
+            startTime: tvPpvReportStartTime,
             endTime: new Date(),
             excelPath,
             videoPath,
-            userStatus: isMyAccount ? (process.env.USER_STATE || 'Freemium') : 'New User',
+            userStatus: (TV_HANDOFF_MODE || isMyAccount) ? (process.env.USER_STATE || 'Freemium') : 'New User',
             userType: 'existing-user',
+            platform: getReportPlatform(),
             paymentMethod: PAYMENT_METHOD === 'gpay' ? 'Google Pay' : 'Credit Card',
           });
           if (folderPath2) console.log(`\n📂 Report folder: ${folderPath2}`);
@@ -4165,11 +4357,13 @@ for (const stateKey of userStatesToRun) {
         tier,
         env: process.env.DAZN_ENV || 'prod',
         flowName: `${SOURCE} → ${stateKey} → ${tier} → ${ratePlan}`,
+        startTime: tvPpvReportStartTime,
         endTime: new Date(),
         excelPath,
         videoPath,
-        userStatus: isMyAccount ? (process.env.USER_STATE || 'Freemium') : 'New User',
+        userStatus: (TV_HANDOFF_MODE || isMyAccount) ? (process.env.USER_STATE || 'Freemium') : 'New User',
         userType: 'existing-user',
+        platform: getReportPlatform(),
         paymentMethod: PAYMENT_METHOD === 'gpay' ? 'Google Pay' : 'Credit Card',
       });
       if (folderPath) console.log(`\n📂 Report folder: ${folderPath}`);
@@ -4204,7 +4398,7 @@ for (const stateKey of userStatesToRun) {
           context: {
             region: REGION,
             environment: process.env.DAZN_ENV || 'prod',
-            platform: 'web',
+            platform: getReportPlatform(),
             flow: `${SOURCE} (${stateKey})`,
             event: eventData.PPV_NAME,
             userState: stateKey,

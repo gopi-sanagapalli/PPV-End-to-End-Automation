@@ -3,6 +3,7 @@
 declare var browser: any;
 
 import { execSync } from 'child_process';
+import * as fs from 'fs';
 import * as path from 'path';
 import { writeHandoffUrl, readHandoffUrl, clearHandoffUrl } from '../../utils/handoff';
 import { prepareAndroidApp } from '../../utils/androidSetup';
@@ -26,7 +27,39 @@ const BROWSER_LOGIN_COMPLETE_SETTLE_MS = Number(process.env.BROWSER_LOGIN_COMPLE
 const PPV_PURCHASE_BACK_SETTLE_MS = Number(process.env.PPV_PURCHASE_BACK_SETTLE_MS || 5000);
 const FIRETV_POST_LOGIN_BANNER_WAIT_MS = Number(process.env.FIRETV_POST_LOGIN_BANNER_WAIT_MS || 8000);
 const FIRETV_POST_LOGIN_AFTER_BACK_WAIT_MS = Number(process.env.FIRETV_POST_LOGIN_AFTER_BACK_WAIT_MS || 10000);
-const TV_HANDOFF_STORAGE_STATE = process.env.TV_HANDOFF_STORAGE_STATE || path.resolve(__dirname, '../../../tv_handoff_storage_state.json');
+const TV_PPV_REPORT_METADATA = process.env.TV_PPV_REPORT_METADATA || path.resolve(__dirname, '../../../tv_ppv_report_metadata.json');
+
+type TvPpvReportStep = {
+  page: string;
+  field: string;
+  expected: string;
+  actual: string;
+  status: 'PASS' | 'FAIL';
+};
+
+const tvPpvReportMetadata: { startTime: string; steps: TvPpvReportStep[] } = {
+  startTime: new Date().toISOString(),
+  steps: [],
+};
+
+function writeTvPpvReportMetadata(): void {
+  try {
+    fs.writeFileSync(TV_PPV_REPORT_METADATA, JSON.stringify(tvPpvReportMetadata, null, 2), 'utf-8');
+  } catch (error: any) {
+    console.warn(`⚠️ Could not write TV PPV report metadata: ${error?.message || error}`);
+  }
+}
+
+function recordTvPpvReportStep(field: string, expected: string, actual: string, status: 'PASS' | 'FAIL' = 'PASS'): void {
+  tvPpvReportMetadata.steps.push({
+    page: 'TV PPV',
+    field,
+    expected,
+    actual,
+    status,
+  });
+  writeTvPpvReportMetadata();
+}
 
 // TV PPV flow outline:
 // 1. Reset/launch DAZN app and wait for a usable TV entry screen.
@@ -681,6 +714,14 @@ function extractEmailFromText(value: string): string {
   return match ? match[0].replace(/[.,;:]+$/, '') : '';
 }
 
+function isSupportedTvHandoffUrl(url: string): boolean {
+  return url.includes('dazn.com') || url.includes('yopmail.com');
+}
+
+function buildYopmailHandoffUrl(email: string): string {
+  return `https://www.yopmail.com/?login=${encodeURIComponent(email.split('@')[0])}`;
+}
+
 async function extractTvPaywallEmail(driver: any): Promise<string> {
   const source = await driver.getPageSource().catch(() => '');
   const email = extractEmailFromText(source);
@@ -688,157 +729,6 @@ async function extractTvPaywallEmail(driver: any): Promise<string> {
     console.log(`✅ TV paywall email detected: ${email}`);
   }
   return email;
-}
-
-async function openYopmailAndCapturePlansUrl(email: string): Promise<string> {
-  const inbox = email.split('@')[0];
-  const { chromium } = require('@playwright/test');
-  const playwrightBrowser = await chromium.launch({ headless: false });
-  const context = await playwrightBrowser.newContext();
-  const page = await context.newPage();
-  const credentials = resolveRegionCredentials();
-
-  const clickFirstVisible = async (selectors: string[], label: string): Promise<boolean> => {
-    for (const selector of selectors) {
-      const el = page.locator(selector).first();
-      if (await el.isVisible({ timeout: 1500 }).catch(() => false)) {
-        await el.click({ force: true });
-        console.log(`✅ ${label} via ${selector}`);
-        return true;
-      }
-    }
-    return false;
-  };
-
-  const completeLoginIfPrompted = async (targetPage: any): Promise<void> => {
-    const emailInput = targetPage.locator('input[type="email"], input[name="email"]').first();
-    if (!await emailInput.isVisible({ timeout: 4000 }).catch(() => false)) return;
-
-    await emailInput.fill(credentials.email);
-    for (const selector of ['button:has-text("Continue")', 'button[type="submit"]', 'input[type="submit"]']) {
-      const button = targetPage.locator(selector).first();
-      if (await button.isVisible({ timeout: 1500 }).catch(() => false)) {
-        await button.click({ force: true });
-        break;
-      }
-    }
-
-    const passwordInput = targetPage.locator('input[type="password"], input[name="password"]').first();
-    if (await passwordInput.isVisible({ timeout: 15000 }).catch(() => false)) {
-      await passwordInput.fill(credentials.password);
-      for (const selector of ['button:has-text("Log in")', 'button:has-text("Login")', 'button:has-text("Sign in")', 'button[type="submit"]', 'input[type="submit"]']) {
-        const button = targetPage.locator(selector).first();
-        if (await button.isVisible({ timeout: 1500 }).catch(() => false)) {
-          await button.click({ force: true });
-          break;
-        }
-      }
-      await targetPage.waitForLoadState('domcontentloaded', { timeout: 20000 }).catch(() => {});
-    }
-  };
-
-  const waitForPlansPage = async (targetPage: any): Promise<string> => {
-    const deadline = Date.now() + 45000;
-    while (Date.now() < deadline) {
-      await targetPage.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => {});
-      await completeLoginIfPrompted(targetPage);
-
-      const url = String(targetPage.url());
-      const lowerUrl = url.toLowerCase();
-      const hasPlansText = await targetPage
-        .getByText(/choose your plan|select your plan|plans?|tierplans|plandetails|purchase this event/i)
-        .first()
-        .isVisible({ timeout: 1000 })
-        .catch(() => false);
-
-      if (
-        lowerUrl.includes('dazn.com') &&
-        (lowerUrl.includes('/plans') ||
-          lowerUrl.includes('page=tierplans') ||
-          lowerUrl.includes('page=plandetails') ||
-          lowerUrl.includes('/account/addon/purchase') ||
-          lowerUrl.includes('contextualppvid') ||
-          hasPlansText)
-      ) {
-        return url;
-      }
-
-      await targetPage.waitForTimeout(1000);
-    }
-
-    throw new Error(`Yopmail DAZN link did not reach plans page. Last URL: ${targetPage.url()}`);
-  };
-
-  try {
-    console.log(`🌐 Opening Yopmail inbox for TV paywall email: ${email}`);
-    await page.goto('https://www.yopmail.com/', { waitUntil: 'domcontentloaded', timeout: 60000 });
-
-    const loginInput = page.locator('#login, input[name="login"]').first();
-    if (await loginInput.isVisible({ timeout: 4000 }).catch(() => false)) {
-      await loginInput.fill(inbox);
-      await clickFirstVisible(['#refreshbut', 'button:has-text("Check Inbox")', 'button[title*="Check" i]', 'input[type="submit"]'], 'Yopmail inbox open');
-    }
-
-    const inboxFrame = page.frameLocator('iframe#ifinbox');
-    let mailOpened = false;
-    for (let attempt = 1; attempt <= 8 && !mailOpened; attempt++) {
-      await page.locator('#refresh').click({ force: true, timeout: 1000 }).catch(() => {});
-      await page.locator('#refreshbut').click({ force: true, timeout: 1000 }).catch(() => {});
-      await page.waitForTimeout(2000);
-
-      const message = inboxFrame
-        .locator('div.m, button, a, [role="button"]')
-        .filter({ hasText: /dazn|joshua|prenga|pay-per-view|purchase|my account/i })
-        .first();
-
-      if (await message.isVisible({ timeout: 2000 }).catch(() => false)) {
-        await message.click({ force: true });
-        mailOpened = true;
-        console.log(`✅ Opened DAZN Yopmail message on attempt ${attempt}`);
-      }
-    }
-
-    if (!mailOpened) {
-      throw new Error(`No DAZN purchase email found in Yopmail inbox for ${email}.`);
-    }
-
-    const mailFrame = page.frameLocator('iframe#ifmail');
-    const completeSignInLink = mailFrame
-      .locator('a')
-      .filter({ hasText: /complete\s+sign\s*-?\s*in\s+process|complete/i })
-      .first();
-    const daznLinks = mailFrame.locator('a[href*="dazn" i], a[href*="awstrack" i]');
-    const targetLink = await completeSignInLink.count().catch(() => 0) > 0
-      ? completeSignInLink
-      : daznLinks.first();
-
-    const targetHref = await targetLink.getAttribute('href').catch(() => '');
-    if (!targetHref) {
-      throw new Error('Opened Yopmail message, but no Complete Sign in process / DAZN link was found.');
-    }
-
-    const popupPromise = context.waitForEvent('page', { timeout: 6000 }).catch(() => null);
-    const clicked = await targetLink.click({ force: true, timeout: 4000 }).then(() => true).catch((error: any) => {
-      console.warn(`⚠️ Yopmail CTA click failed, navigating to CTA href directly: ${error.message}`);
-      return false;
-    });
-    const popup = await popupPromise;
-    const daznPage = popup || page;
-
-    if (!clicked) {
-      await daznPage.goto(targetHref, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    }
-
-    await daznPage.bringToFront().catch(() => {});
-
-    const plansUrl = await waitForPlansPage(daznPage);
-    await context.storageState({ path: TV_HANDOFF_STORAGE_STATE }).catch(() => {});
-    console.log(`📝 TV handoff browser storage saved to: ${TV_HANDOFF_STORAGE_STATE}`);
-    console.log(`✅ Yopmail DAZN link reached plans page: ${plansUrl}`);
-    return plansUrl;
-  } finally {
-    await playwrightBrowser.close().catch(() => {});
-  }
 }
 
 // After the TV app opens the PPV paywall, capture the web handoff URL that the
@@ -849,6 +739,7 @@ async function captureTvPpvHandoffUrl(driver: any): Promise<void> {
   if (checkoutUrl) {
     writeHandoffUrl(checkoutUrl);
     await driver.saveScreenshot('./test-results/android_tv_handoff_success.png').catch(() => {});
+    recordTvPpvReportStep('TV handoff captured', 'DAZN checkout URL', 'QR checkout URL captured');
     console.log(`✅ TV handoff URL captured from QR: ${checkoutUrl}`);
     return;
   }
@@ -868,11 +759,13 @@ async function captureTvPpvHandoffUrl(driver: any): Promise<void> {
   if ((!checkoutUrl || !checkoutUrl.includes('dazn.com')) && TV_TARGET === 'firetv') {
     const paywallEmail = await extractTvPaywallEmail(driver);
     if (paywallEmail.toLowerCase().endsWith('@yopmail.com')) {
-      checkoutUrl = await openYopmailAndCapturePlansUrl(paywallEmail);
+      checkoutUrl = buildYopmailHandoffUrl(paywallEmail);
+      recordTvPpvReportStep('Paywall email captured', 'Yopmail address visible on TV paywall', paywallEmail);
+      console.log(`✅ TV handoff will continue via Yopmail in existing-user browser: ${checkoutUrl}`);
     }
   }
 
-  if (!checkoutUrl || !checkoutUrl.includes('dazn.com')) {
+  if (!checkoutUrl || !isSupportedTvHandoffUrl(checkoutUrl)) {
     await driver.saveScreenshot('./test-results/android_tv_checkout_url_missing.png').catch(() => {});
     throw new Error('Could not capture DAZN checkout URL from TV flow.');
   }
@@ -880,6 +773,7 @@ async function captureTvPpvHandoffUrl(driver: any): Promise<void> {
   // Step 6: Save the final DAZN handoff URL for the next automation stage.
   writeHandoffUrl(checkoutUrl);
   await driver.saveScreenshot('./test-results/android_tv_handoff_success.png').catch(() => {});
+  recordTvPpvReportStep('TV handoff captured', 'Supported handoff URL', checkoutUrl.includes('yopmail.com') ? 'Yopmail inbox URL captured' : 'DAZN checkout URL captured');
   console.log(`✅ TV handoff URL captured: ${checkoutUrl}`);
 }
 
@@ -887,6 +781,9 @@ describe('DAZN TV PPV Android Handoff', () => {
   before(async () => {
     // Step 1: start every TV run from a clean handoff state and prepared app.
     clearHandoffUrl();
+    tvPpvReportMetadata.startTime = new Date().toISOString();
+    tvPpvReportMetadata.steps = [];
+    writeTvPpvReportMetadata();
     require('fs').mkdirSync('./test-results', { recursive: true });
 
     const isFireTv = TV_TARGET === 'firetv';
@@ -896,6 +793,7 @@ describe('DAZN TV PPV Android Handoff', () => {
       waitForHome: TV_TARGET === 'firetv' ? false : true,
       acceptCookiesOnly: isFireTv,
     });
+    recordTvPpvReportStep('TV app prepared', 'DAZN app reset and launched', `${TV_TARGET} / ${APP_PACKAGE}`);
 
     if (TV_TARGET === 'androidtv') {
       // Step 2: Android TV prod can start on QR login after data clear.
@@ -903,6 +801,7 @@ describe('DAZN TV PPV Android Handoff', () => {
       await primeAndroidTvFocus(browser);
       if (await waitForQrLoginPage(browser)) {
         await runBrowserLoginAndSwitchBack(browser, { allowHandoffFallback: false });
+        recordTvPpvReportStep('TV QR login completed', 'Browser login returns to DAZN app', 'Login completed');
         await primeAndroidTvFocus(browser);
       }
     }
@@ -963,11 +862,13 @@ describe('DAZN TV PPV Android Handoff', () => {
       }
 
       await runBrowserLoginAndSwitchBack(driver, { allowHandoffFallback: false });
+      recordTvPpvReportStep('TV QR login completed', 'Browser login returns to DAZN app', 'Login completed');
 
       const opened = await openTvPpvFlow(driver);
       if (!opened) {
         throw new Error(`TV PPV flow did not reach paywall for SOURCE=${SOURCE}`);
       }
+      recordTvPpvReportStep('TV PPV paywall opened', 'Schedule PPV tile opens paywall', PPV_NAME);
 
       await captureTvPpvHandoffUrl(driver);
       return;
@@ -978,6 +879,7 @@ describe('DAZN TV PPV Android Handoff', () => {
     if (!opened) {
       throw new Error(`TV PPV flow did not reach paywall for SOURCE=${SOURCE}`);
     }
+    recordTvPpvReportStep('TV PPV paywall opened', 'Configured PPV source opens paywall', PPV_NAME);
 
     await captureTvPpvHandoffUrl(driver);
   });

@@ -52,7 +52,6 @@ export USER_STATE="$WEB_USER_STATE"
 export LOGIN_FIRST="${LOGIN_FIRST:-true}"
 export HEADLESS="${HEADLESS:-false}"
 export TV_HANDOFF_MODE="${TV_HANDOFF_MODE:-true}"
-export TV_HANDOFF_STORAGE_STATE="${TV_HANDOFF_STORAGE_STATE:-$ROOT_DIR/tv_handoff_storage_state.json}"
 export ANDROID_HOME="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
 export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
 
