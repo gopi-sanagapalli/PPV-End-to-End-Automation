@@ -918,9 +918,35 @@ export function resolveExpected(
     return hasExplicitDateAndTime(template) ? getDynamicDateTimeBadge(template) : template;
   }
 
-  // Only the configured event-date values can be rendered as relative labels
-  // (for example, "Tomorrow at 16:00"). Do not apply this to popup, search,
-  // schedule, or other date-like fields: those surfaces have their own format.
+  // WATCH LIVE fields (e.g. search, home-boxing-upcoming cards)
+  if (/watch live/i.test(template)) {
+    const match = template.match(/(watch live\s*)/i);
+    const prefix = match ? match[1] : 'WATCH LIVE ';
+
+    let dynamicCandidates = '';
+    try {
+      const { calculateDynamicPpvBannerDate } = require('./dateUtils');
+      if (calculateDynamicPpvBannerDate && eventData && Object.keys(eventData).length > 0) {
+        dynamicCandidates = calculateDynamicPpvBannerDate(eventData);
+      }
+    } catch {}
+
+    if (!dynamicCandidates) {
+      const datePart = template.replace(/watch live\s*/i, '').trim();
+      if (datePart && hasExplicitDateAndTime(datePart)) {
+        dynamicCandidates = getDynamicDateTimeBadge(datePart);
+      }
+    }
+
+    if (dynamicCandidates) {
+      const candidatesList = dynamicCandidates.split('|');
+      const prefixed = candidatesList.map(c => `${prefix}${c}`);
+      prefixed.push(template);
+      return Array.from(new Set(prefixed)).join('|');
+    }
+  }
+
+  // Standard relative date sources (for example, "Tomorrow at 16:00")
   const relativeDateSource = /\{\{\s*(?:PPV_DATE|PPV_PAGE_DATE|LANDING_BANNER_DATE)\s*\}\}/i.test(rawExpectation) ||
     field === 'banner - event date' ||
     field === 'ppv date and time text';

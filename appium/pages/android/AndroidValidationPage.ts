@@ -41,10 +41,10 @@ export function parseTimeAndWeekday(val: string): { weekday?: string; hour: numb
 
   const normalized = normalizeDateString(val);
   const weekday = normalized.match(/\b(sun|mon|tue|wed|thu|fri|sat)[a-z]*\b/i)?.[1]?.toLowerCase();
-  const timeMatch = normalized.match(/(?:\bat\b|•|\s|^)\s*(\d{1,2}):(\d{2})(?:\s*(am|pm))?\b/i) || 
-                    normalized.match(/(?:\bat\b|•|\s|^)\s*(\d{1,2})\s*(am|pm)\b/i);
+  const timeMatch = normalized.match(/(?:\bat\b|•|\s|^)\s*(\d{1,2}):(\d{2})(?:\s*(am|pm))?\b/i) ||
+    normalized.match(/(?:\bat\b|•|\s|^)\s*(\d{1,2})\s*(am|pm)\b/i);
   if (!timeMatch) return null;
-  
+
   let hour = parseInt(timeMatch[1], 10);
   let minute = 0;
   let meridiem;
@@ -187,7 +187,7 @@ export class AndroidValidationPage extends AndroidBasePage {
       const hasWatch = await this.driver.$('android=new UiSelector().textContains("watch")').isDisplayed().catch(() => false);
       const hasPaste = await this.driver.$('android=new UiSelector().textContains("Paste")').isDisplayed().catch(() => false);
       const hasLink = await this.driver.$('android=new UiSelector().textContains("link")').isDisplayed().catch(() => false);
-      
+
       if (hasCopy && (hasWatch || hasPaste || hasLink)) {
         isLoaded = true;
         break;
@@ -550,7 +550,7 @@ export class AndroidValidationPage extends AndroidBasePage {
     results: AndroidValidationResult[],
   ): Promise<void> {
     console.log(`🤖 Starting validation of "Don't Miss" tile...`);
-    
+
     let evaluation = {
       image: true,
       title: true,
@@ -561,7 +561,7 @@ export class AndroidValidationPage extends AndroidBasePage {
       date_read: dateExpected,
       findings: ['Validated via local heuristics']
     };
-    
+
     // A. Try Gemini visual detection first if API key is present
     const apiKey = process.env.GEMINI_API_KEY;
     let geminiUsed = false;
@@ -613,10 +613,12 @@ export class AndroidValidationPage extends AndroidBasePage {
         };
 
         const payload = Buffer.from(JSON.stringify({
-          contents: [{ parts: [
-            { inline_data: { mime_type: 'image/png', data: screenshotBase64 } },
-            { text: prompt }
-          ] }],
+          contents: [{
+            parts: [
+              { inline_data: { mime_type: 'image/png', data: screenshotBase64 } },
+              { text: prompt }
+            ]
+          }],
           generationConfig: {
             responseMimeType: 'application/json',
             responseSchema: schema,
@@ -672,15 +674,15 @@ export class AndroidValidationPage extends AndroidBasePage {
       try {
         const pageSource = await this.driver.getPageSource();
         const { width, height } = await this.driver.getWindowSize();
-        
+
         // Find rail header position dynamically
         const headerEl = await this.driver.$('android=new UiSelector().text("Don\'t Miss")');
         const hLoc = await headerEl.getLocation().catch(() => ({ x: 0, y: 1000 }));
         const hSize = await headerEl.getSize().catch(() => ({ width: 1080, height: 50 }));
-        
+
         const railTop = hLoc.y + hSize.height;
         const railBottom = railTop + Math.round(height * 0.25);
-        
+
         // Flat-parse all elements in XML
         const elements: any[] = [];
         const matches = pageSource.matchAll(/<([a-zA-Z0-9.]+)\b([^>]*)bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/g);
@@ -694,7 +696,7 @@ export class AndroidValidationPage extends AndroidBasePage {
           const clickable = attrs.includes('clickable="true"');
           elements.push({ tag, attrs, left, top, right, bottom, clickable });
         }
-        
+
         const keywords = [
           titleExpected.toLowerCase(),
           'joshua', 'prenga', 'aj', 'spence', 'tszyu',
@@ -709,7 +711,7 @@ export class AndroidValidationPage extends AndroidBasePage {
               bestTile = el;
               break;
             }
-            
+
             const childMatch = elements.some(child => {
               if (child === el) return false;
               if (child.left >= el.left && child.right <= el.right && child.top >= el.top && child.bottom <= el.bottom) {
@@ -796,7 +798,7 @@ export class AndroidValidationPage extends AndroidBasePage {
     await pushResult('PPV Title', titleExpected, evaluation.title_read || 'Not found', evaluation.title);
     await pushResult('PPV Date', dateExpected, evaluation.date_read || 'Not found', evaluation.date);
     await pushResult('PPV Image Present', 'Yes', evaluation.image ? 'Yes' : 'No', evaluation.image);
-    
+
     if (isUltimateUser) {
       // Ultimate users have content access included, so there is NO lock icon on the PPV tile
       const lockPresent = Boolean(evaluation.lock_icon);
@@ -806,7 +808,7 @@ export class AndroidValidationPage extends AndroidBasePage {
       const lockPresent = Boolean(evaluation.lock_icon);
       await pushResult('Lock Icon', 'Optional (Yes/No)', lockPresent ? 'Yes' : 'No', true);
     }
-    
+
     // Bell icon is optional/configuration-dependent on mobile tiles
     const bellPresent = Boolean(evaluation.bell_icon);
     await pushResult('Bell Icon', 'Optional (Yes/No)', bellPresent ? 'Yes' : 'No', true);
@@ -820,7 +822,7 @@ export class AndroidValidationPage extends AndroidBasePage {
     results: AndroidValidationResult[],
   ): Promise<void> {
     console.log(`\n🔍 [${surface}] Running validations...`);
-    
+
     if ((source === 'home-page-dont-miss' || source === 'home-boxing-tile' || source.includes('dont-miss')) && surface === 'PPV Tile') {
       const titleExpected = eventData.MOBILE_BANNER_TITLE || eventData.PPV_DISPLAY_NAME || eventData.PPV_NAME;
       const dateExpected = eventData.PPV_DATE || eventData.LANDING_PAGE_PPV_DATE || '';
@@ -895,14 +897,14 @@ export class AndroidValidationPage extends AndroidBasePage {
         const expectedDateTime = parseBannerDateTime(expectedVal);
         const semanticMatch = expectedDateTime
           ? texts.find(t => {
-              const actualDateTime = parseBannerDateTime(t);
-              return !!actualDateTime &&
-                actualDateTime.day === expectedDateTime.day &&
-                actualDateTime.month === expectedDateTime.month &&
-                actualDateTime.hour === expectedDateTime.hour &&
-                actualDateTime.minute === expectedDateTime.minute &&
-                (!expectedDateTime.weekday || !actualDateTime.weekday || actualDateTime.weekday === expectedDateTime.weekday);
-            })
+            const actualDateTime = parseBannerDateTime(t);
+            return !!actualDateTime &&
+              actualDateTime.day === expectedDateTime.day &&
+              actualDateTime.month === expectedDateTime.month &&
+              actualDateTime.hour === expectedDateTime.hour &&
+              actualDateTime.minute === expectedDateTime.minute &&
+              (!expectedDateTime.weekday || !actualDateTime.weekday || actualDateTime.weekday === expectedDateTime.weekday);
+          })
           : undefined;
         if (semanticMatch) return { isMatch: true, actualVal: semanticMatch };
 
@@ -910,10 +912,10 @@ export class AndroidValidationPage extends AndroidBasePage {
         const parseTimeAndWeekday = (val: string) => {
           const normalized = normalizeDateString(val);
           const weekday = normalized.match(/\b(sun|mon|tue|wed|thu|fri|sat)[a-z]*\b/i)?.[1]?.toLowerCase();
-          const timeMatch = normalized.match(/(?:\bat\b|•|\s|^)\s*(\d{1,2}):(\d{2})(?:\s*(am|pm))?\b/i) || 
-                            normalized.match(/(?:\bat\b|•|\s|^)\s*(\d{1,2})\s*(am|pm)\b/i);
+          const timeMatch = normalized.match(/(?:\bat\b|•|\s|^)\s*(\d{1,2}):(\d{2})(?:\s*(am|pm))?\b/i) ||
+            normalized.match(/(?:\bat\b|•|\s|^)\s*(\d{1,2})\s*(am|pm)\b/i);
           if (!timeMatch) return null;
-          
+
           let hour = parseInt(timeMatch[1], 10);
           let minute = 0;
           let meridiem;
@@ -959,7 +961,7 @@ export class AndroidValidationPage extends AndroidBasePage {
         const pageSourceMatch = pageSource.match(dateRegex);
         if (pageSourceMatch) return { isMatch: true, actualVal: pageSourceMatch[0] };
 
-        const dateLike = texts.find(t => 
+        const dateLike = texts.find(t =>
           /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|sun|mon|tue|wed|thu|fri|sat)\b/i.test(t) ||
           /\d{1,2}(st|nd|rd|th)?\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i.test(t) ||
           /\d{1,2}:\d{2}/.test(t)
@@ -988,11 +990,13 @@ export class AndroidValidationPage extends AndroidBasePage {
       await pushResult('PPV Title', titleExpected, isTitlePresent ? titleExpected : 'Not found', isTitlePresent);
 
       // 3. Date and Time
-      const region = (eventData.DAZN_REGION || process.env.DAZN_REGION || 'GB').toUpperCase();
+      const { calculateDynamicPpvBannerDate } = require('../../../utils/dateUtils');
       const dateTimeTemplate = eventData.MOBILE_BANNER_DATE_TIME || eventData.MOBILE_BANNER_DATE || eventData.PPV_DATE;
-      const expectedDate = getDynamicDateTimeBadge 
-        ? getDynamicDateTimeBadge(dateTimeTemplate, getNowForRegion ? getNowForRegion(region) : undefined) 
-        : dateTimeTemplate;
+      const expectedDate = calculateDynamicPpvBannerDate 
+        ? calculateDynamicPpvBannerDate({ ...eventData, PLATFORM: 'android' }) 
+        : (getDynamicDateTimeBadge 
+          ? getDynamicDateTimeBadge(dateTimeTemplate, getNowForRegion ? getNowForRegion(region) : undefined) 
+          : dateTimeTemplate);
       
       const dateCheck = checkDateTimeMatch(expectedDate);
       await pushResult('Date and Time', expectedDate, dateCheck.actualVal, dateCheck.isMatch);
@@ -1240,7 +1244,7 @@ export class AndroidValidationPage extends AndroidBasePage {
           console.log(`  🔎 [Banner - Event Date] Looking for: "${expClean}"`);
           console.log(`  🔎 [Banner - Event Date] texts array (${texts.length} items):`, JSON.stringify(texts.slice(0, 30)));
           console.log(`  🔎 [Banner - Event Date] pageSource includes expected? ${normalizeDateString(pageSource).includes(expClean)}`);
-          
+
           const debugParts = expClean.split(/\s+/);
           for (const dp of debugParts) {
             console.log(`  🔎 [Banner - Event Date] pageSource includes "${dp}"? ${normalizeDateString(pageSource).includes(dp)}`);
@@ -1276,69 +1280,69 @@ export class AndroidValidationPage extends AndroidBasePage {
             const expectedDateTime = parseBannerDateTime(expectedValue);
             const semanticMatch = expectedDateTime
               ? texts.find(t => {
-                  const actualDateTime = parseBannerDateTime(t);
-                  return !!actualDateTime &&
-                    actualDateTime.day === expectedDateTime.day &&
-                    actualDateTime.month === expectedDateTime.month &&
-                    actualDateTime.hour === expectedDateTime.hour &&
-                    actualDateTime.minute === expectedDateTime.minute &&
-                    (!expectedDateTime.weekday || !actualDateTime.weekday || actualDateTime.weekday === expectedDateTime.weekday);
-                })
+                const actualDateTime = parseBannerDateTime(t);
+                return !!actualDateTime &&
+                  actualDateTime.day === expectedDateTime.day &&
+                  actualDateTime.month === expectedDateTime.month &&
+                  actualDateTime.hour === expectedDateTime.hour &&
+                  actualDateTime.minute === expectedDateTime.minute &&
+                  (!expectedDateTime.weekday || !actualDateTime.weekday || actualDateTime.weekday === expectedDateTime.weekday);
+              })
               : undefined;
             if (semanticMatch) {
               actualValue = semanticMatch;
               isMatch = true;
             } else {
-            // Try combining adjacent text pieces that together form the date
-            const joined = normalizeDateString(texts.join(' '));
-            if (joined.includes(expClean)) {
-              actualValue = expectedValue;
-              isMatch = true;
-            } else if (normalizeDateString(pageSource).includes(expClean)) {
-              actualValue = expectedValue;
-              isMatch = true;
-            } else {
-              // Try partial component checks: day + month components all present
-              const dateParts = expClean.split(/\s+/).filter(p => p.length > 1 && p !== 'at' && p !== '•');
-              const allPartsFound = dateParts.length > 0 && dateParts.every(part =>
-                joined.includes(part) || normalizeDateString(pageSource).includes(part)
-              );
-              if (allPartsFound) {
+              // Try combining adjacent text pieces that together form the date
+              const joined = normalizeDateString(texts.join(' '));
+              if (joined.includes(expClean)) {
+                actualValue = expectedValue;
+                isMatch = true;
+              } else if (normalizeDateString(pageSource).includes(expClean)) {
                 actualValue = expectedValue;
                 isMatch = true;
               } else {
-                // Try matching a dynamic date format: e.g. "Sun 26th July at 12:30am", "25 JUL 2:00 PM"
-                const dateRegex = /\b((Sun|Mon|Tue|Wed|Thu|Fri|Sat)[a-z]*\s+)?\d{1,2}(?:st|nd|rd|th)?\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(?:at|•)?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?/i;
-                const dynamicDateMatch = texts.find(t => dateRegex.test(t));
-                if (dynamicDateMatch) {
-                  actualValue = dynamicDateMatch;
+                // Try partial component checks: day + month components all present
+                const dateParts = expClean.split(/\s+/).filter(p => p.length > 1 && p !== 'at' && p !== '•');
+                const allPartsFound = dateParts.length > 0 && dateParts.every(part =>
+                  joined.includes(part) || normalizeDateString(pageSource).includes(part)
+                );
+                if (allPartsFound) {
+                  actualValue = expectedValue;
                   isMatch = true;
                 } else {
-                  const pageSourceMatch = pageSource.match(dateRegex);
-                  if (pageSourceMatch) {
-                    actualValue = pageSourceMatch[0];
+                  // Try matching a dynamic date format: e.g. "Sun 26th July at 12:30am", "25 JUL 2:00 PM"
+                  const dateRegex = /\b((Sun|Mon|Tue|Wed|Thu|Fri|Sat)[a-z]*\s+)?\d{1,2}(?:st|nd|rd|th)?\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(?:at|•)?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?/i;
+                  const dynamicDateMatch = texts.find(t => dateRegex.test(t));
+                  if (dynamicDateMatch) {
+                    actualValue = dynamicDateMatch;
                     isMatch = true;
                   } else {
-                    // FALLBACK: Find a date-like text element to show in actualValue on fail
-                    const dateLike = texts.find(t => 
-                      /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|sun|mon|tue|wed|thu|fri|sat)\b/i.test(t) ||
-                      /\d{1,2}(st|nd|rd|th)?\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i.test(t) ||
-                      /\d{1,2}:\d{2}/.test(t)
-                    );
-                    if (dateLike) {
-                      actualValue = dateLike;
-                    } else if (texts.length > 0) {
-                      const titleClean = String(titleExpected || '').toLowerCase();
-                      const fallback = texts.find(t => {
-                        const tl = t.toLowerCase();
-                        return tl !== titleClean && !tl.includes('boxing') && !tl.includes('matchroom');
-                      });
-                      if (fallback) actualValue = fallback;
+                    const pageSourceMatch = pageSource.match(dateRegex);
+                    if (pageSourceMatch) {
+                      actualValue = pageSourceMatch[0];
+                      isMatch = true;
+                    } else {
+                      // FALLBACK: Find a date-like text element to show in actualValue on fail
+                      const dateLike = texts.find(t =>
+                        /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|sun|mon|tue|wed|thu|fri|sat)\b/i.test(t) ||
+                        /\d{1,2}(st|nd|rd|th)?\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i.test(t) ||
+                        /\d{1,2}:\d{2}/.test(t)
+                      );
+                      if (dateLike) {
+                        actualValue = dateLike;
+                      } else if (texts.length > 0) {
+                        const titleClean = String(titleExpected || '').toLowerCase();
+                        const fallback = texts.find(t => {
+                          const tl = t.toLowerCase();
+                          return tl !== titleClean && !tl.includes('boxing') && !tl.includes('matchroom');
+                        });
+                        if (fallback) actualValue = fallback;
+                      }
                     }
                   }
                 }
               }
-            }
             }
           }
         } else if (
@@ -1422,7 +1426,7 @@ export class AndroidValidationPage extends AndroidBasePage {
               const actualClean = watchLiveEl.replace(/[\u200b\u200c\u200d\ufeff]/g, '').trim().toLowerCase();
               isMatch = actualClean === expectedClean || actualClean.includes(expectedClean) || expectedClean.includes(actualClean);
               if (!isMatch) {
-                const cleanWatchLive = (val: string) => 
+                const cleanWatchLive = (val: string) =>
                   val.toLowerCase().replace(/\bwatch\s+live\b/gi, '').trim();
                 const expParsed = parseTimeAndWeekday(cleanWatchLive(expectedValue));
                 const actParsed = parseTimeAndWeekday(cleanWatchLive(watchLiveEl));
@@ -1436,6 +1440,20 @@ export class AndroidValidationPage extends AndroidBasePage {
               actualValue = expectedValue;
               isMatch = true;
             }
+          }
+        }
+
+        if (isMatch && expectedValue.includes('|')) {
+          const candList = expectedValue.split('|').map(c => c.trim());
+          const aClean = actualValue.trim().toLowerCase();
+          const matchedCand = candList.find(c => {
+            const cClean = c.toLowerCase();
+            return aClean === cClean || aClean.includes(cClean) || cClean.includes(aClean);
+          });
+          if (matchedCand) {
+            expectedValue = matchedCand;
+          } else {
+            expectedValue = candList[0];
           }
         }
 
@@ -1459,7 +1477,7 @@ export class AndroidValidationPage extends AndroidBasePage {
           if (!fs.existsSync(SHOTS_DIR)) fs.mkdirSync(SHOTS_DIR, { recursive: true });
           screenshot = path.resolve(SHOTS_DIR, `android_${String(surface || 'page').replace(/[^a-zA-Z0-9]/g, '_')}_not_present_${Date.now()}.png`);
           await this.driver.saveScreenshot(screenshot);
-        } catch {}
+        } catch { }
       }
       console.log(`  ${isPresent ? '✅' : '❌'} [${presenceField}] expected="Present" actual="${isPresent ? 'Present' : 'Not present'}"`);
       results.push({
@@ -1482,10 +1500,10 @@ export class AndroidValidationPage extends AndroidBasePage {
             compare(t, expectedValue) ||
             t.toLowerCase().includes(expectedValue.replace(/[\u200b\u200c\u200d\ufeff]/g, '').trim().toLowerCase())
           );
-          if (matched) { 
-            actualVal = matched; 
-          } else if (pageSource.toLowerCase().includes(expectedValue.replace(/[\u200b\u200c\u200d\ufeff]/g, '').trim().toLowerCase())) { 
-            actualVal = expectedValue; 
+          if (matched) {
+            actualVal = matched;
+          } else if (pageSource.toLowerCase().includes(expectedValue.replace(/[\u200b\u200c\u200d\ufeff]/g, '').trim().toLowerCase())) {
+            actualVal = expectedValue;
           } else if (fieldName === 'Date and Time' || fieldName === 'Banner - Event Date') {
             // Fallback for dynamic timezone/date formatting changes (optional weekday)
             const dateRegex = /\b((Sun|Mon|Tue|Wed|Thu|Fri|Sat)[a-z]*\s+)?\d{1,2}(?:st|nd|rd|th)?\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(?:at|•)?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?/i;
@@ -1565,7 +1583,7 @@ export async function validateAndroidFixturePage(
         console.log(`  ✅ Found Player screen / fixture element: ${selector}`);
         break;
       }
-    } catch {}
+    } catch { }
   }
 
   // 2. Check Fixture Title Text (e.g. "Joshua vs. Prenga")
@@ -1577,7 +1595,7 @@ export async function validateAndroidFixturePage(
       titleFound = true;
       titleRead = await titleEl.getText().catch(() => ppvName);
     }
-  } catch {}
+  } catch { }
 
   // Determine full title for expected field (e.g. "Joshua vs. Prenga")
   let fullTitleExpected = eventData?.MOBILE_BANNER_TITLE || eventData?.PPV_DISPLAY_NAME || eventData?.PPV_NAME;
@@ -1586,7 +1604,7 @@ export async function validateAndroidFixturePage(
       const { loadEventConfig } = require('../../utils/eventLoader');
       const cfg = loadEventConfig();
       fullTitleExpected = cfg.PPV_NAME || cfg.MOBILE_BANNER_TITLE;
-    } catch {}
+    } catch { }
   }
   if (!fullTitleExpected || fullTitleExpected === 'Joshua') {
     fullTitleExpected = titleFound && titleRead !== 'Not found' ? titleRead : 'Joshua vs. Prenga';
@@ -1599,7 +1617,7 @@ export async function validateAndroidFixturePage(
     if (await relatedEl.isDisplayed().catch(() => false)) {
       relatedSectionFound = true;
     }
-  } catch {}
+  } catch { }
 
   // Push Fixture Page validation rows for Report Generation
   results.push({
@@ -1626,7 +1644,7 @@ export async function validateAndroidFixturePage(
     status: 'PASS',
   });
 
-  await driver.saveScreenshot('./test-results/android_fixture_page_validated.png').catch(() => {});
+  await driver.saveScreenshot('./test-results/android_fixture_page_validated.png').catch(() => { });
   return true;
 }
 export async function validateMobilePaywallPage(

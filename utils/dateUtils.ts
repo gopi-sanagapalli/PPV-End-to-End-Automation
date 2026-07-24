@@ -21,20 +21,20 @@ export function getNowIST(): Date {
  */
 export function getNowForRegion(region?: string): Date {
   const tzMap: Record<string, string> = {
-    GB:  'Europe/London',
-    UK:  'Europe/London',
-    US:  'America/New_York',
-    AE:  'Asia/Dubai',
+    GB: 'Europe/London',
+    UK: 'Europe/London',
+    US: 'America/New_York',
+    AE: 'Asia/Dubai',
     UAE: 'Asia/Dubai',
-    SA:  'Asia/Riyadh',
-    AU:  'Australia/Sydney',
-    BR:  'America/Sao_Paulo',
-    DE:  'Europe/Berlin',
-    IT:  'Europe/Rome',
-    ES:  'Europe/Madrid',
-    FR:  'Europe/Paris',
-    CA:  'America/Toronto',
-    JP:  'Asia/Tokyo',
+    SA: 'Asia/Riyadh',
+    AU: 'Australia/Sydney',
+    BR: 'America/Sao_Paulo',
+    DE: 'Europe/Berlin',
+    IT: 'Europe/Rome',
+    ES: 'Europe/Madrid',
+    FR: 'Europe/Paris',
+    CA: 'America/Toronto',
+    JP: 'Asia/Tokyo',
   };
   const tz = tzMap[(region || process.env.DAZN_REGION || 'GB').toUpperCase()] || 'Europe/London';
   const now = new Date();
@@ -62,8 +62,8 @@ export function formatNextPaymentDate(daysOffset: number): string {
   const date = getNowForRegion();
   date.setDate(date.getDate() + daysOffset);
 
-  const dd   = String(date.getDate()).padStart(2, '0');
-  const mm   = String(date.getMonth() + 1).padStart(2, '0');
+  const dd = String(date.getDate()).padStart(2, '0');
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
   const yyyy = date.getFullYear();
 
   return `${dd}/${mm}/${yyyy}`;
@@ -74,8 +74,8 @@ export function formatNextPaymentDateMonthly(): string {
   const date = getNowForRegion();
   date.setMonth(date.getMonth() + 1);
 
-  const dd   = String(date.getDate()).padStart(2, '0');
-  const mm   = String(date.getMonth() + 1).padStart(2, '0');
+  const dd = String(date.getDate()).padStart(2, '0');
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
   const yyyy = date.getFullYear();
 
   return `${dd}/${mm}/${yyyy}`;
@@ -86,8 +86,8 @@ export function formatNextPaymentDateYearly(): string {
   const date = getNowForRegion();
   date.setFullYear(date.getFullYear() + 1);
 
-  const dd   = String(date.getDate()).padStart(2, '0');
-  const mm   = String(date.getMonth() + 1).padStart(2, '0');
+  const dd = String(date.getDate()).padStart(2, '0');
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
   const yyyy = date.getFullYear();
 
   return `${dd}/${mm}/${yyyy}`;
@@ -100,8 +100,8 @@ export function formatNextPaymentDateMonthlyUS(): string {
   const date = getNowForRegion('US');
   date.setMonth(date.getMonth() + 1);
 
-  const dd   = String(date.getDate()).padStart(2, '0');
-  const mm   = String(date.getMonth() + 1).padStart(2, '0');
+  const dd = String(date.getDate()).padStart(2, '0');
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
   const yyyy = date.getFullYear();
 
   return `${mm}/${dd}/${yyyy}`;
@@ -112,8 +112,8 @@ export function formatNextPaymentDateYearlyUS(): string {
   const date = getNowForRegion('US');
   date.setFullYear(date.getFullYear() + 1);
 
-  const dd   = String(date.getDate()).padStart(2, '0');
-  const mm   = String(date.getMonth() + 1).padStart(2, '0');
+  const dd = String(date.getDate()).padStart(2, '0');
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
   const yyyy = date.getFullYear();
 
   return `${mm}/${dd}/${yyyy}`;
@@ -124,8 +124,8 @@ export function formatNextPaymentDateUS(daysOffset: number): string {
   const date = getNowForRegion('US');
   date.setDate(date.getDate() + daysOffset);
 
-  const dd   = String(date.getDate()).padStart(2, '0');
-  const mm   = String(date.getMonth() + 1).padStart(2, '0');
+  const dd = String(date.getDate()).padStart(2, '0');
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
   const yyyy = date.getFullYear();
 
   return `${mm}/${dd}/${yyyy}`;
@@ -136,9 +136,9 @@ export function formatFlexFutureDate(daysOffset: number): string {
   const date = getNowForRegion();
   date.setDate(date.getDate() + daysOffset);
 
-  const day   = date.getDate(); // no padding
+  const day = date.getDate(); // no padding
   const month = date.toLocaleString('en-GB', { month: 'long' });
-  const year  = date.getFullYear();
+  const year = date.getFullYear();
 
   return `In ${daysOffset} days • ${day} ${month} ${year}`;
 }
@@ -149,8 +149,8 @@ export function formatRenewalDate(): string {
   date.setFullYear(date.getFullYear() + 1);
   date.setDate(date.getDate() - 1);
 
-  const dd   = String(date.getDate()).padStart(2, '0');
-  const mm   = String(date.getMonth() + 1).padStart(2, '0');
+  const dd = String(date.getDate()).padStart(2, '0');
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
   const yyyy = date.getFullYear();
 
   return `${dd}/${mm}/${yyyy}`;
@@ -162,8 +162,8 @@ export function formatRenewalDateUS(): string {
   date.setFullYear(date.getFullYear() + 1);
   date.setDate(date.getDate() - 1);
 
-  const dd   = String(date.getDate()).padStart(2, '0');
-  const mm   = String(date.getMonth() + 1).padStart(2, '0');
+  const dd = String(date.getDate()).padStart(2, '0');
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
   const yyyy = date.getFullYear();
 
   return `${mm}/${dd}/${yyyy}`;
@@ -171,27 +171,27 @@ export function formatRenewalDateUS(): string {
 
 export function parseConfigDate(configStr: string, referenceDate: Date = getNowForRegion()): Date {
   const clean = configStr.toLowerCase().replace(/\bat\b/g, ' ').replace(/\s+/g, ' ').trim();
-  
+
   const months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
   const fullMonths = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
-  
+
   let monthIdx = -1;
   let dayNum = -1;
-  
+
   for (let i = 0; i < 12; i++) {
     if (clean.includes(months[i]) || clean.includes(fullMonths[i])) {
       monthIdx = i;
       break;
     }
   }
-  
+
   if (monthIdx !== -1) {
     const dayMatch = clean.match(/\b(\d{1,2})(?:st|nd|rd|th)?\b/);
     if (dayMatch) {
       dayNum = parseInt(dayMatch[1], 10);
     }
   }
-  
+
   let hours = 20;
   let minutes = 0;
   const timeMatch = clean.match(/(\d{1,2}):(\d{2})\s*(pm|am)?/);
@@ -202,20 +202,20 @@ export function parseConfigDate(configStr: string, referenceDate: Date = getNowF
     if (ampm === 'pm' && hours < 12) hours += 12;
     if (ampm === 'am' && hours === 12) hours = 0;
   }
-  
+
   if (monthIdx !== -1 && dayNum !== -1) {
     const targetDate = new Date(referenceDate);
     targetDate.setMonth(monthIdx);
     targetDate.setDate(dayNum);
     targetDate.setHours(hours, minutes, 0, 0);
     targetDate.setFullYear(referenceDate.getFullYear());
-    
+
     if (targetDate.getTime() < referenceDate.getTime() - 30 * 24 * 3600 * 1000) {
       targetDate.setFullYear(referenceDate.getFullYear() + 1);
     }
     return targetDate;
   }
-  
+
   const weekdays = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
   let weekdayIdx = -1;
   for (let i = 0; i < 7; i++) {
@@ -224,11 +224,11 @@ export function parseConfigDate(configStr: string, referenceDate: Date = getNowF
       break;
     }
   }
-  
+
   if (weekdayIdx !== -1) {
     const targetDate = new Date(referenceDate);
     targetDate.setHours(hours, minutes, 0, 0);
-    
+
     const refDay = referenceDate.getDay();
     let daysDiff = weekdayIdx - refDay;
     if (daysDiff < 0) {
@@ -242,7 +242,7 @@ export function parseConfigDate(configStr: string, referenceDate: Date = getNowF
     targetDate.setDate(targetDate.getDate() + daysDiff);
     return targetDate;
   }
-  
+
   const fallbackDate = new Date(referenceDate);
   fallbackDate.setDate(fallbackDate.getDate() + 1);
   return fallbackDate;
@@ -253,15 +253,15 @@ function getDynamicDateBadgeSingle(configStr: string, referenceDate: Date = getN
     return configStr;
   }
   const eventDate = parseConfigDate(configStr, referenceDate);
-  
+
   const refDateStart = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), referenceDate.getDate());
   const eventDateStart = new Date(eventDate.getFullYear(), eventDate.getMonth(), eventDate.getDate());
   const diffTime = eventDateStart.getTime() - refDateStart.getTime();
   const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
-  
+
   const hours = eventDate.getHours();
   const minutes = String(eventDate.getMinutes()).padStart(2, '0');
-  
+
   const time24 = `${String(hours).padStart(2, '0')}:${minutes}`;
   const ampm = hours >= 12 ? 'PM' : 'AM';
   const hours12 = hours % 12 || 12;
@@ -269,20 +269,21 @@ function getDynamicDateBadgeSingle(configStr: string, referenceDate: Date = getN
   const time12Spaced = `${hours12}:${minutes} ${ampm}`;
   const time12Lower = `${hours12}:${minutes}${ampm.toLowerCase()}`;
   const time12LowerSpaced = `${hours12}:${minutes} ${ampm.toLowerCase()}`;
-  
+
   const times = [time24, time12, time12Spaced, time12Lower, time12LowerSpaced];
-  
+
   const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const fullDayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   const dayName = dayNames[eventDate.getDay()];
   const fullDayName = fullDayNames[eventDate.getDay()];
-  
+
   const candidates = new Set<string>();
   // Keep the configured rendering as a valid candidate.  This is important for
   // future events, whose chips continue to show an absolute date rather than a
   // relative label (and may use deliberate uppercase styling).
   candidates.add(configStr.trim());
-  
+
+
   // Helper to add day-of-week variations
   const addDayVariations = (day: string) => {
     for (const t of times) {
@@ -294,7 +295,7 @@ function getDynamicDateBadgeSingle(configStr: string, referenceDate: Date = getN
       candidates.add(`${day.toLowerCase()} ${t}`);
     }
   };
-  
+
   if (diffDays === 1) {
     for (const t of times) {
       candidates.add(`Tomorrow at ${t}`);
@@ -380,7 +381,7 @@ function getDynamicDateBadgeSingle(configStr: string, referenceDate: Date = getN
     const fullMonthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
     const monthName = monthNames[eventDate.getMonth()];
     const fullMonthName = fullMonthNames[eventDate.getMonth()];
-    
+
     // Ordinal suffix for day number (e.g., 1st, 2nd, 3rd, 25th)
     const getOrdinal = (d: number): string => {
       if (d >= 11 && d <= 13) return 'th';
@@ -392,7 +393,7 @@ function getDynamicDateBadgeSingle(configStr: string, referenceDate: Date = getN
       }
     };
     const ordinal = getOrdinal(dayNum);
-    
+
     const formats = [
       `${dayNum} ${monthName}`,
       `${dayNum} ${fullMonthName}`,
@@ -407,7 +408,7 @@ function getDynamicDateBadgeSingle(configStr: string, referenceDate: Date = getN
       `${monthName} ${dayNum}${ordinal}`,
       `${fullMonthName} ${dayNum}${ordinal}`,
     ];
-    
+
     // Weekday-prefixed variants: "Sat 25th Jul", "Sat 25 Jul"
     const weekdayPrefixes = [dayName, fullDayName, dayName.toUpperCase(), fullDayName.toUpperCase()];
     for (const prefix of weekdayPrefixes) {
@@ -416,7 +417,7 @@ function getDynamicDateBadgeSingle(configStr: string, referenceDate: Date = getN
       formats.push(`${prefix} ${dayNum} ${monthName}`);
       formats.push(`${prefix} ${dayNum} ${fullMonthName}`);
     }
-    
+
     for (const f of formats) {
       candidates.add(f);
       for (const t of times) {
@@ -425,7 +426,7 @@ function getDynamicDateBadgeSingle(configStr: string, referenceDate: Date = getN
       }
     }
   }
-  
+
   return Array.from(candidates).join('|');
 }
 
@@ -447,3 +448,208 @@ export function getDynamicDateTimeBadge(configStr: string, referenceDate: Date =
   // If no candidates have time (e.g. config has no time info), fall back to all candidates
   return withTime.length > 0 ? withTime.join('|') : allCandidates;
 }
+
+/**
+ * Dynamic PPV Banner & Event Date Resolver.
+ * Evaluates event UTC date relative to referenceDate (in target region timezone)
+ * and returns pipe-separated candidate strings based on exact display rules:
+ * - LIVE: "LIVE|LIVE NOW|WATCH LIVE"
+ * - TODAY Morning (05:00-11:59): "This morning at 14:00|Morning at 14:00"
+ * - TODAY Afternoon (12:00-16:59): "This afternoon at 14:00|Afternoon at 14:00"
+ * - TODAY Evening (17:00-20:59): "This evening at 19:00|Evening at 19:00"
+ * - TODAY Night (21:00-04:59): "Tonight at 22:00|Night at 22:00"
+ * - TOMORROW (+1 day): "Tomorrow at 14:00|Tomorrow at 2:00pm|TOMORROW AT 14:00"
+ * - THIS WEEK (<= 7 days): "Sat 25th Jul at 14:00|Saturday 25 July 14:00"
+ * - BEFORE ONE WEEK (> 7 days): "25th Jul at 14:00|25 July 14:00"
+ */
+export function calculateDynamicPpvBannerDate(
+  eventData: Record<string, any>,
+  pageName?: string,
+  referenceDate?: Date
+): string {
+  if (!eventData) return '';
+
+  const targetRegion = eventData.REGION || process.env.DAZN_REGION || 'GB';
+  const refDate = referenceDate || getNowForRegion(targetRegion);
+
+  const utcStr = eventData.PPV_UTC_DATE || eventData.global?.PPV_UTC_DATE;
+  const staticBannerDate = 
+    eventData.MOBILE_BANNER_DATE_TIME || 
+    eventData.global?.MOBILE_BANNER_DATE_TIME || 
+    eventData.LANDING_BANNER_DATE || 
+    eventData.global?.LANDING_BANNER_DATE || 
+    eventData.BOXING_BANNER_DATE || 
+    eventData.global?.BOXING_BANNER_DATE || 
+    eventData.PPV_DATE || 
+    eventData.global?.PPV_DATE;
+
+  let rawEventDate: Date | null = null;
+  if (utcStr) {
+    rawEventDate = new Date(utcStr);
+  } else if (staticBannerDate) {
+    rawEventDate = parseConfigDate(String(staticBannerDate), refDate);
+  }
+
+  if (!rawEventDate || isNaN(rawEventDate.getTime())) {
+    return staticBannerDate ? String(staticBannerDate) : '';
+  }
+
+  // Convert raw UTC event date into wall-clock Date object in target region timezone
+  const tzMap: Record<string, string> = {
+    GB: 'Europe/London', UK: 'Europe/London', US: 'America/New_York',
+    DE: 'Europe/Berlin', IT: 'Europe/Rome', ES: 'Europe/Madrid',
+    FR: 'Europe/Paris', CA: 'America/Toronto', JP: 'Asia/Tokyo', AE: 'Asia/Dubai',
+  };
+  const tz = tzMap[(targetRegion || 'GB').toUpperCase()] || 'Europe/London';
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hour12: false,
+  });
+  const parts = formatter.formatToParts(rawEventDate);
+  const p: Record<string, string> = {};
+  for (const part of parts) p[part.type] = part.value;
+
+  const eventDate = new Date(
+    parseInt(p.year, 10),
+    parseInt(p.month, 10) - 1,
+    parseInt(p.day, 10),
+    parseInt(p.hour, 10) === 24 ? 0 : parseInt(p.hour, 10),
+    parseInt(p.minute, 10),
+    parseInt(p.second, 10)
+  );
+
+  const refDateStart = new Date(refDate.getFullYear(), refDate.getMonth(), refDate.getDate());
+  const eventDateStart = new Date(eventDate.getFullYear(), eventDate.getMonth(), eventDate.getDate());
+  const diffTime = eventDateStart.getTime() - refDateStart.getTime();
+  const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+
+  const hours = eventDate.getHours();
+  const minutes = String(eventDate.getMinutes()).padStart(2, '0');
+
+  const time24 = `${String(hours).padStart(2, '0')}:${minutes}`;
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  const hours12 = hours % 12 || 12;
+  const time12 = `${hours12}:${minutes}${ampm}`;
+  const time12Spaced = `${hours12}:${minutes} ${ampm}`;
+  const time12Lower = `${hours12}:${minutes}${ampm.toLowerCase()}`;
+  const time12LowerSpaced = `${hours12}:${minutes} ${ampm.toLowerCase()}`;
+
+  const times = [time24, time12, time12Spaced, time12Lower, time12LowerSpaced];
+  const candidates = new Set<string>();
+
+  // Live status window: event start to +5 hours
+  const eventStartTime = rawEventDate.getTime();
+  const eventEndTime = eventStartTime + (5 * 60 * 60 * 1000);
+  const nowTime = refDate.getTime();
+  const isCurrentlyLive = nowTime >= eventStartTime && nowTime <= eventEndTime;
+
+  if (isCurrentlyLive) {
+    candidates.add('LIVE');
+    candidates.add('LIVE NOW');
+    candidates.add('WATCH LIVE');
+    candidates.add('Live');
+    candidates.add('Live Now');
+    candidates.add('Watch Live');
+  }
+
+  if (diffDays === 0) {
+    // Event is TODAY
+    candidates.add('LIVE');
+    candidates.add('LIVE NOW');
+    candidates.add('WATCH LIVE');
+    candidates.add('Live');
+    candidates.add('Live Now');
+    candidates.add('Watch Live');
+
+    if (hours >= 5 && hours <= 11) {
+      for (const t of times) {
+        candidates.add(`This morning at ${t}`);
+        candidates.add(`THIS MORNING AT ${t.toUpperCase()}`);
+        candidates.add(`Morning at ${t}`);
+        candidates.add(`MORNING AT ${t.toUpperCase()}`);
+        candidates.add(`this morning at ${t}`);
+      }
+    } else if (hours >= 12 && hours <= 16) {
+      for (const t of times) {
+        candidates.add(`This afternoon at ${t}`);
+        candidates.add(`THIS AFTERNOON AT ${t.toUpperCase()}`);
+        candidates.add(`Afternoon at ${t}`);
+        candidates.add(`AFTERNOON AT ${t.toUpperCase()}`);
+        candidates.add(`this afternoon at ${t}`);
+      }
+    } else if (hours >= 17 && hours <= 20) {
+      for (const t of times) {
+        candidates.add(`This evening at ${t}`);
+        candidates.add(`THIS EVENING AT ${t.toUpperCase()}`);
+        candidates.add(`Evening at ${t}`);
+        candidates.add(`EVENING AT ${t.toUpperCase()}`);
+        candidates.add(`Tonight at ${t}`);
+      }
+    } else {
+      for (const t of times) {
+        candidates.add(`Tonight at ${t}`);
+        candidates.add(`TONIGHT AT ${t.toUpperCase()}`);
+        candidates.add(`Night at ${t}`);
+        candidates.add(`NIGHT AT ${t.toUpperCase()}`);
+      }
+    }
+
+    for (const t of times) {
+      candidates.add(`Today at ${t}`);
+      candidates.add(`TODAY AT ${t.toUpperCase()}`);
+      candidates.add(`Today ${t}`);
+      candidates.add(`TODAY ${t.toUpperCase()}`);
+    }
+  } else if (diffDays === 1) {
+    // Event is TOMORROW
+    for (const t of times) {
+      candidates.add(`Tomorrow at ${t}`);
+      candidates.add(`TOMORROW AT ${t.toUpperCase()}`);
+      candidates.add(`Tomorrow ${t}`);
+      candidates.add(`TOMORROW ${t.toUpperCase()}`);
+      candidates.add(`tomorrow at ${t}`);
+      candidates.add(`tomorrow ${t}`);
+    }
+  }
+
+  // Always include standard full date & time candidates for eventDate
+  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const fullDayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const fullMonthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+  const dayNum = eventDate.getDate();
+  const getOrd = (d: number): string => {
+    if (d >= 11 && d <= 13) return 'th';
+    switch (d % 10) { case 1: return 'st'; case 2: return 'nd'; case 3: return 'rd'; default: return 'th'; }
+  };
+  const ord = getOrd(dayNum);
+  const dayName = dayNames[eventDate.getDay()];
+  const fullDayName = fullDayNames[eventDate.getDay()];
+  const mn = monthNames[eventDate.getMonth()];
+  const fmn = fullMonthNames[eventDate.getMonth()];
+
+  for (const t of times) {
+    candidates.add(`${dayName} ${dayNum}${ord} ${mn} at ${t}`);
+    candidates.add(`${dayName.toUpperCase()} ${dayNum}${ord} ${mn.toUpperCase()} AT ${t.toUpperCase()}`);
+    candidates.add(`${dayName} ${dayNum} ${mn} at ${t}`);
+    candidates.add(`${dayName.toUpperCase()} ${dayNum} ${mn.toUpperCase()} AT ${t.toUpperCase()}`);
+    candidates.add(`${fullDayName} ${dayNum}${ord} ${fmn} at ${t}`);
+    candidates.add(`${dayNum}${ord} ${mn} at ${t}`);
+    candidates.add(`${dayNum}${ord} ${mn.toUpperCase()} AT ${t.toUpperCase()}`);
+    candidates.add(`${dayNum} ${mn} at ${t}`);
+    candidates.add(`${dayNum} ${mn.toUpperCase()} AT ${t.toUpperCase()}`);
+  }
+
+  if (staticBannerDate) {
+    const standardCandidates = getDynamicDateBadgeSingle(String(staticBannerDate), refDate);
+    if (standardCandidates) {
+      standardCandidates.split('|').forEach(c => candidates.add(c));
+    }
+  }
+
+  return Array.from(candidates).join('|');
+}
+
