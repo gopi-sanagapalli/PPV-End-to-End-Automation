@@ -913,6 +913,7 @@ export function resolveExpected(
     'ppv date and time text',
     'ppv1 date and time text on bundle',
     'event date and time',
+    'included ppv date and time',  // Choose How To Buy — ultimate upsell card date
   ];
   if (dateTimeFields.includes(field)) {
     return hasExplicitDateAndTime(template) ? getDynamicDateTimeBadge(template) : template;
