@@ -1142,7 +1142,12 @@ export async function getActualValue(
       .map(el => clean(el.innerText || el.textContent))
       .filter(Boolean);
     const name = leaves.find(text => hasEventName(text) && text.length < 120) || '';
-    const date = leaves.find(text => /\b(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)\b(?:\s+\d{1,2}(?:st|nd|rd|th)?\s+[a-z]{3,}|\s+at\s+\d{1,2}:\d{2})/i.test(text)) || '';
+    // Match absolute weekday dates ("Sat 25th Jul at 14:00") AND relative
+    // labels ("Tomorrow at 14:00", "Today at 14:00", "Tonight at 14:00").
+    const date = leaves.find(text =>
+      /\b(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)\b(?:\s+\d{1,2}(?:st|nd|rd|th)?\s+[a-z]{3,}|\s+at\s+\d{1,2}:\d{2})/i.test(text) ||
+      /\b(?:today|tomorrow|tonight|this\s+(?:afternoon|evening))\s+at\s+\d{1,2}:\d{2}/i.test(text)
+    ) || '';
     const tag = leaves.some(text => /^included$/i.test(text));
     const image = Array.from(card.querySelectorAll<HTMLElement>('img, picture, [role="img"], div, span'))
       .some(el => visible(el) && (
@@ -4296,9 +4301,13 @@ export async function getActualValue(
                 if (child.children.length > 0) continue;
                 const ct = (child.textContent || '').trim();
                 if (ct.length < 5 || ct.length > 40) continue;
-                // Match "Saturday at 22:30" or "Sat 13th Jun at 23:30"
-                if (/\b(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Mon|Tue|Wed|Thu|Fri|Sat|Sun)\b/i.test(ct) &&
-                  /\d{1,2}:\d{2}/.test(ct) &&
+                // Match absolute: "Saturday at 22:30", "Sat 13th Jun at 23:30"
+                // Also match relative labels: "Tomorrow at 18:30", "Today at 14:00"
+                const isAbsoluteDate = /\b(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Mon|Tue|Wed|Thu|Fri|Sat|Sun)\b/i.test(ct) &&
+                  /\d{1,2}:\d{2}/.test(ct);
+                const isRelativeDate = /\b(tomorrow|today|tonight|this\s+(?:afternoon|evening))\b/i.test(ct) &&
+                  /\d{1,2}:\d{2}/.test(ct);
+                if ((isAbsoluteDate || isRelativeDate) &&
                   !ct.toLowerCase().includes('buy') &&
                   !ct.toLowerCase().includes('dazn') &&
                   !ct.toLowerCase().includes('ppv')) {
