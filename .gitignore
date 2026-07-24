@@ -21,6 +21,11 @@ auth/dazn-storage-state.json
 scratch/
 ~$*.xlsx
 
+# TV/Web handoff runtime artifacts
+mobile_entry_url.txt
+tv_handoff_storage_state.json
+tv_ppv_report_metadata.json
+
 # Cline AI tool files (local only)
 .clinerules
 .clinerules.md
