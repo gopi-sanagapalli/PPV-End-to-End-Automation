@@ -341,6 +341,9 @@ export const validateVariant = async (
       'pagetitle',
       'currency',
       'biggest fights section',
+      // A missing save badge must remain missing. The generic text fallback can
+      // otherwise incorrectly report a neighbouring plan-card title as a badge.
+      'annual pay upfront save badge',
     ]);
     const fieldLowerForFallback = field.toLowerCase().replace(/\s+/g, ' ').trim();
     const requiresExactActual = strictActualFields.has(fieldLowerForFallback);

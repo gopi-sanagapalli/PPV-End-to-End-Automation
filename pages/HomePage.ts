@@ -740,14 +740,34 @@ export class HomePage extends LandingPage {
       }
 
       const sectionHeadingText = ((await railHeader.textContent().catch(() => '')) || '').replace(/\s+/g, ' ').trim();
-      const tileCapture = await found.evaluate((el: HTMLElement) => {
+      const tileCapture = await found.evaluate((el: HTMLElement, expectedTitle: string) => {
         const clean = (value: string | null | undefined) =>
           String(value ?? '').replace(/\s+/g, ' ').trim();
+        // DAZN appends collection metadata such as "- List:qb3p..." to a
+        // tile's accessible label. It is not part of the event title.
+        const cleanTileLabel = (value: string | null | undefined) =>
+          clean(value).replace(/\s*[-–—]?\s*list\s*:\s*[^\s]+.*$/i, '').trim();
         const text = clean(el.innerText || el.textContent);
         const imgTexts = Array.from(el.querySelectorAll('img'))
           .map((img: HTMLImageElement) => clean(img.alt || img.getAttribute('aria-label') || img.getAttribute('title')))
           .filter(Boolean);
         const combined = clean(`${text} ${imgTexts.join(' ')} ${el.getAttribute('aria-label') || ''} ${el.getAttribute('title') || ''}`);
+        const titleWords = expectedTitle.toLowerCase()
+          .replace(/[^a-z0-9]+/g, ' ')
+          .split(/\s+/)
+          .filter(word => word.length > 2);
+        const titleCandidates = [
+          ...Array.from(el.querySelectorAll<HTMLElement>('h1, h2, h3, h4, [class*="title" i], [class*="heading" i], [aria-label], [title]'))
+            .map(node => cleanTileLabel(node.innerText || node.textContent || node.getAttribute('aria-label') || node.getAttribute('title'))),
+          ...imgTexts.map(cleanTileLabel),
+          cleanTileLabel(el.getAttribute('aria-label')),
+          cleanTileLabel(el.getAttribute('title')),
+        ].filter(candidate => {
+          const lower = candidate.toLowerCase();
+          return candidate.length > 2 && candidate.length < 120 &&
+            titleWords.length > 0 && titleWords.every(word => lower.includes(word));
+        });
+        const title = titleCandidates.sort((a, b) => a.length - b.length)[0] || '';
         const hasImage = Array.from(el.querySelectorAll<HTMLElement>('img, picture, [role="img"], div, span, a')).some(node => {
           const rect = node.getBoundingClientRect();
           const style = window.getComputedStyle(node);
@@ -762,19 +782,21 @@ export class HomePage extends LandingPage {
           combined.match(/\b(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC|January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}\b/i);
         return {
           text: combined,
+          title,
           dateText: dateMatch ? dateMatch[0] : '',
           hasImage,
         };
-      }).catch(() => ({ text: '', dateText: '', hasImage: false }));
+      }, ppvName).catch(() => ({ text: '', title: '', dateText: '', hasImage: false }));
 
       eventData.__HOME_DONT_MISS_SECTION_HEADING = sectionHeadingText || 'Don\'t Miss';
       eventData.__HOME_DONT_MISS_TILE_FOUND = 'Yes';
       eventData.__HOME_DONT_MISS_TILE_TEXT = tileCapture.text || '';
+      eventData.__HOME_DONT_MISS_TILE_TITLE = tileCapture.title || '';
       eventData.__HOME_DONT_MISS_TILE_DATE = tileCapture.dateText || eventData.LANDING_PAGE_PPV_DATE || '';
       eventData.__HOME_DONT_MISS_IMAGE_PRESENT = tileCapture.hasImage ? 'Yes' : 'No';
       console.log(
         `[HomePage Tile] Pre-captured Don't Miss validation data: ` +
-        `section="${eventData.__HOME_DONT_MISS_SECTION_HEADING}", ` +
+        `section="${eventData.__HOME_DONT_MISS_SECTION_HEADING}", title="${eventData.__HOME_DONT_MISS_TILE_TITLE}", ` +
         `date="${eventData.__HOME_DONT_MISS_TILE_DATE}", ` +
         `image="${eventData.__HOME_DONT_MISS_IMAGE_PRESENT}"`
       );

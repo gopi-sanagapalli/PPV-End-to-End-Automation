@@ -211,6 +211,15 @@ test.describe('Mobile → Web PPV Handoff', () => {
 
     // Create fresh context simulating mobile web
     console.log('🌐 Creating a brand new, clean browser context simulating mobile web...');
+    const regionContext: Record<string, { locale: string; timezoneId: string }> = {
+      GB: { locale: 'en-GB', timezoneId: 'Europe/London' },
+      US: { locale: 'en-US', timezoneId: 'America/New_York' },
+      AE: { locale: 'en-AE', timezoneId: 'Asia/Dubai' },
+      SA: { locale: 'en-SA', timezoneId: 'Asia/Riyadh' },
+      AU: { locale: 'en-AU', timezoneId: 'Australia/Sydney' },
+      BR: { locale: 'pt-BR', timezoneId: 'America/Sao_Paulo' },
+    };
+    const { locale, timezoneId } = regionContext[REGION.toUpperCase()] ?? regionContext.GB;
     const context = await browser.newContext({
       viewport: { width: 375, height: 667 }, // iPhone SE size
       isMobile: true,
@@ -218,6 +227,8 @@ test.describe('Mobile → Web PPV Handoff', () => {
       userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1',
       colorScheme: 'dark',
       reducedMotion: 'no-preference',
+      locale,
+      timezoneId,
       permissions: ['clipboard-read', 'clipboard-write', 'geolocation'],
       recordVideo: {
         dir: 'test-results/videos/',

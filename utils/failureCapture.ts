@@ -402,17 +402,32 @@ export async function captureFailures(
       const isBannerField = String(field).toLowerCase().includes('banner');
       const source = String(context?.SOURCE || context?.source || '').toLowerCase();
       const ppvName = String(context?.PPV_NAME || context?.PPV_DISPLAY_NAME || '').trim();
+      const isTileSource = source.includes('tile') || source.includes('dont-miss') ||
+        source.includes('upcoming') || source.includes('rail');
+      const popup = isTileSource ? await findPopupContainer(page) : null;
+      const tilePopupOpen = !!popup;
       const banner = isBannerField && source.includes('banner') && ppvName
         ? await activatePpvBannerForEvidence(page, ppvName)
         : null;
       const normalizedField = String(field).toLowerCase().replace(/\s+/g, ' ').trim();
-      const target = (normalizedField === 'today you pay price'
-        ? await findTodayYouPayPriceTarget(page)
-        : null) ||
-        (isPopupField ? await findPopupTarget(page, candidates) : null) ||
-        await findPpvTitleTarget(page, field, candidates) ||
-        (banner ? await findTarget(banner, candidates) : null) ||
-        await findTarget(page, candidates);
+      // Tile fields were captured before the click. Once a tile popup is open,
+      // do not hunt for those fields in the dimmed page: the same event can be
+      // present in the hero banner and scrollIntoView would replace the tile
+      // evidence with an unrelated banner screenshot.
+      const target = tilePopupOpen && !isPopupField
+        ? null
+        : (normalizedField === 'today you pay price'
+          ? await findTodayYouPayPriceTarget(page)
+          : null) ||
+          (isPopupField ? await findPopupTarget(page, candidates) : null) ||
+          (isPopupField && popup ? await findTarget(popup, candidates) : null) ||
+          await findPpvTitleTarget(page, field, candidates) ||
+          (banner ? await findTarget(banner, candidates) : null) ||
+          await findTarget(page, candidates);
+
+      if (tilePopupOpen && !isPopupField) {
+        console.log(`ℹ️ [Fail Shot] Keeping tile-popup background fixed for "${field}"; no background target will be highlighted.`);
+      }
 
       if (target) {
         console.log(`🎯 [Fail Shot] Highlight target found for field "${field}": "${(await target.textContent().catch(() => '')).trim().substring(0, 50)}"`);
