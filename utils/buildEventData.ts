@@ -318,6 +318,19 @@ export function buildEventData(
   let plans: any = {};
   try {
     plans = JSON.parse(fs.readFileSync(plansPath, 'utf-8'));
+    if (plans) {
+      for (const key of Object.keys(plans)) {
+        if (plans[key].regions && !plans[key].regions.SA) {
+          plans[key].regions.SA = JSON.parse(JSON.stringify(plans[key].regions.AE || plans[key].regions.GB || {}));
+          if (plans[key].regions.SA) {
+            plans[key].regions.SA.CURRENCY = 'SAR';
+            if (plans[key].regions.SA.BASE_URL) {
+              plans[key].regions.SA.BASE_URL = plans[key].regions.SA.BASE_URL.replace(/\/en-AE$/i, '/en-SA');
+            }
+          }
+        }
+      }
+    }
   } catch (e: any) {
     console.warn('⚠️ buildEventData: Failed to read DaznPlan.json:', e.message);
   }

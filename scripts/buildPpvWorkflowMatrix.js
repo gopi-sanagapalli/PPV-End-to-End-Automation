@@ -34,6 +34,19 @@ if (!event.regions?.[country]) throw new Error(`${configName} is not available i
 
 const sourceConfig = JSON.parse(fs.readFileSync('config/surfacingpoint.json', 'utf8'));
 const planConfig = JSON.parse(fs.readFileSync('config/DaznPlan.json', 'utf8'));
+if (country === 'SA' && planConfig) {
+  for (const key of Object.keys(planConfig)) {
+    if (planConfig[key].regions && !planConfig[key].regions.SA) {
+      planConfig[key].regions.SA = JSON.parse(JSON.stringify(planConfig[key].regions.AE || planConfig[key].regions.GB || {}));
+      if (planConfig[key].regions.SA) {
+        planConfig[key].regions.SA.CURRENCY = 'SAR';
+        if (planConfig[key].regions.SA.BASE_URL) {
+          planConfig[key].regions.SA.BASE_URL = planConfig[key].regions.SA.BASE_URL.replace(/\/en-AE$/i, '/en-SA');
+        }
+      }
+    }
+  }
+}
 const isBoxing = String(event.SPORT || '').trim().toLowerCase() === 'boxing';
 const isKickboxing = String(event.SPORT || '').toLowerCase() === 'kickboxing';
 const hasBundle = event.HAS_BUNDLE === true;
