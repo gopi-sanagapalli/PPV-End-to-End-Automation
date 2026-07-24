@@ -3,6 +3,18 @@ import { BasePage } from './BasePage';
 import selectors from '../config/selectors.json';
 import { assertDaznPageAvailable } from '../utils/helpers';
 
+/**
+ * Thrown when a transient error dialog caused a page reload that navigated
+ * away from personaldetails (e.g. back to the PPV/plan page). Callers should
+ * catch this and re-enter their navigation loop so all steps are re-executed.
+ */
+export class PersonalDetailsRedirectError extends Error {
+  constructor(redirectUrl: string) {
+    super(`PERSONAL_DETAILS_REDIRECT:${redirectUrl}`);
+    this.name = 'PersonalDetailsRedirectError';
+  }
+}
+
 export class SignupPage extends BasePage {
   constructor(page: Page) {
     super(page);
@@ -249,6 +261,14 @@ export class SignupPage extends BasePage {
     };
 
     const dismissAndRetry = async (label: string): Promise<void> => {
+      // If the current URL is no longer on personal details (e.g. a reload sent
+      // us back to the PPV/plan page), throw so the caller's navigation loop
+      // can catch it and re-enter from the current URL — re-executing upsell,
+      // plan selection and personal details in the correct order.
+      if (!this.page.url().toLowerCase().includes('personaldetails')) {
+        console.warn(`⚠️  [SignupPage] Recovery (${label}) returned to ${this.page.url()}; signalling caller to re-enter navigation loop.`);
+        throw new PersonalDetailsRedirectError(this.page.url());
+      }
       console.warn(`⚠️  [SignupPage] Transient error dialog detected (${label}) — clicking Ok and retrying Continue...`);
       const okBtn = this.page.locator(
         'button:has-text("Ok"), button:has-text("OK"), button:has-text("Okay"), [role="button"]:has-text("Ok")'

@@ -572,14 +572,12 @@ export function resolveExpected(
 
     if (field === 'annual pay upfront save badge' || field === 'save badge') {
       const upfrontSaveDisplay = eventData.UPFRONT_SAVE_AMOUNT_DISPLAY || eventData.UPFRONT_SAVE_AMOUNT;
-      // Skip if amount is zero/missing, OR if there are no active offers (badge won't show without a promotion)
-      const offersRaw = eventData.offers ?? eventData.OFFERS ?? '';
-      const hasOffers = Array.isArray(offersRaw) ? offersRaw.length > 0 : (typeof offersRaw === 'string' && offersRaw.trim() !== '' && offersRaw.trim() !== '[]');
-      if (!hasOffers || upfrontSaveDisplay === 'N/A' || !upfrontSaveDisplay || parseFloat(upfrontSaveDisplay.replace(/[^\d.-]/g, '')) <= 0) {
+      // The APU saving is a price comparison, not a promotional offer. Validate
+      // it whenever the configured monthly and upfront prices yield a saving.
+      if (upfrontSaveDisplay === 'N/A' || !upfrontSaveDisplay || parseFloat(upfrontSaveDisplay.replace(/[^\d.-]/g, '')) <= 0) {
         raw = 'N/A';
       }
     }
-
     const currentTier = (eventData.TIER || '').trim().toLowerCase();
     const isDefaultSignup =
       process.env.DEFAULT_SIGNUP === 'true' ||

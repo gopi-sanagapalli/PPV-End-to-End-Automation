@@ -24,6 +24,26 @@ async function getScopedLandingPPVContainer(
   const isTileSource = source.includes('dont-miss') || source.includes('tile') || source.includes('upcoming') || source.includes('rail') || source === 'home-biggest-fights';
   const isBannerSource = source.includes('banner');
 
+  // Tile flows open their purchase dialog before the sheet validations run.
+  // Never re-discover a tile while that dialog is open: the lookup below scrolls
+  // the document to the rail and can move the dimmed background to the hero,
+  // causing a later broad fallback to validate the banner instead of the tile.
+  if (isTileSource) {
+    const visiblePurchasePopup = page.locator([
+      '[role="dialog"]',
+      '[aria-modal="true"]',
+      '[class*="content-promotion" i]',
+      '[class*="modal-dialog" i]',
+      '[class*="signup-paywall" i]',
+    ].join(', ')).filter({
+      has: page.locator('button:has-text("Buy now"), a:has-text("Buy now"), button:has-text("Buy Now"), a:has-text("Buy Now")'),
+    }).first();
+
+    if (await visiblePurchasePopup.isVisible({ timeout: 300 }).catch(() => false)) {
+      return null;
+    }
+  }
+
   // Banner discovery stores the exact non-duplicate slide it selected. Use
   // that slide during validation so a generic promo that merely mentions the
   // fight in its marketing copy cannot be mistaken for the PPV banner.
@@ -827,8 +847,16 @@ export async function getActualValue(
       case 'annual pay upfront title':
         return findLine((_line, lower) => lower.includes('annual') && lower.includes('pay upfront')) || 'N/A';
 
-      case 'annual pay upfront save badge':
-        return findLine((_line, lower) => lower.includes('save') && !lower.includes('month')) || 'N/A';
+      case 'annual pay upfront save badge': {
+        // Keep the lookup within the Annual Pay Upfront option. Page-wide
+        // searching can otherwise associate an APM title with this badge.
+        const upfrontIndex = lowerLines.findIndex(line =>
+          line.includes('annual') && line.includes('pay upfront')
+        );
+        if (upfrontIndex < 0) return 'N/A';
+        const cardLines = lines.slice(upfrontIndex, upfrontIndex + 6);
+        return cardLines.find(line => /\bsave\s+(?:[A-Z]{3}\s*)?[\d,.]+/i.test(line)) || 'N/A';
+      }
 
       case 'annual pay upfront price': {
         const line = findLine((_line, lower) => lower.includes('/year'));
@@ -3355,6 +3383,16 @@ export async function getActualValue(
     case 'ppv image present':
     case 'ppv image': {
       const url = page.url();
+      const source = (eventData?.SOURCE || eventData?.source || '').toLowerCase();
+      // These values are captured from the exact clicked card before its popup
+      // opens. Prefer them over a document-wide image scan, which otherwise
+      // reports the home/boxing hero image while the popup is visible.
+      if (source === 'home-page-dont-miss' && eventData?.__HOME_DONT_MISS_IMAGE_PRESENT) {
+        return eventData.__HOME_DONT_MISS_IMAGE_PRESENT;
+      }
+      if (source === 'home-boxing-tile' && eventData?.__HOME_BOXING_IMAGE_PRESENT) {
+        return eventData.__HOME_BOXING_IMAGE_PRESENT;
+      }
       if (await waitForLoadedPPVImage()) return 'Yes';
 
       if (isSearchContext()) {
@@ -5879,6 +5917,31 @@ export async function getActualValue(
     case 'annual pay upfront save badge': {
       const saveAmount = eventData?.UPFRONT_SAVE_AMOUNT || '';
       const currency = eventData?.CURRENCY || '';
+
+      // The badge belongs to the APU card only. Do not search the whole page:
+      // doing so can associate text from the selected APM card with this field.
+      const upfrontCard = page.locator(
+        'label:has-text("Annual - Pay Upfront"), [role="radio"]:has-text("Annual - Pay Upfront"), [class*="card" i]:has-text("Annual - Pay Upfront")'
+      ).first();
+      if (await upfrontCard.isVisible({ timeout: 1000 }).catch(() => false)) {
+        const badgeText = await upfrontCard.evaluate((card: HTMLElement) => {
+          const normalise = (value: string | null | undefined) =>
+            String(value || '').replace(/\s+/g, ' ').trim();
+          const candidates = [card, ...Array.from(card.querySelectorAll<HTMLElement>('*'))];
+          for (const element of candidates) {
+            const text = normalise(element.innerText || element.textContent);
+            if (/\bsave\s+(?:[A-Z]{3}\s*)?[\d,.]+/i.test(text) && text.length < 80) {
+              return text;
+            }
+          }
+          return '';
+        }).catch(() => '');
+        if (badgeText) return badgeText;
+
+        // A visible APU card with no saving copy is the precise missing-badge
+        // result; avoid falling through to another card's page-wide text.
+        return 'N/A';
+      }
 
       if (saveAmount) {
         const exact = snapFind(n =>

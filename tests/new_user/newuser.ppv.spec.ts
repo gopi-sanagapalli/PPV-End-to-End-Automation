@@ -5,7 +5,7 @@ import { LandingPage } from '../../pages/LandingPage';
 import { BoxingPage } from '../../pages/BoxingPage';
 import { BoxingHomePage } from '../../pages/BoxingHomePage';
 import { HomePage } from '../../pages/HomePage';
-import { SignupPage } from '../../pages/SignupPage';
+import { SignupPage, PersonalDetailsRedirectError } from '../../pages/SignupPage';
 import { PaymentPage } from '../../pages/PaymentPage';
 import { SearchPage } from '../../pages/SearchPage';
 import { StandalonePPVPage } from '../../pages/StandalonePPVPage';
@@ -282,6 +282,15 @@ async function runFlow(
   const pagesConfig = json.pages;
 
   const regionUpper = region.toUpperCase();
+  const regionContext: Record<string, { locale: string; timezoneId: string }> = {
+    GB: { locale: 'en-GB', timezoneId: 'Europe/London' },
+    US: { locale: 'en-US', timezoneId: 'America/New_York' },
+    AE: { locale: 'en-AE', timezoneId: 'Asia/Dubai' },
+    SA: { locale: 'en-SA', timezoneId: 'Asia/Riyadh' },
+    AU: { locale: 'en-AU', timezoneId: 'Australia/Sydney' },
+    BR: { locale: 'pt-BR', timezoneId: 'America/Sao_Paulo' },
+  };
+  const { locale, timezoneId } = regionContext[regionUpper] ?? regionContext.GB;
   // CI stays at its validated desktop viewport. In a headed local run, use the
   // maximised physical window so the page is not vertically clipped on laptops.
   const context = await browser.newContext({
@@ -292,7 +301,8 @@ async function runFlow(
     hasTouch: false,
     colorScheme: 'dark',
     reducedMotion: 'no-preference',
-    locale: 'en-IN',
+    locale,
+    timezoneId,
     permissions: ['clipboard-read', 'clipboard-write', 'geolocation'],
     recordVideo: {
       dir: 'test-results/videos/',
@@ -379,7 +389,17 @@ async function runFlow(
       const nextStep = await signupForPopup.waitForNextStep();
       if (nextStep === 'personalDetails') {
         await signupForPopup.fillPersonalDetails(user);
-        await signupForPopup.clickPersonalDetailsContinue();
+        try {
+          await signupForPopup.clickPersonalDetailsContinue();
+        } catch (e: any) {
+          if (e.name === 'PersonalDetailsRedirectError') {
+            // Reload redirected to PPV/plan page — the home navigation guard below
+            // will navigate back to /home so the outer flow can re-enter from there.
+            console.warn(`♻️  [Popup] Personal details redirect after error recovery — will navigate to home. Current URL: ${page.url()}`);
+          } else {
+            throw e;
+          }
+        }
         await waitForHomePageAuthRedirect(page, 'Home Page Popup new-user signup');
         console.log('✅ [Home Page Popup] Personal details filled');
       }
@@ -1411,7 +1431,15 @@ async function runFlow(
           const signup2 = new SignupPage(page);
           try {
             await signup2.fillPersonalDetails(user);
-            await signup2.clickPersonalDetailsContinue();
+            try {
+              await signup2.clickPersonalDetailsContinue();
+            } catch (e: any) {
+              if (e.name === 'PersonalDetailsRedirectError') {
+                console.warn(`♻️  Personal details redirect after error — re-entering navigation loop from: ${page.url()}`);
+                continue;
+              }
+              throw e;
+            }
 
             // Robust phone validation fallback: retry different formats if stuck with error message
             const errorMsg = page.locator('text=/valid phone number|valid number/i').first();
@@ -1438,7 +1466,15 @@ async function runFlow(
                 await phoneInput.blur();
 
                 // Re-trigger validation with click
-                await signup2.clickPersonalDetailsContinue();
+                try {
+                  await signup2.clickPersonalDetailsContinue();
+                } catch (e: any) {
+                  if (e.name === 'PersonalDetailsRedirectError') {
+                    console.warn(`♻️  Personal details redirect after phone retry — re-entering navigation loop from: ${page.url()}`);
+                    continue;
+                  }
+                  throw e;
+                }
                 await Promise.race([
                   page.waitForURL((url: URL) => !url.toString().includes('page=personalDetails'), { timeout: 2000 }),
                   errorMsg.waitFor({ state: 'hidden', timeout: 2000 })
@@ -1589,10 +1625,15 @@ async function runFlow(
             const count = await radios.count().catch(() => 0);
             for (let i = 0; i < count; i++) {
               const radio = radios.nth(i);
-              const radioLabel = await radio
-                .locator('xpath=ancestor::label | xpath=ancestor::div[1]')
-                .first();
-              const text = await radioLabel.innerText({ timeout: 500 }).catch(() => '');
+              const text = await radio.evaluate((el: HTMLElement) => {
+                let container: HTMLElement | null = el;
+                for (let depth = 0; depth < 8 && container; depth += 1) {
+                  const text = container.innerText || container.textContent || '';
+                  if (/dazn\s+ultimate|ultimate/i.test(text)) return text;
+                  container = container.parentElement;
+                }
+                return '';
+              }).catch(() => '');
               if (text.toLowerCase().includes('ultimate')) {
                 await safeScrollToElement(page, radio);
                 await radio.click({ force: true }).catch(() => { });
@@ -1743,10 +1784,15 @@ async function runFlow(
             const count = await radios.count().catch(() => 0);
             for (let i = 0; i < count; i++) {
               const radio = radios.nth(i);
-              const radioLabel = await radio
-                .locator('xpath=ancestor::label | xpath=ancestor::div[1]')
-                .first();
-              const text = await radioLabel.innerText({ timeout: 500 }).catch(() => '');
+              const text = await radio.evaluate((el: HTMLElement) => {
+                let container: HTMLElement | null = el;
+                for (let depth = 0; depth < 8 && container; depth += 1) {
+                  const text = container.innerText || container.textContent || '';
+                  if (/dazn\s+ultimate|ultimate/i.test(text)) return text;
+                  container = container.parentElement;
+                }
+                return '';
+              }).catch(() => '');
               if (text.toLowerCase().includes('ultimate')) {
                 await safeScrollToElement(page, radio);
                 await radio.click({ force: true }).catch(() => { });
@@ -1757,10 +1803,17 @@ async function runFlow(
             }
           }
 
+          if (!clicked) {
+            throw new Error('❌ Unable to reselect DAZN Ultimate after returning to the PPV page; refusing to continue with the default PPV plan.');
+          }
+
           // Validate CTA after selecting DAZN Ultimate card
           await validateCtaAfterUltimateSelection(page, variant, results, eventData, 'PPV');
 
           const btn = page.locator('button:has-text("Continue with DAZN Ultimate")').first();
+          if (!(await btn.isVisible({ timeout: 3000 }).catch(() => false))) {
+            throw new Error('❌ DAZN Ultimate is not selected: the Ultimate-specific Continue CTA is absent. Refusing to continue with the default PPV plan.');
+          }
           await clickAndWaitForNav(page, btn, 'PPV Continue Ultimate');
         } else {
           const ppvSelector = currentVariantConfig?.ppvSelector || 'input[type="radio"]';

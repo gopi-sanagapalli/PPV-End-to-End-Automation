@@ -264,6 +264,7 @@ export function buildEventData(
       US: 'en-US',
       AU: 'en-AU',
       AE: 'en-AE',
+      SA: 'en-SA',
       IN: 'en-IN',
       CA: 'en-CA',
       ES: 'es-ES',

@@ -383,6 +383,10 @@ export class BoxingHomePage extends HomePage {
         const tileCapture = await tile.evaluate((el: HTMLElement, ppvName: string) => {
           const clean = (value: string | null | undefined) =>
             String(value ?? '').replace(/\s+/g, ' ').trim();
+          // The card's accessible label can include a DAZN collection id
+          // ("- List:..."); exclude that metadata from the PPV title.
+          const cleanTileLabel = (value: string | null | undefined) =>
+            clean(value).replace(/\s*[-–—]?\s*list\s*:\s*[^\s]+.*$/i, '').trim();
           const text = clean(el.innerText || el.textContent);
           const imgTexts = Array.from(el.querySelectorAll('img'))
             .map((img: HTMLImageElement) => clean(img.alt || img.getAttribute('aria-label') || img.getAttribute('title')))
@@ -397,12 +401,13 @@ export class BoxingHomePage extends HomePage {
             'h1, h2, h3, h4, h5, h6, p, span, [class*="title" i], [class*="name" i]'
           ))
             .filter(node => node.children.length === 0)
-            .map(node => clean(node.innerText || node.textContent))
+            .map(node => cleanTileLabel(node.innerText || node.textContent))
+            .concat(imgTexts.map(cleanTileLabel), [cleanTileLabel(el.getAttribute('aria-label')), cleanTileLabel(el.getAttribute('title'))])
             .filter(candidate => candidate.length > 2 && candidate.length < 120);
-          const titleText = titleCandidates.find(candidate => {
+          const titleText = titleCandidates.filter(candidate => {
             const normalized = candidate.toLowerCase().replace(/[^a-z0-9]+/g, ' ');
             return expectedWords.length > 0 && expectedWords.every(word => normalized.includes(word));
-          }) || '';
+          }).sort((a, b) => a.length - b.length)[0] || '';
           const hasImage = Array.from(el.querySelectorAll<HTMLElement>('img, picture, [role="img"], div, span, a')).some(node => {
             const rect = node.getBoundingClientRect();
             const style = window.getComputedStyle(node);
