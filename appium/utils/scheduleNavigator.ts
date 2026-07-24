@@ -171,6 +171,14 @@ export async function getElementCenter(el: WdElement): Promise<{ x: number; y: n
   return { x: loc.x + Math.round(size.width / 2), y: loc.y + Math.round(size.height / 2) };
 }
 
+function normalizeTileText(text: string): string {
+  return text.replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function isExactPPVTileText(text: string, ppvName: string): boolean {
+  return normalizeTileText(text) === normalizeTileText(ppvName);
+}
+
 /** Waits for an element to exist and be displayed. */
 export async function waitForElement(
   driver: WdBrowser, selector: string, timeout = 5000,
@@ -410,29 +418,21 @@ export async function findPPVTileInMonth(
       }
     }
 
-    // ── Check containing matches (excluding weigh-ins / press conferences) ──
+    // ── Check exact TextView matches after whitespace normalization ─────────
     const textEls: WdElement[] =
       await driver.$$('android=new UiSelector().className("android.widget.TextView")').catch(() => []);
     
     let matchedEl: WdElement | null = null;
     for (const el of textEls) {
       const text = await el.getText().catch(() => '');
-      const lower = text.toLowerCase().trim();
-      if (
-        lower.includes(ppvName.toLowerCase()) &&
-        !lower.includes('weigh') &&
-        !lower.includes('press') &&
-        !lower.includes('media') &&
-        !lower.includes('workout') &&
-        !lower.includes('undercard')
-      ) {
+      if (isExactPPVTileText(text, ppvName)) {
         matchedEl = el;
         break;
       }
     }
 
     if (matchedEl && await matchedEl.isDisplayed().catch(() => false)) {
-      console.log(`✅ Phase 3: Filtered PPV Tile found after ${i} swipe(s): "${await matchedEl.getText()}"`);
+      console.log(`✅ Phase 3: Exact PPV Tile found after ${i} swipe(s): "${await matchedEl.getText()}"`);
       return matchedEl;
     }
 
@@ -742,11 +742,12 @@ export async function navigateScheduleToPPVTile(
  */
 export async function navigateToPPVTile(
   driver: WdBrowser,
-  event?: { PPV_NAME?: string; global?: { PPV_DATE?: string } },
+  event?: { PPV_NAME?: string; global?: { PPV_DATE?: string }; regions?: Record<string, { PPV_DATE?: string }> },
   hooks: AndroidFlowHooks = {},
 ): Promise<void> {
   const ppvName = event?.PPV_NAME || process.env.PPV_NAME || 'Joshua';
-  const ppvDate = event?.global?.PPV_DATE;
+  const region = String(process.env.DAZN_REGION || '').toUpperCase().trim();
+  const ppvDate = event?.regions?.[region]?.PPV_DATE || event?.global?.PPV_DATE;
 
   if (ppvDate) {
     try {

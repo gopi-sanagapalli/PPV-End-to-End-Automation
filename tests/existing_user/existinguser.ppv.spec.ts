@@ -65,6 +65,7 @@ import { AuthenticationManager } from '../../auth/AuthenticationManager';
 const REGION = process.env.DAZN_REGION || 'GB';
 const EVENT_CONFIG = process.env.PPV_CONFIG || 'ppv_t_joshua_prenga.json';
 const SOURCE = process.env.SOURCE || 'my-account';
+const TV_HANDOFF_MODE = (process.env.TV_HANDOFF_MODE || '').toLowerCase() === 'true';
 
 // ── Flow constant — used for flow-restricted Excel rows ──────────────
 // Enables Welcome Back, Saved Card, Signed In As, Log Out validations
@@ -104,6 +105,17 @@ const ENV = (process.env.DAZN_ENV || 'stag').toLowerCase();
 const PAYMENT_METHOD = (process.env.PAYMENT_METHOD || 'credit_card').toLowerCase();
 const isHeadless = process.env.HEADLESS === 'true';
 const EXISTING_FLOW_TIMEOUT_MS = Number(process.env.PPV_TEST_TIMEOUT_MS) || 420_000;
+
+function readTvHandoffUrl(): string {
+  const envUrl = (process.env.TV_HANDOFF_URL || '').trim();
+  if (envUrl.startsWith('http')) return envUrl;
+
+  const handoffFile = path.resolve(process.cwd(), 'mobile_entry_url.txt');
+  if (!fs.existsSync(handoffFile)) return '';
+
+  const fileUrl = fs.readFileSync(handoffFile, 'utf-8').trim();
+  return fileUrl.startsWith('http') ? fileUrl : '';
+}
 
 function throwLogged(error: Error): never {
   console.log(error.message);
@@ -401,6 +413,7 @@ for (const stateKey of userStatesToRun) {
       regionLocaleMap[REGION] ?? { locale: 'en-GB', timezoneId: 'Europe/London' };
 
     console.log(`Creating browser context with Locale: ${regionLocale}, Timezone: ${regionTimezone}...`);
+    const tvHandoffStorageState = process.env.TV_HANDOFF_STORAGE_STATE || path.resolve(process.cwd(), 'tv_handoff_storage_state.json');
     const context = await browser.newContext({
       // Keep the CI viewport stable; headed local runs follow the maximised window.
       viewport: isHeadless ? { width: 1920, height: 1080 } : null,
@@ -408,6 +421,7 @@ for (const stateKey of userStatesToRun) {
       reducedMotion: 'no-preference',
       locale: regionLocale,
       timezoneId: regionTimezone,
+      ...(TV_HANDOFF_MODE && fs.existsSync(tvHandoffStorageState) ? { storageState: tvHandoffStorageState } : {}),
       ...(recordVideo ? { recordVideo } : {}),
     });
 
@@ -768,7 +782,12 @@ for (const stateKey of userStatesToRun) {
     };
 
     try {
-      const requiresPreLogin = isMyAccount || LOGIN_FIRST;
+      const tvHandoffUrl = TV_HANDOFF_MODE ? readTvHandoffUrl() : '';
+      if (tvHandoffUrl) {
+        console.log(`📺 [TV Handoff] Continuing existing-user validations from TV plans URL: ${tvHandoffUrl}`);
+      }
+
+      const requiresPreLogin = !tvHandoffUrl && (isMyAccount || LOGIN_FIRST);
 
       // ══════════════════════════════════════════════════════════════
       // PRE-LOGIN FLOW (My Account OR LOGIN=true)
@@ -797,7 +816,7 @@ for (const stateKey of userStatesToRun) {
         }
       }
 
-      if (!isMyAccount) {
+      if (!tvHandoffUrl && !isMyAccount) {
         // ══════════════════════════════════════════════════════════════
         // LANDING / BOXING / SCHEDULE ACQUISITION FLOW
         // ══════════════════════════════════════════════════════════════
@@ -1731,7 +1750,7 @@ for (const stateKey of userStatesToRun) {
         // ══════════════════════════════════════════════════════════════
         // MY ACCOUNT FLOW — already signed in via PRE-LOGIN FLOW above
         // ══════════════════════════════════════════════════════════════
-      } else {
+      } else if (!tvHandoffUrl) {
         // My Account source should not pass through Home after sign-in. Going
         // through Home can open header controls such as All Sports and change
         // the starting page for the flow.
@@ -1754,7 +1773,26 @@ for (const stateKey of userStatesToRun) {
       let lastName = '';
       let postClickUrl = '';
 
-      if (isMyAccount) {
+      if (tvHandoffUrl) {
+        isReturning = true;
+        firstName = eventData.FIRST_NAME || userEmail.split('@')[0] || 'UAT';
+        lastName = eventData.LAST_NAME || 'UAT';
+
+        eventData.FIRST_NAME = firstName;
+        eventData.LAST_NAME = lastName;
+        eventData['FIRST_NAME'] = firstName;
+        eventData['LAST_NAME'] = lastName;
+        eventData.FULL_NAME = `${firstName} ${lastName}`.trim();
+        eventData.IS_RETURNING_USER = 'true';
+        eventData.SIGNED_IN_AS_TEXT = `Signed in as ${firstName} ${lastName}`.trim();
+        eventData['FULL_NAME'] = eventData.FULL_NAME;
+        eventData['IS_RETURNING_USER'] = eventData.IS_RETURNING_USER;
+        eventData['SIGNED_IN_AS_TEXT'] = eventData.SIGNED_IN_AS_TEXT;
+
+        await page.goto(tvHandoffUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+        await page.waitForLoadState('domcontentloaded').catch(() => {});
+        postClickUrl = page.url();
+      } else if (isMyAccount) {
         console.log('⏳ Waiting for My Account page to fully render...');
 
         // Wait for ANY account content — whichever appears first

@@ -8,6 +8,7 @@
     "test:headed": "playwright test --headed",
     "test:debug": "playwright test --debug",
     "android": "npm --prefix appium run android",
+    "tv:ppv:e2e": "bash run_tv_ppv_handoff.sh",
     "demo": "ts-node scripts/demo.ts"
   },
   "devDependencies": {
