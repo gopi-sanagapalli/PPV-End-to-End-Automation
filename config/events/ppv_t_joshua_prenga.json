@@ -106,6 +106,25 @@
       "PPV1_UPSELL_TILE_DATE": "",
       "offers": []
     },
+    "SA": {
+      "LANDING_PAGE_PPV_DATE": "25 July",
+      "PPV_DATE": "Sat 25th Jul at 16:00",
+      "PPV_PAGE_DATE": "Sat 25th Jul at 16:00",
+      "PPV_TIME": "16:00",
+      "LANDING_BANNER_DATE": "SAT 25TH JUL AT 16:00",
+      "HOME_POPUP_DATE": "SAT 25TH JUL AT 16:00",
+      "PPV_POPUP_DATE": "25 JUL 4:00PM",
+      "SEARCH_PPV_DATE_TIME": "25 JUL 4:00PM",
+      "SCHEDULE_PPV_TIME": "4:00PM",
+      "HOME_BOXING_UPCOMING_TIME": "4:00PM",
+      "PPV_PRICE": "SAR 74.99",
+      "TODAY_YOU_PAY_PRICE": "SAR 74.99",
+      "UPSELL_PRICE": "SAR 74.99",
+      "UPSELL_CROSSED_PRICE": "N/A",
+      "UPSELL_PRICE_LENGTH": "/month for 12 months",
+      "PPV1_UPSELL_TILE_DATE": "",
+      "offers": []
+    },
     "BR": {
       "LANDING_PAGE_PPV_DATE": "25 July",
       "PPV_DATE": "Sat 25th Jul at 10:00",

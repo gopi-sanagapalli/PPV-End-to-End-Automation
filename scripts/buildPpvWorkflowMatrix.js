@@ -9,6 +9,9 @@ if (!mode || !configName || !country) throw new Error('Usage: buildPpvWorkflowMa
 if (!fs.existsSync(configPath)) throw new Error(`PPV config not found: ${configName}`);
 
 const event = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+if (country === 'SA' && event.regions && !event.regions.SA) {
+  event.regions.SA = JSON.parse(JSON.stringify(event.regions.AE || event.regions.GB || {}));
+}
 
 if (process.env.PPV_DEV_MODE === 'true') {
   event.PPV_DEV_MODE = true;
@@ -154,6 +157,20 @@ switch (mode) {
     ];
     break;
   default: throw new Error(`Unsupported matrix mode: ${mode}`);
+}
+
+if (country === 'SA') {
+  const existingModes = [
+    'live-existing',
+    'live-signed',
+    'android-full-signin',
+    'android-full-signed',
+    'android-sanity-signin',
+    'android-sanity-signed'
+  ];
+  if (existingModes.includes(mode)) {
+    matrix = [];
+  }
 }
 
 if (mode.startsWith('default-') && !defaultSignupDevMode && !hasDefaultSignup) {
