@@ -142,6 +142,27 @@
         "ULTIMATE_ANNUAL_PAY_MONTHLY_PRICE": "R$106.90",
         "TODAY_YOU_PAY_ULTIMATE_APM": "R$106.90",
         "offers": []
+      },
+      "SA": {
+        "BASE_URL": "https://www.dazn.com/en-SA",
+        "CURRENCY": "SAR",
+        "DAZN_TIER": "DAZN Standard",
+        "OFFER_TYPE": "8_day_trial",
+        "MONTHLY_PRICE": "55.99",
+        "ANNUAL_PAY_MONTHLY_PRICE": "74.99",
+        "ANNUAL_UPFRONT_PRICE": "749.99",
+        "ANNUAL_MONTHS": "12",
+        "NEXT_PAYMENT_PRICE": "SAR 55.99",
+        "TRIAL_MONTHLY_PRICE": "SAR 55.99",
+        "ANNUAL_PAY_MONTHLY_CONTRACT_TEXT": "Annual contract. Auto renews.",
+        "CANCELLATION_TEXT_TRIAL": "In {{FREE_TRIAL_DAYS}} days, you'll be charged {{CURRENCY}} {{MONTHLY_PRICE}}/month. Cancel anytime before the end of the trial.",
+        "CANCELLATION_TEXT_ULTIMATE_APM": "Your Annual (pay over time) plan will renew automatically on {{RENEWAL_DATE}}. Manage or cancel your annual renewal anytime in My Account. 12-month minimum term",
+        "CANCELLATION_TEXT_ULTIMATE_APU": "You can cancel the renewal to this subscription in My Account. You will still have full access to DAZN until the end of your annual cycle.",
+        "ULTIMATE_FEATURE_2": "185+ fights a year from the world's best promoters.",
+        "ULTIMATE_FEATURE_3": "HDR and Dolby 5.1 surround sound on select events.",
+        "ULTIMATE_ANNUAL_PAY_MONTHLY_PRICE": "SAR 74.99",
+        "TODAY_YOU_PAY_ULTIMATE_APM": "SAR 74.99",
+        "offers": []
       }
     }
   },
@@ -349,6 +370,23 @@
         "ANNUAL_SAVINGS_BADGE": "Save R$212.80",
         "UPFRONT_SAVE_AMOUNT": "212.80",
         "offers": []
+      },
+      "SA": {
+        "BASE_URL": "https://www.dazn.com/en-SA",
+        "CURRENCY": "SAR",
+        "DAZN_TIER": "DAZN Ultimate",
+        "OFFER_TYPE": "no_trial",
+        "MONTHLY_PRICE": "55.99",
+        "ANNUAL_PRICE": "74.99",
+        "ANNUAL_PAY_MONTHLY_PRICE": "74.99",
+        "ANNUAL_UPFRONT_PRICE": "749.99",
+        "ANNUAL_MONTHS": "12",
+        "NEXT_PAYMENT_PRICE": "SAR 74.99",
+        "TRIAL_MONTHLY_PRICE": "SAR 55.99",
+        "CANCELLATION_TEXT_ULTIMATE_APM": "Your Annual (pay over time) plan will renew automatically on {{RENEWAL_DATE}}. Manage or cancel your annual renewal anytime in My Account. 12-month minimum term",
+        "CANCELLATION_TEXT_ULTIMATE_APU": "You can cancel the renewal to this subscription in My Account. You will still have full access to DAZN until the end of your annual cycle.",
+        "ANNUAL_PAY_MONTHLY_CONTRACT_TEXT": "Annual contract. Auto renews.",
+        "offers": []
       }
     }
   },
@@ -449,7 +487,25 @@
         "UPFRONT_SAVE_AMOUNT": "212.80",
         "ANNUAL_PAY_MONTHLY_CONTRACT_TEXT": "Annual contract. Auto renews.",
         "offers": []
+      },
+      "SA": {
+        "BASE_URL": "https://www.dazn.com/en-SA",
+        "CURRENCY": "SAR",
+        "DAZN_TIER": "DAZN Ultimate",
+        "OFFER_TYPE": "no_trial",
+        "MONTHLY_PRICE": "55.99",
+        "ANNUAL_PRICE": "74.99",
+        "ANNUAL_PAY_MONTHLY_PRICE": "74.99",
+        "ANNUAL_UPFRONT_PRICE": "749.99",
+        "ANNUAL_MONTHS": "12",
+        "NEXT_PAYMENT_PRICE": "SAR 749.99",
+        "TRIAL_MONTHLY_PRICE": "SAR 55.99",
+        "CANCELLATION_TEXT_ULTIMATE_APU": "You can cancel the renewal to this subscription in My Account. You will still have full access to DAZN until the end of your annual cycle.",
+        "ANNUAL_PAY_MONTHLY_CONTRACT_TEXT": "Annual contract. Auto renews.",
+        "offers": []
       }
     }
   }
 }
+ 
+ 
