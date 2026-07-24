@@ -970,10 +970,17 @@ export function buildEventData(
       if (base[key] && typeof base[key] === 'string' && base[key] !== 'N/A' && base[key] !== '') {
         const val = base[key].trim();
         if (!val.startsWith(currencySymbol)) {
-          if (currencySymbol === 'AED' && val.startsWith('AED')) {
+          // Guard: skip if the value already carries this currency prefix.
+          // Needed for multi-letter codes like AED, SAR, R$ where the raw
+          // value in DaznPlan.json may already include the symbol (e.g. "SAR 55.99").
+          const valUpper = val.toUpperCase();
+          const symUpper = currencySymbol.toUpperCase();
+          if (valUpper.startsWith(symUpper)) {
             continue;
           }
-          base[key] = `${currencySymbol}${val}`;
+          // Single-char symbols (£, $, €) join without space; multi-char (SAR, AED) with space.
+          const sep = currencySymbol.length === 1 ? '' : ' ';
+          base[key] = `${currencySymbol}${sep}${val}`;
         }
       }
     }

@@ -154,6 +154,17 @@ export async function detectPageType(
     return 'payment';
   }
 
+  // Body-text payment detection — SPA can render payment UI before URL updates.
+  // Must check BEFORE email/plan URL fallbacks to avoid false 'email' detection.
+  if (
+    body.includes('payment method') ||
+    body.includes('choose how to pay') ||
+    body.includes('today you pay')
+  ) {
+    console.log('  [detectPageType] Payment page detected via body text (SPA URL may lag)');
+    return 'payment';
+  }
+
   // Personal details / Email page — MUST be before upsellTierSelected check
   if (urlLower.includes('page=personaldetails')) return 'email';
   if (urlLower.includes('emaildetails')) return 'email';

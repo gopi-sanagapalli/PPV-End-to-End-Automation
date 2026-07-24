@@ -651,8 +651,11 @@ export async function getActualValue(
     return _popupContainer;
   };
 
+  // DAZN uses both symbol currencies (for example £ and $) and ISO currency
+  // codes (for example AED and SAR). Keep this shared predicate generic so a
+  // new ISO-code market does not silently resolve every price as N/A.
   const isPriceText = (t: string) =>
-    /^(AED\s?|[£$€₹]\s?)[\d,]+(\.\d{2})?$/.test(t);
+    /^(?:[A-Z]{3}\s*|[£$€₹]\s?)[\d,]+(?:\.\d{2})?$/i.test(t);
 
   const isDateText = (t: string) =>
     (/\b(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\b/i.test(t) &&
@@ -720,7 +723,7 @@ export async function getActualValue(
       return findLine(line => candidates.includes(normaliseComparable(line)));
     };
     const extractCurrency = (line: string) =>
-      (line.match(/(?:AED\s?|[£$€₹]\s?)\d+(?:[,.]\d{2,3})*/i)?.[0] || '').trim();
+      (line.match(/(?:[A-Z]{3}\s*|[£$€₹]\s?)\d+(?:[,.]\d{2,3})*/i)?.[0] || '').trim();
 
     const ppvDisplayName = eventData?.PPV_DISPLAY_NAME || eventData?.PPV_CARD_TITLE || eventData?.PPV_NAME || '';
     const ppvCardDescription = eventData?.PPV_CARD_DESCRIPTION || eventData?.BUNDLE_PPV_CARD_DESCRIPTION || '';
@@ -901,7 +904,8 @@ export async function getActualValue(
           ? findExactish(ppvPrice) || findLine(line => extractCurrency(line) === ppvPrice)
           : findLine((line, lower) => extractCurrency(line) !== '' && !lower.includes('/month'));
         const currency = extractCurrency(priceLine);
-        if (currency.startsWith('AED')) return 'AED';
+        const currencyCode = currency.match(/^[A-Z]{3}\b/i);
+        if (currencyCode) return currencyCode[0].toUpperCase();
         const match = currency.match(/^[£$€₹]/);
         return match ? match[0] : 'N/A';
       }
@@ -3615,7 +3619,7 @@ export async function getActualValue(
 
       const liveScopedPrice = await page.evaluate(({ ppvName, expectedPrice }: { ppvName: string; expectedPrice: string }) => {
         const clean = (value: string) => value.replace(/\s+/g, ' ').trim();
-        const priceRegex = /(?:AED\s?|[£$€₹]\s?)\d+(?:\.\d{2})?/g;
+        const priceRegex = /(?:[A-Z]{3}\s*|[£$€₹]\s?)\d+(?:\.\d{2})?/g;
         const priceNumber = (value: string) => value.replace(/[^0-9.]/g, '');
         const expectedNumber = priceNumber(expectedPrice || '');
         const nameTokens = clean(ppvName || '')
@@ -3650,7 +3654,7 @@ export async function getActualValue(
             nearby.includes('dazn ultimate');
         };
 
-        const hasPrice = (text: string): boolean => /(?:AED\s?|[£$€₹]\s?)\d+(?:\.\d{2})?/.test(text);
+        const hasPrice = (text: string): boolean => /(?:[A-Z]{3}\s*|[£$€₹]\s?)\d+(?:\.\d{2})?/.test(text);
         const containers = Array.from(document.querySelectorAll<HTMLElement>('label, article, section, li, div'))
           .filter(el => isVisible(el))
           .map(el => ({ el, text: clean(el.innerText || el.textContent || '') }))
@@ -3916,7 +3920,7 @@ export async function getActualValue(
         const allEls = document.querySelectorAll<HTMLElement>('span, p, div, strong, b');
         for (const el of allEls) {
           const text = (el.textContent || '').trim();
-          if (!/[£$€₹]/.test(text) && !/AED/.test(text) || text.length > 30) continue;
+          if (!/[£$€₹]/.test(text) && !/\b[A-Z]{3}\b/i.test(text) || text.length > 30) continue;
           // Walk up 5 levels to check for line-through on any ancestor
           let current: HTMLElement | null = el;
           for (let depth = 0; depth < 5 && current; depth++) {
@@ -3924,7 +3928,7 @@ export async function getActualValue(
             if (style.textDecorationLine?.includes('line-through') ||
               style.textDecoration?.includes('line-through')) {
               // Return the price-only portion
-              const priceMatch = text.match(/(?:AED\s?|[£$€₹]\s?)\d+(?:\.\d{2})?/);
+              const priceMatch = text.match(/(?:[A-Z]{3}\s*|[£$€₹]\s?)\d+(?:\.\d{2})?/);
               if (priceMatch) return priceMatch[0].trim();
             }
             current = current.parentElement;
@@ -4030,8 +4034,9 @@ export async function getActualValue(
         n.childCount === 0 && isPriceText(n.text)
       );
       if (priceNode) {
-        // Handle multi-char currencies (AED) and single-char (£$€₹)
-        if (priceNode.text.startsWith('AED')) return 'AED';
+        // Handle ISO-code currencies (for example AED and SAR) and symbols.
+        const currencyCode = priceNode.text.match(/^[A-Z]{3}\b/i);
+        if (currencyCode) return currencyCode[0].toUpperCase();
         const match = priceNode.text.match(/^[£$€₹]/);
         if (match) return match[0];
       }
@@ -6659,7 +6664,7 @@ export async function getActualValue(
         if (n.isInModal) continue;
         if (n.text.toLowerCase().includes('you will be charged') &&
           n.text.toLowerCase().includes('from')) {
-          const priceMatch = n.text.match(/charged\s+(?:AED\s?)?([£$€]?\d+(?:,\d{3})*\.\d{2})/);
+          const priceMatch = n.text.match(/charged\s+((?:[A-Z]{3}\s*)?[£$€₹]?\d+(?:,\d{3})*\.\d{2})/i);
           if (priceMatch) return priceMatch[1];
         }
       }
@@ -6669,11 +6674,11 @@ export async function getActualValue(
       if (nextPrice) {
         const found = snapFind(n =>
           n.childCount === 0 &&
-          n.text.includes(nextPrice.replace(/[£$€]|AED\s?/g, ''))
+          n.text.includes(nextPrice.replace(/(?:[A-Z]{3}\s*|[£$€₹])/g, ''))
         );
         if (found !== 'N/A') {
           // Extract just the price
-          const pm = found.match(/(?:AED\s?)?([£$€]?\d+(?:,\d{3})*\.\d{2})/);
+          const pm = found.match(/((?:[A-Z]{3}\s*)?[£$€₹]?\d+(?:,\d{3})*\.\d{2})/i);
           return pm ? pm[1] : found;
         }
       }

@@ -44,6 +44,25 @@ export class PaymentPage extends BasePage {
     }
   }
 
+  /** Wait until checkout content, not merely the payment URL, is usable. */
+  async waitUntilReady(timeout = 30_000): Promise<boolean> {
+    if (this.page.isClosed()) return false;
+
+    await this.page.waitForLoadState('domcontentloaded').catch(() => {});
+    const ready = await this.page.waitForFunction(() => {
+      const body = document.body?.innerText?.toLowerCase() || '';
+      return body.includes('payment method') ||
+        body.includes('credit') ||
+        body.includes('paypal') ||
+        body.includes('google pay') ||
+        body.includes('today you pay') ||
+        body.includes('purchase summary');
+    }, { timeout }).then(() => true).catch(() => false);
+
+    if (ready) console.log('✅ Payment checkout content is ready');
+    return ready;
+  }
+
   // ─────────────────────────────
   // DYNAMIC VALIDATION
   // ─────────────────────────────
@@ -63,17 +82,8 @@ export class PaymentPage extends BasePage {
 
     console.log(`\n🧾 Validating Payment page — ${data.length} fields`);
 
-    // Wait for payment page to fully load — single smart wait, max 4s total
-    await this.page.waitForLoadState('domcontentloaded').catch(() => {});
-    await this.page.waitForFunction(() => {
-      const body = document.body.innerText.toLowerCase();
-      return (
-        body.includes('choose how to pay') ||
-        body.includes('payment method') ||
-        body.includes('purchase summary') ||
-        body.includes('today you pay')
-      );
-    }, { timeout: 4000 }).catch(() => {});
+    // Do not begin extraction while the checkout shell is still rendering.
+    await this.waitUntilReady();
 
     // Wait for payment options to load (wait for "Credit" or "PayPal" or "Google Pay" text to become visible)
     console.log('⏳ Waiting for payment methods (Credit, PayPal, Google Pay) to load...');
@@ -241,7 +251,7 @@ export class PaymentPage extends BasePage {
       const idx = nextAnnualIdx >= 0 ? nextAnnualIdx : nextIdx;
       if (idx >= 0) {
         const afterText = bodyText.substring(idx, idx + 100);
-        const priceMatch = afterText.match(/(?:AED\s?|[\$£€₹]\s?)\d+(?:\.\d{2})?/);
+        const priceMatch = afterText.match(/(?:[A-Z]{2,3}\s?|[\$£€₹]\s?)\d+(?:\.\d{2})?/);
         if (priceMatch) {
           actualPrice = priceMatch[0].trim();
         }
@@ -773,10 +783,32 @@ export class PaymentPage extends BasePage {
 
     // ── DAZN Tier ──────────────────────────────────────────────
     if (fieldLower === 'dazn tier' || fieldLower === 'tier') {
-      const tierMatch = bodyText.match(/DAZN\s+(Standard|Ultimate|Premium)/i);
-      if (tierMatch) return tierMatch[0].trim();
-      if (lower.includes('dazn ultimate')) return 'DAZN Ultimate';
-      if (lower.includes('dazn standard')) return 'DAZN Standard';
+      // Scan body text lines — but EXCLUDE upsell banner lines ("Switch to DAZN Ultimate…")
+      // so we read the tier from the Purchase Summary heading, not the upsell banner.
+      // The prod bug shows just "DAZN" (no qualifier) in the Purchase Summary heading;
+      // returning that correctly flags: expected="DAZN Standard" vs actual="DAZN".
+      const tierLines = bodyText
+        .split('\n')
+        .map(l => l.trim())
+        .filter(l => l.length > 0 && !/switch to dazn/i.test(l));
+
+      // Priority 1: "DAZN Standard", "DAZN Ultimate", "DAZN Premium"
+      for (const line of tierLines) {
+        const m = line.match(/^DAZN\s+(Standard|Ultimate|Premium)$/i);
+        if (m) return m[0].trim();
+      }
+
+      // Priority 2: standalone "DAZN" heading (prod bug — qualifier missing)
+      for (const line of tierLines) {
+        if (/^DAZN$/i.test(line)) return 'DAZN';
+      }
+
+      // Priority 3: DAZN Standard/Ultimate/Premium anywhere in a line (not upsell banner)
+      for (const line of tierLines) {
+        const m = line.match(/DAZN\s+(Standard|Ultimate|Premium)/i);
+        if (m) return m[0].trim();
+      }
+
       return 'N/A';
     }
 
@@ -949,7 +981,7 @@ export class PaymentPage extends BasePage {
 
       if (ppvIndex >= 0) {
         const nearText = bodyText.substring(ppvIndex, ppvIndex + 300);
-        const priceMatch = nearText.match(/(?:AED\s?|[\$£€₹]\s?)\d+(?:\.\d{2})?/);
+        const priceMatch = nearText.match(/(?:[A-Z]{2,3}\s?|[\$£€₹]\s?)\d+(?:\.\d{2})?/);
         if (priceMatch) return priceMatch[0].trim();
       }
 
@@ -958,7 +990,7 @@ export class PaymentPage extends BasePage {
         return expectedPrice;
       }
 
-      const allPrices = bodyText.match(/(?:AED\s?|[\$£€₹]\s?)\d+(?:\.\d{2})?/g) || [];
+      const allPrices = bodyText.match(/(?:[A-Z]{2,3}\s?|[\$£€₹]\s?)\d+(?:\.\d{2})?/g) || [];
       if (allPrices.length > 0) {
         const sorted = allPrices
           .map(p => ({ raw: p, val: parseFloat(p.replace(/[^\d.]/g, '')) }))
@@ -970,10 +1002,9 @@ export class PaymentPage extends BasePage {
 
     // ── First Month Free Price ─────────────────────────────────
     if (fieldLower === 'first month free price') {
-      if (bodyText.includes('£0') || bodyText.includes('$0') || bodyText.includes('€0') || bodyText.includes('AED 0') || bodyText.includes('AED0')) {
-        const match = bodyText.match(/(?:AED\s?|[\$£€₹]\s?)0/);
-        return match ? match[0].trim() : 'N/A';
-      }
+      // Match zero-price for any supported currency (£0, $0, AED 0, SAR 0, etc.)
+      const zeroMatch = bodyText.match(/(?:[A-Z]{2,3}\s?|[\$£€₹]\s?)0(?!\.\d*[1-9])/);
+      if (zeroMatch) return zeroMatch[0].trim();
       return 'N/A';
     }
 
@@ -1047,7 +1078,7 @@ export class PaymentPage extends BasePage {
         const priceElements = allElements.filter(el => {
           if (el.children.length > 0) return false;
           const text = cleanText(el.textContent || '');
-          return /^(?:AED\s?|[£$€₹]\s?)\d+(?:\.\d{2})?$/.test(text);
+          return /^(?:[A-Z]{2,3}\s?|[£$€₹]\s?)\d+(?:\.\d{2})?$/.test(text);
         });
 
         let todayEl: HTMLElement | null = null;
@@ -1107,7 +1138,7 @@ export class PaymentPage extends BasePage {
       const todaySplit = bodyText.split(/today\s+you\s+pay/i);
       if (todaySplit.length > 1) {
         const afterToday = todaySplit[1];
-        const prices = afterToday.match(/(?:AED\s?|[\$£€₹]\s?)\d+(?:\.\d{2})?/g) || [];
+        const prices = afterToday.match(/(?:[A-Z]{2,3}\s?|[\$£€₹]\s?)\d+(?:\.\d{2})?/g) || [];
         const origPrice = eventData.ANNUAL_PAY_MONTHLY_ORIGINAL_PRICE || eventData.UPSELL_ORIGINAL_PRICE || '';
         const cleanOrig = origPrice.replace(/[^\d.]/g, '');
         const filteredPrices = [];
@@ -1184,7 +1215,8 @@ export class PaymentPage extends BasePage {
       }
       if (nextIdx >= 0) {
         const afterText = bodyText.substring(nextIdx, nextIdx + 100);
-        const price = afterText.match(/(?:AED\s?|[\$£€₹]\s?)\d+(?:\.\d{2})?/);
+        // Include multi-letter currencies (SAR, AED, etc.) and single-char symbols
+        const price = afterText.match(/(?:[A-Z]{2,3}\s?|[\$£€₹]\s?)\d+(?:\.\d{2})?/);
         if (price) return price[0].trim();
       }
       return 'N/A';
@@ -1588,7 +1620,8 @@ export class PaymentPage extends BasePage {
 
     // ── Rate Plan Price ────────────────────────────────────────
     if (fieldLower === 'rate plan price') {
-      const priceWithPeriod = bodyText.match(/(?:AED\s?|[\$£€₹]\s?)\d+(?:\.\d{2})?\s*\/\s*(?:month|year)/i);
+      // Include multi-letter currencies (SAR, AED, R$, etc.) and single-char symbols
+      const priceWithPeriod = bodyText.match(/(?:[A-Z]{2,3}\s?|[\$£€₹]\s?)\d+(?:\.\d{2})?\s*\/\s*(?:month|year)/i);
       if (priceWithPeriod) return priceWithPeriod[0].trim();
       return 'N/A';
     }
