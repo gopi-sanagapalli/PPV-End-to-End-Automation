@@ -38,6 +38,19 @@ function withCurrency(value: string | undefined, currency: string | undefined): 
   return `${curr}${raw}`;
 }
 
+/**
+ * Relative DAZN labels are only valid for values that explicitly contain both
+ * a calendar date and a time.  Checking this before date parsing prevents a
+ * date-only or time-only chip from being accidentally treated as tomorrow.
+ */
+function hasExplicitDateAndTime(value: string): boolean {
+  const month = '(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)';
+  const datePattern = new RegExp(`(?:\\b\\d{1,2}(?:st|nd|rd|th)?\\s+${month}\\b|\\b${month}\\s+\\d{1,2}(?:st|nd|rd|th)?\\b)`, 'i');
+  const timePattern = /\b(?:[01]?\d|2[0-3]):[0-5]\d\s*(?:a\.?m\.?|p\.?m\.?)?\b/i;
+
+  return value.split('|').some(candidate => datePattern.test(candidate) && timePattern.test(candidate));
+}
+
 export function resolveExpected(
   rule: any,
   eventData: Record<string, string>
@@ -224,46 +237,35 @@ export function resolveExpected(
       (pageName || '').toLowerCase().includes('ppv banner') ||
       (eventData.CURRENT_PAGE || '').toLowerCase().includes('ppv banner');
     if (isMobilePage && eventData.MOBILE_BANNER_DATE_TIME) {
-      return String(eventData.MOBILE_BANNER_DATE_TIME);
+      raw = String(eventData.MOBILE_BANNER_DATE_TIME);
     }
     if (
+      !isMobilePage &&
       (pageName || '').toLowerCase().startsWith('landing') &&
       eventData.LANDING_BANNER_DATE
     ) {
-      return String(eventData.LANDING_BANNER_DATE);
+      raw = String(eventData.LANDING_BANNER_DATE);
     }
   }
 
 
   // Page-specific date expectations
   if (field === 'ppv date and time text') {
-    if (pageName === 'home of boxing' && currentSource === 'home-boxing-upcoming') {
-      return replacePlaceholders(String(raw ?? ''), eventData);
-    }
-
     switch ((pageName || "").toLowerCase()) {
-      case 'boxing':
-        // The upcoming-fight card uses the date format specified by its Excel
-        // row ({{LANDING_PAGE_PPV_DATE}}), not the hero banner's date tag.
-        return replacePlaceholders(String(raw ?? ''), eventData);
-
       case 'landing':
       case 'landing page':
-        if (field === 'banner - event date' && eventData.LANDING_BANNER_DATE) {
-          return String(eventData.LANDING_BANNER_DATE);
-        }
         if (eventData.LANDING_BANNER_DATE) {
-          return String(eventData.LANDING_BANNER_DATE);
+          raw = String(eventData.LANDING_BANNER_DATE);
         }
         break;
 
       case 'ppv':
-        if (eventData.PPV_PAGE_DATE) return String(eventData.PPV_PAGE_DATE);
+        if (eventData.PPV_PAGE_DATE) raw = String(eventData.PPV_PAGE_DATE);
         break;
     }
 
-    if (eventData.PPV_PAGE_DATE_TIME) {
-      return String(eventData.PPV_PAGE_DATE_TIME);
+    if ((raw === undefined || raw === null || raw === '') && eventData.PPV_PAGE_DATE_TIME) {
+      raw = String(eventData.PPV_PAGE_DATE_TIME);
     }
   }
 
@@ -528,7 +530,7 @@ export function resolveExpected(
   // Resolves {{PPV_POPUP_DATE}} → eventData.PPV_POPUP_DATE (set per event/region)
   if (raw.includes('PPV_POPUP_DATE')) {
     const popupDate = eventData.PPV_POPUP_DATE || '';
-    if (popupDate) return popupDate;
+    if (popupDate) raw = popupDate;
   }
 
   // ── home-biggest-fights popup date ───────────────────────────────────────────
@@ -538,7 +540,7 @@ export function resolveExpected(
   if (field === 'popup - event date') {
     const currentSrc = (eventData.SOURCE || eventData.source || '').trim().toLowerCase();
     if (currentSrc === 'home-biggest-fights' && eventData.PPV_POPUP_DATE) {
-      return String(eventData.PPV_POPUP_DATE);
+      raw = String(eventData.PPV_POPUP_DATE);
     }
   }
 
@@ -876,6 +878,12 @@ export function resolveExpected(
     'ppv2 upsell tile date',
   ];
   if (dateOnlyFields.includes(field)) {
+    // Some spreadsheets use a date-labelled field for a chip that contains a
+    // full event date and time.  Treat the value, not the field name, as the
+    // source of truth so every surface receives relative-date candidates.
+    if (hasExplicitDateAndTime(template)) {
+      return getDynamicDateTimeBadge(template);
+    }
     if (pageName.toLowerCase().includes('mobile') || pageName.toLowerCase().includes('paywall')) {
       return template;
     }
@@ -898,12 +906,14 @@ export function resolveExpected(
     'event date and time',
   ];
   if (dateTimeFields.includes(field)) {
-    if (pageName.toLowerCase().includes('mobile') || pageName.toLowerCase().includes('paywall')) {
-      return template;
-    }
-    if (pageName.toLowerCase().startsWith('search')) {
-      return template;
-    }
+    return hasExplicitDateAndTime(template) ? getDynamicDateTimeBadge(template) : template;
+  }
+
+  // Every surface may choose a relative chip (for example, "TOMORROW AT
+  // 18:30").  Apply those candidates to any resolved value that genuinely
+  // contains both a date and a time, independent of field/source names.
+  // Date-only and time-only values deliberately bypass this path.
+  if (hasExplicitDateAndTime(template)) {
     return getDynamicDateTimeBadge(template);
   }
 
