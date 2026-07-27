@@ -1,4 +1,27 @@
 {
+  "eventKey": "aew_redemption",
+  "PPV_NAME": "AEW: Redemption",
+  "PPV_DISPLAY_NAME": "AEW: Redemption",
+  "PPV_FULL_NAME": "All Elite Wrestling Redemption",
+  "SPORT": "Wrestling",
+  "PPV_TYPE": "normal",
+  "HAS_BUNDLE": false,
+  "PPV_DEV_MODE": false,
+  "DEFAULT_SIGNUP_DEVMODE": false,
+  "HAS_DEFAULT_SIGNUP_PPV": false,
+  "global": {
+    "FREE_TRIAL_DAYS": 8,
+    "PPV_PROMOTER": "All Elite Wrestling",
+    "PPV_ENTITLEMENT_ID": "ppv_t_aew_redemption",
+    "PPV_DESCRIPTION": "A historic night as All Elite Wrestling returns to Canada for AEW Redemption from the Bell Centre in Montreal, Quebec",
+    "PPV_UTC_DATE": "2026-07-27T00:00:00Z",
+    "PPV_LOCATION": "Montreal, Quebec",
+    "BOXING_BANNER_SUBTITLE": "A historic night as All Elite Wrestling returns to Canada for AEW Redemption from the Bell Centre in Montreal, Quebec",
+    "PPV_CARD_TITLE": "AEW: Redemption",
+    "PPV_CARD_DESCRIPTION": "Just the fight - plus {{FREE_TRIAL_DAYS}} days of DAZN Standard, free.",
+    "BANNER_DESCRIPTION": "A historic night as All Elite Wrestling returns to Canada for AEW Redemption from the Bell Centre in Montreal, Quebec",
+    "HOME_POPUP_DESCRIPTION": "A historic night as All Elite Wrestling returns to Canada for AEW Redemption from the Bell Centre in Montreal, Quebec"
+  },
   "regions": {
     "GB": {
       "MOBILE_PPV_DATE": "27 JUL 1:00 AM",

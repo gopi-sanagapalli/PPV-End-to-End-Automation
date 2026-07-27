@@ -438,10 +438,9 @@ describe('DAZN iOS PPV — Existing User Flow', () => {
     else if (SOURCE === 'landing-page-banner') {
       buyTapped = await openLandingBannerPaywall(driver, PPV_NAME, iosFlowHooks);
     }
-    // ── fallback ──────────────────────────────────────────────────────────
+    // A source-specific iOS run must never silently switch to a Home flow.
     else {
-      console.log(`⚠️ Unknown SOURCE "${SOURCE}" — generic Home screen fallback`);
-      buyTapped = await openGenericPPVPaywall(driver, PPV_NAME, iosFlowHooks);
+      throw new Error(`Unsupported iOS SOURCE="${SOURCE}". No fallback navigation is allowed.`);
     }
 
     if (!buyTapped) {
@@ -451,12 +450,9 @@ describe('DAZN iOS PPV — Existing User Flow', () => {
 
     // ── Step 3: Capture checkout URL from paywall screen ──────────────────
     console.log("📋 Capturing checkout URL from paywall...");
-    try {
-      await validateMobilePaywall();
-    } catch (err: any) {
-      console.warn('⚠️ Mobile paywall validation failed:', err.message);
+    if (!paywallValidatedRef.value) {
+      console.warn('⚠️ Native paywall validation was not run before the external handoff; skipping it now because Apple/Safari is on screen.');
     }
-    await driver.saveScreenshot("./test-results/ios_paywall_screen.png");
 
     let checkoutUrl = bannerUrlCaptured ? bannerCheckoutUrl : "";
     if (!checkoutUrl) {

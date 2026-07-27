@@ -235,6 +235,12 @@ export class IOSSchedulePage extends IOSBasePage {
       return true;
     }
 
+    // Validate the native paywall before the external-site CTA replaces it
+    // with Apple's confirmation sheet / Safari.
+    console.log('Validating native Schedule paywall before external handoff...');
+    await this.driver.saveScreenshot('./test-results/ios_schedule_native_paywall.png');
+    await this.runPaywallValidation(hooks);
+
     // Now on details page; we need to click "Go to dazn.com/start" or "Buy"
     console.log('Looking for Go-to / Buy CTA button...');
     const buyTapped = await this.tapBuyCtaWithFallback([
@@ -253,8 +259,6 @@ export class IOSSchedulePage extends IOSBasePage {
       throw new Error(`❌ Could not click Buy CTA on event page`);
     }
 
-    console.log('  On paywall screen / redirected - will capture URL');
-    await this.runPaywallValidation(hooks);
     return true;
   }
 }

@@ -138,10 +138,19 @@ export function parsePPVDate(ppvDate: string): ParsedPPVDate {
 
 /**
  * Load and parse an event config JSON from config/events/.
- * Reads PPV_CONFIG env var to determine which file.
+ * Reads PPV_CONFIG to determine which file. PPV_EVENT is accepted as a
+ * backwards-compatible alias because it is used by existing mobile commands.
  */
 export function loadEventConfig(): EventConfig {
-  const fileName = process.env.PPV_CONFIG;
+  const fileName = process.env.PPV_CONFIG || process.env.PPV_EVENT;
+
+  // Keep one canonical variable for downstream specs that read PPV_CONFIG
+  // directly after this loader has run.
+  if (!process.env.PPV_CONFIG && process.env.PPV_EVENT) {
+    process.env.PPV_CONFIG = process.env.PPV_EVENT.endsWith('.json')
+      ? process.env.PPV_EVENT
+      : `${process.env.PPV_EVENT}.json`;
+  }
 
   if (!fileName) {
     // Backward compatibility: default to ppv_t_joshua_prenga.json
@@ -153,23 +162,24 @@ export function loadEventConfig(): EventConfig {
     return loadEventConfig();
   }
 
-  const filePath = path.resolve(__dirname, "../../config/events", fileName);
+  const normalizedFileName = fileName.endsWith('.json') ? fileName : `${fileName}.json`;
+  const filePath = path.resolve(__dirname, "../../config/events", normalizedFileName);
 
   if (!fs.existsSync(filePath)) {
-    throw new Error(`Event config not found: ${fileName} (looked at ${filePath})`);
+    throw new Error(`Event config not found: ${normalizedFileName} (looked at ${filePath})`);
   }
 
   const raw = fs.readFileSync(filePath, "utf-8");
   const config: EventConfig = JSON.parse(raw);
 
   if (!config.PPV_NAME) {
-    throw new Error(`Event config "${fileName}" is missing required field "PPV_NAME".`);
+    throw new Error(`Event config "${normalizedFileName}" is missing required field "PPV_NAME".`);
   }
   if (!config.global || !config.global.PPV_DATE) {
-    throw new Error(`Event config "${fileName}" is missing required field "global.PPV_DATE".`);
+    throw new Error(`Event config "${normalizedFileName}" is missing required field "global.PPV_DATE".`);
   }
   if (!config.global.PPV_TIME) {
-    throw new Error(`Event config "${fileName}" is missing required field "global.PPV_TIME".`);
+    throw new Error(`Event config "${normalizedFileName}" is missing required field "global.PPV_TIME".`);
   }
 
   return config;

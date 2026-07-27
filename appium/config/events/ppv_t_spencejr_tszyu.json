@@ -1,4 +1,26 @@
 {
+  "eventKey": "spence_tszyu",
+  "PPV_NAME": "Spence Jr. vs. Tszyu",
+  "PPV_DISPLAY_NAME": "Spence Jr. vs. Tszyu",
+  "SPORT": "Boxing",
+  "PPV_TYPE": "normal",
+  "HAS_BUNDLE": false,
+  "PPV_DEV_MODE": false,
+  "DEFAULT_SIGNUP_DEVMODE": false,
+  "HAS_DEFAULT_SIGNUP_PPV": false,
+  "global": {
+    "FREE_TRIAL_DAYS": 8,
+    "PPV_PROMOTER": "PBC / No Limit",
+    "PPV_ENTITLEMENT_ID": "ppv_t_spencejr_tszyu",
+    "PPV_DESCRIPTION": "Catch the biggest moment of the year. Select a DAZN plan to pair with your pay-per-view.",
+    "PPV_UTC_DATE": "2026-07-26T03:00:00Z",
+    "PPV_LOCATION": "Afterpay Arena, Sydney",
+    "BOXING_BANNER_SUBTITLE": "Main Event • Afterpay Arena, Sydney • 04:00",
+    "PPV_CARD_TITLE": "Spence Jr. vs. Tszyu",
+    "PPV_CARD_DESCRIPTION": "Just the fight - plus {{FREE_TRIAL_DAYS}} days of DAZN Standard, free",
+    "BANNER_DESCRIPTION": "A pound-for-pound legend makes his super welterweight debut against Australian superstar and former champion.",
+    "HOME_POPUP_DESCRIPTION": "A pound-for-pound legend makes his super welterweight debut against Australian superstar and former champion."
+  },
   "regions": {
     "GB": {
       "MOBILE_PPV_DATE": "26 JUL 4:00 AM",

@@ -1,4 +1,26 @@
 {
+  "eventKey": "rolly_teofimo",
+  "PPV_NAME": "Rolly vs. Teófimo",
+  "PPV_DISPLAY_NAME": "Rolly vs. Teófimo",
+  "SPORT": "Boxing",
+  "PPV_TYPE": "normal",
+  "HAS_BUNDLE": false,
+  "PPV_DEV_MODE": false,
+  "DEFAULT_SIGNUP_DEVMODE": false,
+  "HAS_DEFAULT_SIGNUP_PPV": false,
+  "global": {
+    "FREE_TRIAL_DAYS": 8,
+    "PPV_PROMOTER": "PBC",
+    "PPV_ENTITLEMENT_ID": "ppv_t_rolly_teofimo",
+    "PPV_DESCRIPTION": "PUT UP OR SHUT UP! Two of boxing's biggest names collide for the WBA Welterweight World Championship.",
+    "PPV_UTC_DATE": "2026-08-22T22:30:00Z",
+    "PPV_LOCATION": "T-Mobile Arena, Las Vegas",
+    "BOXING_BANNER_SUBTITLE": "PUT UP OR SHUT UP! Two of boxing's biggest names collide for the WBA Welterweight World Championship.",
+    "PPV_CARD_TITLE": "Rolly vs. Teofimo",
+    "PPV_CARD_DESCRIPTION": "Just the fight - plus {{FREE_TRIAL_DAYS}} days of DAZN Standard, free",
+    "BANNER_DESCRIPTION": "PUT UP OR SHUT UP! Two of boxing's biggest names collide for the WBA Welterweight World Championship.",
+    "HOME_POPUP_DESCRIPTION": "PUT UP OR SHUT UP! Two of boxing's biggest names collide for the WBA Welterweight World Championship."
+  },
   "regions": {
     "GB": {
       "MOBILE_PPV_DATE": "22 AUG 11:30 PM",

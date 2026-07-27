@@ -16,8 +16,9 @@
 //        search                  → Search icon/tab → Search for event → find PPV tile → Buy
 //   4. App opens Safari View Controller or Safari with DAZN checkout URL
 //   5. Captures URL via WebView context switch or Safari address bar fallback
-//   6. Writes URL to mobile_entry_url.txt  ← Playwright reads this
-//   7. Desktop Playwright launches Chromium to complete signup, flex/APM plans, and payment validations
+//   6. Validates the URL landed in Safari and writes it to mobile_entry_url.txt
+//   7. Continues the welcome, signup, plan, and payment journey in Safari's
+//      WebdriverIO context (no desktop Playwright browser is used)
 //
 // HOW TO RUN:
 //   cd appium
@@ -34,7 +35,7 @@ import { writeHandoffUrl, clearHandoffUrl } from '../../utils/handoff';
 import { prepareIosApp, waitForHomePage } from '../../utils/iosSetup';
 import { loadEventConfig, EventConfig } from '../../utils/eventLoader';
 import { openSchedulePPVPaywall } from '../../pages/ios/IOSSchedulePage';
-import { openSearchResultPaywall } from '../../pages/ios/IOSSearchPage';
+import { IOSSearchPage, openSearchResultPaywall } from '../../pages/ios/IOSSearchPage';
 import {
   openBoxingUpcomingFightsPaywall,
   openBoxingPageBannerPaywall,
@@ -44,7 +45,7 @@ import {
 import { openHomeBannerPaywall, openGenericPPVPaywall } from '../../pages/ios/IOSHomePage';
 import { openLandingBannerPaywall } from '../../pages/ios/IOSLandingPage';
 import { copyImmediateCheckoutUrl } from '../../pages/ios/IOSPaywallPage';
-import { getIOSSurfacingPoint, getIOSValidationSheet } from '../../pages/ios/IOSSurfacingPoint';
+import { getIOSBrowserReentry, getIOSSurfacingPoint, getIOSValidationSheet } from '../../pages/ios/IOSSurfacingPoint';
 import {
   validateMobilePaywallPage,
   validateMobileBannerOrTilePage,
@@ -63,7 +64,11 @@ import {
 } from '../../pages/ios/IOSBasePage';
 
 // ── Config ───────────────────────────────────────────────────────────────────
-const PPV_NAME    = process.env.PPV_NAME    || 'Joshua';
+// Resolve the configured event before any page objects are constructed.  The
+// old default of "Joshua" made PPV_EVENT=ppv_t_moses_hergovich validate and
+// search for two different events.
+const SELECTED_EVENT: EventConfig = loadEventConfig();
+const PPV_NAME    = process.env.PPV_NAME    || SELECTED_EVENT.PPV_NAME;
 const SOURCE      = (process.env.SOURCE || 'landing-page-banner').trim().toLowerCase();
 const SURFACING_POINT = getIOSSurfacingPoint(SOURCE);
 const REGION = process.env.DAZN_REGION || 'GB';
@@ -244,6 +249,11 @@ describe('DAZN iOS PPV — New User Handoff Flow', () => {
 
     const planTier = (planData.TIER || 'standard').toLowerCase();
     const ratePlan = (planData.RATE_PLAN || 'monthly').toLowerCase();
+    // IOSSignupPage performs the Safari contextual-plan selection. Keep its
+    // choice aligned with the canonical DaznPlan.json entry used to build the
+    // validations, rather than relying on a default inferred from the URL.
+    process.env.TIER = planTier;
+    process.env.RATE_PLAN = ratePlan;
 
     // Merge mobile overrides
     let mobileRegional = {};
@@ -360,10 +370,10 @@ describe('DAZN iOS PPV — New User Handoff Flow', () => {
       bannerUrlCaptured = copyResult.captured;
       buyTapped = true;
     }
-    // ── fallback ──────────────────────────────────────────────────────────
+    // Do not substitute a Home flow for an unsupported source.  A run must
+    // exercise exactly the source supplied in SOURCE.
     else {
-      console.log(`⚠️ Unknown SOURCE "${SOURCE}" — generic Home screen fallback`);
-      buyTapped = await openGenericPPVPaywall(driver, PPV_NAME, iosFlowHooks);
+      throw new Error(`Unsupported iOS SOURCE="${SOURCE}". No fallback navigation is allowed.`);
     }
 
     if (!buyTapped) {
@@ -373,12 +383,9 @@ describe('DAZN iOS PPV — New User Handoff Flow', () => {
 
     // ── Capture checkout URL ─────────────────────────────────────────────
     console.log("📋 Capturing checkout URL from Safari...");
-    try {
-      await validateMobilePaywall();
-    } catch (err: any) {
-      console.warn('⚠️ Mobile paywall validation failed:', err.message);
+    if (!paywallValidatedRef.value) {
+      console.warn('⚠️ Native paywall validation was not run before the external handoff; skipping it now because Apple/Safari is on screen.');
     }
-    await driver.saveScreenshot("./test-results/ios_paywall_screen.png");
 
     let checkoutUrl = bannerUrlCaptured ? bannerCheckoutUrl : "";
     if (!checkoutUrl) {
@@ -395,6 +402,32 @@ describe('DAZN iOS PPV — New User Handoff Flow', () => {
     console.log(`\n🌐 Checkout URL captured:\n   ${checkoutUrl}\n`);
     writeHandoffUrl(checkoutUrl);
     console.log("✅ URL written to mobile_entry_url.txt");
+
+    // Continue in the Safari WebKit context from the URL the user actually
+    // landed on.  Do not terminate DAZN or create a desktop Playwright browser:
+    // both actions sever the native iOS → Safari journey we are validating.
+    const safariResults = [...iosAvailabilityResults];
+    const browserReentry = getIOSBrowserReentry(SOURCE);
+    if (!browserReentry.supported || browserReentry.webSource !== 'search') {
+      throw new Error(`iOS Safari re-entry is not verified for SOURCE="${SOURCE}".`);
+    }
+    await new IOSSearchPage(driver, PPV_NAME).continueSafariCheckout({
+      capturedUrl: checkoutUrl,
+      eventName: PPV_NAME,
+      results: safariResults,
+    });
+    const { writeResults } = require('../../../utils/excelWriter');
+    const { displayResultsTable } = require('../../../utils/resultsDisplay');
+    const { generateReports } = require('../../../utils/reportGenerator');
+    const { excelPath, videoPath } = await writeResults(safariResults);
+    displayResultsTable(safariResults, 'ppv', { event: json.PPV_NAME, region: REGION, excelPath, videoPath });
+    await generateReports(safariResults, {
+      event: json.PPV_NAME, region: REGION, source: SOURCE, ratePlan, tier: planTier,
+      env: ENV, flowName: `iOS Safari: ${SOURCE}`, startTime: new Date(), endTime: new Date(),
+      excelPath, videoPath, userType: 'new-user', platform: 'iOS',
+    });
+    return;
+
     try {
       await driver.terminateApp(BUNDLE_ID);
     } catch {}
