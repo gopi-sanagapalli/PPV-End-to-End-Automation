@@ -1,0 +1,72 @@
+{
+  "regions": {
+    "GB": {
+      "MOBILE_PPV_DATE": "27 JUL 1:00 AM",
+      "MOBILE_BANNER_TITLE": "AEW: Redemption",
+      "MOBILE_BANNER_DATE_TIME": "Mon 27th Jul at 01:00",
+      "MOBILE_BANNER_DAY": "Mon",
+      "MOBILE_BANNER_DATE": "27th",
+      "MOBILE_BANNER_MONTH": "July",
+      "MOBILE_BANNER_TIME": "1:00am",
+      "MOBILE_BANNER_DESCRIPTION": "A historic night as All Elite Wrestling returns to Canada for AEW Redemption from the Bell Centre in Montreal, Quebec",
+      "MOBILE_SEARCH_PPV_DATE": "Mon 27th July at 1:00 AM",
+      "MOBILE_SCHEDULE_DAY": "MON",
+      "MOBILE_SCHEDULE_MONTH": "JUL",
+      "MOBILE_SCHEDULE_DATE": "27",
+      "MOBILE_SCHEDULE_TIME": "1:00AM",
+      "PPV_NAME": "AEW: Redemption",
+      "PPV_PROMOTER": "All Elite Wrestling"
+    },
+    "US": {
+      "MOBILE_PPV_DATE": "26 JUL 8:00 PM",
+      "MOBILE_BANNER_TITLE": "AEW: Redemption",
+      "MOBILE_BANNER_DATE_TIME": "Sun 26th Jul at 20:00",
+      "MOBILE_BANNER_DAY": "Sun",
+      "MOBILE_BANNER_DATE": "26th",
+      "MOBILE_BANNER_MONTH": "July",
+      "MOBILE_BANNER_TIME": "8:00pm",
+      "MOBILE_BANNER_DESCRIPTION": "A historic night as All Elite Wrestling returns to Canada for AEW Redemption from the Bell Centre in Montreal, Quebec",
+      "MOBILE_SEARCH_PPV_DATE": "Sun 26th July at 8:00 PM",
+      "MOBILE_SCHEDULE_DAY": "SUN",
+      "MOBILE_SCHEDULE_MONTH": "JUL",
+      "MOBILE_SCHEDULE_DATE": "26",
+      "MOBILE_SCHEDULE_TIME": "8:00PM",
+      "PPV_NAME": "AEW: Redemption",
+      "PPV_PROMOTER": "All Elite Wrestling"
+    },
+    "AU": {
+      "MOBILE_PPV_DATE": "27 JUL 10:00 AM",
+      "MOBILE_BANNER_TITLE": "AEW: Redemption",
+      "MOBILE_BANNER_DATE_TIME": "Mon 27th Jul at 10:00",
+      "MOBILE_BANNER_DAY": "Mon",
+      "MOBILE_BANNER_DATE": "27th",
+      "MOBILE_BANNER_MONTH": "July",
+      "MOBILE_BANNER_TIME": "10:00am",
+      "MOBILE_BANNER_DESCRIPTION": "A historic night as All Elite Wrestling returns to Canada for AEW Redemption from the Bell Centre in Montreal, Quebec",
+      "MOBILE_SEARCH_PPV_DATE": "Mon 27th July at 10:00 AM",
+      "MOBILE_SCHEDULE_DAY": "MON",
+      "MOBILE_SCHEDULE_MONTH": "JUL",
+      "MOBILE_SCHEDULE_DATE": "27",
+      "MOBILE_SCHEDULE_TIME": "10:00AM",
+      "PPV_NAME": "AEW: Redemption",
+      "PPV_PROMOTER": "All Elite Wrestling"
+    },
+    "AE": {
+      "MOBILE_PPV_DATE": "27 JUL 4:00 AM",
+      "MOBILE_BANNER_TITLE": "AEW: Redemption",
+      "MOBILE_BANNER_DATE_TIME": "Mon 27th Jul at 04:00",
+      "MOBILE_BANNER_DAY": "Mon",
+      "MOBILE_BANNER_DATE": "27th",
+      "MOBILE_BANNER_MONTH": "July",
+      "MOBILE_BANNER_TIME": "4:00am",
+      "MOBILE_BANNER_DESCRIPTION": "A historic night as All Elite Wrestling returns to Canada for AEW Redemption from the Bell Centre in Montreal, Quebec",
+      "MOBILE_SEARCH_PPV_DATE": "Mon 27th July at 4:00 AM",
+      "MOBILE_SCHEDULE_DAY": "MON",
+      "MOBILE_SCHEDULE_MONTH": "JUL",
+      "MOBILE_SCHEDULE_DATE": "27",
+      "MOBILE_SCHEDULE_TIME": "4:00AM",
+      "PPV_NAME": "AEW: Redemption",
+      "PPV_PROMOTER": "All Elite Wrestling"
+    }
+  }
+}

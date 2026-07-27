@@ -1,0 +1,72 @@
+{
+  "regions": {
+    "GB": {
+      "MOBILE_PPV_DATE": "26 JUL 4:00 AM",
+      "MOBILE_BANNER_TITLE": "Spence Jr. vs. Tszyu",
+      "MOBILE_BANNER_DATE_TIME": "Sun 26th Jul at 04:00",
+      "MOBILE_BANNER_DAY": "Sun",
+      "MOBILE_BANNER_DATE": "26th",
+      "MOBILE_BANNER_MONTH": "July",
+      "MOBILE_BANNER_TIME": "4:00am",
+      "MOBILE_BANNER_DESCRIPTION": "A pound-for-pound legend makes his super welterweight debut against Australian superstar and former champion.",
+      "MOBILE_SEARCH_PPV_DATE": "Sun 26th July at 4:00 AM",
+      "MOBILE_SCHEDULE_DAY": "SUN",
+      "MOBILE_SCHEDULE_MONTH": "JUL",
+      "MOBILE_SCHEDULE_DATE": "26",
+      "MOBILE_SCHEDULE_TIME": "4:00AM",
+      "PPV_NAME": "Spence Jr. vs. Tszyu",
+      "PPV_PROMOTER": "PBC / No Limit"
+    },
+    "US": {
+      "MOBILE_PPV_DATE": "25 JUL 11:00 PM",
+      "MOBILE_BANNER_TITLE": "Spence Jr. vs. Tszyu",
+      "MOBILE_BANNER_DATE_TIME": "Sat 25th Jul at 23:00",
+      "MOBILE_BANNER_DAY": "Sat",
+      "MOBILE_BANNER_DATE": "25th",
+      "MOBILE_BANNER_MONTH": "July",
+      "MOBILE_BANNER_TIME": "11:00pm",
+      "MOBILE_BANNER_DESCRIPTION": "A pound-for-pound legend makes his super welterweight debut against Australian superstar and former champion.",
+      "MOBILE_SEARCH_PPV_DATE": "Sat 25th July at 11:00 PM",
+      "MOBILE_SCHEDULE_DAY": "SAT",
+      "MOBILE_SCHEDULE_MONTH": "JUL",
+      "MOBILE_SCHEDULE_DATE": "25",
+      "MOBILE_SCHEDULE_TIME": "11:00PM",
+      "PPV_NAME": "Spence Jr. vs. Tszyu",
+      "PPV_PROMOTER": "PBC / No Limit"
+    },
+    "AU": {
+      "MOBILE_PPV_DATE": "26 JUL 1:00 PM",
+      "MOBILE_BANNER_TITLE": "Spence Jr. vs. Tszyu",
+      "MOBILE_BANNER_DATE_TIME": "Sun 26th Jul at 13:00",
+      "MOBILE_BANNER_DAY": "Sun",
+      "MOBILE_BANNER_DATE": "26th",
+      "MOBILE_BANNER_MONTH": "July",
+      "MOBILE_BANNER_TIME": "1:00pm",
+      "MOBILE_BANNER_DESCRIPTION": "A pound-for-pound legend makes his super welterweight debut against Australian superstar and former champion.",
+      "MOBILE_SEARCH_PPV_DATE": "Sun 26th July at 1:00 PM",
+      "MOBILE_SCHEDULE_DAY": "SUN",
+      "MOBILE_SCHEDULE_MONTH": "JUL",
+      "MOBILE_SCHEDULE_DATE": "26",
+      "MOBILE_SCHEDULE_TIME": "1:00PM",
+      "PPV_NAME": "Spence Jr. vs. Tszyu",
+      "PPV_PROMOTER": "PBC / No Limit"
+    },
+    "AE": {
+      "MOBILE_PPV_DATE": "26 JUL 7:00 AM",
+      "MOBILE_BANNER_TITLE": "Spence Jr. vs. Tszyu",
+      "MOBILE_BANNER_DATE_TIME": "Sun 26th Jul at 07:00",
+      "MOBILE_BANNER_DAY": "Sun",
+      "MOBILE_BANNER_DATE": "26th",
+      "MOBILE_BANNER_MONTH": "July",
+      "MOBILE_BANNER_TIME": "7:00am",
+      "MOBILE_BANNER_DESCRIPTION": "A pound-for-pound legend makes his super welterweight debut against Australian superstar and former champion.",
+      "MOBILE_SEARCH_PPV_DATE": "Sun 26th July at 7:00 AM",
+      "MOBILE_SCHEDULE_DAY": "SUN",
+      "MOBILE_SCHEDULE_MONTH": "JUL",
+      "MOBILE_SCHEDULE_DATE": "26",
+      "MOBILE_SCHEDULE_TIME": "7:00AM",
+      "PPV_NAME": "Spence Jr. vs. Tszyu",
+      "PPV_PROMOTER": "PBC / No Limit"
+    }
+  }
+}
