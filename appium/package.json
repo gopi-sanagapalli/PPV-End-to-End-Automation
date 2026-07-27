@@ -4,7 +4,9 @@
   "main": "index.js",
   "scripts": {
     "android": "wdio run config/wdio.android.conf.ts",
+    "preandroid:tv": "npm run reset:android-app",
     "android:tv": "TV_TARGET=androidtv wdio run config/wdio.android.conf.ts --spec ./tests/android/tv.ppv.spec.ts",
+    "reset:android-app": "ts-node scripts/reset-android-app.ts",
     "tv:ppv:flows": "ts-node scripts/run-tv-ppv-flows.ts",
     "android:scenarios": "ts-node scripts/run-android-scenarios.ts",
     "selected:scenarios": "ts-node scripts/run-android-scenarios.ts",

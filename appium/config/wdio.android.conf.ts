@@ -185,6 +185,29 @@ function configureDeviceTimezone(): void {
 configureDeviceTimezone();
 // ─────────────────────────────────────────────────────────────────────────────
 
+function pause(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function waitForAppiumServer(timeoutMs = 30000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  const statusUrl = `http://127.0.0.1:${APPIUM_PORT}/status`;
+
+  while (Date.now() < deadline) {
+    try {
+      execSync(`curl -fsS ${statusUrl}`, { stdio: 'ignore', timeout: 3000 });
+      return;
+    } catch {
+      if (appiumProcess?.exitCode !== null) {
+        throw new Error(`Appium server exited before it became ready on ${statusUrl}`);
+      }
+      await pause(500);
+    }
+  }
+
+  throw new Error(`Appium server did not become ready on ${statusUrl} within ${timeoutMs}ms`);
+}
+
 export const config = {
   runner: 'local',
   port:   APPIUM_PORT,
@@ -207,8 +230,7 @@ export const config = {
       shell: true,
       env: { ...process.env, NODE_OPTIONS: '' }
     });
-    // Wait 3 seconds for Appium to start
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    await waitForAppiumServer();
     console.log('✅ Appium server started.');
   },
 
