@@ -773,7 +773,11 @@ async function captureTvPpvHandoffUrl(driver: any): Promise<void> {
   // Step 6: Save the final DAZN handoff URL for the next automation stage.
   writeHandoffUrl(checkoutUrl);
   await driver.saveScreenshot('./test-results/android_tv_handoff_success.png').catch(() => {});
-  recordTvPpvReportStep('TV handoff captured', 'Supported handoff URL', checkoutUrl.includes('yopmail.com') ? 'Yopmail inbox URL captured' : 'DAZN checkout URL captured');
+  recordTvPpvReportStep(
+    checkoutUrl.includes('yopmail.com') ? 'Yopmail inbox prepared' : 'TV handoff captured',
+    checkoutUrl.includes('yopmail.com') ? 'Yopmail inbox URL for existing-user browser' : 'Supported handoff URL',
+    checkoutUrl.includes('yopmail.com') ? 'Yopmail inbox URL prepared' : 'DAZN checkout URL captured',
+  );
   console.log(`✅ TV handoff URL captured: ${checkoutUrl}`);
 }
 

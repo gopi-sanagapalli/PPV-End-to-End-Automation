@@ -160,6 +160,16 @@ function appendTvPpvReportSteps(results: any[], metadata: TvPpvReportMetadata | 
   }
 }
 
+function recordTvHandoffReportStep(results: any[], field: string, expected: string, actual: string, status: 'PASS' | 'FAIL' = 'PASS'): void {
+  results.push({
+    page: 'TV PPV',
+    field,
+    expected,
+    actual,
+    status,
+  });
+}
+
 function getReportPlatform(): string {
   if (!TV_HANDOFF_MODE) return 'Web';
 
@@ -239,7 +249,7 @@ async function waitForTvHandoffPlansPage(page: any, email: string, password: str
   throw new Error(`Yopmail DAZN link did not reach plans page. Last URL: ${page.url()}`);
 }
 
-async function openYopmailHandoffAndReachPlansPage(page: any, handoffUrl: string, email: string, password: string): Promise<string> {
+async function openYopmailHandoffAndReachPlansPage(page: any, handoffUrl: string, email: string, password: string, results: any[]): Promise<string> {
   const inbox = getYopmailInboxFromUrl(handoffUrl);
   if (!inbox) throw new Error(`TV handoff Yopmail URL did not include an inbox login: ${handoffUrl}`);
 
@@ -268,6 +278,7 @@ async function openYopmailHandoffAndReachPlansPage(page: any, handoffUrl: string
     if (await message.isVisible({ timeout: 2000 }).catch(() => false)) {
       await message.click({ force: true });
       mailOpened = true;
+      recordTvHandoffReportStep(results, 'Yopmail email opened', 'Recent DAZN pay-per-view email', 'DAZN email opened');
       console.log(`✅ [TV Handoff] Opened DAZN Yopmail message on attempt ${attempt}`);
     }
   }
@@ -279,7 +290,7 @@ async function openYopmailHandoffAndReachPlansPage(page: any, handoffUrl: string
   const mailFrame = page.frameLocator('iframe#ifmail');
   const completeSignInLink = mailFrame
     .locator('a')
-    .filter({ hasText: /complete\s+sign\s*-?\s*in\s+process|complete/i })
+    .filter({ hasText: /complete\s+sign\s*-?\s*(?:in|up)\s+process|complete/i })
     .first();
   const daznLinks = mailFrame.locator('a[href*="dazn" i], a[href*="awstrack" i]');
   const targetLink = await completeSignInLink.count().catch(() => 0) > 0
@@ -291,9 +302,16 @@ async function openYopmailHandoffAndReachPlansPage(page: any, handoffUrl: string
     throw new Error('Opened Yopmail message, but no Complete Sign in process / DAZN link was found.');
   }
 
-  console.log('✅ [TV Handoff] Opening Complete Sign in process link in the same existing-user browser page');
+  console.log('✅ [TV Handoff] Opening Complete Sign Up/Sign in process link in the same existing-user browser page');
   await page.goto(targetHref, { waitUntil: 'domcontentloaded', timeout: 60000 });
   const plansUrl = await waitForTvHandoffPlansPage(page, email, password);
+  const bodyText = await page.locator('body')
+    .innerText({ timeout: 3000 })
+    .then((text: string) => text.toLowerCase())
+    .catch(() => '');
+  const handoffPageTitle = bodyText.includes('choose how to buy') ? 'Choose how to buy' : 'DAZN plans page';
+  recordTvHandoffReportStep(results, 'Complete Sign Up CTA', 'Navigate from Yopmail to DAZN web', 'DAZN web opened');
+  recordTvHandoffReportStep(results, 'Page Title', 'Choose how to buy', handoffPageTitle, handoffPageTitle === 'Choose how to buy' ? 'PASS' : 'FAIL');
   console.log(`✅ [TV Handoff] Yopmail link reached DAZN plans page: ${plansUrl}`);
   return plansUrl;
 }
@@ -1974,7 +1992,7 @@ for (const stateKey of userStatesToRun) {
         eventData['SIGNED_IN_AS_TEXT'] = eventData.SIGNED_IN_AS_TEXT;
 
         if (isYopmailHandoffUrl(tvHandoffUrl)) {
-          postClickUrl = await openYopmailHandoffAndReachPlansPage(page, tvHandoffUrl, userEmail, userPassword);
+          postClickUrl = await openYopmailHandoffAndReachPlansPage(page, tvHandoffUrl, userEmail, userPassword, results);
         } else {
           await page.goto(tvHandoffUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
           await page.waitForLoadState('domcontentloaded').catch(() => {});
