@@ -6,6 +6,7 @@ export interface IOSSafariSearchOptions {
   capturedUrl: string;
   eventName: string;
   results: IOSValidationResult[];
+  eventData?: Record<string, any>;
 }
 
 export class IOSSearchPage extends IOSBasePage {
@@ -56,26 +57,160 @@ export class IOSSearchPage extends IOSBasePage {
     console.log(`🌐 Safari handoff landing settled: ${await this.driver.getUrl()}`);
   }
 
-  private async openSafariSearchRoute(searchUrl: string): Promise<void> {
-    // iOS XCUITest does not implement the WebDriver new-window/new-tab
-    // command for Safari or SFSafariViewController. The visible handoff tab is
-    // already the correct browser context, so wait for it above and continue
-    // the source journey in that tab rather than failing on `newWindow`.
-    console.log('ℹ️ iOS Safari does not support WebDriver new tabs; continuing in the validated handoff tab.');
-    await this.driver.url(searchUrl);
+  private async openSafariSearchFromLanding(): Promise<void> {
+    // Follow the visible web journey, matching the native flow: the welcome
+    // screen exposes Explore, and the resulting home header exposes Search.
+    // Do not force /search with driver.url(); that skips the actual handoff UI.
+    if (/\/search(?:[/?#]|$)/i.test(await this.driver.getUrl())) {
+      console.log('ℹ️ Safari is already on the Search route.');
+      return;
+    }
+
+    const explore = await this.browserFirstVisible([
+      '//*[self::button or self::a or @role="button"][normalize-space(.)="Explore"]',
+      'a*=Explore', 'button*=Explore', '[role="button"]*=Explore',
+    ]);
+    if (explore) {
+      await explore.click();
+      console.log('✅ Safari handoff selected Explore.');
+      await this.driver.pause(1200);
+    } else {
+      console.log('ℹ️ Safari handoff is already beyond the Explore screen.');
+    }
+
+    const deadline = Date.now() + 15000;
+    let searchControl: any | null = null;
+    while (Date.now() < deadline && !searchControl) {
+      searchControl = await this.browserFirstVisible([
+        'header a[href*="/search"]',
+        'header button[aria-label*="Search" i]',
+        'header [data-testid*="search" i]',
+        'a[href*="/search"]',
+        'button[aria-label*="Search" i]',
+        '[role="button"][aria-label*="Search" i]',
+        '[data-testid*="search" i]',
+      ]);
+      if (!searchControl) await this.driver.pause(300);
+    }
+    if (!searchControl) {
+      await this.driver.saveScreenshot('./test-results/ios_safari_search_icon_not_found.png').catch(() => {});
+      throw new Error('Safari home did not expose a Search icon after Explore.');
+    }
+
+    await searchControl.click();
     await this.driver.waitUntil(async () => /\/search(?:[/?#]|$)/i.test(await this.driver.getUrl()), {
       timeout: 20000,
-      timeoutMsg: 'Safari handoff tab did not load the DAZN search route.',
+      timeoutMsg: 'Safari Search icon did not open the DAZN search route.',
     });
-    console.log(`🌐 Safari search route loaded: ${await this.driver.getUrl()}`);
+    console.log(`🌐 Safari Search icon opened: ${await this.driver.getUrl()}`);
+  }
+
+  /**
+   * Mirrors pages/SearchPage.enableDevMode() for the real iOS Safari context.
+   * Ultimate APM/APU flows in GB/US require this before checkout so the
+   * account journey does not divert to phone-number collection.
+   */
+  private async enableSafariDevMode(): Promise<void> {
+    console.log('🎭 Enabling Safari dev mode for Ultimate checkout...');
+    await this.openSafariSearchFromLanding();
+
+    const hasDevIndicator = async () => {
+      if (await this.browserFirstVisible([
+        'div[class*="dev-mode__circle" i]', '[class*="dev-mode" i]',
+      ])) return true;
+
+      // Mobile Safari sometimes exposes the dot in the DOM but does not
+      // report it as a WebDriver-visible element. It is still the same
+      // persistent completion signal, so check the document directly too.
+      return await this.driver.execute(() => Boolean(document.querySelector(
+        '[class*="dev-mode__circle"], [class*="dev-mode"]',
+      ))).catch(() => false);
+    };
+    // A previous activation can already have completed before the current
+    // method resumes. The visible yellow dot is the same success signal used
+    // by the web flow, so continue instead of trying to enter the command.
+    if (await hasDevIndicator()) {
+      console.log('✅ Safari dev mode is already active (yellow indicator visible).');
+      return;
+    }
+
+    const prompt = await this.browserFirstVisible([
+      '//*[self::button or self::a or @role="button" or @role="searchbox"][contains(normalize-space(.), "Search sports, teams, events")]',
+      '[role="search"]', '[aria-label*="Search" i]',
+    ]);
+    if (prompt) await prompt.click();
+
+    let input: any | null = null;
+    const inputDeadline = Date.now() + 15000;
+    while (Date.now() < inputDeadline && !input) {
+      input = await this.browserFirstVisible([
+        'input[type="search"]', 'input[placeholder*="search" i]',
+        '[role="searchbox"]', '[role="textbox"]',
+      ]);
+      if (!input) await this.driver.pause(300);
+    }
+    if (!input) throw new Error('Safari dev mode could not find the Search input.');
+
+    await input.click();
+    await input.setValue('[dev_mode_on]');
+    await this.driver.keys('Enter');
+    await this.driver.pause(1000);
+
+    // Safari can first show "no results" and only then mount the UUID/Copy ID
+    // sheet. Some Safari variants activate immediately and only show the
+    // yellow dev-mode dot (no UUID dialog), which is also a valid success.
+    await this.driver.waitUntil(async () => {
+      const text = await this.browserText();
+      return await hasDevIndicator() ||
+        /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(text) ||
+        /copy id/i.test(text);
+    }, { timeout: 30000, timeoutMsg: 'Safari dev mode confirmation did not appear.' });
+
+    if (!await hasDevIndicator()) {
+      const copyId = await this.browserFirstVisible([
+        'button*=Copy ID', '[role="button"]*=Copy ID', 'button[aria-label*="Copy ID" i]',
+      ]);
+      if (copyId) {
+        await copyId.click();
+      } else {
+        const copiedByDom = await this.driver.execute(() => {
+          const button = Array.from(document.querySelectorAll<HTMLElement>('button, [role="button"]'))
+            .find(element => (element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase() === 'copy id');
+          if (!button) return false;
+          button.click();
+          return true;
+        }).catch(() => false);
+        if (!copiedByDom) throw new Error('Safari dev mode confirmation appeared but Copy ID was not actionable.');
+      }
+    }
+
+    // DAZN can redirect after Copy ID. Reload/search again and verify the
+    // same yellow dev-mode indicator that the web flow treats as confirmation.
+    await this.driver.pause(1500);
+    if (!/\/search(?:[/?#]|$)/i.test(await this.driver.getUrl())) {
+      await this.openSafariSearchFromLanding();
+    }
+    let enabled = await hasDevIndicator();
+    if (!enabled) {
+      await this.driver.waitUntil(hasDevIndicator, {
+        timeout: 15000,
+        timeoutMsg: 'Safari dev mode was not confirmed by its yellow indicator.',
+      }).catch(() => { });
+      enabled = await hasDevIndicator();
+    }
+    // Match the web flow's final refresh only as a fallback; Safari normally
+    // returns to Search with the yellow dot already visible after Copy ID.
+    if (!enabled) {
+      await this.driver.refresh();
+      await this.driver.pause(1000);
+      enabled = await hasDevIndicator();
+    }
+    if (!enabled) throw new Error('Safari dev mode was not confirmed by its yellow indicator.');
+    console.log('✅ Safari dev mode confirmed.');
   }
 
   private async openSafariSearchResult(eventName: string): Promise<void> {
-    const currentUrl = await this.driver.getUrl();
-    const origin = new URL(currentUrl).origin;
-    const locale = currentUrl.match(/\/(en-[A-Z]{2})(?:\/|$)/i)?.[1] || 'en-GB';
-    await this.openSafariSearchRoute(`${origin}/${locale}/search`);
-    await this.handleSafariCookies();
+    await this.openSafariSearchFromLanding();
 
     const prompt = await this.browserFirstVisible([
       '//*[self::button or self::a or @role="button" or @role="searchbox"][contains(normalize-space(.), "Search sports, teams, events")]',
@@ -92,6 +227,9 @@ export class IOSSearchPage extends IOSBasePage {
       if (!input) await this.driver.pause(300);
     }
     if (!input) throw new Error('Safari search did not expose an editable search field.');
+    // Dev-mode activation can leave [dev_mode_on] in this same search box.
+    // Clear it explicitly so the PPV query does not append to the command.
+    await input.clearValue().catch(() => { });
     await input.setValue(eventName);
     await this.driver.keys('Enter');
     await this.driver.pause(1200);
@@ -135,6 +273,12 @@ export class IOSSearchPage extends IOSBasePage {
     options.results.push({ page: 'iOS Safari', field: 'Safari landed URL', expected: 'DAZN URL', actual: landedUrl || 'Not found', status: /dazn\.com/i.test(landedUrl) ? 'PASS' : 'FAIL' });
     await this.waitForSafariStartToSettle();
     await this.handleSafariCookies();
+    const tier = String(options.eventData?.TIER || process.env.TIER || '').toLowerCase();
+    const region = String(options.eventData?.DAZN_REGION || process.env.DAZN_REGION || '').toUpperCase();
+    const devModeForced = String(process.env.DEV_MODE_ON || '').toLowerCase() === 'on';
+    if (devModeForced || (tier === 'ultimate' && (region === 'GB' || region === 'US'))) {
+      await this.enableSafariDevMode();
+    }
     await this.openSafariSearchResult(options.eventName);
     const buyCta = await this.browserFirstVisible([
       'a*=Buy now', 'button*=Buy now', 'a*=Buy Now', 'button*=Buy Now',
@@ -143,7 +287,7 @@ export class IOSSearchPage extends IOSBasePage {
     if (!buyCta) throw new Error(`Safari PPV page has no Buy CTA for "${options.eventName}".`);
     await buyCta.click();
     await this.driver.pause(1500);
-    await new IOSSignupPage(this.driver).completeToPayment(options.results, options.eventName);
+    await new IOSSignupPage(this.driver).completeToPayment(options.results, options.eventName, options.eventData);
   }
   async navigate(): Promise<void> {
     console.log('Navigating to Search screen...');

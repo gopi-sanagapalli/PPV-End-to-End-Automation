@@ -238,7 +238,11 @@ describe('DAZN iOS PPV — New User Handoff Flow', () => {
     const ENV = (process.env.DAZN_ENV || 'stag').toLowerCase();
     const PAYMENT_METHOD = (process.env.PAYMENT_METHOD || 'credit_card').toLowerCase();
 
-    const json = loadEventConfig(EVENT_CONFIG);
+    // Use the same config-loader entry point as the web flow, including the
+    // requested PLAN.  Loading the event alone silently defaults to
+    // standard_monthly, which makes Safari validate the wrong prices, offers
+    // and payment copy for APM/APU and Ultimate journeys.
+    const json = loadEventConfig(EVENT_CONFIG, PLAN);
 
     const plansPath = path.resolve(__dirname, '../../..', 'config/DaznPlan.json');
     const plans = JSON.parse(fs.readFileSync(plansPath, 'utf-8'));
@@ -280,6 +284,52 @@ describe('DAZN iOS PPV — New User Handoff Flow', () => {
     eventData.SOURCE = SOURCE;
     eventData.MOBILE_WEB_HANDOFF = 'true';
     Object.assign(eventData, mobileRegional);
+
+    // Keep Safari's shared Excel validation data aligned with the established
+    // web flow. The workbook uses these derived fields as {{...}} templates;
+    // without them, the iOS report records literal placeholders instead of
+    // validating the selected plan.
+    const offerType = String(eventData.OFFER_TYPE || '1_month_free').toLowerCase();
+    const isNoOffer = offerType === 'no_offer' || offerType === 'none';
+    const activeOfferPresent = String(eventData.ACTIVE_OFFER_PRESENT || '').toLowerCase() === 'true';
+    eventData.DAZN_TIER = planTier === 'ultimate' ? 'DAZN Ultimate' : 'DAZN Standard';
+    eventData.PLAN_CTA_BUTTON = planTier === 'ultimate'
+      ? (eventData.PLAN_CTA_BUTTON_ULTIMATE || 'Continue with DAZN Ultimate')
+      : (offerType === '1_month_free' && ratePlan.includes('annual')
+        ? 'Continue with 1st Month Free'
+      : (isNoOffer
+        ? (eventData.PLAN_CTA_BUTTON_STANDARD || 'Continue with DAZN Standard')
+        : (eventData.PLAN_CTA_BUTTON_STANDARD || `Continue with ${eventData.FREE_TRIAL_DAYS || '7'}-day Free Trial`)));
+
+    if (activeOfferPresent && ratePlan === 'monthly') {
+      eventData.PAYMENT_PAGE_TITLE = eventData.PAYMENT_PAGE_TITLE_STANDARD || 'Choose how to pay';
+      eventData.PAYMENT_PLAN_NAME = eventData.PAYMENT_PLAN_LABEL || 'Flex – Pay Monthly - First Month Only';
+      eventData.PAYMENT_FREE_TEXT = 'N/A';
+      eventData.CANCELLATION_TEXT = eventData.CANCELLATION_TEXT_TRIAL || '';
+    } else if (/^\d+_day_trial$/.test(offerType) && planTier === 'standard' && ratePlan === 'monthly') {
+      eventData.PAYMENT_PAGE_TITLE = eventData.PAYMENT_PAGE_TITLE_TRIAL || 'Choose how to pay after your free trial';
+      eventData.PAYMENT_PLAN_NAME = eventData.PAYMENT_FREE_TEXT_TRIAL || `${eventData.FREE_TRIAL_DAYS || '7'}-days free`;
+      eventData.PAYMENT_FREE_TEXT = eventData.PAYMENT_FREE_TEXT_TRIAL || `${eventData.FREE_TRIAL_DAYS || '7'}-days free`;
+      eventData.CANCELLATION_TEXT = eventData.CANCELLATION_TEXT_TRIAL || '';
+    } else if (ratePlan === 'annual pay monthly' || ratePlan === 'annual pay upfront') {
+      eventData.PAYMENT_PAGE_TITLE = eventData.PAYMENT_PAGE_TITLE_STANDARD || 'Choose how to pay';
+      eventData.PAYMENT_PLAN_NAME = eventData.PAYMENT_PLAN_NAME_ANNUAL ||
+        (ratePlan === 'annual pay upfront' ? 'Annual - Pay Upfront' : 'Annual - Pay Monthly');
+      eventData.PAYMENT_FREE_TEXT = offerType === '1_month_free'
+        ? (eventData.PAYMENT_FREE_TEXT_MONTHLY || 'First month free')
+        : 'N/A';
+      eventData.CANCELLATION_TEXT = planTier === 'ultimate'
+        ? (ratePlan === 'annual pay monthly'
+          ? (eventData.CANCELLATION_TEXT_ULTIMATE_APM || '')
+          : (eventData.CANCELLATION_TEXT_ULTIMATE_APU || ''))
+        : (eventData.CANCELLATION_TEXT_ANNUAL || '');
+    } else {
+      eventData.PAYMENT_PAGE_TITLE = eventData.PAYMENT_PAGE_TITLE_STANDARD || 'Choose how to pay';
+      eventData.PAYMENT_PLAN_NAME = eventData.PAYMENT_PLAN_NAME_FLEX || 'Flex – Pay Monthly';
+      eventData.PAYMENT_FREE_TEXT = isNoOffer ? 'N/A' : (eventData.PAYMENT_FREE_TEXT_MONTHLY || 'First month free');
+      eventData.CANCELLATION_TEXT = eventData.CANCELLATION_TEXT_TRIAL || '';
+    }
+    eventData.DAZN_REGION = REGION;
 
     let buyTapped = false;
     let bannerUrlCaptured = false;
@@ -406,6 +456,9 @@ describe('DAZN iOS PPV — New User Handoff Flow', () => {
     // Continue in the Safari WebKit context from the URL the user actually
     // landed on.  Do not terminate DAZN or create a desktop Playwright browser:
     // both actions sever the native iOS → Safari journey we are validating.
+    const { configureExcelPathForEvent } = require('../../../utils/excelReader');
+    configureExcelPathForEvent(json.eventKey || '');
+
     const safariResults = [...iosAvailabilityResults];
     const browserReentry = getIOSBrowserReentry(SOURCE);
     if (!browserReentry.supported || browserReentry.webSource !== 'search') {
@@ -415,6 +468,7 @@ describe('DAZN iOS PPV — New User Handoff Flow', () => {
       capturedUrl: checkoutUrl,
       eventName: PPV_NAME,
       results: safariResults,
+      eventData: eventData,
     });
     const { writeResults } = require('../../../utils/excelWriter');
     const { displayResultsTable } = require('../../../utils/resultsDisplay');
@@ -426,6 +480,15 @@ describe('DAZN iOS PPV — New User Handoff Flow', () => {
       env: ENV, flowName: `iOS Safari: ${SOURCE}`, startTime: new Date(), endTime: new Date(),
       excelPath, videoPath, userType: 'new-user', platform: 'iOS',
     });
+
+    // ── Check for failures (same as web) ──────────────────────────
+    const passed = safariResults.filter((r: any) => r.status === 'PASS').length;
+    const failed = safariResults.filter((r: any) => r.status === 'FAIL').length;
+    const total = passed + failed;
+    console.log(`\n📊 iOS Safari flow complete: ${passed}/${total} passed, ${failed} failed`);
+    if (failed > 0) {
+      throw new Error(`❌ ${failed} of ${total} Safari web validation(s) failed. See report for details.`);
+    }
     return;
 
     try {
