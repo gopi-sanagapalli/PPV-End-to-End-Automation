@@ -137,6 +137,15 @@ export class IOSBasePage {
     console.log('ℹ️ No DAZN cookie consent was shown in Safari.');
   }
 
+  /**
+   * Reset the per-session cookie-consent cache so the next call to
+   * handleSafariCookies() gets the full timeout. Call this whenever the flow
+   * navigates to a new URL that may show the OneTrust banner again.
+   */
+  resetCookieConsentCache(): void {
+    IOSBasePage.safariCookieConsentHandledDrivers.delete(this.driver as object);
+  }
+
   async findEl(sel: string, timeoutMs = 10000): Promise<WdElement> {
     try {
       const el = await this.driver.$(sel);
@@ -636,6 +645,131 @@ export class IOSBasePage {
     }
 
     return '';
+  }
+
+  /**
+   * Navigate to the DAZN welcome page and wait for it to settle.
+   * Safe to call from any web context — always resolves to the welcome route.
+   */
+  async navigateToWelcomePage(baseUrl = 'https://www.dazn.com'): Promise<void> {
+    console.log('🌐 Navigating to DAZN welcome page...');
+    await this.driver.url(baseUrl).catch(() => {});
+    await this.driver.waitUntil(async () => (await this.browserText()).trim().length > 0, {
+      timeout: 20000,
+      timeoutMsg: 'DAZN welcome page did not render a document body.',
+    });
+    await this.driver.pause(1500);
+    console.log(`🌐 Landed on: ${await this.driver.getUrl().catch(() => '?')}`);
+  }
+
+  /**
+   * Scrolls the DAZN welcome page down to the "Don't miss" rail, finds the PPV
+   * tile matching eventName, and clicks its "Buy now" CTA.
+   *
+   * Must be called in a Safari/WebView web context (not NATIVE_APP).
+   * Uses JS-based scrolling (window.scrollBy / element.scrollLeft) — NOT native
+   * iOS gestures — because those only work in NATIVE_APP context.
+   *
+   * The "Don't miss" section is a horizontal carousel: scrolls the rail up to
+   * maxCarouselScrolls times to find a tile that is off-screen to the right.
+   */
+  async findWelcomePagePPVTile(eventName: string, maxCarouselScrolls = 8): Promise<void> {
+    const simplified = eventName.split(/ vs/i)[0].trim().replace(/\./g, '').toLowerCase();
+    console.log(`🔍 Looking for PPV tile "${eventName}" in Don't miss section...`);
+
+    // ── Step 1: Scroll the page down until "Don't miss" is visible ───────────
+    const isDontMissVisible = async (): Promise<boolean> =>
+      this.driver.execute(() =>
+        Array.from(document.querySelectorAll<HTMLElement>('*'))
+          .some(el => el.offsetParent !== null &&
+            /don.?t miss/i.test(el.innerText || el.textContent || ''))
+      ).catch(() => false);
+
+    for (let scroll = 0; scroll < 15; scroll++) {
+      if (await isDontMissVisible()) break;
+      await this.driver.execute(() => window.scrollBy(0, 350));
+      await this.driver.pause(400);
+    }
+    console.log('📜 "Don\'t miss" section reached (or max scroll hit); scanning for PPV tile...');
+
+    // ── Step 2: Find the PPV tile by event name ───────────────────────────────
+    const findMatchingTile = async (): Promise<any | null> => {
+      const candidates = await this.driver.$$(
+        '[class*="tile" i], [class*="card" i], [class*="event" i], ' +
+        '[class*="rail" i] li, [class*="dont-miss" i] li, ' +
+        'article, [role="listitem"]'
+      ).catch(() => []);
+      for (const candidate of candidates) {
+        try {
+          const text = (await candidate.getText().catch(() => ''))
+            .replace(/\s+/g, ' ').toLowerCase();
+          if (!text.includes(simplified)) continue;
+          if (/press conference|weigh.?in|prelims?|highlights?|interview/i.test(text)) continue;
+          if (await candidate.isDisplayed().catch(() => false)) return candidate;
+        } catch { }
+      }
+      return null;
+    };
+
+    // ── Step 3: Click "Buy now" inside the matched tile ───────────────────────
+    const clickBuyInTile = async (tile: any): Promise<boolean> => {
+      const buyCtas = [
+        'a*=Buy now', 'button*=Buy now', 'a*=Buy Now', 'button*=Buy Now',
+        'a*=Get PPV', 'button*=Get PPV', 'a*=Purchase', 'button*=Purchase',
+      ];
+      for (const selector of buyCtas) {
+        try {
+          const btn = await tile.$(selector);
+          if (btn && await btn.isDisplayed().catch(() => false)) {
+            await btn.scrollIntoView().catch(() => {});
+            await btn.click();
+            console.log(`✅ Clicked "Buy now" on PPV tile for "${eventName}"`);
+            return true;
+          }
+        } catch { }
+      }
+      // Fallback: click the tile card itself (it is often an <a> link)
+      try {
+        await tile.scrollIntoView().catch(() => {});
+        await tile.click();
+        console.log(`✅ Clicked PPV tile card directly for "${eventName}"`);
+        return true;
+      } catch { }
+      return false;
+    };
+
+    // ── First pass: no carousel scroll needed ─────────────────────────────────
+    let tile = await findMatchingTile();
+    if (tile) {
+      const clicked = await clickBuyInTile(tile);
+      if (clicked) { await this.driver.pause(1500); return; }
+    }
+
+    // ── Carousel scroll passes: scroll the rail left to reveal hidden tiles ───
+    for (let i = 0; i < maxCarouselScrolls; i++) {
+      await this.driver.execute(() => {
+        const rail = Array.from(document.querySelectorAll<HTMLElement>(
+          '[class*="rail" i], [class*="carousel" i], [class*="dont-miss" i], ' +
+          '[class*="slider" i], [class*="scroll" i]'
+        )).find(el => el.scrollWidth > el.clientWidth && el.offsetParent !== null);
+        if (rail) rail.scrollLeft += rail.clientWidth * 0.8;
+      }).catch(() => {});
+      await this.driver.pause(600);
+
+      tile = await findMatchingTile();
+      if (tile) {
+        const clicked = await clickBuyInTile(tile);
+        if (clicked) { await this.driver.pause(1500); return; }
+      }
+    }
+
+    // ── Failure: screenshot + descriptive error ───────────────────────────────
+    await this.driver.saveScreenshot('./test-results/ios_safari_ppv_tile_not_found.png').catch(() => {});
+    const pageText = (await this.browserText()).slice(0, 600);
+    throw new Error(
+      `Safari welcome page: PPV tile not found for "${eventName}" after ${maxCarouselScrolls} carousel scrolls.\n` +
+      `Visible text snippet: ${pageText}`
+    );
   }
 }
 

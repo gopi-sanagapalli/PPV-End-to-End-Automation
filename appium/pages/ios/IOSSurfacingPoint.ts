@@ -55,20 +55,31 @@ export function getIOSSurfacingPoint(source: string): IOSSurfacingPointConfig {
 }
 
 /**
- * This module is a flow manifest, not a screen/page object.  Native page
- * objects navigate the DAZN app; the WebdriverIO Safari flow asks this
- * resolver how to replay the source after the iOS handoff.
+ * All native sources land Safari at dazn.com/welcome after the iOS App Store
+ * confirmation sheet.  The web journey always continues from the "Don't miss"
+ * PPV tile on that page, so every verified source uses the same entry strategy.
  *
- * Search is intentionally the only enabled web source for now.  The device
- * evidence shows Safari starts at dazn.com home after the Apple confirmation,
- * so every additional source needs a verified Safari navigation before it is
- * enabled here.
+ * Add a source name here once its native-app → Safari handoff has been confirmed
+ * on device.  Any source NOT listed returns supported: false so an unverified
+ * source cannot silently follow the wrong path.
  */
 export function getIOSBrowserReentry(source: string): IOSBrowserReentry {
   const normalizedSource = (source || '').trim().toLowerCase();
 
-  if (normalizedSource === 'search') {
-    return { webSource: 'search', entry: 'safari-home', supported: true };
+  const supportedSources = new Set([
+    'search',
+    'landing-page-banner',
+    'home-page-banner',
+    'home-boxing-banner',
+    'home-boxing-upcoming',
+    'home-boxing-tile',
+    'home-page-tile',
+    'home-page-dont-miss',
+    'schedule',
+  ]);
+
+  if (supportedSources.has(normalizedSource)) {
+    return { webSource: 'welcome-page-tile', entry: 'safari-home', supported: true };
   }
 
   return { webSource: normalizedSource, entry: 'safari-home', supported: false };
