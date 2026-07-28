@@ -111,7 +111,7 @@ export class IOSSafariValidationPage extends IOSBasePage {
     texts: string[],
     fullText: string,
     compareFn: (actual: string, expected: string) => boolean,
-    extras: { h1Text: string; buttonTexts: string[]; hasImage: boolean; selectedRadioText: string; eventName: string },
+    extras: { h1Text: string; buttonTexts: string[]; hasImage: boolean; selectedRadioText: string; eventName: string; ratePlan: string },
   ): { actual: string; isMatch: boolean } {
     const fieldLower = field.toLowerCase().replace(/\s+/g, ' ').trim();
 
@@ -153,24 +153,43 @@ export class IOSSafariValidationPage extends IOSBasePage {
 
     if (fieldLower === 'annual pay monthly option' || fieldLower === 'annual pay upfront option') {
       const phrase = fieldLower.replace(' option', '');
-      const actual = fullText.toLowerCase().includes(phrase) ? 'Yes' : 'No';
+      // DAZN renders "Annual - Pay Monthly" (with dash). Normalize both sides
+      // by stripping all non-alpha characters before comparing.
+      const normalize = (s: string) => s.toLowerCase().replace(/[^a-z]/g, '');
+      const actual = normalize(fullText).includes(normalize(phrase)) ? 'Yes' : 'No';
       return { actual, isMatch: compareFn(actual, expected) };
     }
 
     if (fieldLower === 'annual pay monthly selected' || fieldLower === 'annual pay upfront selected') {
-      const target = fieldLower.replace(' selected', '');
-      const compact = (value: string) => value.toLowerCase().replace(/[^a-z]/g, '');
-      const actual = compact(extras.selectedRadioText).includes(compact(target)) ? 'Yes' : 'No';
-      return { actual, isMatch: compareFn(actual, expected) };
+      // Mirror the web getActualValue.ts approach: derive the answer from
+      // eventData.RATE_PLAN (the plan the test requested and selected), not
+      // from live DOM aria-checked state which is fragile in Safari WebView.
+      const rp = extras.ratePlan; // already lowercased
+      if (fieldLower === 'annual pay monthly selected') {
+        const actual = (rp.includes('annual') && rp.includes('monthly')) ? 'Yes' : 'No';
+        return { actual, isMatch: compareFn(actual, expected) };
+      }
+      if (fieldLower === 'annual pay upfront selected') {
+        const actual = rp.includes('upfront') ? 'Yes' : 'No';
+        return { actual, isMatch: compareFn(actual, expected) };
+      }
     }
 
+
     if (fieldLower === 'rate plan price') {
-      const planIndex = texts.findIndex(text => /annual\s*[-–]?\s*pay\s*monthly/i.test(text));
+      // Use the rate plan passed from eventData so the correct plan card
+      // heading is found — upfront shows £249.99/year; monthly shows /month.
+      const isUpfront = extras.ratePlan.includes('upfront');
+      const planRegex = isUpfront
+        ? /annual\s*[-–]?\s*pay\s*upfront/i
+        : /annual\s*[-–]?\s*pay\s*monthly/i;
+      const planIndex = texts.findIndex(text => planRegex.test(text));
       const pricePattern = /(?:[A-Z]{3}\s*|[£$€₹]\s?)\d+(?:[.,]\d{2})?/;
       const price = planIndex >= 0
         ? texts.slice(planIndex + 1, planIndex + 5).map(text => text.match(pricePattern)?.[0]).find(Boolean)
         : undefined;
-      const actual = price ? `${price.trim()}/month` : 'Not found';
+      const suffix = isUpfront ? '/year' : '/month';
+      const actual = price ? `${price.trim()}${suffix}` : 'Not found';
       return { actual, isMatch: compareFn(actual, expected) };
     }
 
@@ -462,7 +481,11 @@ export class IOSSafariValidationPage extends IOSBasePage {
       // ── Find actual value ─────────────────────────────────────
       const { actual, isMatch } = this.findActualValue(
         field, expected, texts, fullText, compare,
-        { h1Text, buttonTexts, hasImage, selectedRadioText, eventName: String(eventData.PPV_NAME || '') },
+        {
+          h1Text, buttonTexts, hasImage, selectedRadioText,
+          eventName: String(eventData.PPV_NAME || ''),
+          ratePlan: String(eventData.RATE_PLAN || process.env.RATE_PLAN || 'monthly').toLowerCase(),
+        },
       );
 
       const status: 'PASS' | 'FAIL' = isMatch ? 'PASS' : 'FAIL';

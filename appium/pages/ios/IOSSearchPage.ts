@@ -270,23 +270,34 @@ export class IOSSearchPage extends IOSBasePage {
   async continueSafariCheckout(options: IOSSafariSearchOptions): Promise<void> {
     await this.switchToSafariWebContext(options.capturedUrl);
     const landedUrl = await this.driver.getUrl();
-    options.results.push({ page: 'iOS Safari', field: 'Safari landed URL', expected: 'DAZN URL', actual: landedUrl || 'Not found', status: /dazn\.com/i.test(landedUrl) ? 'PASS' : 'FAIL' });
+    options.results.push({
+      page: 'iOS Safari',
+      field: 'Safari landed URL',
+      expected: 'DAZN URL',
+      actual: landedUrl || 'Not found',
+      status: /dazn\.com/i.test(landedUrl) ? 'PASS' : 'FAIL',
+    });
     await this.waitForSafariStartToSettle();
+    this.resetCookieConsentCache();
     await this.handleSafariCookies();
+
+    // Dev mode must be activated BEFORE clicking Buy now on the welcome page,
+    // because it navigates to /search internally. After it completes, we always
+    // navigate back to www.dazn.com (welcome) explicitly — history.back() only
+    // returns to /search, not to the welcome page where the PPV tile lives.
     const tier = String(options.eventData?.TIER || process.env.TIER || '').toLowerCase();
     const region = String(options.eventData?.DAZN_REGION || process.env.DAZN_REGION || '').toUpperCase();
     const devModeForced = String(process.env.DEV_MODE_ON || '').toLowerCase() === 'on';
     if (devModeForced || (tier === 'ultimate' && (region === 'GB' || region === 'US'))) {
       await this.enableSafariDevMode();
+      // Always navigate explicitly to welcome — dev mode ends on /search.
+      await this.navigateToWelcomePage();
+      this.resetCookieConsentCache();
+      await this.handleSafariCookies(5000);
     }
-    await this.openSafariSearchResult(options.eventName);
-    const buyCta = await this.browserFirstVisible([
-      'a*=Buy now', 'button*=Buy now', 'a*=Buy Now', 'button*=Buy Now',
-      'a*=Continue with pay-per-view', 'button*=Continue with pay-per-view',
-    ]);
-    if (!buyCta) throw new Error(`Safari PPV page has no Buy CTA for "${options.eventName}".`);
-    await buyCta.click();
-    await this.driver.pause(1500);
+
+    // findWelcomePagePPVTile is defined in IOSBasePage and inherited here.
+    await this.findWelcomePagePPVTile(options.eventName);
     await new IOSSignupPage(this.driver).completeToPayment(options.results, options.eventName, options.eventData);
   }
   async navigate(): Promise<void> {
