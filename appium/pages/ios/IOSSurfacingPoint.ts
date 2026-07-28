@@ -100,6 +100,6 @@ export function getIOSValidationSheet(source: string, surface: IOSSurface): stri
   if (config.surface === surface && config.validationSheet) {
     return config.validationSheet;
   }
-  
+
   return '';
 }

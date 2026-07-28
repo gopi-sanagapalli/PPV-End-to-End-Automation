@@ -1,5 +1,6 @@
 import { IOSBasePage, WdBrowser } from './IOSBasePage';
 import { IOSValidationResult } from './IOSValidationPage';
+import { IOSSafariValidationPage } from './IOSSafariValidationPage';
 
 /**
  * DAZN account creation in Safari. This is shared by every iOS source after
@@ -29,10 +30,9 @@ export class IOSSignupPage extends IOSBasePage {
     if (!button) return false;
     await button.click();
     await this.driver.pause(1800);
-    // A redirect within the contextual account journey can re-create the
-    // OneTrust overlay. This is inherited from IOSBasePage and is a fast
-    // re-check once the Safari session has already accepted cookies.
-    await this.handleSafariCookies();
+    // Account transitions can re-open OneTrust. This was the established
+    // working Safari behaviour; keep the check at transition boundaries.
+    await this.handleSafariCookies(5000);
     return true;
   }
 
@@ -51,8 +51,11 @@ export class IOSSignupPage extends IOSBasePage {
       (plan.includes('upfront') ? 'annual pay upfront' : plan.includes('apm') || plan.includes('annual') ? 'annual pay monthly' : 'monthly')).toLowerCase();
 
     if (tier === 'ultimate') {
-      if (ratePlan.includes('upfront')) return { plan, tier, ratePlan, label: 'DAZN Ultimate – Annual Pay Upfront', terms: ['ultimate', 'upfront'] };
-      if (ratePlan.includes('annual')) return { plan, tier, ratePlan, label: 'DAZN Ultimate – Annual Pay Monthly', terms: ['ultimate', 'annual'] };
+      // The Ultimate plan-selection screen labels its cards only with the
+      // payment cadence (not "Ultimate"), so do not require the tier word in
+      // the locator.  Requiring it made ultimate_upfront impossible to select.
+      if (ratePlan.includes('upfront')) return { plan, tier, ratePlan, label: 'DAZN Ultimate – Annual Pay Upfront', terms: ['annual', 'upfront'] };
+      if (ratePlan.includes('annual')) return { plan, tier, ratePlan, label: 'DAZN Ultimate – Annual Pay Monthly', terms: ['annual', 'pay monthly'] };
       return { plan, tier, ratePlan, label: 'DAZN Ultimate', terms: ['ultimate'] };
     }
     if (ratePlan.includes('upfront')) return { plan, tier, ratePlan, label: 'Annual – Pay Upfront', terms: ['annual', 'upfront'] };
@@ -78,14 +81,14 @@ export class IOSSignupPage extends IOSBasePage {
       );
     }
 
-    await option.scrollIntoView().catch(() => {});
+    await option.scrollIntoView().catch(() => { });
     await option.click();
     await this.driver.pause(800);
     console.log(`✅ Selected Safari plan from DaznPlan.json: ${requested.label}`);
   }
 
-  async completeToPayment(results: IOSValidationResult[], eventName = ''): Promise<void> {
-    await this.handleSafariCookies();
+  async completeToPayment(results: IOSValidationResult[], eventName = '', eventData?: Record<string, any>): Promise<void> {
+    await this.handleSafariCookies(5000);
     const userState = (process.env.USER_STATE || 'new').toLowerCase();
     const isExistingUser = !userState.startsWith('new') || !!process.env.USER_EMAIL;
     const email = isExistingUser
@@ -108,6 +111,14 @@ export class IOSSignupPage extends IOSBasePage {
       console.log(`Safari account step ${step + 1}: ${url}`);
 
       if (/payment method|choose how to pay|card number|payment details/.test(lower)) {
+        // ── Validate Payment page before returning ──
+        if (eventData) {
+          try {
+            await new IOSSafariValidationPage(this.driver).validatePaymentPage(eventData, results);
+          } catch (err: any) {
+            console.warn(`⚠️ Payment page validation error: ${err.message}`);
+          }
+        }
         results.push({ page: 'iOS Safari', field: 'Payment page reached', expected: 'Yes', actual: 'Yes', status: 'PASS' });
         return;
       }
@@ -159,6 +170,14 @@ export class IOSSignupPage extends IOSBasePage {
 
       const isContextualPpvPage = /pay-per-view, you.ll need a dazn plan|ultimate fan package/.test(lower);
       if (isContextualPpvPage) {
+        // ── Validate PPV page before interacting ──
+        if (eventData) {
+          try {
+            await new IOSSafariValidationPage(this.driver).validatePPVPage(eventData, results);
+          } catch (err: any) {
+            console.warn(`⚠️ PPV page validation error: ${err.message}`);
+          }
+        }
         const wantsUltimate = this.getRequestedPlan().tier === 'ultimate';
         const targetText = wantsUltimate ? 'Ultimate' : (eventName.split(/\s+vs\.?\s+/i)[0] || 'pay-per-view');
         const ppvOrUltimate = await this.firstVisible([
@@ -178,7 +197,19 @@ export class IOSSignupPage extends IOSBasePage {
       // test exercise the wrong product.
       if (!isContextualPpvPage && (/choose (your|the right) plan|choose how to buy/.test(lower) ||
         (/page=PlanDetails/i.test(url) && /flex|annual|pay monthly|pay upfront/.test(lower)))) {
+        // Select first, then validate selection-dependent rows such as
+        // "Flex Selected". Validating before this click only reports DAZN's
+        // initial/default radio state, not the plan requested by the test.
         await this.selectRequestedPlan();
+
+        // ── Validate the selected Plan page ──
+        if (eventData) {
+          try {
+            await new IOSSafariValidationPage(this.driver).validatePlanPage(eventData, results);
+          } catch (err: any) {
+            console.warn(`⚠️ Plan page validation error: ${err.message}`);
+          }
+        }
       }
 
       const progressed = await this.firstVisible([
@@ -208,7 +239,7 @@ export class IOSSignupPage extends IOSBasePage {
       }
       await progressed.click();
       await this.driver.pause(1800);
-      await this.handleSafariCookies();
+      await this.handleSafariCookies(5000);
     }
 
     results.push({ page: 'iOS Safari', field: 'Payment page reached', expected: 'Yes', actual: 'No', status: 'FAIL' });

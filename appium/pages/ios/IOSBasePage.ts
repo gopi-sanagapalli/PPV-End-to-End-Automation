@@ -57,6 +57,25 @@ export class IOSBasePage {
       '[role="button"]*=Accept',
     ];
     const consentCopy = /select your cookie preferences|essential cookies only|manage preferences/i;
+    const isConsentOverlayVisible = async (): Promise<boolean> => this.driver.execute(() => {
+      const overlay = document.querySelector<HTMLElement>(
+        '#onetrust-banner-sdk, #onetrust-consent-sdk, .onetrust-pc-dark-filter'
+      );
+      if (!overlay) return false;
+      const style = window.getComputedStyle(overlay);
+      const box = overlay.getBoundingClientRect();
+      return style.display !== 'none' && style.visibility !== 'hidden' &&
+        style.opacity !== '0' && box.width > 0 && box.height > 0;
+    }).catch(() => false);
+    const waitForConsentToClose = async (): Promise<void> => {
+      await this.driver.waitUntil(async () => !(await isConsentOverlayVisible()), {
+        timeout: 8000,
+        timeoutMsg: 'DAZN cookie banner remained visible after clicking Accept.',
+      });
+      IOSBasePage.safariCookieConsentHandledDrivers.add(driverKey);
+      await this.driver.pause(500);
+      console.log('✅ DAZN cookie banner is hidden.');
+    };
     const deadline = Date.now() + effectiveTimeout;
     let consentWasSeen = false;
 
@@ -85,22 +104,25 @@ export class IOSBasePage {
           console.log('🍪 Accepted cookies via #onetrust-accept-btn-handler.');
         }
 
-        await this.driver.waitUntil(async () => this.driver.execute(() => {
-          const banner = document.querySelector<HTMLElement>(
-            '#onetrust-banner-sdk, #onetrust-consent-sdk, .onetrust-pc-dark-filter'
-          );
-          if (!banner) return true;
-          const style = window.getComputedStyle(banner);
-          const box = banner.getBoundingClientRect();
-          return style.display === 'none' || style.visibility === 'hidden' ||
-            style.opacity === '0' || box.width === 0 || box.height === 0;
-        }).catch(() => false), {
-          timeout: 8000,
-          timeoutMsg: 'DAZN cookie banner remained visible after clicking Accept.',
-        });
-        IOSBasePage.safariCookieConsentHandledDrivers.add(driverKey);
-        await this.driver.pause(500);
-        console.log('✅ DAZN cookie banner is hidden.');
+        await waitForConsentToClose();
+        return;
+      }
+
+      // On some iOS Safari sessions the visible "Accept" control is rendered
+      // in the page but is not returned by WebDriver's element query. Only
+      // use the DOM fallback while an actual OneTrust overlay is visible, and
+      // verify that the overlay closes before letting the journey continue.
+      const overlayVisible = consentIsVisible || await isConsentOverlayVisible();
+      const clickedWelcomeAccept = overlayVisible && await this.driver.execute(() => {
+        const button = Array.from(document.querySelectorAll<HTMLElement>('button, [role="button"]'))
+          .find(element => (element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase() === 'accept');
+        if (!button) return false;
+        button.click();
+        return true;
+      }).catch(() => false);
+      if (clickedWelcomeAccept) {
+        console.log('🍪 Accepted Safari Welcome cookies via DOM fallback.');
+        await waitForConsentToClose();
         return;
       }
 
@@ -333,7 +355,22 @@ export class IOSBasePage {
       // external-website handoff. Account/search/checkout routes can belong
       // to Safari views that were already open before this native CTA.
       if (pathname === '/' || pathname === '/start' || pathname === '/welcome') return true;
-      return /^\/[a-z]{2}-[a-z]{2}\/?$/i.test(pathname);
+      // DAZN can redirect /start directly to the localized welcome route.
+      // It is the normal visible result of the App Store Continue action, not
+      // a checkout or Search context from an earlier test run.
+      // Locale is supplied by DAZN's redirect, so do not couple this to
+      // DAZN_REGION or a specific language. Support ordinary BCP-47 paths
+      // such as /en-GB, /es-419 and /zh-Hant-HK, with an optional landing
+      // segment, while still excluding account/search/checkout routes.
+      return /^\/[a-z]{2,3}(?:-[a-z0-9]{2,8})*(?:\/(?:start|welcome))?\/?$/i.test(pathname);
+    } catch {
+      return false;
+    }
+  }
+
+  private isLocalizedWelcomeUrl(url: string): boolean {
+    try {
+      return /^\/[a-z]{2,3}(?:-[a-z0-9]{2,8})*\/welcome\/?$/i.test(new URL(url).pathname);
     } catch {
       return false;
     }
@@ -453,12 +490,20 @@ export class IOSBasePage {
           console.log(`🌐 Available iOS contexts: ${contextSummary}`);
           lastContextSummary = contextSummary;
         }
-        for (const webCtx of webContexts) {
+        for (let contextIndex = 0; contextIndex < webContexts.length; contextIndex++) {
+          const webCtx = webContexts[contextIndex];
           try {
             await this.driver.switchContext(webCtx);
             const url = await this.driver.getUrl();
             console.log(`🌐 Checking web context ${webCtx}: ${url || '(no URL yet)'}`);
             if (this.isSafariHandoffLandingUrl(url)) {
+              // When two contexts exist, a localized /welcome can be an old
+              // background Safari view while the newer view is still loading.
+              // Give the newer context a short opportunity to resolve first.
+              if (this.isLocalizedWelcomeUrl(url) && webContexts.length > 1 && contextIndex > 0 &&
+                Date.now() < webviewDeadline - 5000) {
+                continue;
+              }
               console.log(`✅ Captured new DAZN handoff URL from WEBVIEW context ${webCtx}: ${url}`);
               activatedBrowser = 'WEBVIEW';
               return url;
