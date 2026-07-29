@@ -343,7 +343,6 @@ async function locateIOSPpvTileByImage(driver: WdBrowser, ppvName: string): Prom
       return { visible: false, xPercent: null, yPercent: null };
     }
     console.log(`  Local OCR matched PPV artwork text: "${match.text}".`);
-    return { visible: true, xPercent: match.xPercent, yPercent: match.yPercent }
     return {
       visible: true,
       xPercent: match.xPercent,

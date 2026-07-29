@@ -49,17 +49,23 @@ export class IOSBasePage {
     const alreadyHandled = IOSBasePage.safariCookieConsentHandledDrivers.has(driverKey);
     const effectiveTimeout = alreadyHandled ? Math.min(timeoutMs, 2000) : timeoutMs;
     const acceptSelectors = [
+      // OneTrust expanded preference centre. Prefer the explicit "Accept
+      // All" control; it is different from the first-layer banner button.
+      '#accept-recommended-btn-handler',
       '#onetrust-accept-btn-handler',
       '[data-testid="accept-all"]',
+      'button*=Accept All',
+      '#onetrust-pc-sdk .save-preference-btn-handler',
+      'button*=Confirm My Choices',
       'button[aria-label="Accept"]',
       '//button[normalize-space(.)="Accept"]',
       'button*=Accept',
       '[role="button"]*=Accept',
     ];
-    const consentCopy = /select your cookie preferences|essential cookies only|manage preferences/i;
+    const consentCopy = /select your cookie preferences|essential cookies only|manage preferences|privacy preference center|cookie list|list of partners/i;
     const isConsentOverlayVisible = async (): Promise<boolean> => this.driver.execute(() => {
       const overlay = document.querySelector<HTMLElement>(
-        '#onetrust-banner-sdk, #onetrust-consent-sdk, .onetrust-pc-dark-filter'
+        '#onetrust-banner-sdk, #onetrust-consent-sdk, #onetrust-pc-sdk, .onetrust-pc-dark-filter'
       );
       if (!overlay) return false;
       const style = window.getComputedStyle(overlay);
@@ -88,9 +94,9 @@ export class IOSBasePage {
         const clickedByUi = await accept.click().then(() => true).catch(() => false);
         if (!clickedByUi) {
           const clickedByDom = await this.driver.execute(() => {
-            const button = document.querySelector<HTMLElement>('#onetrust-accept-btn-handler')
+            const button = document.querySelector<HTMLElement>('#accept-recommended-btn-handler, #onetrust-accept-btn-handler')
               || Array.from(document.querySelectorAll<HTMLElement>('button, [role="button"]'))
-                .find(element => element.innerText.trim().toLowerCase() === 'accept');
+                .find(element => ['accept all', 'accept', 'confirm my choices'].includes((element.innerText || element.textContent || '').trim().toLowerCase()));
             if (!button) return false;
             button.click();
             return true;
@@ -114,8 +120,11 @@ export class IOSBasePage {
       // verify that the overlay closes before letting the journey continue.
       const overlayVisible = consentIsVisible || await isConsentOverlayVisible();
       const clickedWelcomeAccept = overlayVisible && await this.driver.execute(() => {
-        const button = Array.from(document.querySelectorAll<HTMLElement>('button, [role="button"]'))
-          .find(element => (element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase() === 'accept');
+        const button = document.querySelector<HTMLElement>('#accept-recommended-btn-handler, #onetrust-accept-btn-handler')
+          || Array.from(document.querySelectorAll<HTMLElement>('button, [role="button"]'))
+            .find(element => ['accept all', 'accept', 'confirm my choices'].includes(
+              (element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase(),
+            ));
         if (!button) return false;
         button.click();
         return true;
@@ -449,22 +458,49 @@ export class IOSBasePage {
     if (!alertHandled) {
       console.warn('⚠️ Continue is not exposed to XCUITest; using the App Store sheet fallback position.');
       try {
-        const { width, height } = await this.driver.getWindowSize();
-        const x = Math.round(width / 2);
-        // Continue is the first of the two stacked buttons at the bottom.
-        // A short vertical sweep tolerates device size, display zoom and the
-        // sheet's dynamic text height without risking the Cancel button.
-        for (const bottomOffset of [110, 140, 170]) {
-          await this.driver.action('pointer')
-            .move({ x, y: height - bottomOffset })
-            .down()
-            .pause(100)
-            .up()
-            .perform();
-          await this.driver.pause(250);
+        // Some XCUITest versions omit the button from the hierarchy but still
+        // expose it through the native alert endpoint (the same mechanism the
+        // working iOS Schedule flow uses).
+        const nativeAlertOpen = typeof this.driver.isAlertOpen === 'function'
+          ? await this.driver.isAlertOpen().catch(() => false)
+          : false;
+        const alertButtons = nativeAlertOpen
+          ? await this.driver.execute('mobile: alert', { action: 'getButtons' }).catch(() => []) as string[]
+          : [];
+        const continueLabel = Array.isArray(alertButtons)
+          ? alertButtons.find(label => /^(continue|open|allow)$/i.test(String(label).trim()))
+          : undefined;
+        if (continueLabel) {
+          await this.driver.execute('mobile: alert', { action: 'accept', buttonLabel: continueLabel });
+          console.log(`✅ Clicked iOS redirect button "${continueLabel}" via native alert API.`);
+          alertHandled = true;
+          await this.driver.pause(1500);
         }
-        alertHandled = true;
-        await this.driver.pause(2500);
+
+        if (alertHandled) {
+          // The native alert endpoint handled the sheet; do not send a second
+          // coordinate tap into the newly opened browser.
+        } else {
+          const { width, height } = await this.driver.getWindowSize();
+          const x = Math.round(width / 2);
+          // Leave-app sheets place Continue above Cancel at roughly 83% of the
+          // screen height on the iOS devices used here. The old bottom offsets
+          // were in/under the Cancel region, so the handoff never began.
+          const y = Math.round(height * 0.83);
+          const tapped = await this.driver.execute('mobile: tap', { x, y })
+            .then(() => true)
+            .catch(() => false);
+          if (!tapped) {
+            await this.driver.action('pointer')
+              .move({ x, y })
+              .down()
+              .pause(100)
+              .up()
+              .perform();
+          }
+          alertHandled = true;
+          await this.driver.pause(2500);
+        }
       } catch (e: any) {
         console.warn('⚠️ Coordinate fallback failed:', e.message);
       }
