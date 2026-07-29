@@ -15,11 +15,10 @@
 //   4. Navigate to PPV buy button based on SOURCE env var:
 //        myaccount                → My Account → Find PPV → Buy
 //        schedule                 → Bottom tab → Schedule → scroll to event → Buy
-//        boxing-upcoming-fights   → Sports tab → Boxing → Upcoming Big Fights → Buy
-//        boxing-page-banner       → Sports tab → Boxing → hero banner → Buy
 //        home-boxing-banner       → Home Boxing filter → Boxing page → hero banner → Buy
 //        home-boxing-upcoming     → Home Boxing filter → Upcoming Fights → Buy
 //        home-boxing-tile         → Home Boxing rail → Buy
+//        home-page-dont-miss      → Home → Don't Miss rail → PPV tile → Buy
 //        search                   → Search icon/tab → Search for event → Buy
 //   5. App opens Safari View Controller or redirects to Safari
 //   6. Captures URL via WebView context switch or Safari address bar fallback
@@ -43,13 +42,12 @@ import { loadEventConfig, EventConfig } from '../../utils/eventLoader';
 import { openSchedulePPVPaywall } from '../../pages/ios/IOSSchedulePage';
 import { IOSSearchPage, openSearchResultPaywall } from '../../pages/ios/IOSSearchPage';
 import {
-  openBoxingUpcomingFightsPaywall,
-  openBoxingPageBannerPaywall,
   openHomeBoxingBannerPaywall,
   openHomeBoxingUpcomingPaywall,
+  openHomeBoxingDontMissTilePaywall,
 } from '../../pages/ios/IOSBoxingPage';
 import { IOSMyAccountPage, openMyAccountPPVPaywall, preLoginFlow as sharedPreLoginFlow } from '../../pages/ios/IOSMyAccountPage';
-import { openHomeBannerPaywall, openGenericPPVPaywall } from '../../pages/ios/IOSHomePage';
+import { openHomeBannerPaywall, openGenericPPVPaywall, openHomePageDontMissPaywall } from '../../pages/ios/IOSHomePage';
 import { openLandingBannerPaywall } from '../../pages/ios/IOSLandingPage';
 import { copyImmediateCheckoutUrl } from '../../pages/ios/IOSPaywallPage';
 import {
@@ -426,14 +424,6 @@ describe('DAZN iOS PPV — Existing User Flow', () => {
       searchQuery = searchQuery.replace(/\./g, '');
       buyTapped = await openSearchResultPaywall(driver, PPV_NAME, searchQuery, iosFlowHooks);
     }
-    // ── boxing-upcoming-fights ────────────────────────────────────────────
-    else if (SOURCE === 'boxing-upcoming-fights') {
-      buyTapped = await openBoxingUpcomingFightsPaywall(driver, PPV_NAME, iosFlowHooks);
-    }
-    // ── boxing-page-banner ────────────────────────────────────────────────
-    else if (SOURCE === 'boxing-page-banner') {
-      buyTapped = await openBoxingPageBannerPaywall(driver, PPV_NAME, iosFlowHooks, { requireBanner: true });
-    }
     // ── home-boxing-upcoming ──────────────────────────────────────────────
     else if (SOURCE === 'home-boxing-upcoming') {
       buyTapped = await openHomeBoxingUpcomingPaywall(driver, PPV_NAME, event, iosFlowHooks);
@@ -441,6 +431,10 @@ describe('DAZN iOS PPV — Existing User Flow', () => {
     // ── home-boxing-banner ────────────────────────────────────────────────
     else if (SOURCE === 'home-boxing-banner') {
       buyTapped = await openHomeBoxingBannerPaywall(driver, PPV_NAME, iosFlowHooks);
+    }
+    // ── home-boxing-tile ──────────────────────────────────────────────────
+    else if (SOURCE === 'home-boxing-tile') {
+      buyTapped = await openHomeBoxingDontMissTilePaywall(driver, PPV_NAME, iosFlowHooks);
     }
     // ── home-page-banner ──────────────────────────────────────────────────
     else if (SOURCE === 'home-page-banner') {
@@ -454,6 +448,10 @@ describe('DAZN iOS PPV — Existing User Flow', () => {
       bannerCheckoutUrl = copyResult.url;
       bannerUrlCaptured = copyResult.captured;
       buyTapped = true;
+    }
+    // ── home-page-dont-miss ───────────────────────────────────────────────
+    else if (SOURCE === 'home-page-dont-miss') {
+      buyTapped = await openHomePageDontMissPaywall(driver, PPV_NAME, iosFlowHooks);
     }
     // ── landing-page-banner ───────────────────────────────────────────────
     else if (SOURCE === 'landing-page-banner') {

@@ -1,4 +1,5 @@
-import { IOSBasePage, IOSFlowHooks, WdBrowser, WdElement } from './IOSBasePage';
+import { IOSBasePage, IOSFlowHooks, WdBrowser } from './IOSBasePage';
+import { IOSHomePage } from './IOSHomePage';
 
 export interface IOSPPVDateParts {
   month: string;
@@ -25,24 +26,6 @@ export function getPPVDateParts(eventConfig?: any): IOSPPVDateParts {
 }
 
 export class IOSBoxingPage extends IOSBasePage {
-  async navigateViaSports(): Promise<void> {
-    console.log('Navigating to Boxing page via Sports tab...');
-    const sportsTapped = await this.tapByText('Sports', 5000) || await this.tapByText('Sport', 4000);
-    if (sportsTapped) {
-      await this.driver.pause(1500);
-      if (await this.scrollToText('Boxing') || await this.tapByText('Boxing', 6000)) {
-        await this.driver.pause(2000);
-        console.log('On Boxing page');
-        return;
-      }
-    }
-    if (await this.tapByText('Boxing', 5000)) {
-      await this.driver.pause(2000);
-      return;
-    }
-    console.log('Could not confirm Boxing page - continuing from current screen');
-  }
-
   async clickHomeBoxingFilter(): Promise<void> {
     console.log('  Clicking Boxing filter chip on home page...');
     const selectors = [
@@ -281,80 +264,6 @@ export class IOSBoxingPage extends IOSBasePage {
     return this.tapBuyCtaWithFallback(['Buy now', 'Buy Now', 'Buy', 'Get PPV', 'Purchase']);
   }
 
-  async openBoxingUpcomingFightsPaywall(hooks: IOSFlowHooks = {}): Promise<boolean> {
-    const homeTab = await this.driver.$('-ios predicate string:(name == "Home" OR label == "Home") AND type == "XCUIElementTypeButton"');
-    if (!(await homeTab.isDisplayed().catch(() => false))) {
-      await this.tapByText('Home', 3000).catch(() => {});
-      await this.driver.pause(3000);
-    }
-    
-    await this.navigateViaSports();
-    console.log(`Searching for "${this.ppvName}" in Upcoming Big Fights...`);
-
-    let found = await this.findPPVBanner(this.ppvName);
-    for (let i = 0; i < 12 && !found; i++) {
-      await this.scrollDown();
-      found = await this.isVisible(this.ppvName, 1200);
-    }
-
-    if (!found) {
-      const shot = hooks.saveScreenshot
-        ? await hooks.saveScreenshot('./test-results/ios_boxing_debug.png')
-        : undefined;
-      hooks.recordAvailability?.(false, shot, 'Home of Boxing');
-      await hooks.generateAvailabilityFailureReport?.(`PPV "${this.ppvName}" not found on Boxing page`);
-      throw new Error(`"${this.ppvName}" not found on Boxing page. Check test-results/ios_boxing_debug.png`);
-    }
-
-    hooks.recordAvailability?.(true, undefined, 'Home of Boxing');
-    await this.driver.saveScreenshot('./test-results/ios_ppv_found.png');
-    await this.runSurfaceValidation(hooks, 'PPV Tile');
-    await this.tapByText(this.ppvName);
-    await this.driver.pause(2500);
-    await this.driver.saveScreenshot('./test-results/ios_ppv_detail.png');
-
-    let buyTapped = await this.tapBuyCtaWithFallback(['Buy now', 'Buy Now', 'Buy', 'Get PPV', 'Purchase', 'Continue']);
-    for (let i = 0; i < 4 && !buyTapped; i++) {
-      await this.scrollDown();
-      buyTapped = await this.tapBuyCtaWithFallback(['Buy now', 'Buy Now', 'Buy', 'Get PPV', 'Continue'], {
-        primaryTimeoutMs: 2000,
-        scrollBeforeFallback: false,
-      });
-    }
-    return buyTapped;
-  }
-
-  async openBoxingPageBannerPaywall(hooks: IOSFlowHooks = {}, options: { requireBanner?: boolean } = {}): Promise<boolean> {
-    const homeTab = await this.driver.$('-ios predicate string:(name == "Home" OR label == "Home") AND type == "XCUIElementTypeButton"');
-    if (!(await homeTab.isDisplayed().catch(() => false))) {
-      await this.tapByText('Home', 3000).catch(() => {});
-      await this.driver.pause(3000);
-    }
-    
-    await this.navigateViaSports();
-    await this.driver.pause(1500);
-
-    const found = await this.findPPVBanner(this.ppvName);
-    if (!found && options.requireBanner) {
-      const shot = hooks.saveScreenshot
-        ? await hooks.saveScreenshot('./test-results/ios_boxing_page_ppv_banner_not_found.png')
-        : undefined;
-      hooks.recordAvailability?.(false, shot, 'Home of Boxing');
-      await hooks.generateAvailabilityFailureReport?.(`PPV banner "${this.ppvName}" not found on Boxing page`);
-      throw new Error(`PPV banner "${this.ppvName}" not found on Boxing page. See test-results/ios_boxing_page_ppv_banner_not_found.png`);
-    }
-
-    if (found) {
-      hooks.recordAvailability?.(true, undefined, 'Home of Boxing');
-      await this.runSurfaceValidation(hooks, 'PPV Banner');
-    }
-
-    return this.tapBuyCtaWithFallback(['Buy this fight', 'Buy now', 'Buy Now', 'Buy', 'Continue'], {
-      primaryTimeoutMs: 7000,
-      scrollBeforeFallback: false,
-    });
-  }
-
   async openHomeBoxingBannerPaywall(hooks: IOSFlowHooks = {}): Promise<boolean> {
     console.log('Home -> Boxing filter -> Boxing page -> PPV banner -> Buy now');
     await this.clickHomeBoxingFilter();
@@ -424,31 +333,24 @@ export class IOSBoxingPage extends IOSBasePage {
     }
     return buyTapped;
   }
-}
 
-export async function navigateToBoxingPage(driver: WdBrowser): Promise<void> {
-  return new IOSBoxingPage(driver).navigateViaSports();
+  async openHomeBoxingDontMissTilePaywall(hooks: IOSFlowHooks = {}): Promise<boolean> {
+    console.log('Home -> Boxing filter -> Don\'t Miss rail -> PPV tile -> Buy now');
+    const homeTab = await this.driver.$('-ios predicate string:(name == "Home" OR label == "Home") AND type == "XCUIElementTypeButton"');
+    if (!(await homeTab.isDisplayed().catch(() => false))) {
+      await this.tapByText('Home', 3000).catch(() => {});
+      await this.driver.pause(3000);
+    }
+    await this.clickHomeBoxingFilter();
+    return new IOSHomePage(this.driver, this.ppvName).openHomePageDontMissPaywall(hooks, {
+      skipEnsureHome: true,
+      recordPage: 'Home of Boxing',
+    });
+  }
 }
 
 export async function clickHomeBoxingFilter(driver: WdBrowser): Promise<void> {
   return new IOSBoxingPage(driver).clickHomeBoxingFilter();
-}
-
-export async function openBoxingUpcomingFightsPaywall(
-  driver: WdBrowser,
-  ppvName: string,
-  hooks: IOSFlowHooks = {},
-): Promise<boolean> {
-  return new IOSBoxingPage(driver, ppvName).openBoxingUpcomingFightsPaywall(hooks);
-}
-
-export async function openBoxingPageBannerPaywall(
-  driver: WdBrowser,
-  ppvName: string,
-  hooks: IOSFlowHooks = {},
-  options: { requireBanner?: boolean } = {},
-): Promise<boolean> {
-  return new IOSBoxingPage(driver, ppvName).openBoxingPageBannerPaywall(hooks, options);
 }
 
 export async function openHomeBoxingBannerPaywall(
@@ -466,4 +368,12 @@ export async function openHomeBoxingUpcomingPaywall(
   hooks: IOSFlowHooks = {},
 ): Promise<boolean> {
   return new IOSBoxingPage(driver, ppvName).openHomeBoxingUpcomingPaywall(eventConfig, hooks);
+}
+
+export async function openHomeBoxingDontMissTilePaywall(
+  driver: WdBrowser,
+  ppvName: string,
+  hooks: IOSFlowHooks = {},
+): Promise<boolean> {
+  return new IOSBoxingPage(driver, ppvName).openHomeBoxingDontMissTilePaywall(hooks);
 }
