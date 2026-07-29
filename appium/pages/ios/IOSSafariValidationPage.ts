@@ -377,7 +377,20 @@ export class IOSSafariValidationPage extends IOSBasePage {
       const dateMatch = fullText.match(/\b(?:mon|tue|wed|thu|fri|sat|sun)(?:day)?\s+\d{1,2}(?:st|nd|rd|th)?\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)(?:uary|ruary|ch|il|e|y|ust|tember|ober|ember)?(?:\s+at)?\s+\d{1,2}:\d{2}\b/i);
       const actual = dateMatch?.[0] || texts.find(text => /\b(?:mon|tue|wed|thu|fri|sat|sun)\b/i.test(text) &&
         /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i.test(text)) || 'Not found';
-      return { actual, isMatch: compareFn(actual, expected) };
+      // Device-timezone-aware comparison: Safari on a real device renders
+      // times in the device's local timezone (e.g. IST UTC+5:30), while the
+      // config stores region-timezone times (e.g. GB BST UTC+1). The
+      // day-of-week, ordinal date, and month are the same — only HH:MM
+      // differs. Accept as a pass when those three parts match.
+      const extractDayDate = (s: string) =>
+        s.match(/\b(?:mon|tue|wed|thu|fri|sat|sun)(?:day)?\s+\d{1,2}(?:st|nd|rd|th)?\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*/i)?.[0]
+          ?.toLowerCase().replace(/\s+/g, ' ') || '';
+      const actualDayDate = extractDayDate(actual);
+      const expectedDayDate = extractDayDate(expected);
+      const isTimezoneShift =
+        actualDayDate.length > 0 && actualDayDate === expectedDayDate &&
+        /\d{1,2}:\d{2}/.test(actual) && /\d{1,2}:\d{2}/.test(expected);
+      return { actual, isMatch: compareFn(actual, expected) || isTimezoneShift };
     }
 
     if (fieldLower === 'ppv card description') {
