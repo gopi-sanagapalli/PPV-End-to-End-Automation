@@ -453,7 +453,58 @@ export class IOSMyAccountPage extends IOSBasePage {
 
     return 'N/A';
   }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // SAFARI: My Account PPV page  (active_ultimate_* users — PPV purchased)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Returns true when the Safari WebView has landed on the My Account PPV
+   * page, which means the user's PPV is already purchased / included.
+   */
+  isSafariPurchasedPPVPage(bodyTextLower: string, url: string): boolean {
+    const isAccountUrl = /\/account|\/my-account|\/myaccount/i.test(url);
+    const hasPurchasedText =
+      /purchased|your dazn pass|already purchased|you already own/i.test(bodyTextLower);
+    return isAccountUrl && hasPurchasedText;
+  }
+
+  /**
+   * Record a validation row confirming the active_ultimate user's PPV is
+   * purchased on the My Account page in Safari.
+   */
+  async validateSafariPurchasedPPV(
+    results: { page: string; field: string; expected: string; actual: string; status: string }[],
+    ppvName: string,
+  ): Promise<void> {
+    console.log('✅ [My Account Safari] PPV already purchased — recording result.');
+    results.push({
+      page: 'My Account (Safari)',
+      field: 'PPV Purchased',
+      expected: 'Yes',
+      actual: 'Yes',
+      status: 'PASS',
+    });
+
+    // Best-effort: also check the PPV name is visible on the page
+    try {
+      const bodyText: string = await this.driver.execute(() => document.body?.innerText || '').catch(() => '');
+      const nameMatch = ppvName
+        ? bodyText.toLowerCase().includes(ppvName.split(/[\s:]+/)[0].toLowerCase())
+        : true;
+      results.push({
+        page: 'My Account (Safari)',
+        field: 'PPV Name Visible',
+        expected: 'Yes',
+        actual: nameMatch ? 'Yes' : 'No',
+        status: nameMatch ? 'PASS' : 'FAIL',
+      });
+    } catch {
+      // non-fatal
+    }
+  }
 }
+
 
 export async function preLoginFlow(
   driver: WdBrowser,

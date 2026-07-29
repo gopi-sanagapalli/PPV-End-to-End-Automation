@@ -3,6 +3,7 @@ import { IOSValidationResult } from './IOSValidationPage';
 import { IOSSafariValidationPage } from './IOSSafariValidationPage';
 import { IOSPPVPage } from './IOSPPVPage';
 import { IOSPlanPage } from './IOSPlanPage';
+import { IOSMyAccountPage } from './IOSMyAccountPage';
 
 /**
  * DAZN account creation / sign-in in Safari. This page object handles only
@@ -85,6 +86,27 @@ export class IOSSignupPage extends IOSBasePage {
         return;
       }
 
+      // ── PPV Payment page (active_standard saved-card checkout) ──
+      if (/one time payment|pay now/i.test(lower) && /visa|mastercard|amex|\*{4}|saved card/i.test(lower)) {
+        if (eventData) {
+          try {
+            await new IOSSafariValidationPage(this.driver).validatePPVPaymentPage(eventData, results);
+          } catch (err: any) {
+            console.warn(`⚠️ PPV payment page validation error: ${err.message}`);
+          }
+        }
+        results.push({ page: 'iOS Safari', field: 'PPV Payment page reached', expected: 'Yes', actual: 'Yes', status: 'PASS' });
+        return;
+      }
+
+      // ── My Account PPV page (active_ultimate — PPV already purchased) ──
+      const myAccountPage = new IOSMyAccountPage(this.driver);
+      if (myAccountPage.isSafariPurchasedPPVPage(lower, url)) {
+        await myAccountPage.validateSafariPurchasedPPV(results as any, eventName);
+        return;
+      }
+
+
       // ── Personal details (first name + password visible) ──
       const passwordInput = await this.firstVisible([
         'input[type="password"]', 'input[name*="password" i]', 'input[autocomplete="current-password"]',
@@ -131,6 +153,12 @@ export class IOSSignupPage extends IOSBasePage {
       const isContextualPpvPage = ppvPage.isContextualPPVPage(lower);
       if (isContextualPpvPage) {
         await ppvPage.validateAndSelectOption(results, eventName, eventData);
+      }
+
+      // ── "Choose how to buy" page (active_standard users, delegated to IOSPPVPage) ──
+      if (!isContextualPpvPage && ppvPage.isChooseHowToBuyPage(lower)) {
+        await ppvPage.validateAndClickBuyNow(results, eventData);
+        continue;
       }
 
       // ── Plan selection page (delegated to IOSPlanPage) ──

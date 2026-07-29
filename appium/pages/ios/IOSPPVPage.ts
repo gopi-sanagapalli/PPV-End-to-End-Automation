@@ -51,6 +51,7 @@ export class IOSPPVPage extends IOSBasePage {
     return { plan, tier, ratePlan, label: 'Flex – Pay Monthly', terms: ['flex', 'pay monthly'] };
   }
 
+
   /**
    * Validate the contextual PPV page fields, then select the PPV or Ultimate
    * option based on the requested plan.
@@ -81,4 +82,43 @@ export class IOSPPVPage extends IOSBasePage {
     console.log(`✅ Selected contextual PPV option: ${wantsUltimate ? 'Ultimate' : 'PPV'}`);
     await this.driver.pause(800);
   }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // CHOOSE HOW TO BUY PAGE  (active_standard_* users)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /** Returns true when the visible page text is the "Choose how to buy" surface. */
+  isChooseHowToBuyPage(bodyTextLower: string): boolean {
+    return /choose how to buy/.test(bodyTextLower);
+  }
+
+  /**
+   * Validate the "Choose how to buy" page fields (Excel sheet rows),
+   * then click the "Buy now" CTA so the flow advances to PPV Payment.
+   */
+  async validateAndClickBuyNow(
+    results: IOSValidationResult[],
+    eventData?: Record<string, any>,
+  ): Promise<void> {
+    if (eventData) {
+      try {
+        await new IOSSafariValidationPage(this.driver).validateChooseHowToBuyPage(eventData, results);
+      } catch (err: any) {
+        console.warn(`⚠️ Choose how to buy validation error: ${err.message}`);
+      }
+    }
+
+    // Click the PPV "Buy now" CTA to advance to PPV Payment page
+    const buyNow = await this.firstVisible([
+      '//button[contains(normalize-space(.), "Buy now")]',
+      '//button[contains(normalize-space(.), "Buy Now")]',
+      '//button[contains(normalize-space(.), "Continue")]',
+      '[role="button"]',
+    ]);
+    if (!buyNow) throw new Error('"Buy now" CTA not found on "Choose how to buy" page.');
+    await buyNow.click();
+    await this.driver.pause(1500);
+    console.log('✅ Clicked "Buy now" on "Choose how to buy" page.');
+  }
 }
+
