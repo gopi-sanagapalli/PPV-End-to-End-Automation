@@ -104,6 +104,9 @@ const realDeviceCaps: Record<string, unknown> = {
   // WDA — use pre-built if URL provided, otherwise Appium builds it (needed for new devices)
   'appium:usePrebuiltWDA': USE_PREBUILT_WDA,
   ...(USE_PREBUILT_WDA ? { 'appium:webDriverAgentUrl': REAL_WDA_URL } : {}),
+  // Enable MJPEG server for reliable real-device screen recording via ffmpeg
+  // (no iOS screen-recording permission needed on the device)
+  'appium:mjpegServerPort': 9100,
 };
 
 export const config = {

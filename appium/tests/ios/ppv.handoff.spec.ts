@@ -33,6 +33,7 @@ type WdElement = any;
 
 import { writeHandoffUrl, clearHandoffUrl } from '../../utils/handoff';
 import { prepareIosApp, waitForHomePage } from '../../utils/iosSetup';
+import { startIOSRecording, stopIOSRecording } from '../../utils/iosVideoRecorder';
 import { loadEventConfig, EventConfig } from '../../utils/eventLoader';
 import { openSchedulePPVPaywall } from '../../pages/ios/IOSSchedulePage';
 import { IOSSearchPage, openSearchResultPaywall } from '../../pages/ios/IOSSearchPage';
@@ -220,13 +221,8 @@ describe('DAZN iOS PPV — New User Handoff Flow', () => {
   it('navigates to PPV buy button, opens Safari, captures checkout URL', async () => {
     const driver = browser;
 
-    console.log('🎥 Starting screen recording on iOS device...');
-    await driver.startRecordingScreen({
-      timeLimit: 300,
-      videoType: 'mp4',
-    }).catch(e => console.error('⚠️ Failed to start screen recording:', e));
-
     console.log('✅ Startup handled by prepareIosApp; beginning PPV navigation');
+    await startIOSRecording(driver);
 
     const fs = require('fs');
     const path = require('path');
@@ -473,7 +469,8 @@ describe('DAZN iOS PPV — New User Handoff Flow', () => {
     const { writeResults } = require('../../../utils/excelWriter');
     const { displayResultsTable } = require('../../../utils/resultsDisplay');
     const { generateReports } = require('../../../utils/reportGenerator');
-    const { excelPath, videoPath } = await writeResults(safariResults);
+    const videoOutputPath = await stopIOSRecording(driver);
+    const { excelPath, videoPath } = await writeResults(safariResults, videoOutputPath);
     displayResultsTable(safariResults, 'ppv', { event: json.PPV_NAME, region: REGION, excelPath, videoPath });
     await generateReports(safariResults, {
       event: json.PPV_NAME, region: REGION, source: SOURCE, ratePlan, tier: planTier,
@@ -495,6 +492,8 @@ describe('DAZN iOS PPV — New User Handoff Flow', () => {
 
   after(async () => {
     try {
+      // Recording is stopped inside the test to capture the video path.
+      // This is a safety stop in case the test errored before reaching that point.
       await browser.stopRecordingScreen().catch(() => { });
     } catch {}
   });
