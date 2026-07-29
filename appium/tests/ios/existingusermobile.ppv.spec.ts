@@ -430,11 +430,11 @@ describe('DAZN iOS PPV — Existing User Flow', () => {
     }
     // ── home-boxing-banner ────────────────────────────────────────────────
     else if (SOURCE === 'home-boxing-banner') {
-      buyTapped = await openHomeBoxingBannerPaywall(driver, PPV_NAME, iosFlowHooks);
+      buyTapped = await openHomeBoxingBannerPaywall(driver, PPV_NAME, event, iosFlowHooks);
     }
     // ── home-boxing-tile ──────────────────────────────────────────────────
     else if (SOURCE === 'home-boxing-tile') {
-      buyTapped = await openHomeBoxingDontMissTilePaywall(driver, PPV_NAME, iosFlowHooks);
+      buyTapped = await openHomeBoxingDontMissTilePaywall(driver, PPV_NAME, event, iosFlowHooks);
     }
     // ── home-page-banner ──────────────────────────────────────────────────
     else if (SOURCE === 'home-page-banner') {

@@ -47,6 +47,13 @@ export class IOSValidationPage extends IOSBasePage {
 
   /** The native sheet uses the event instant, not the web workbook's copy URL fields. */
   private getExpectedNativeEventDate(eventData: Record<string, any>): string {
+    // Mobile event feeds expose the already-localised schedule time. Prefer
+    // it when available: PPV_UTC_DATE is shared with web and can lag behind a
+    // mobile schedule update for a particular region.
+    const mobileDate = String(eventData.MOBILE_PPV_DATE || '').trim();
+    if (/\b\d{1,2}\s+[a-z]{3}\b/i.test(mobileDate) && /\d{1,2}:\d{2}/.test(mobileDate)) {
+      return mobileDate.toUpperCase();
+    }
     const utcDate = eventData.PPV_UTC_DATE || eventData.global?.PPV_UTC_DATE;
     if (!utcDate || Number.isNaN(new Date(utcDate).getTime())) return '';
 
@@ -95,6 +102,54 @@ export class IOSValidationPage extends IOSBasePage {
         `ios_${String(surface || 'page').replace(/[^a-zA-Z0-9]/g, '_')}_${String(fieldName || 'field').replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}.png`
       );
       await this.driver.saveScreenshot(screenshotPath);
+
+      // Artwork text in the Don't Miss rail is commonly absent from the
+      // XCUITest tree. If a failed title/date cannot be resolved to a native
+      // element, mark the rail itself so the report still shows the exact
+      // visual area that was validated.
+      let bounds: { x: number; y: number; width: number; height: number } | null = null;
+      if (surface === 'PPV Tile') {
+        for (const label of ["Don't Miss", 'Don’t Miss', 'Dont Miss']) {
+          const header = await this.driver.$(`~${label}`).catch(() => null);
+          if (header && await header.isDisplayed().catch(() => false)) {
+            const rect = await header.getRect().catch(() => null);
+            const screen = await this.driver.getWindowRect().catch(() => null);
+            if (rect && screen) {
+              bounds = {
+                x: 0,
+                y: rect.y + rect.height,
+                width: screen.width,
+                height: Math.min(Math.round(screen.height * 0.34), screen.height - rect.y - rect.height),
+              };
+              break;
+            }
+          }
+        }
+      }
+
+      if (bounds) {
+        const Jimp = require('jimp');
+        const image = await Jimp.read(screenshotPath);
+        const screen = await this.driver.getWindowRect().catch(() => null);
+        const scaleX = image.bitmap.width / (screen?.width || image.bitmap.width);
+        const scaleY = image.bitmap.height / (screen?.height || image.bitmap.height);
+        const left = Math.max(0, Math.round(bounds.x * scaleX));
+        const top = Math.max(0, Math.round(bounds.y * scaleY));
+        const right = Math.min(image.bitmap.width - 1, Math.round((bounds.x + bounds.width) * scaleX));
+        const bottom = Math.min(image.bitmap.height - 1, Math.round((bounds.y + bounds.height) * scaleY));
+        for (let thickness = 0; thickness < 4; thickness++) {
+          for (let x = left; x <= right; x++) {
+            image.setPixelColor(0xff1744ff, x, Math.min(bottom, top + thickness));
+            image.setPixelColor(0xff1744ff, x, Math.max(top, bottom - thickness));
+          }
+          for (let y = top; y <= bottom; y++) {
+            image.setPixelColor(0xff1744ff, Math.min(right, left + thickness), y);
+            image.setPixelColor(0xff1744ff, Math.max(left, right - thickness), y);
+          }
+        }
+        await image.writeAsync(screenshotPath);
+        console.log(`📸 [Fail Shot] Highlighted Don't Miss rail for "${fieldName}": ${screenshotPath}`);
+      }
       return screenshotPath;
     } catch (e: any) {
       console.warn(`⚠️ Failed to capture failure screenshot:`, e.message);
@@ -196,7 +251,7 @@ export class IOSValidationPage extends IOSBasePage {
           if (!await container.isExisting()) {
             container = await titleEl.$('xpath:./ancestor::XCUIElementTypeOther[1]');
           }
-        } catch {}
+        } catch { }
 
         if (container && await container.isExisting()) {
           console.log(`🎯 Isolated container cell/group for PPV Tile`);
@@ -223,6 +278,26 @@ export class IOSValidationPage extends IOSBasePage {
       }
     } catch (e: any) {
       console.log(`⚠️ Failed to gather texts from surface: ${e.message}`);
+    }
+
+    // Upcoming Fights refreshes its native list while validation begins. The
+    // element children above can therefore become stale even though the page
+    // source captured at the start is complete. Use that immutable snapshot
+    // as a fallback, rather than reporting every field as "Not found".
+    const titleWasCollected = Array.from(textsSet).some(text =>
+      text.toLowerCase().includes(titleExpected.toLowerCase()),
+    );
+    if (surface === 'PPV Tile' && !titleWasCollected && pageSource) {
+      const attrRegex = /(?:label|name|value)="([^"]*)"/g;
+      for (const match of pageSource.matchAll(attrRegex)) {
+        const text = match[1]
+          .replace(/&quot;/g, '"')
+          .replace(/&apos;/g, "'")
+          .replace(/&amp;/g, '&')
+          .trim();
+        if (text) textsSet.add(text);
+      }
+      console.log('📋 Used page-source snapshot after Upcoming Fights element refresh.');
     }
 
     const texts = Array.from(textsSet);
@@ -263,7 +338,7 @@ export class IOSValidationPage extends IOSBasePage {
     const expectedDateTokens = expectedNativeDate.match(/^(\d{1,2})\s+([A-Z]{3})/);
     const mobileDateText = expectedDateTokens
       ? texts.find(t => new RegExp(`\\b${expectedDateTokens[1]}\\b\\s+${expectedDateTokens[2]}`, 'i').test(t))
-        || paywallSnapshot.mobileDateText
+      || paywallSnapshot.mobileDateText
       : paywallSnapshot.mobileDateText;
 
     const { getMobilePaywallData } = require('../../../utils/excelReader');
@@ -303,6 +378,14 @@ export class IOSValidationPage extends IOSBasePage {
         let expectedValue = '';
         try { expectedValue = resolveExp(row, eventData); }
         catch { expectedValue = String(row['Expected'] || ''); }
+
+        // The shared spreadsheet carried a historic hard-coded promoter for
+        // this source. The event configuration is authoritative per PPV and
+        // already supplies the correct promoter for every region.
+        if (source.trim().toLowerCase() === 'home-boxing-upcoming' &&
+          fieldName.trim().toLowerCase() === 'sponsor' && eventData.PPV_PROMOTER) {
+          expectedValue = String(eventData.PPV_PROMOTER);
+        }
 
         if (!expectedValue || expectedValue.toUpperCase() === 'N/A') {
           continue;
@@ -442,15 +525,15 @@ export class IOSValidationPage extends IOSBasePage {
               !r.Field?.includes('Copy') &&
               !(r.Field?.includes('Description') && !r.Field?.includes('Banner'))
             );
-          } catch {}
+          } catch { }
         } else if (sheetName === 'Home-page-banner') {
           try {
             rows = readSheet('Home page').filter((r: any) => r.Flow === 'home-page-banner');
-          } catch {}
+          } catch { }
         } else if (sheetName.startsWith('Home-boxing-')) {
           try {
             rows = readSheet('Home of Boxing').filter((r: any) => r.Flow === source);
-          } catch {}
+          } catch { }
         }
       }
     }
@@ -459,8 +542,9 @@ export class IOSValidationPage extends IOSBasePage {
       let dontMissOcrTexts: string[] = [];
       try {
         dontMissOcrTexts = JSON.parse(process.env.IOS_DONT_MISS_OCR_TEXTS || '[]');
-      } catch {}
+      } catch { }
       const dontMissTileFound = process.env.IOS_DONT_MISS_PPV_TILE_FOUND === 'true';
+      const isDontMissTile = source === 'home-page-dont-miss' || source === 'home-boxing-tile';
 
       for (const row of rows) {
         const fieldName = (row['Field'] || '').trim();
@@ -481,10 +565,10 @@ export class IOSValidationPage extends IOSBasePage {
           const sectionPresent = texts.some(t => cleanStr(t).includes("don't miss") || cleanStr(t).includes('dont miss'));
           actualValue = sectionPresent ? 'Present' : 'Not found';
           isMatch = sectionPresent && expectedValue.toLowerCase() === 'present';
-        } else if (source === 'home-page-dont-miss' && fieldName === 'PPV Tile Present') {
+        } else if (isDontMissTile && fieldName === 'PPV Tile Present') {
           actualValue = dontMissTileFound ? 'Yes' : 'No';
           isMatch = dontMissTileFound && expectedValue.toLowerCase() === 'yes';
-        } else if (source === 'home-page-dont-miss' && fieldName === 'PPV Name') {
+        } else if (isDontMissTile && fieldName === 'PPV Name') {
           const nameTerms = expectedValue.toLowerCase()
             .split(/\s+vs\.?\s+|[^a-z0-9]+/)
             .filter((term: string) => term.length >= 3);
@@ -493,7 +577,7 @@ export class IOSValidationPage extends IOSBasePage {
           );
           actualValue = matchingText || 'Not found';
           isMatch = Boolean(matchingText);
-        } else if (source === 'home-page-dont-miss' && fieldName === 'PPV Date') {
+        } else if (isDontMissTile && fieldName === 'PPV Date') {
           const expectedDateTerms = expectedValue.toLowerCase().match(/jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|\b\d{1,2}\b/g) || [];
           const matchingText = dontMissOcrTexts.find(text => {
             const normalized = text.toLowerCase();
@@ -501,7 +585,7 @@ export class IOSValidationPage extends IOSBasePage {
           });
           actualValue = matchingText || 'Not found';
           isMatch = Boolean(matchingText);
-        } else if (source === 'home-page-dont-miss' && fieldName === 'PPV Image Present') {
+        } else if (isDontMissTile && fieldName === 'PPV Image Present') {
           actualValue = dontMissTileFound ? 'Yes' : 'No';
           isMatch = dontMissTileFound && expectedValue.toLowerCase() === 'yes';
         } else if (
@@ -546,24 +630,37 @@ export class IOSValidationPage extends IOSBasePage {
           fieldName.toLowerCase().includes('fight card') ||
           fieldName.toLowerCase().includes('cta')
         ) {
-          const ctaKeywords = ['buy now', 'buy', 'get ppv', 'get', 'watch', 'fight card', 'ppv', 'subscribe', 'go to'];
-          let foundCta = '';
-          for (const t of texts) {
-            const tLower = t.toLowerCase();
-            for (const kw of ctaKeywords) {
-              if (tLower.includes(kw)) {
-                foundCta = t;
-                break;
+          // Upcoming Fights shows both CTAs on the same card. Validate each
+          // one by its own copy; accepting the first CTA caused "Fight card"
+          // to be reported as a successful Buy now check.
+          const isHomeBoxingUpcoming = source.trim().toLowerCase() === 'home-boxing-upcoming';
+          const requiredCta = fieldName.toLowerCase().includes('buy now')
+            ? 'buy now'
+            : (fieldName.toLowerCase().includes('fight card') ? 'fight card' : '');
+          if (isHomeBoxingUpcoming && requiredCta) {
+            const exactCta = texts.find(text => text.toLowerCase().includes(requiredCta));
+            actualValue = exactCta || 'Not found';
+            isMatch = Boolean(exactCta);
+          } else {
+            const ctaKeywords = ['buy now', 'buy', 'get ppv', 'get', 'watch', 'fight card', 'ppv', 'subscribe', 'go to'];
+            let foundCta = '';
+            for (const t of texts) {
+              const tLower = t.toLowerCase();
+              for (const kw of ctaKeywords) {
+                if (tLower.includes(kw)) {
+                  foundCta = t;
+                  break;
+                }
               }
+              if (foundCta) break;
             }
-            if (foundCta) break;
-          }
-          if (foundCta) {
-            actualValue = foundCta;
-            isMatch = true;
-          } else if (pageSource.toLowerCase().includes('buy') || pageSource.toLowerCase().includes('ppv')) {
-            actualValue = expectedValue;
-            isMatch = true;
+            if (foundCta) {
+              actualValue = foundCta;
+              isMatch = true;
+            } else if (pageSource.toLowerCase().includes('buy') || pageSource.toLowerCase().includes('ppv')) {
+              actualValue = expectedValue;
+              isMatch = true;
+            }
           }
         } else if (fieldName === 'Banner - Event Date' || fieldName === 'Banner Date' || fieldName === 'Date and Time') {
           const normalizeDateString = (s: string) => {
