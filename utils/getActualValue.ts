@@ -1142,12 +1142,7 @@ export async function getActualValue(
       .map(el => clean(el.innerText || el.textContent))
       .filter(Boolean);
     const name = leaves.find(text => hasEventName(text) && text.length < 120) || '';
-    // Match absolute weekday dates ("Sat 25th Jul at 14:00") AND relative
-    // labels ("Tomorrow at 14:00", "Today at 14:00", "Tonight at 14:00").
-    const date = leaves.find(text =>
-      /\b(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)\b(?:\s+\d{1,2}(?:st|nd|rd|th)?\s+[a-z]{3,}|\s+at\s+\d{1,2}:\d{2})/i.test(text) ||
-      /\b(?:today|tomorrow|tonight|this\s+(?:afternoon|evening))\s+at\s+\d{1,2}:\d{2}/i.test(text)
-    ) || '';
+    const date = leaves.find(text => /\b(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)\b(?:\s+\d{1,2}(?:st|nd|rd|th)?\s+[a-z]{3,}|\s+at\s+\d{1,2}:\d{2})/i.test(text)) || '';
     const tag = leaves.some(text => /^included$/i.test(text));
     const image = Array.from(card.querySelectorAll<HTMLElement>('img, picture, [role="img"], div, span'))
       .some(el => visible(el) && (
@@ -2693,9 +2688,14 @@ export async function getActualValue(
       return fromSnap !== 'N/A' ? fromSnap : 'N/A';
     }
 
+    case 'sponsor':
+    case 'promoter':
+    case 'ppv promoter':
+    case 'mobile ppv promoter':
     case 'ppv promoter on tile': {
-      const promoter = (eventData?.PPV_PROMOTER || '').toLowerCase();
-      const tilePromoterMaxLen = Math.max((eventData?.PPV_PROMOTER || '').length * 2, 40);
+      const promoterVal = eventData?.MOBILE_PPV_PROMOTER || eventData?.PPV_PROMOTER || '';
+      const promoter = promoterVal.toLowerCase();
+      const tilePromoterMaxLen = Math.max(promoterVal.length * 2, 40);
       // Use multiple words to avoid false positives (e.g. "All" matching "All sports")
       const promoterWords = promoter.split(/\s+/).filter(w => w.length > 2);
       const tilePromoterMatch = (text: string, loose = false): boolean => {
@@ -2727,7 +2727,19 @@ export async function getActualValue(
       });
       if (fromSnapLoose !== 'N/A') return fromSnapLoose;
 
-      // Pass 3: live DOM fallback — search inside article tiles
+      // Pass 3: generic promoter extraction from snapshot card (looks for promoter/boxing keywords)
+      const fromSnapGeneric = snapFind(n => {
+        const t = n.text.toLowerCase();
+        const inHeader = n.classes.toLowerCase().includes('header') || n.classes.toLowerCase().includes('nav') || n.classes.toLowerCase().includes('menu');
+        if (inHeader || n.childCount > 1) return false;
+        if (t.includes('vs') || t.includes('watch live') || t.includes('buy now') || t.includes('fight card') || t.includes('dazn')) return false;
+        if (/^\d{1,2}$|^\w{3}$/.test(t.trim())) return false; // skip date badge
+        if (/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/i.test(t)) return false;
+        return (t.includes('promotions') || t.includes('boxing') || t.includes('matchroom') || t.includes('queensberry') || t.includes('project') || t.includes('series'));
+      });
+      if (fromSnapGeneric !== 'N/A') return fromSnapGeneric;
+
+      // Pass 4: live DOM fallback — search inside article tiles
       const ppvFirstWord = (eventData?.PPV_NAME || '').toLowerCase().split(' ')[0];
       const articles = page.locator('article');
       const artCount = await articles.count().catch(() => 0);
@@ -4301,13 +4313,9 @@ export async function getActualValue(
                 if (child.children.length > 0) continue;
                 const ct = (child.textContent || '').trim();
                 if (ct.length < 5 || ct.length > 40) continue;
-                // Match absolute: "Saturday at 22:30", "Sat 13th Jun at 23:30"
-                // Also match relative labels: "Tomorrow at 18:30", "Today at 14:00"
-                const isAbsoluteDate = /\b(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Mon|Tue|Wed|Thu|Fri|Sat|Sun)\b/i.test(ct) &&
-                  /\d{1,2}:\d{2}/.test(ct);
-                const isRelativeDate = /\b(tomorrow|today|tonight|this\s+(?:afternoon|evening))\b/i.test(ct) &&
-                  /\d{1,2}:\d{2}/.test(ct);
-                if ((isAbsoluteDate || isRelativeDate) &&
+                // Match "Saturday at 22:30" or "Sat 13th Jun at 23:30"
+                if (/\b(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Mon|Tue|Wed|Thu|Fri|Sat|Sun)\b/i.test(ct) &&
+                  /\d{1,2}:\d{2}/.test(ct) &&
                   !ct.toLowerCase().includes('buy') &&
                   !ct.toLowerCase().includes('dazn') &&
                   !ct.toLowerCase().includes('ppv')) {

@@ -1,4 +1,9 @@
 {
+  "PPV_NAME": "Romero vs. Lopez",
+  "SPORT": "Boxing",
+  "PPV_TYPE": "normal",
+  "PPV_ENTITLEMENT_ID": "ppv_t_rolly_teofimo",
+  "PPV_PROMOTER": "PBC",
   "regions": {
     "GB": {
       "MOBILE_PPV_DATE": "22 AUG 11:30 PM",
@@ -14,8 +19,7 @@
       "MOBILE_SCHEDULE_MONTH": "AUG",
       "MOBILE_SCHEDULE_DATE": "22",
       "MOBILE_SCHEDULE_TIME": "11:30PM",
-      "PPV_NAME": "Rolly vs. Teófimo",
-      "PPV_PROMOTER": "PBC"
+      "PPV_NAME": "Rolly vs. Teófimo"
     },
     "US": {
       "MOBILE_PPV_DATE": "22 AUG 5:00 PM",
@@ -31,8 +35,7 @@
       "MOBILE_SCHEDULE_MONTH": "AUG",
       "MOBILE_SCHEDULE_DATE": "22",
       "MOBILE_SCHEDULE_TIME": "5:00PM",
-      "PPV_NAME": "Rolly vs. Teófimo",
-      "PPV_PROMOTER": "PBC"
+      "PPV_NAME": "Rolly vs. Teófimo"
     },
     "AU": {
       "MOBILE_PPV_DATE": "23 AUG 7:00 AM",
@@ -48,8 +51,7 @@
       "MOBILE_SCHEDULE_MONTH": "AUG",
       "MOBILE_SCHEDULE_DATE": "23",
       "MOBILE_SCHEDULE_TIME": "7:00AM",
-      "PPV_NAME": "Rolly vs. Teófimo",
-      "PPV_PROMOTER": "PBC"
+      "PPV_NAME": "Rolly vs. Teófimo"
     },
     "AE": {
       "MOBILE_PPV_DATE": "23 AUG 1:00 AM",
@@ -65,8 +67,7 @@
       "MOBILE_SCHEDULE_MONTH": "AUG",
       "MOBILE_SCHEDULE_DATE": "23",
       "MOBILE_SCHEDULE_TIME": "1:00AM",
-      "PPV_NAME": "Rolly vs. Teófimo",
-      "PPV_PROMOTER": "PBC"
+      "PPV_NAME": "Rolly vs. Teófimo"
     },
     "BR": {
       "MOBILE_PPV_DATE": "22 AUG 6:00 PM",
@@ -82,8 +83,7 @@
       "MOBILE_SCHEDULE_MONTH": "AUG",
       "MOBILE_SCHEDULE_DATE": "22",
       "MOBILE_SCHEDULE_TIME": "6:00PM",
-      "PPV_NAME": "Rolly vs. Teófimo",
-      "PPV_PROMOTER": "PBC"
+      "PPV_NAME": "Rolly vs. Teófimo"
     }
   }
 }

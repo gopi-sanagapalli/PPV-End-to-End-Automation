@@ -1,4 +1,9 @@
 {
+  "PPV_NAME": "Moses vs. Hrgovic",
+  "SPORT": "Boxing",
+  "PPV_TYPE": "normal",
+  "PPV_ENTITLEMENT_ID": "ppv_t_moses_hergovich",
+  "PPV_PROMOTER": "Queensberry Promotions",
   "regions": {
     "GB": {
       "MOBILE_PPV_DATE": "29 AUG 5:00 PM",
@@ -14,8 +19,7 @@
       "MOBILE_SCHEDULE_MONTH": "AUG",
       "MOBILE_SCHEDULE_DATE": "29",
       "MOBILE_SCHEDULE_TIME": "5:00PM",
-      "PPV_NAME": "Moses vs. Hrgovic",
-      "PPV_PROMOTER": "Queensberry Promotions"
+      "PPV_NAME": "Moses vs. Hrgovic"
     },
     "US": {
       "MOBILE_PPV_DATE": "29 AUG 10:30 AM",
@@ -31,8 +35,7 @@
       "MOBILE_SCHEDULE_MONTH": "AUG",
       "MOBILE_SCHEDULE_DATE": "29",
       "MOBILE_SCHEDULE_TIME": "10:30AM",
-      "PPV_NAME": "Moses vs. Hrgovic",
-      "PPV_PROMOTER": "Queensberry Promotions"
+      "PPV_NAME": "Moses vs. Hrgovic"
     },
     "AU": {
       "MOBILE_PPV_DATE": "29 AUG 12:30 AM",
@@ -48,8 +51,7 @@
       "MOBILE_SCHEDULE_MONTH": "AUG",
       "MOBILE_SCHEDULE_DATE": "30",
       "MOBILE_SCHEDULE_TIME": "12:30AM",
-      "PPV_NAME": "Moses vs. Hrgovic",
-      "PPV_PROMOTER": "Queensberry Promotions"
+      "PPV_NAME": "Moses vs. Hrgovic"
     },
     "AE": {
       "MOBILE_PPV_DATE": "29 AUG 6:30 PM",
@@ -65,8 +67,7 @@
       "MOBILE_SCHEDULE_MONTH": "AUG",
       "MOBILE_SCHEDULE_DATE": "29",
       "MOBILE_SCHEDULE_TIME": "6:30PM",
-      "PPV_NAME": "Moses vs. Hrgovic",
-      "PPV_PROMOTER": "Queensberry Promotions"
+      "PPV_NAME": "Moses vs. Hrgovic"
     },
     "BR": {
       "MOBILE_PPV_DATE": "29 AUG 11:30 AM",
@@ -82,8 +83,7 @@
       "MOBILE_SCHEDULE_MONTH": "AUG",
       "MOBILE_SCHEDULE_DATE": "29",
       "MOBILE_SCHEDULE_TIME": "11:30AM",
-      "PPV_NAME": "Moses vs. Hrgovic",
-      "PPV_PROMOTER": "Queensberry Promotions"
+      "PPV_NAME": "Moses vs. Hrgovic"
     }
   }
 }

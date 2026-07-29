@@ -8,12 +8,16 @@ function replacePlaceholders(template: string, eventData: Record<string, string>
   for (let pass = 0; pass < 2; pass++) {
     result = result.replace(/\{\{(.*?)\}\}/g, (match, key) => {
       const k = key.trim();
-      const value =
+      let value =
         eventData[k] ??
         eventData[k.toUpperCase()] ??
         eventData[k.toLowerCase()] ??
         eventData[k.replace(/\s+/g, '_').toUpperCase()] ??
         eventData[k.replace(/\s+/g, '_')];
+
+      if (value === undefined && (k.toUpperCase() === 'MOBILE_PPV_PROMOTER' || k.toUpperCase() === 'PPV_PROMOTER')) {
+        value = eventData.MOBILE_PPV_PROMOTER || eventData.PPV_PROMOTER;
+      }
 
       if (value === undefined) {
         return match;
@@ -55,7 +59,6 @@ export function resolveExpected(
   rule: any,
   eventData: Record<string, string>
 ): string {
-  console.log(`🔍 resolveExpected debug: rule =`, JSON.stringify(rule), `eventData =`, JSON.stringify(eventData));
   const rawField = rule.Field || rule.field || '';
   const field = rawField.trim().toLowerCase();
   const rawTier = rule.Tier || rule.tier || '';
@@ -204,7 +207,7 @@ export function resolveExpected(
   }
   // ─────────────────────────────────────────────────────────────────────────
 
-  let raw = rule.Expected ?? rule.Value;
+  let raw = rule?.Expected ?? rule?.Value ?? rule?.expected ?? rule?.value ?? '';
   // Keep the spreadsheet expression so relative-date formatting can be scoped
   // to the specific configured event-date fields after placeholders resolve.
   const rawExpectation = String(raw ?? '');
@@ -531,7 +534,7 @@ export function resolveExpected(
 
   // ── PPV_POPUP_DATE: dedicated field for popup modal date chip ───────────────
   // Resolves {{PPV_POPUP_DATE}} → eventData.PPV_POPUP_DATE (set per event/region)
-  if (raw.includes('PPV_POPUP_DATE')) {
+  if (raw && typeof raw === 'string' && raw.includes('PPV_POPUP_DATE')) {
     const popupDate = eventData.PPV_POPUP_DATE || '';
     if (popupDate) raw = popupDate;
   }
@@ -913,7 +916,6 @@ export function resolveExpected(
     'ppv date and time text',
     'ppv1 date and time text on bundle',
     'event date and time',
-    'included ppv date and time',  // Choose How To Buy — ultimate upsell card date
   ];
   if (dateTimeFields.includes(field)) {
     return hasExplicitDateAndTime(template) ? getDynamicDateTimeBadge(template) : template;
