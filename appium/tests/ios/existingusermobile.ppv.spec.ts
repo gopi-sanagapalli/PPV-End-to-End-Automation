@@ -38,6 +38,7 @@ type WdElement = any;
 import { writeHandoffUrl, clearHandoffUrl } from '../../utils/handoff';
 import { prepareIosApp, waitForHomePage } from '../../utils/iosSetup';
 import { startIOSRecording, stopIOSRecording } from '../../utils/iosVideoRecorder';
+import { recomputeMobileDatesForDeviceTimezone } from '../../utils/deviceTimezone';
 import { loadEventConfig, EventConfig } from '../../utils/eventLoader';
 import { openSchedulePPVPaywall } from '../../pages/ios/IOSSchedulePage';
 import { IOSSearchPage, openSearchResultPaywall } from '../../pages/ios/IOSSearchPage';
@@ -323,6 +324,11 @@ describe('DAZN iOS PPV — Existing User Flow', () => {
     } catch (e: any) {
       console.warn(`⚠️ Failed to load mobile overrides: ${e.message}`);
     }
+
+    // Recompute mobile date/time tokens from PPV_UTC_DATE using the device's
+    // actual timezone — on real iOS devices we can't change the timezone like
+    // Playwright does with timezoneId, so we adapt the expected values instead.
+    recomputeMobileDatesForDeviceTimezone(eventData);
 
     // validateMobilePaywall
     async function validateMobilePaywall() {

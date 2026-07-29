@@ -35,6 +35,7 @@ type WdElement = any;
 import { writeHandoffUrl, clearHandoffUrl } from '../../utils/handoff';
 import { prepareIosApp, waitForHomePage } from '../../utils/iosSetup';
 import { startIOSRecording, stopIOSRecording } from '../../utils/iosVideoRecorder';
+import { recomputeMobileDatesForDeviceTimezone } from '../../utils/deviceTimezone';
 import { loadEventConfig, EventConfig } from '../../utils/eventLoader';
 import { openSchedulePPVPaywall } from '../../pages/ios/IOSSchedulePage';
 import { IOSSearchPage, openSearchResultPaywall } from '../../pages/ios/IOSSearchPage';
@@ -283,6 +284,10 @@ describe('DAZN iOS PPV — New User Handoff Flow', () => {
     eventData.SOURCE = SOURCE;
     eventData.MOBILE_WEB_HANDOFF = 'true';
     Object.assign(eventData, mobileRegional);
+
+    // Recompute mobile date/time tokens from PPV_UTC_DATE using the device's
+    // actual timezone — matches how Playwright uses timezoneId for web.
+    recomputeMobileDatesForDeviceTimezone(eventData);
 
     // Keep Safari's shared Excel validation data aligned with the established
     // web flow. The workbook uses these derived fields as {{...}} templates;
