@@ -13,6 +13,7 @@
 //        home-boxing-upcoming    → Home Boxing filter → Upcoming Fights → Buy
 //        home-boxing-banner      → Home hero banner → Buy
 //        home-boxing-tile        → Home Boxing rail → Buy
+//        home-page-dont-miss     → Home → Don't Miss rail → PPV tile → Buy
 //        search                  → Search icon/tab → Search for event → find PPV tile → Buy
 //   4. App opens Safari View Controller or Safari with DAZN checkout URL
 //   5. Captures URL via WebView context switch or Safari address bar fallback
@@ -38,12 +39,11 @@ import { loadEventConfig, EventConfig } from '../../utils/eventLoader';
 import { openSchedulePPVPaywall } from '../../pages/ios/IOSSchedulePage';
 import { IOSSearchPage, openSearchResultPaywall } from '../../pages/ios/IOSSearchPage';
 import {
-  openBoxingUpcomingFightsPaywall,
-  openBoxingPageBannerPaywall,
   openHomeBoxingBannerPaywall,
   openHomeBoxingUpcomingPaywall,
+  openHomeBoxingDontMissTilePaywall,
 } from '../../pages/ios/IOSBoxingPage';
-import { openHomeBannerPaywall, openGenericPPVPaywall } from '../../pages/ios/IOSHomePage';
+import { openHomeBannerPaywall, openGenericPPVPaywall, openHomePageDontMissPaywall } from '../../pages/ios/IOSHomePage';
 import { openLandingBannerPaywall } from '../../pages/ios/IOSLandingPage';
 import { copyImmediateCheckoutUrl } from '../../pages/ios/IOSPaywallPage';
 import { getIOSBrowserReentry, getIOSSurfacingPoint, getIOSValidationSheet } from '../../pages/ios/IOSSurfacingPoint';
@@ -206,6 +206,10 @@ describe('DAZN iOS PPV — New User Handoff Flow', () => {
     clearHandoffUrl();
     require('fs').mkdirSync('./test-results/gemini-banner', { recursive: true });
 
+    // Record the complete native journey, including DAZN launch and startup
+    // dialogs, rather than beginning only after Home is ready.
+    await startIOSRecording(browser);
+
     const shouldWaitHome = SOURCE !== 'landing-page-banner';
     const clearData = SOURCE === 'landing-page-banner';
     await prepareIosApp(browser, { clearAppData: clearData, waitForHome: shouldWaitHome });
@@ -222,7 +226,6 @@ describe('DAZN iOS PPV — New User Handoff Flow', () => {
     const driver = browser;
 
     console.log('✅ Startup handled by prepareIosApp; beginning PPV navigation');
-    await startIOSRecording(driver);
 
     const fs = require('fs');
     const path = require('path');
@@ -403,6 +406,10 @@ describe('DAZN iOS PPV — New User Handoff Flow', () => {
     else if (SOURCE === 'home-boxing-banner') {
       buyTapped = await openHomeBoxingBannerPaywall(driver, PPV_NAME, iosFlowHooks);
     }
+    // ── home-boxing-tile ──────────────────────────────────────────────────
+    else if (SOURCE === 'home-boxing-tile') {
+      buyTapped = await openHomeBoxingDontMissTilePaywall(driver, PPV_NAME, iosFlowHooks);
+    }
     // ── home-page-banner ──────────────────────────────────────────────────
     else if (SOURCE === 'home-page-banner') {
       buyTapped = await openHomeBannerPaywall(driver, PPV_NAME, iosFlowHooks);
@@ -415,6 +422,10 @@ describe('DAZN iOS PPV — New User Handoff Flow', () => {
       bannerCheckoutUrl = copyResult.url;
       bannerUrlCaptured = copyResult.captured;
       buyTapped = true;
+    }
+    // ── home-page-dont-miss ───────────────────────────────────────────────
+    else if (SOURCE === 'home-page-dont-miss') {
+      buyTapped = await openHomePageDontMissPaywall(driver, PPV_NAME, iosFlowHooks);
     }
     // Do not substitute a Home flow for an unsupported source.  A run must
     // exercise exactly the source supplied in SOURCE.

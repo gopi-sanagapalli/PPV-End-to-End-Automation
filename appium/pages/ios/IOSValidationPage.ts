@@ -422,6 +422,13 @@ export class IOSValidationPage extends IOSBasePage {
     if (sheetName) {
       try {
         rows = readSheet(sheetName);
+        // Shared Android sheets contain multiple source flows. Prefer the
+        // rows authored for the active source so a Home banner check (for
+        // example, Copy Button) cannot run against the Don't Miss tile.
+        const sourceRows = rows.filter((r: any) =>
+          String(r.Flow || '').trim().toLowerCase() === source.trim().toLowerCase(),
+        );
+        if (sourceRows.length) rows = sourceRows;
         if (sheetName === 'Schedule page') {
           rows = rows.filter((r: any) => !r.Field?.toString().trim().startsWith('Popup'));
         }
@@ -440,7 +447,7 @@ export class IOSValidationPage extends IOSBasePage {
           try {
             rows = readSheet('Home page').filter((r: any) => r.Flow === 'home-page-banner');
           } catch {}
-        } else if (sheetName.startsWith('Home-boxing-') || sheetName === 'boxing-upcoming-fights') {
+        } else if (sheetName.startsWith('Home-boxing-')) {
           try {
             rows = readSheet('Home of Boxing').filter((r: any) => r.Flow === source);
           } catch {}
@@ -449,6 +456,12 @@ export class IOSValidationPage extends IOSBasePage {
     }
 
     if (rows.length > 0) {
+      let dontMissOcrTexts: string[] = [];
+      try {
+        dontMissOcrTexts = JSON.parse(process.env.IOS_DONT_MISS_OCR_TEXTS || '[]');
+      } catch {}
+      const dontMissTileFound = process.env.IOS_DONT_MISS_PPV_TILE_FOUND === 'true';
+
       for (const row of rows) {
         const fieldName = (row['Field'] || '').trim();
         if (!fieldName) continue;
@@ -464,7 +477,34 @@ export class IOSValidationPage extends IOSBasePage {
         let actualValue = 'Not found';
         let isMatch = false;
 
-        if (
+        if (source === 'home-page-dont-miss' && fieldName === "Don't Miss Section") {
+          const sectionPresent = texts.some(t => cleanStr(t).includes("don't miss") || cleanStr(t).includes('dont miss'));
+          actualValue = sectionPresent ? 'Present' : 'Not found';
+          isMatch = sectionPresent && expectedValue.toLowerCase() === 'present';
+        } else if (source === 'home-page-dont-miss' && fieldName === 'PPV Tile Present') {
+          actualValue = dontMissTileFound ? 'Yes' : 'No';
+          isMatch = dontMissTileFound && expectedValue.toLowerCase() === 'yes';
+        } else if (source === 'home-page-dont-miss' && fieldName === 'PPV Name') {
+          const nameTerms = expectedValue.toLowerCase()
+            .split(/\s+vs\.?\s+|[^a-z0-9]+/)
+            .filter((term: string) => term.length >= 3);
+          const matchingText = dontMissOcrTexts.find(text =>
+            nameTerms.some((term: string) => text.toLowerCase().includes(term)),
+          );
+          actualValue = matchingText || 'Not found';
+          isMatch = Boolean(matchingText);
+        } else if (source === 'home-page-dont-miss' && fieldName === 'PPV Date') {
+          const expectedDateTerms = expectedValue.toLowerCase().match(/jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|\b\d{1,2}\b/g) || [];
+          const matchingText = dontMissOcrTexts.find(text => {
+            const normalized = text.toLowerCase();
+            return expectedDateTerms.length > 0 && expectedDateTerms.every((term: string) => normalized.includes(term.slice(0, 3)) || normalized.includes(term));
+          });
+          actualValue = matchingText || 'Not found';
+          isMatch = Boolean(matchingText);
+        } else if (source === 'home-page-dont-miss' && fieldName === 'PPV Image Present') {
+          actualValue = dontMissTileFound ? 'Yes' : 'No';
+          isMatch = dontMissTileFound && expectedValue.toLowerCase() === 'yes';
+        } else if (
           fieldName.toLowerCase().includes('present') ||
           fieldName.toLowerCase().includes('section') ||
           fieldName.toLowerCase().includes('icon')
