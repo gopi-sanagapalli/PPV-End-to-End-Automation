@@ -536,7 +536,7 @@ const homeOfBoxingData = [
   { Flow: 'home-boxing-tile', Field: 'Popup - Close Button', Expected: 'Visible' },
   { Flow: 'home-boxing-upcoming', Field: 'PPV Image Present', Expected: 'Yes' },
   { Flow: 'home-boxing-upcoming', Field: 'PPV Title', Expected: '{{MOBILE_BANNER_TITLE}}' },
-  { Flow: 'home-boxing-upcoming', Field: 'Sponsor', Expected: 'Matchroom Boxing' },
+  { Flow: 'home-boxing-upcoming', Field: 'PPV Promoter', Expected: '{{PPV_PROMOTER}}' },
   { Flow: 'home-boxing-upcoming', Field: 'Description', Expected: 'WATCH LIVE {{MOBILE_SEARCH_PPV_DATE}}' },
   { Flow: 'home-boxing-upcoming', Field: 'Tile - Day', Expected: '{{MOBILE_SCHEDULE_DAY}}' },
   { Flow: 'home-boxing-upcoming', Field: 'Tile - Date', Expected: '{{MOBILE_SCHEDULE_DATE}}' },
@@ -702,6 +702,14 @@ addSheet('Upsell Second Success page', upsellSecondSuccessData);
 addSheet('Upsell Payment page', upsellPaymentData);
 addSheet('Search page', searchPageData);
 addSheet('paywall', paywallData);
+
+// ── Dedicated Android In-App Sheets ──────────────────────────────────────────
+addSheet('Andriod_Landing_Page', landingData);
+addSheet('Andriod_Home_Page', homePageData);
+addSheet('Andriod_Home_Boxing_Page', homeOfBoxingData);
+addSheet('Andriod_Search_Page', searchPageData);
+addSheet('Andriod_Schedule_Page', scheduleData);
+addSheet('Andriod_Paywall', paywallData);
 
 const outputDir = path.dirname(outputPath);
 if (!fs.existsSync(outputDir)) {

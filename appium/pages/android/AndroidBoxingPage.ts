@@ -1,5 +1,12 @@
 import { AndroidBasePage, AndroidFlowHooks, WdBrowser, adbSwipe, adbTap, getScreenSize } from './AndroidBasePage';
+import { AndroidRailsFetcher } from '../../utils/androidRailsFetcher';
+import { DynamicPpvTileLocator } from '../../utils/dynamicPpvTileLocator';
 import https from 'https';
+import dotenv from 'dotenv';
+import path from 'path';
+
+dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 export interface AndroidPPVDateParts {
   month: string;
@@ -44,22 +51,33 @@ export class AndroidBoxingPage extends AndroidBasePage {
     console.log('Could not confirm Boxing page - continuing from current screen');
   }
 
-  async clickHomeBoxingFilter(): Promise<void> {
-    console.log('  Clicking Boxing filter chip on home page...');
+  async clickHomeSportFilter(sportName: string = 'Boxing'): Promise<void> {
+    const targetSport = sportName.trim() || 'Boxing';
+    console.log(`  Selecting "${targetSport}" from Sports / All Sports on home page...`);
 
-    const selectors = [
-      'android=new UiSelector().text("Boxing")',
-      'android=new UiSelector().textContains("Boxing")',
-      '//android.widget.TextView[@text="Boxing"]',
+    const sportSelectors = [
+      `android=new UiSelector().text("${targetSport}")`,
+      `android=new UiSelector().textContains("${targetSport}")`,
+      `//android.widget.TextView[@text="${targetSport}"]`,
+      `//*[contains(@text, "${targetSport}") or contains(@content-desc, "${targetSport}")]`,
     ];
 
-    const tryClick = async (): Promise<boolean> => {
+    const allSportsSelectors = [
+      'android=new UiSelector().text("All Sports")',
+      'android=new UiSelector().textContains("All Sports")',
+      'android=new UiSelector().text("Sports")',
+      'android=new UiSelector().textContains("Sports")',
+      '//*[contains(@text, "All Sports") or contains(@content-desc, "All Sports")]',
+      '//*[contains(@text, "Sports") or contains(@content-desc, "Sports")]',
+    ];
+
+    const tryClickFromSelectors = async (selectors: string[], label: string): Promise<boolean> => {
       for (const selector of selectors) {
         try {
           const el = await this.driver.$(selector);
-          if (await el.isDisplayed()) {
+          if (await el.isDisplayed().catch(() => false)) {
             await el.click();
-            console.log('  Boxing filter clicked');
+            console.log(`  ${label} clicked`);
             return true;
           }
         } catch {}
@@ -67,30 +85,64 @@ export class AndroidBoxingPage extends AndroidBasePage {
       return false;
     };
 
-    if (await tryClick()) {
+    // 1. Check if targetSport filter chip is directly visible on top home rail
+    if (await tryClickFromSelectors(sportSelectors, `${targetSport} filter chip`)) {
+      console.log(`  ✓ ${targetSport} filter chip directly clicked on Home page`);
       await this.driver.pause(2500);
       return;
     }
 
-    console.log('  Boxing filter not immediately visible - swiping filter rail...');
-    const screen = getScreenSize();
-    for (let i = 0; i < 5; i++) {
-      adbSwipe(
-        Math.round(screen.width * 0.75),
-        Math.round(screen.height * 0.22),
-        Math.round(screen.width * 0.25),
-        Math.round(screen.height * 0.22),
-      );
-      await this.driver.pause(700);
-      if (await tryClick()) {
-        console.log(`  Boxing filter clicked after ${i + 1} swipe(s)`);
-        await this.driver.pause(2500);
-        return;
+    // 2. Otherwise click "All Sports" or "Sports" option to open the Sports page
+    let sportsOpened = await tryClickFromSelectors(allSportsSelectors, 'All Sports filter');
+    if (!sportsOpened) {
+      console.log('  All Sports filter not immediately visible - swiping top filter rail...');
+      const screen = getScreenSize();
+      for (let i = 0; i < 5; i++) {
+        adbSwipe(
+          Math.round(screen.width * 0.75),
+          Math.round(screen.height * 0.22),
+          Math.round(screen.width * 0.25),
+          Math.round(screen.height * 0.22),
+        );
+        await this.driver.pause(700);
+        if (await tryClickFromSelectors(allSportsSelectors, 'All Sports filter')) {
+          sportsOpened = true;
+          console.log(`  All Sports filter clicked after ${i + 1} horizontal swipe(s)`);
+          break;
+        }
       }
     }
 
-    await this.driver.saveScreenshot('./test-results/android_boxing_filter_not_found.png');
-    throw new Error('Boxing filter chip not found on home page. See test-results/android_boxing_filter_not_found.png');
+    if (sportsOpened) {
+      console.log(`  ✓ Sports page / menu opened. Searching for "${targetSport}"...`);
+      await this.driver.pause(2000);
+
+      // 3. Scroll down step-by-step on the Sports page to find targetSport
+      for (let scrollAttempt = 0; scrollAttempt < 10; scrollAttempt++) {
+        for (const selector of sportSelectors) {
+          try {
+            const el = await this.driver.$(selector);
+            if (await el.isDisplayed().catch(() => false)) {
+              console.log(`🎯 Found "${targetSport}" on Sports page on scroll attempt ${scrollAttempt + 1}`);
+              await el.click();
+              console.log(`  ✓ Clicked "${targetSport}" on Sports page`);
+              await this.driver.pause(2500);
+              return;
+            }
+          } catch {}
+        }
+
+        console.log(`  "${targetSport}" not visible yet on Sports page (attempt ${scrollAttempt + 1}/10). Scrolling down...`);
+        await this.scrollDownSmooth();
+      }
+    }
+
+    await this.driver.saveScreenshot('./test-results/android_sport_filter_not_found.png');
+    throw new Error(`${targetSport} could not be found or selected from Sports page.`);
+  }
+
+  async clickHomeBoxingFilter(): Promise<void> {
+    return this.clickHomeSportFilter('Boxing');
   }
 
   async clickUpcomingFightsFilter(): Promise<void> {
@@ -438,7 +490,7 @@ export class AndroidBoxingPage extends AndroidBasePage {
         const railKeywords = [
           "don't miss", "dont miss", "boxing", "upcoming fights",
           "featured", "trending", "highlights", "schedule", "must watch",
-          "live & upcoming", "catch up", "popular", "nfl", "spence", "joshua"
+          "live & upcoming", "catch up", "popular"
         ];
         const loaded = railKeywords.some(k => src.includes(k));
         if (loaded) {
@@ -465,278 +517,88 @@ export class AndroidBoxingPage extends AndroidBasePage {
     await this.driver.pause(1000);
   }
 
-  async openHomeBoxingDontMissTilePaywall(hooks: AndroidFlowHooks = {}): Promise<boolean> {
-    console.log('Home -> Boxing filter -> Boxing Page -> Find "Don\'t Miss" rail -> Swipe to PPV tile -> Validate tile -> Click PPV tile');
+  async openHomeSportLockedTilePaywall(targetSport: string, eventConfig?: any, hooks: AndroidFlowHooks = {}): Promise<boolean> {
+    console.log(`Home -> Sports -> ${targetSport} -> Dynamic PPV tile discovery (API-driven)`);
 
-    // 1. Navigate to Boxing page via the filter chip on Home
-    await this.clickHomeBoxingFilter();
+    // 1. Navigate to target sport page (e.g. Boxing, Wrestling) via Sports / All Sports on Home
+    await this.clickHomeSportFilter(targetSport);
+    console.log(`  ✓ On ${targetSport} page. Waiting for content feed to initialize...`);
+    await this.driver.pause(2500);
+    await this.waitForContentRailsToLoad();
+
+    const locator = new DynamicPpvTileLocator(this.driver, this.ppvName);
+    const locatorRes = await locator.locateAndOpenPpvTile({
+      page: targetSport,
+      eventConfig,
+      hooks,
+    });
+
+    if (locatorRes.success) {
+      const userState = String(process.env.USER_STATE || '').toLowerCase().trim().replace('-', '_');
+      const isUltimateUser = ['active_ultimate_apm', 'active_ultimate_upfront'].includes(userState);
+
+      if (isUltimateUser) {
+        console.log('  Active Ultimate User: Checking for PIN protection or WATCH NOW CTA on fixture screen...');
+        await this.handlePinProtectionIfPresent();
+        await this.driver.pause(2000);
+        return true;
+      }
+
+      const buyTapped = await this.tapBuyCtaWithFallback(['Buy now', 'Buy Now', 'Buy', 'Get PPV', 'Purchase']);
+      return buyTapped;
+    }
+
+    const shot = hooks.saveScreenshot
+      ? await hooks.saveScreenshot(`./test-results/android_${targetSport.toLowerCase()}_ppv_locked_tile_not_found.png`)
+      : undefined;
+    hooks.recordAvailability?.(false, shot, `Home of ${targetSport}`);
+    await hooks.generateAvailabilityFailureReport?.(`PPV locked tile for "${this.ppvName}" not found on ${targetSport} page`);
+    throw new Error(`❌ PPV locked tile for "${this.ppvName}" not found on ${targetSport} page`);
+  }
+
+  async openHomeBoxingDontMissTilePaywall(hooks: AndroidFlowHooks = {}, eventConfig?: any): Promise<boolean> {
+    const targetSport = (eventConfig?.SPORT || eventConfig?.global?.SPORT || 'Boxing').trim();
+
+    if (targetSport.toLowerCase() !== 'boxing') {
+      return this.openHomeSportLockedTilePaywall(targetSport, eventConfig, hooks);
+    }
+
+    console.log('Home -> All Sports -> Boxing filter -> Boxing Page -> Dynamic PPV tile discovery (API-driven)');
+
+    // 1. Navigate to Boxing page via All Sports on Home
+    await this.clickHomeSportFilter('Boxing');
     console.log('  ✓ On Boxing page. Waiting for content feed to initialize...');
     await this.driver.pause(2500);
     await this.waitForContentRailsToLoad();
 
-    // 2. Scroll down until the "Don't Miss" section rail header is located on screen
-    const { width, height } = await this.driver.getWindowRect();
-    const candidateHeaderSelectors = [
-      'android=new UiSelector().text("Don\'t Miss")',
-      'android=new UiSelector().textContains("Don\'t Miss")',
-      '//android.widget.TextView[contains(@text, "Don\'t Miss")]',
-      '//android.widget.TextView[contains(@text, "DON\'T MISS")]',
-      'android=new UiSelector().text("Don’t Miss")',
-      'android=new UiSelector().textContains("Don’t Miss")',
-    ];
+    const locator = new DynamicPpvTileLocator(this.driver, this.ppvName);
+    const locatorRes = await locator.locateAndOpenPpvTile({
+      page: 'Boxing',
+      eventConfig,
+      hooks,
+    });
 
-    let boxingRailHeader: any = null;
-    let headerTextFound = '';
+    if (locatorRes.success) {
+      const userState = String(process.env.USER_STATE || '').toLowerCase().trim().replace('-', '_');
+      const isUltimateUser = ['active_ultimate_apm', 'active_ultimate_upfront'].includes(userState);
 
-    for (let scrollAttempt = 0; scrollAttempt < 15; scrollAttempt++) {
-      for (const sel of candidateHeaderSelectors) {
-        try {
-          const el = await this.driver.$(sel);
-          if (await el.isDisplayed().catch(() => false)) {
-            const loc = await el.getLocation().catch(() => ({ x: 0, y: 0 }));
-            // Ensure we match the "Don't Miss" rail header below top navigation (y > 350)
-            if (loc.y > 350) {
-              const txt = (await el.getText().catch(() => '')) || '';
-              console.log(`🎯 Found "Don't Miss" rail header "${txt}" on Boxing page at y=${loc.y} (attempt ${scrollAttempt + 1})`);
-              boxingRailHeader = el;
-              headerTextFound = txt;
-              break;
-            }
-          }
-        } catch {}
+      if (isUltimateUser) {
+        console.log('  Active Ultimate User: Checking for PIN protection or WATCH NOW CTA on fixture screen...');
+        await this.handlePinProtectionIfPresent();
+        await this.driver.pause(2000);
+        return true;
       }
-      if (boxingRailHeader) break;
 
-      console.log(`  "Don't Miss" rail header not visible on Boxing page (attempt ${scrollAttempt + 1}/15). Scrolling down...`);
-      await this.scrollDownSmooth();
+      const buyTapped = await this.tapBuyCtaWithFallback(['Buy now', 'Buy Now', 'Buy', 'Get PPV', 'Purchase']);
+      return buyTapped;
     }
 
-    if (!boxingRailHeader) {
-      const shot = hooks.saveScreenshot
-        ? await hooks.saveScreenshot('./test-results/android_boxing_rail_header_not_found.png')
-        : undefined;
-      hooks.recordAvailability?.(false, shot, 'Home of Boxing');
-      await hooks.generateAvailabilityFailureReport?.(`Boxing rail header not found on Boxing page`);
-      throw new Error(`❌ Boxing section rail header not found on Boxing page`);
-    }
-
-    // Function to calculate exact rail header position dynamically
-    const getBoxingHeaderRect = async () => {
-      if (headerTextFound) {
-        try {
-          const el = await this.driver.$(`android=new UiSelector().textContains("${headerTextFound}")`);
-          if (await el.isDisplayed().catch(() => false)) {
-            const loc = await el.getLocation();
-            const size = await el.getSize();
-            return { x: loc.x, y: loc.y, width: size.width, height: size.height };
-          }
-        } catch {}
-      }
-      const loc = await boxingRailHeader.getLocation();
-      const size = await boxingRailHeader.getSize();
-      return { x: loc.x, y: loc.y, width: size.width, height: size.height };
-    };
-
-    // Position rail header comfortably on screen (skip if already between 25% and 65% of screen height)
-    let rect = await getBoxingHeaderRect();
-    console.log(`  Boxing rail header found at y=${rect.y}, height=${rect.height}.`);
-
-    if (rect.y < Math.round(height * 0.25) || rect.y > Math.round(height * 0.65)) {
-      const targetY = Math.round(height * 0.45);
-      const diffY = rect.y - targetY;
-      console.log(`  Adjusting Boxing rail header position (diffY=${diffY})...`);
-      const startY = Math.round(height * 0.60);
-      const endY = Math.max(Math.round(height * 0.25), Math.min(Math.round(height * 0.75), startY - diffY));
-      await this.driver.action('pointer')
-        .move({ x: Math.round(width / 2), y: startY })
-        .down()
-        .pause(100)
-        .move({ duration: 600, x: Math.round(width / 2), y: endY })
-        .up()
-        .perform();
-      await this.driver.pause(1200);
-      rect = await getBoxingHeaderRect();
-      console.log(`  Adjusted Y position of Boxing rail header: y=${rect.y}`);
-    }
-
-    // Calculate vertical Y coordinate for horizontal swiping through Boxing cards
-    const swipeY = rect.y + rect.height + Math.round(height * 0.12);
-    console.log(`  Boxing horizontal swipe will use Y coordinate: ${swipeY}`);
-
-    let tileX: number | null = null;
-    let tileY: number | null = null;
-
-    // Independent PPV tile detection method for Boxing page
-    const isPPVTileVisibleOnBoxing = async (): Promise<boolean> => {
-      try {
-        const pageSource = await this.driver.getPageSource();
-        const lowerSource = pageSource.toLowerCase();
-
-        const keywords = [
-          this.ppvName.toLowerCase(),
-          'joshua', 'prenga', 'aj', 'spence', 'tszyu',
-          ...this.ppvName.toLowerCase().split(/\s+vs\.?\s+/g),
-        ].filter(k => k.length >= 2);
-
-        const hasTextInSource = keywords.some(k => lowerSource.includes(k));
-
-        if (hasTextInSource) {
-          const elements: any[] = [];
-          const matches = pageSource.matchAll(/<([a-zA-Z0-9.]+)\b([^>]*)bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/g);
-          for (const match of matches) {
-            const tag = match[1];
-            const attrs = match[2];
-            const left = parseInt(match[3], 10);
-            const top = parseInt(match[4], 10);
-            const right = parseInt(match[5], 10);
-            const bottom = parseInt(match[6], 10);
-            const clickable = attrs.includes('clickable="true"');
-            const textMatch = keywords.some(k => attrs.toLowerCase().includes(k));
-            elements.push({ tag, attrs, left, top, right, bottom, clickable, textMatch });
-          }
-
-          const railTop = rect.y;
-          const railBottom = rect.y + Math.round(height * 0.40);
-
-          for (const el of elements) {
-            if (el.clickable && el.top >= railTop - 100 && el.bottom <= railBottom + 150 && el.right > width * 0.15) {
-              if (el.textMatch) {
-                tileX = Math.round((el.left + el.right) / 2);
-                tileY = Math.round((el.top + el.bottom) / 2);
-                console.log(`🎯 [Boxing Text Match] Found PPV tile with title matching "${this.ppvName}" at x=${tileX}, y=${tileY}`);
-                return true;
-              }
-            }
-          }
-
-          const matchingTextEl = elements.find(el => el.textMatch && el.top >= railTop - 100 && el.bottom <= railBottom + 150);
-          if (matchingTextEl) {
-            tileX = Math.round((matchingTextEl.left + matchingTextEl.right) / 2);
-            tileY = Math.round((matchingTextEl.top + matchingTextEl.bottom) / 2);
-            console.log(`🎯 [Boxing Text Match] Found text matching "${this.ppvName}" at x=${tileX}, y=${tileY}`);
-            return true;
-          }
-        }
-
-        const elements: any[] = [];
-        const matches = pageSource.matchAll(/<([a-zA-Z0-9.]+)\b([^>]*)bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/g);
-        for (const match of matches) {
-          const tag = match[1];
-          const attrs = match[2];
-          const left = parseInt(match[3], 10);
-          const top = parseInt(match[4], 10);
-          const right = parseInt(match[5], 10);
-          const bottom = parseInt(match[6], 10);
-          const clickable = attrs.includes('clickable="true"');
-          elements.push({ tag, left, top, right, bottom, clickable });
-        }
-
-        const railTop = rect.y;
-        const userState = String(process.env.USER_STATE || '').toLowerCase().trim().replace('-', '_');
-        const isUltimateUser = ['active_ultimate_apm', 'active_ultimate_upfront'].includes(userState);
-
-        for (const el of elements) {
-          if (el.clickable && el.top >= railTop - 100 && el.bottom <= railTop + Math.round(height * 0.40) && el.right > width * 0.15) {
-            let hasLock = false;
-            let hasBell = false;
-
-            for (const child of elements) {
-              if (child === el) continue;
-              if (child.left >= el.left - 30 && child.right <= el.right + 30 && child.top >= el.top - 30 && child.bottom <= el.bottom + 30) {
-                const cWidth = child.right - child.left;
-                const cHeight = child.bottom - child.top;
-                if (cWidth >= 20 && cWidth <= 90 && cHeight >= 20 && cHeight <= 90) hasLock = true;
-                if (cWidth >= 25 && cWidth <= 220 && cHeight >= 25 && cHeight <= 220) hasBell = true;
-              }
-            }
-
-            if ((hasLock && hasBell) || hasBell || isUltimateUser || el.clickable) {
-              tileX = Math.round((el.left + el.right) / 2);
-              tileY = Math.round((el.top + el.bottom) / 2);
-              console.log(`🎯 [Boxing Heuristic] Found PPV tile element at x=${tileX}, y=${tileY}`);
-              return true;
-            }
-          }
-        }
-
-        return false;
-      } catch (err: any) {
-        console.warn('⚠️ Error checking Boxing PPV tile visibility:', err.message);
-        return false;
-      }
-    };
-
-    let tileFound = await isPPVTileVisibleOnBoxing();
-    const maxHorizontalSwipes = 10;
-
-    for (let swipeIdx = 0; swipeIdx < maxHorizontalSwipes && !tileFound; swipeIdx++) {
-      console.log(`  PPV tile not visible on Boxing page. Swiping left in rail (swipe ${swipeIdx + 1}/${maxHorizontalSwipes})...`);
-      const startX = Math.round(width * 0.85);
-      const endX = Math.round(width * 0.30);
-      await this.driver.action('pointer')
-        .move({ x: startX, y: swipeY })
-        .down()
-        .pause(100)
-        .move({ duration: 600, x: endX, y: swipeY })
-        .up()
-        .perform();
-      await this.driver.pause(1500);
-      tileFound = await isPPVTileVisibleOnBoxing();
-    }
-
-    if (!tileFound) {
-      const shot = hooks.saveScreenshot
-        ? await hooks.saveScreenshot('./test-results/android_boxing_ppv_tile_not_found.png')
-        : undefined;
-      hooks.recordAvailability?.(false, shot, 'Home of Boxing');
-      await hooks.generateAvailabilityFailureReport?.(`PPV tile "${this.ppvName}" not found on Boxing rail`);
-      throw new Error(`❌ PPV tile "${this.ppvName}" not found on Boxing rail`);
-    }
-
-    console.log('✅ PPV tile found on Boxing rail.');
-    await this.driver.saveScreenshot('./test-results/android_boxing_ppv_tile_found.png');
-
-    // Validate PPV tile using sheet-driven framework
-    hooks.recordAvailability?.(true, undefined, 'Home of Boxing');
-    await this.runSurfaceValidation(hooks, 'PPV Tile');
-
-    // Tap PPV tile using safe coordinates
-    console.log(`  Clicking PPV tile on Boxing page for "${this.ppvName}"...`);
-    try {
-      rect = await getBoxingHeaderRect();
-      const freshTileY = rect.y + rect.height + Math.round(height * 0.12);
-      const safeTileY = Math.min(Math.max(freshTileY, Math.round(height * 0.30)), Math.round(height * 0.78));
-      const safeTileX = (tileX && tileX > width * 0.10 && tileX < width * 0.90) ? tileX : Math.round(width * 0.50);
-
-      console.log(`  Tapping PPV tile at safe coordinates on Boxing page: x=${safeTileX}, y=${safeTileY}`);
-      adbTap(safeTileX, safeTileY);
-    } catch {
-      const xpath = `//*[contains(@text, "${this.ppvName}") or contains(@content-desc, "${this.ppvName}")]`;
-      const ppvTileEl = await this.driver.$(xpath);
-      await ppvTileEl.click();
-    }
-    await this.driver.pause(3000);
-
-    const userState = String(process.env.USER_STATE || '').toLowerCase().trim().replace('-', '_');
-    const isUltimateUser = ['active_ultimate_apm', 'active_ultimate_upfront'].includes(userState);
-
-    if (isUltimateUser) {
-      console.log('  Active Ultimate User: Checking for PIN protection or WATCH NOW CTA on fixture screen...');
-      await this.handlePinProtectionIfPresent();
-      await this.driver.pause(2000);
-      return true;
-    }
-
-    const buyTapped = await this.tapBuyCtaWithFallback(['Buy now', 'Buy Now', 'Buy', 'Get PPV', 'Purchase']);
-    if (!buyTapped) {
-      const shot = hooks.saveScreenshot
-        ? await hooks.saveScreenshot('./test-results/android_boxing_buy_cta_not_found.png')
-        : undefined;
-      hooks.recordAvailability?.(false, shot, 'Home of Boxing');
-      await hooks.generateAvailabilityFailureReport?.(`Buy CTA for PPV "${this.ppvName}" not found on Boxing page`);
-    }
-
-    return buyTapped;
+    const shot = hooks.saveScreenshot
+      ? await hooks.saveScreenshot('./test-results/android_boxing_ppv_tile_not_found.png')
+      : undefined;
+    hooks.recordAvailability?.(false, shot, 'Home of Boxing');
+    await hooks.generateAvailabilityFailureReport?.(`PPV tile "${this.ppvName}" not found on Boxing page`);
+    throw new Error(`❌ PPV tile "${this.ppvName}" not found on Boxing page`);
   }
 }
 
@@ -786,62 +648,201 @@ export async function openHomeBoxingDontMissTilePaywall(
   driver: WdBrowser,
   ppvName: string,
   hooks: AndroidFlowHooks = {},
+  eventConfig?: any,
 ): Promise<boolean> {
-  return new AndroidBoxingPage(driver, ppvName).openHomeBoxingDontMissTilePaywall(hooks);
+  return new AndroidBoxingPage(driver, ppvName).openHomeBoxingDontMissTilePaywall(hooks, eventConfig);
 }
 
+interface AndroidBounds {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
 
-async function locatePPVTileWithGemini(driver: WdBrowser, ppvName: string): Promise<{ visible: boolean; x: number | null; y: number | null }> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey || apiKey === 'your_gemini_api_key_here') {
+interface GeminiTileDetection {
+  visible: boolean;
+  extractedTitle: string;
+  isMatch: boolean;
+  x: number | null;
+  y: number | null;
+  error?: string;
+  rawText?: string;
+}
+
+interface AndroidXmlElement extends AndroidBounds {
+  tag: string;
+  text: string;
+  clickable: boolean;
+}
+
+function hasUsableGeminiKey(): boolean {
+  const apiKey = (process.env.GEMINI_API_KEY || '').trim();
+  if (!apiKey) return false;
+  const lower = apiKey.toLowerCase();
+  return !lower.includes('your_') && !lower.includes('placeholder') && lower !== 'replace_me';
+}
+
+function isGeminiQuotaError(message: string): boolean {
+  const lower = (message || '').toLowerCase();
+  return lower.includes('http 429') || lower.includes('quota') || lower.includes('rate limit');
+}
+
+function titleTokens(title: string): string[] {
+  return [...new Set(
+    title
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, ' ')
+      .split(/\s+/)
+      .filter(token => token.length >= 3),
+  )];
+}
+
+function comparableTitle(title: string): string {
+  return title.toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function getDefaultDontMissArtworkBounds(headerRect: { y: number; height: number }, screenWidth: number, screenHeight: number): AndroidBounds {
+  const left = Math.round(screenWidth * 0.04);
+  const top = headerRect.y + headerRect.height + Math.round(screenHeight * 0.01);
+  const artworkWidth = Math.round(screenWidth * 0.83);
+  const artworkHeight = Math.round(artworkWidth * 0.39);
+  return {
+    left,
+    top,
+    right: Math.min(screenWidth - Math.round(screenWidth * 0.04), left + artworkWidth),
+    bottom: Math.min(screenHeight, top + artworkHeight),
+  };
+}
+
+function findFirstVisibleRailArtworkBounds(
+  elements: AndroidXmlElement[],
+  railTop: number,
+  railBottom: number,
+  screenWidth: number,
+  screenHeight: number,
+): AndroidBounds | null {
+  const railElements = elements
+    .filter(el => {
+      const elWidth = el.right - el.left;
+      const elHeight = el.bottom - el.top;
+      const aspectRatio = elWidth / Math.max(elHeight, 1);
+      return (
+        el.top >= railTop &&
+        el.bottom <= railBottom + Math.round(screenHeight * 0.08) &&
+        el.left >= 0 &&
+        el.left < screenWidth * 0.20 &&
+        el.right > screenWidth * 0.45 &&
+        elWidth > screenWidth * 0.45 &&
+        elHeight > screenHeight * 0.08 &&
+        elHeight < screenHeight * 0.25 &&
+        aspectRatio > 1.6
+      );
+    })
+    .sort((a, b) => {
+      const areaA = (a.right - a.left) * (a.bottom - a.top);
+      const areaB = (b.right - b.left) * (b.bottom - b.top);
+      return a.top - b.top || a.left - b.left || areaB - areaA;
+    });
+
+  const firstArtwork = railElements[0];
+  if (!firstArtwork) return null;
+
+  const padX = Math.round(screenWidth * 0.01);
+  const padY = Math.round(screenHeight * 0.005);
+  return {
+    left: Math.max(0, firstArtwork.left - padX),
+    top: Math.max(0, firstArtwork.top - padY),
+    right: Math.min(screenWidth, firstArtwork.right + padX),
+    bottom: Math.min(screenHeight, firstArtwork.bottom + padY),
+  };
+}
+
+function isPpvTitleMatch(candidateTitle: string, ppvName: string): boolean {
+  const candidate = comparableTitle(candidateTitle);
+  const target = comparableTitle(ppvName);
+  if (!candidate || !target) return false;
+  if (candidate.includes(target) || target.includes(candidate)) return true;
+
+  const vsMatch = ppvName.match(/(\w+)\s+vs\.?\s+(\w+)/i);
+  if (vsMatch) {
+    const f1 = vsMatch[1].toLowerCase();
+    const f2 = vsMatch[2].toLowerCase();
+    if (f1.length >= 3 && f2.length >= 3 && candidate.includes(f1) && candidate.includes(f2)) return true;
+  }
+
+  const tokens = titleTokens(ppvName);
+  if (tokens.length === 0) return false;
+  const matchCount = tokens.filter(token => candidate.includes(token)).length;
+  return matchCount >= Math.min(2, tokens.length);
+}
+
+function cropPngBase64(base64Png: string, bounds: AndroidBounds): string {
+  const { PNG } = require('pngjs');
+  const source = PNG.sync.read(Buffer.from(base64Png, 'base64'));
+  const left = Math.max(0, Math.min(source.width - 1, bounds.left));
+  const top = Math.max(0, Math.min(source.height - 1, bounds.top));
+  const right = Math.max(left + 1, Math.min(source.width, bounds.right));
+  const bottom = Math.max(top + 1, Math.min(source.height, bounds.bottom));
+  const crop = new PNG({ width: right - left, height: bottom - top });
+  PNG.bitblt(source, crop, left, top, right - left, bottom - top, 0, 0);
+  return PNG.sync.write(crop).toString('base64');
+}
+
+async function locatePPVTileWithGemini(driver: WdBrowser, ppvName: string, tileBounds?: AndroidBounds, debugLabel?: string): Promise<GeminiTileDetection> {
+  const apiKey = (process.env.GEMINI_API_KEY || '').trim();
+  if (!hasUsableGeminiKey()) {
     console.warn('⚠️ [Gemini] GEMINI_API_KEY not configured. Cannot perform visual tile detection.');
-    return { visible: false, x: null, y: null };
+    return { visible: false, extractedTitle: '', isMatch: false, x: null, y: null, error: 'GEMINI_API_KEY is unavailable' };
   }
 
   try {
     const screenshotBase64 = await driver.takeScreenshot();
+    const imageBase64 = tileBounds ? cropPngBase64(screenshotBase64, tileBounds) : screenshotBase64;
+    if (debugLabel) {
+      try {
+        const fs = require('fs');
+        const debugDir = path.resolve(process.cwd(), 'test-results');
+        fs.mkdirSync(debugDir, { recursive: true });
+        const debugPath = path.join(debugDir, `${debugLabel}.png`);
+        fs.writeFileSync(debugPath, Buffer.from(imageBase64, 'base64'));
+        console.log(`  [Gemini] Saved OCR crop for title extraction: ${debugPath}`);
+      } catch (saveErr: any) {
+        console.log(`  [Gemini] Could not save OCR crop debug image: ${saveErr.message}`);
+      }
+    }
+    console.log(`  [Gemini] Target PPV title="${ppvName}"; screenshot captured and sending ${tileBounds ? 'cropped tile image' : 'full screen'} for title extraction.`);
 
     const prompt = `
-      Analyze the attached screenshot of the mobile app Boxing page.
-      Locate the "Don't Miss" rail. Under "Don't Miss" header, there is a horizontal list of tiles.
-      Identify if the PPV tile for "${ppvName}" (e.g. featuring fighter "Joshua" or "Prenga" on it, typically with text "JOSHUA" or "PRENGA" or "July 25") is currently visible on the screen.
-      
-      If it is visible, provide the center coordinates (x, y) in pixels.
-      Note: The screenshot is 1080x2340 pixels (width x height) or similar. Make sure to return coordinates in the same scale as the screenshot.
-      
+      You are an OCR assistant inspecting a cropped tile image from the "Don't Miss" rail in the DAZN mobile Boxing app.
+      1. Read and extract ALL text, fight titles, or fighter names written on the tile artwork for the currently visible rail tile.
+      2. Set "extractedTitle" to the exact fight/event title text extracted from the image.
+      3. Compare the extracted title text with the target PPV title: "${ppvName}".
+      4. Set "isMatch" to true if the extracted title matches or refers to "${ppvName}" or the fighters in "${ppvName}". Otherwise set "isMatch" to false.
+
       Return ONLY valid JSON matching this schema:
       {
         "visible": boolean,
-        "x": number | null,
-        "y": number | null
+        "extractedTitle": string,
+        "isMatch": boolean,
+        "allText": string
       }
     `;
-
-    const schema = {
-      type: 'object',
-      properties: {
-        visible: { type: 'boolean' },
-        x: { type: 'number', nullable: true },
-        y: { type: 'number', nullable: true }
-      },
-      required: ['visible', 'x', 'y']
-    };
 
     const payload = Buffer.from(JSON.stringify({
       contents: [{
         parts: [
-          { inline_data: { mime_type: 'image/png', data: screenshotBase64 } },
+          { inline_data: { mime_type: 'image/png', data: imageBase64 } },
           { text: prompt }
         ]
       }],
       generationConfig: {
         responseMimeType: 'application/json',
-        responseSchema: schema,
         temperature: 0
       }
     }));
 
-    const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+    const model = (process.env.GEMINI_MODEL || 'gemini-2.5-flash').trim();
     const response = await new Promise<{ statusCode: number; body: string }>((resolve, reject) => {
       const req = https.request(
         `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
@@ -870,18 +871,60 @@ async function locatePPVTileWithGemini(driver: WdBrowser, ppvName: string): Prom
     });
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw new Error(`Gemini returned HTTP ${response.statusCode}: ${response.body}`);
+      let apiMessage = response.body;
+      try {
+        apiMessage = JSON.parse(response.body)?.error?.message || apiMessage;
+      } catch {}
+      throw new Error(`Gemini returned HTTP ${response.statusCode}: ${apiMessage.slice(0, 300)}`);
     }
 
     const resObj = JSON.parse(response.body);
     const textResult = resObj.candidates?.[0]?.content?.parts?.find((p: any) => p.text)?.text;
     if (!textResult) throw new Error('No text in Gemini response');
 
-    const result = JSON.parse(textResult);
-    console.log(`🤖 [Gemini] Tile detection result for "${ppvName}":`, result);
+    const rawGeminiText = textResult.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+    const parsedResult = JSON.parse(rawGeminiText);
+    const extractedCandidates = [
+      parsedResult.extractedTitle,
+      parsedResult.extracted_title,
+      parsedResult.fightTitle,
+      parsedResult.eventTitle,
+      parsedResult.title,
+      parsedResult.text,
+      parsedResult.allText,
+      Array.isArray(parsedResult.texts) ? parsedResult.texts.join(' ') : '',
+    ];
+    const extractedTitle = extractedCandidates
+      .find(value => typeof value === 'string' && value.trim().length > 0)
+      ?.trim() || '';
+    const result: GeminiTileDetection = {
+      visible: parsedResult.visible !== false,
+      extractedTitle,
+      isMatch: false,
+      x: null,
+      y: null,
+      rawText: rawGeminiText,
+    };
+    // Keep the comparison deterministic. Gemini reads the artwork; the test
+    // decides the match using the same normalized title rules on every run.
+    result.isMatch = isPpvTitleMatch(result.extractedTitle, ppvName);
+    if (tileBounds && result.visible && result.isMatch) {
+      result.x = Math.round((tileBounds.left + tileBounds.right) / 2);
+      result.y = Math.round((tileBounds.top + tileBounds.bottom) / 2);
+    }
+    console.log(`🤖 [Gemini] Tile detection result for "${ppvName}": ${JSON.stringify({
+      visible: result.visible,
+      extractedTitle: result.extractedTitle,
+      isMatch: result.isMatch,
+      x: result.x ?? null,
+      y: result.y ?? null,
+    })}`);
+    if (!result.extractedTitle) {
+      console.log(`⚠️ [Gemini] OCR returned no extractedTitle. Raw JSON response: ${rawGeminiText.slice(0, 500)}`);
+    }
     return result;
   } catch (err: any) {
     console.error(`⚠️ [Gemini] Failed to detect tile: ${err.message}`);
-    return { visible: false, x: null, y: null };
+    return { visible: false, extractedTitle: '', isMatch: false, x: null, y: null, error: err.message };
   }
 }

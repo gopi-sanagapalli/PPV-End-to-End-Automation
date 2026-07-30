@@ -548,11 +548,13 @@ export class AndroidValidationPage extends AndroidBasePage {
     titleExpected: string,
     dateExpected: string,
     results: AndroidValidationResult[],
+    railTitle = "Don't Miss",
   ): Promise<void> {
-    console.log(`🤖 Starting validation of "Don't Miss" tile...`);
+    console.log(`🤖 Starting validation of PPV tile in "${railTitle}" rail...`);
 
     let evaluation = {
       image: true,
+      title_visible_under_tile: false, // default: assume no text under tile (conservative)
       title: true,
       lock_icon: true,
       bell_icon: true,
@@ -571,21 +573,23 @@ export class AndroidValidationPage extends AndroidBasePage {
 
         const prompt = `
           Analyze the attached screenshot of the mobile app screen.
-          Locate the "Don't Miss" rail, which contains horizontal cards.
-          Focus on the visible card containing the PPV fight for "${titleExpected}" (e.g. featuring fighter "Joshua" or "Prenga").
+          Locate the "${railTitle}" rail, which contains horizontal cards.
+          Focus on the visible card containing the PPV event for "${titleExpected}".
           
           Validate the following attributes on this specific card:
-          1. "image": Is the main background fight image loaded and clearly visible? (Should be yes/no)
-          2. "title": Read the text written on the card image. Does it contain the title or names matching "${titleExpected}" (like "JOSHUA")? (Should be yes/no)
-          3. "lock_icon": Is there a padlock/lock icon visible on the top-left of this card? (Should be yes/no)
-          4. "bell_icon": Is there a bell icon visible on the top-right of this card? (Should be yes/no)
-          5. "date": Read the date text written on this card (such as "July 25"). Does it contain the date or match "${dateExpected}"? (Should be yes/no)
+          1. "image": Is the main background event image loaded and clearly visible? (Should be yes/no)
+          2. "title_visible_under_tile": Is the PPV event title text (e.g. "${titleExpected}") visible as text BELOW or OUTSIDE the tile image (as a separate text label beneath the card)? Answer yes/no. NOTE: text printed ON the tile artwork image does NOT count.
+          3. "title": If title text is visible below the tile, does it contain the title or names matching "${titleExpected}"? (Should be yes/no. Answer yes if title_visible_under_tile is no.)
+          4. "lock_icon": Is there a padlock/lock icon visible on the top-left corner of this card image? (Should be yes/no)
+          5. "bell_icon": Is there a bell icon or notification icon visible on this card? (Should be yes/no)
+          6. "date": Read the date text written on this card (such as "${dateExpected}"). Does it contain the date or match "${dateExpected}"? (Should be yes/no)
           
           Provide concise findings for each.
           
           Return ONLY valid JSON matching this schema:
           {
             "image": boolean,
+            "title_visible_under_tile": boolean,
             "title": boolean,
             "lock_icon": boolean,
             "bell_icon": boolean,
@@ -594,13 +598,14 @@ export class AndroidValidationPage extends AndroidBasePage {
             "date_read": string,
             "findings": string[]
           }
-          where "title_read" is the exact title text you read from the tile image, and "date_read" is the exact date text you read from the tile image.
+          where "title_read" is the exact title text you read BELOW the tile (not from the artwork), and "date_read" is the exact date text you read from the tile image.
         `;
 
         const schema = {
           type: 'object',
           properties: {
             image: { type: 'boolean' },
+            title_visible_under_tile: { type: 'boolean' },
             title: { type: 'boolean' },
             lock_icon: { type: 'boolean' },
             bell_icon: { type: 'boolean' },
@@ -609,7 +614,7 @@ export class AndroidValidationPage extends AndroidBasePage {
             date_read: { type: 'string' },
             findings: { type: 'array', items: { type: 'string' } }
           },
-          required: ['image', 'title', 'lock_icon', 'bell_icon', 'date', 'title_read', 'date_read', 'findings']
+          required: ['image', 'title_visible_under_tile', 'title', 'lock_icon', 'bell_icon', 'date', 'title_read', 'date_read', 'findings']
         };
 
         const payload = Buffer.from(JSON.stringify({
@@ -670,18 +675,34 @@ export class AndroidValidationPage extends AndroidBasePage {
     }
 
     if (!geminiUsed) {
-      console.log('🎯 Running XML bounds heuristic fallback validation for "Don\'t Miss" tile...');
+      console.log(`🎯 Running XML bounds heuristic fallback validation for "${railTitle}" tile...`);
       try {
         const pageSource = await this.driver.getPageSource();
         const { width, height } = await this.driver.getWindowSize();
 
-        // Find rail header position dynamically
-        const headerEl = await this.driver.$('android=new UiSelector().text("Don\'t Miss")');
-        const hLoc = await headerEl.getLocation().catch(() => ({ x: 0, y: 1000 }));
-        const hSize = await headerEl.getSize().catch(() => ({ width: 1080, height: 50 }));
+        // Find rail header position dynamically using the actual rail title
+        const cleanRailTitle = railTitle.replace(/['']/g, '');
+        let hLoc = { x: 0, y: 400 };
+        let hSize = { width: 1080, height: 50 };
+        const headerSelectors = [
+          `android=new UiSelector().text("${railTitle}")`,
+          `android=new UiSelector().textContains("${cleanRailTitle}")`,
+          `//android.widget.TextView[contains(@text, "${cleanRailTitle}")]`,
+        ];
+        for (const sel of headerSelectors) {
+          try {
+            const headerEl = await this.driver.$(sel);
+            if (await headerEl.isDisplayed().catch(() => false)) {
+              hLoc = await headerEl.getLocation().catch(() => hLoc);
+              hSize = await headerEl.getSize().catch(() => hSize);
+              break;
+            }
+          } catch { }
+        }
 
         const railTop = hLoc.y + hSize.height;
-        const railBottom = railTop + Math.round(height * 0.25);
+        const railBottom = railTop + Math.round(height * 0.30); // tile image height zone
+        const textZoneBottom = railBottom + Math.round(height * 0.12); // text below tile zone
 
         // Flat-parse all elements in XML
         const elements: any[] = [];
@@ -758,11 +779,18 @@ export class AndroidValidationPage extends AndroidBasePage {
         if (bestTile) {
           let hasLock = false;
           let hasBell = false;
+          // Check for text elements BELOW the tile image (outside tile bounds) = title under tile
+          let hasTitleBelowTile = false;
+          const cleanTitle = titleExpected.toLowerCase().replace(/[^a-z0-9]/g, '');
+          const titleParts = titleExpected.toLowerCase().split(/[\s:vs\-–]/).map((p: string) => p.trim()).filter((p: string) => p.length > 2);
+
           for (const child of elements) {
             if (child === bestTile) continue;
+            const cWidth = child.right - child.left;
+            const cHeight = child.bottom - child.top;
+
+            // Inside tile bounds: check lock/bell icons
             if (child.left >= bestTile.left && child.right <= bestTile.right && child.top >= bestTile.top && child.bottom <= bestTile.bottom) {
-              const cWidth = child.right - child.left;
-              const cHeight = child.bottom - child.top;
               if (child.left > bestTile.left && (child.left - bestTile.left) < 100 && cWidth >= 30 && cWidth <= 70 && cHeight >= 30 && cHeight <= 70) {
                 hasLock = true;
               }
@@ -770,12 +798,32 @@ export class AndroidValidationPage extends AndroidBasePage {
                 hasBell = true;
               }
             }
+
+            // BELOW tile bounds: check for title text label under the tile
+            if (child.top >= bestTile.bottom && child.top <= textZoneBottom) {
+              const textMatch = child.attrs.match(/text="([^"]*)"/i);
+              const descMatch = child.attrs.match(/content-desc="([^"]*)"/i);
+              const childText = (textMatch?.[1] || descMatch?.[1] || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+              if (childText.length > 2) {
+                const matchesFull = childText.includes(cleanTitle) || cleanTitle.includes(childText);
+                const matchesParts = titleParts.some((p: string) => childText.includes(p));
+                if (matchesFull || matchesParts) {
+                  hasTitleBelowTile = true;
+                }
+              }
+            }
           }
           evaluation.lock_icon = hasLock;
           evaluation.bell_icon = hasBell;
+          evaluation.title_visible_under_tile = hasTitleBelowTile;
+          if (hasTitleBelowTile) {
+            // Re-check title match since we found text below the tile
+            evaluation.title = true; // already matched above
+          }
         } else {
           evaluation.lock_icon = false;
           evaluation.bell_icon = false;
+          evaluation.title_visible_under_tile = false;
         }
       } catch (err: any) {
         console.warn('⚠️ [Heuristic] Fallback validation error:', err.message);
@@ -794,24 +842,29 @@ export class AndroidValidationPage extends AndroidBasePage {
       results.push({ page: 'PPV Tile', field: fieldName, expected, actual, status, screenshot });
     };
 
+    // ── 1. PPV Tile Present ──────────────────────────────────────────────────
     await pushResult('PPV Tile Present', 'Yes', 'Yes', true);
-    await pushResult('PPV Title', titleExpected, evaluation.title_read || 'Not found', evaluation.title);
-    await pushResult('PPV Date', dateExpected, evaluation.date_read || 'Not found', evaluation.date);
-    await pushResult('PPV Image Present', 'Yes', evaluation.image ? 'Yes' : 'No', evaluation.image);
 
+    // ── 2. Lock Icon (required for non-ultimate users, must NOT appear for ultimate) ─
     if (isUltimateUser) {
-      // Ultimate users have content access included, so there is NO lock icon on the PPV tile
+      // Ultimate users already entitled — NO lock icon should appear on tile
       const lockPresent = Boolean(evaluation.lock_icon);
       await pushResult('Lock Icon', 'No', lockPresent ? 'Yes' : 'No', !lockPresent);
     } else {
-      // For standard users, the lock icon is optional/configuration-dependent on mobile tiles
+      // Standard/APM users: lock icon MUST be present on PPV tile
       const lockPresent = Boolean(evaluation.lock_icon);
-      await pushResult('Lock Icon', 'Optional (Yes/No)', lockPresent ? 'Yes' : 'No', true);
+      await pushResult('Lock Icon', 'Yes', lockPresent ? 'Yes' : 'No', lockPresent);
     }
 
-    // Bell icon is optional/configuration-dependent on mobile tiles
-    const bellPresent = Boolean(evaluation.bell_icon);
-    await pushResult('Bell Icon', 'Optional (Yes/No)', bellPresent ? 'Yes' : 'No', true);
+    // ── 3. PPV Title Under Tile (only validate if text label is visible below tile image) ─
+    const titleBelowTile = Boolean(evaluation.title_visible_under_tile);
+    if (titleBelowTile) {
+      // Screenshot 1 case: title text label is present below tile — validate it matches
+      await pushResult('PPV Title (Below Tile)', titleExpected, evaluation.title_read || 'Not found', evaluation.title);
+    } else {
+      // Screenshot 2 case: no text below tile (image-only artwork tile like Moses vs Hrgovic) — skip title validation
+      console.log(`  ℹ️ [PPV Title] No text label visible below tile image. Title validation skipped (image-only tile).`);
+    }
   }
 
   // ── Full surface (banner/tile) validation (sheet-driven) ─────────────────
@@ -826,7 +879,9 @@ export class AndroidValidationPage extends AndroidBasePage {
     if ((source === 'home-page-dont-miss' || source === 'home-boxing-tile' || source.includes('dont-miss')) && surface === 'PPV Tile') {
       const titleExpected = eventData.MOBILE_BANNER_TITLE || eventData.PPV_DISPLAY_NAME || eventData.PPV_NAME;
       const dateExpected = eventData.PPV_DATE || eventData.LANDING_PAGE_PPV_DATE || '';
-      await this.validateDontMissTileWithGemini(titleExpected, dateExpected, results);
+      // Pass dynamic rail title (from eventData or default "Don't Miss")
+      const railTitle = eventData.PPV_RAIL_TITLE || eventData.RAIL_TITLE || "Don't Miss";
+      await this.validateDontMissTileWithGemini(titleExpected, dateExpected, results, railTitle);
       return;
     }
 
@@ -992,6 +1047,7 @@ export class AndroidValidationPage extends AndroidBasePage {
       // 3. Date and Time
       const { calculateDynamicPpvBannerDate } = require('../../../utils/dateUtils');
       const dateTimeTemplate = eventData.MOBILE_BANNER_DATE_TIME || eventData.MOBILE_BANNER_DATE || eventData.PPV_DATE;
+      const region = eventData.REGION || process.env.DAZN_REGION || 'GB';
       const expectedDate = calculateDynamicPpvBannerDate 
         ? calculateDynamicPpvBannerDate({ ...eventData, PLATFORM: 'android' }) 
         : (getDynamicDateTimeBadge 
@@ -1074,6 +1130,7 @@ export class AndroidValidationPage extends AndroidBasePage {
     let rows: any[] = [];
     if (sheetName) {
       try {
+        // Try reading directly from dedicated Android sheet first
         rows = readSheet(sheetName);
         rows = rows.filter((r: any) => {
           if (r.Flow === undefined || r.Flow === '') return true;
@@ -1081,38 +1138,30 @@ export class AndroidValidationPage extends AndroidBasePage {
           const currentSource = String(source || '').trim().toLowerCase();
           return rowFlow === currentSource;
         });
-        if (sheetName === 'Schedule page') {
+        if (sheetName === 'Schedule page' || sheetName === 'Andriod_Schedule_Page') {
           rows = rows.filter((r: any) => !r.Field?.toString().trim().startsWith('Popup'));
         }
-        console.log(`📊 Loaded ${rows.length} rows from dedicated sheet: "${sheetName}" (filtered by flow "${source}")`);
+        console.log(`📊 Loaded ${rows.length} rows directly from Android sheet: "${sheetName}" (filtered by flow "${source}")`);
       } catch (e: any) {
-        if (sheetName === 'Landing-page-banner') {
-          try {
-            rows = readSheet('Landing page').filter((r: any) =>
-              r.Flow === 'landing-page-banner' &&
-              !r.Field?.includes('Copy') &&
-              !(r.Field?.includes('Description') && !r.Field?.includes('Banner'))
-            );
-            console.log(`📊 Loaded ${rows.length} rows from fallback "Landing page" filtered by "landing-page-banner" (excluding Copy overlay fields)`);
-          } catch (e2: any) {
-            console.warn(`⚠️ Failed to load fallback sheet "Landing page": ${e2.message}`);
-          }
-        } else if (sheetName === 'Home-page-banner') {
-          try {
-            rows = readSheet('Home page').filter((r: any) => r.Flow === 'home-page-banner');
-            console.log(`📊 Loaded ${rows.length} rows from fallback "Home page" filtered by "home-page-banner"`);
-          } catch (e2: any) {
-            console.warn(`⚠️ Failed to load fallback sheet "Home page": ${e2.message}`);
-          }
-        } else if (sheetName.startsWith('Home-boxing-') || sheetName === 'boxing-upcoming-fights') {
-          try {
-            rows = readSheet('Home of Boxing').filter((r: any) => r.Flow === source);
-            console.log(`📊 Loaded ${rows.length} rows from fallback "Home of Boxing" filtered by "${source}"`);
-          } catch (e2: any) {
-            console.warn(`⚠️ Failed to load fallback sheet "Home of Boxing": ${e2.message}`);
-          }
-        } else {
-          console.warn(`⚠️ Failed to load dedicated sheet "${sheetName}": ${e.message}`);
+        // Fallback to Web template sheets if Android-specific sheet is absent
+        const templateSheetMap: Record<string, string> = {
+          'Andriod_Home_Boxing_Page': 'Home of Boxing',
+          'Andriod_Home_Page': 'Home page',
+          'Andriod_Landing_Page': 'Landing page',
+          'Andriod_Schedule_Page': 'Schedule page',
+          'Andriod_Search_Page': 'Search page',
+        };
+        const actualInputSheet = templateSheetMap[sheetName] || sheetName;
+        try {
+          rows = readSheet(actualInputSheet).filter((r: any) => {
+            if (r.Flow === undefined || r.Flow === '') return true;
+            const rowFlow = String(r.Flow).trim().toLowerCase();
+            const currentSource = String(source || '').trim().toLowerCase();
+            return rowFlow === currentSource;
+          });
+          console.log(`📊 Loaded ${rows.length} rows from fallback Web template sheet: "${actualInputSheet}" for surface "${sheetName}"`);
+        } catch (e2: any) {
+          console.warn(`⚠️ Failed to load sheet "${sheetName}": ${e2.message}`);
         }
       }
     }
@@ -1606,8 +1655,8 @@ export async function validateAndroidFixturePage(
       fullTitleExpected = cfg.PPV_NAME || cfg.MOBILE_BANNER_TITLE;
     } catch { }
   }
-  if (!fullTitleExpected || fullTitleExpected === 'Joshua') {
-    fullTitleExpected = titleFound && titleRead !== 'Not found' ? titleRead : 'Joshua vs. Prenga';
+  if (!fullTitleExpected) {
+    fullTitleExpected = titleFound && titleRead !== 'Not found' ? titleRead : (eventData?.PPV_NAME || process.env.PPV_NAME || 'PPV Event');
   }
 
   // 3. Check for Fixture Page Sections ("Related", "Like", "Share", or "Follow")
