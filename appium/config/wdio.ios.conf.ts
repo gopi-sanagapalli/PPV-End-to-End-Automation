@@ -67,6 +67,12 @@ const simulatorCaps = {
   'appium:simulatorStartupTimeout': 120000,
   'appium:autoAcceptAlerts': false,
   'appium:autoDismissAlerts': false,
+  // The iOS PPV handoff leaves DAZN and opens Safari.  Expose Safari's
+  // WebKit context so the same Appium/WebdriverIO session can continue the
+  // browser flow after the Apple external-website confirmation.
+  'appium:includeSafariInWebviews': true,
+  'appium:webviewConnectRetries': 15,
+  'appium:webviewConnectTimeout': 5000,
 };
 
 // Use pre-built WDA only when an explicit URL is provided.
@@ -91,6 +97,8 @@ const realDeviceCaps: Record<string, unknown> = {
   'appium:autoDismissAlerts': false,
   // Allow switching into SFSafariViewController / WKWebView contexts
   'appium:includeSafariInWebviews': true,
+  'appium:webviewConnectRetries': 15,
+  'appium:webviewConnectTimeout': 5000,
   'appium:showXcodeLog': true,
   'appium:newCommandTimeout': 120,
   // WDA — use pre-built if URL provided, otherwise Appium builds it (needed for new devices)

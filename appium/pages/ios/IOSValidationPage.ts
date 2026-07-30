@@ -10,7 +10,10 @@ import { getIOSValidationSheet } from './IOSSurfacingPoint';
 let getDynamicDateTimeBadge: ((template: string, region?: string) => string) | undefined;
 let getNowForRegion: ((region?: string) => Date) | undefined;
 try {
-  const dateUtils = require('../../../../utils/dateUtils');
+  // IOSValidationPage lives at appium/pages/ios, so three parents reach the
+  // repository root. Four parents resolved outside the project and silently
+  // disabled all region-aware date handling.
+  const dateUtils = require('../../../utils/dateUtils');
   getDynamicDateTimeBadge = dateUtils.getDynamicDateTimeBadge;
   getNowForRegion = dateUtils.getNowForRegion;
 } catch (e) {
@@ -26,7 +29,54 @@ export interface IOSValidationResult {
   screenshot?: string;
 }
 
+/**
+ * Native-app validation only.
+ *
+ * The iOS handoff opens an Apple confirmation and then Safari at DAZN home.
+ * Safari checkout validation must run in a WebdriverIO web context and must
+ * not be added to this class, otherwise native and browser selectors/data are
+ * mixed in the same validation result.
+ */
 export class IOSValidationPage extends IOSBasePage {
+
+  private static readonly IOS_ONLY_UNSUPPORTED_PAYWALL_FIELDS = new Set([
+    'instruction text',
+    'copy button',
+    'copy url present',
+  ]);
+
+  /** The native sheet uses the event instant, not the web workbook's copy URL fields. */
+  private getExpectedNativeEventDate(eventData: Record<string, any>): string {
+    const utcDate = eventData.PPV_UTC_DATE || eventData.global?.PPV_UTC_DATE;
+    if (!utcDate || Number.isNaN(new Date(utcDate).getTime())) return '';
+
+    const region = String(eventData.REGION || eventData.region || process.env.DAZN_REGION || 'GB').toUpperCase();
+    const timeZones: Record<string, string> = {
+      GB: 'Europe/London', UK: 'Europe/London', US: 'America/New_York',
+      AE: 'Asia/Dubai', SA: 'Asia/Riyadh', AU: 'Australia/Sydney',
+      BR: 'America/Sao_Paulo', DE: 'Europe/Berlin', IT: 'Europe/Rome',
+      ES: 'Europe/Madrid', FR: 'Europe/Paris', CA: 'America/Toronto', JP: 'Asia/Tokyo',
+    };
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: timeZones[region] || 'Europe/London', day: '2-digit', month: 'short',
+      hour: '2-digit', minute: '2-digit', hour12: true,
+    }).formatToParts(new Date(utcDate));
+    const values: Record<string, string> = {};
+    for (const part of parts) values[part.type] = part.value;
+    return `${values.day} ${values.month} ${values.hour}:${values.minute} ${values.dayPeriod}`.toUpperCase();
+  }
+
+  private async ensureNativeAppContext(): Promise<void> {
+    try {
+      const contexts = await this.driver.getContexts() as string[];
+      if (contexts.includes('NATIVE_APP')) {
+        await this.driver.switchContext('NATIVE_APP');
+      }
+    } catch {
+      // Some XCUITest sessions expose only the native context.  In that case
+      // there is nothing to switch and native element lookup remains valid.
+    }
+  }
 
   async captureAndMarkFailureScreenshot(
     surface: string,
@@ -58,65 +108,57 @@ export class IOSValidationPage extends IOSBasePage {
     pageSource: string;
     mobileDateText: string;
   }> {
+    await this.ensureNativeAppContext();
     const textsSet = new Set<string>();
     let pageSource = '';
 
-    // Wait up to 15 seconds for key paywall elements
+    // Do not retain XCUI element references here. The paywall is a native
+    // bottom sheet and XCUITest invalidates those references while it settles,
+    // resulting in repeated "stale element" errors. A page-source snapshot is
+    // stable and contains every visible label/name/value needed for validation.
+    const paywallMarkers = [
+      'Go to dazn.com/start',
+      'Pick a plan on dazn.com',
+      'How to watch this and more',
+    ];
     let isLoaded = false;
     for (let i = 0; i < 30; i++) {
-      const hasDazn = await this.driver.$('-ios predicate string:name CONTAINS "dazn" OR label CONTAINS "dazn"').isDisplayed().catch(() => false);
-      const hasSafari = await this.driver.$('~Open').isDisplayed().catch(() => false);
-      if (hasDazn || hasSafari) {
+      pageSource = await this.driver.getPageSource().catch(() => '');
+      const sourceLower = pageSource.toLowerCase();
+      if (paywallMarkers.some(marker => sourceLower.includes(marker.toLowerCase()))) {
         isLoaded = true;
         break;
       }
       await this.driver.pause(500);
     }
-    pageSource = await this.driver.getPageSource().catch(() => '');
     if (!isLoaded) {
-      console.warn('⚠️ Mobile paywall page did not load fully within timeout.');
+      console.warn('⚠️ Native paywall markers did not appear within timeout; validating the latest native screen snapshot.');
     }
 
-    await this.driver.pause(1000);
-
-    const fetchTexts = async () => {
-      try {
-        const textEls = await this.driver.$$('//XCUIElementTypeStaticText | //XCUIElementTypeButton | //XCUIElementTypeTextField | //XCUIElementTypeSecureTextField');
-        for (const el of textEls) {
-          const txt = await el.getAttribute('label').catch(() => '');
-          if (txt && txt.trim()) textsSet.add(txt.trim());
-          const name = await el.getAttribute('name').catch(() => '');
-          if (name && name.trim()) textsSet.add(name.trim());
-        }
-      } catch (e: any) {
-        console.log(`⚠️ Failed to fetch text elements: ${e.message}`);
-      }
-    };
-
-    await fetchTexts();
-
-    // Scroll down slightly to expose off-screen elements
-    console.log('  Scrolling down on paywall to capture off-screen elements...');
-    try {
-      await this.scrollDown();
-      await this.driver.pause(1200);
-    } catch (e: any) {
-      console.log(`⚠️ Scroll failed: ${e.message}`);
-    }
-
-    await fetchTexts();
-
-    if (!pageSource) {
-      pageSource = await this.driver.getPageSource().catch(() => '');
+    // XCUITest emits text in label/name/value attributes. Decode XML entities
+    // and collect unique values without touching or scrolling the modal.
+    const attrRegex = /(?:label|name|value)="([^"]*)"/g;
+    for (const match of pageSource.matchAll(attrRegex)) {
+      const text = match[1]
+        .replace(/&quot;/g, '"')
+        .replace(/&apos;/g, "'")
+        .replace(/&amp;/g, '&')
+        .trim();
+      if (text) textsSet.add(text);
     }
 
     const texts = Array.from(textsSet);
-    console.log('📋 Total unique texts gathered on iOS:', texts);
+    console.log(`📋 Native paywall snapshot captured (${texts.length} unique labels).`);
 
-    // Find date element
+    // Find the paywall event badge, not any date behind the bottom sheet.  The
+    // old "first month on screen" approach selected labels such as a home-page
+    // carousel's "Jul 30 - Aug 2", producing false date failures.
     let mobileDateText = 'Not found';
     const monthRegex = /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/i;
-    const foundDate = texts.find(t => monthRegex.test(t) && /\d/.test(t));
+    const foundDate = texts.find(t =>
+      monthRegex.test(t) && /\d/.test(t) &&
+      !/\b\d{1,2}\s*(?:-|–|to)\s*[a-z]{3,9}\s*\d{1,2}\b/i.test(t),
+    );
     if (foundDate) {
       mobileDateText = foundDate;
       console.log(`💡 Detected mobile paywall date element: "${mobileDateText}"`);
@@ -130,6 +172,7 @@ export class IOSValidationPage extends IOSBasePage {
     surface: IOSPPVSurface,
     titleExpected: string,
   ): Promise<{ texts: string[]; pageSource: string; targetXml: string }> {
+    await this.ensureNativeAppContext();
     const textsSet = new Set<string>();
     let pageSource = '';
     let targetXml = '';
@@ -194,6 +237,7 @@ export class IOSValidationPage extends IOSBasePage {
     results: IOSValidationResult[],
     paywallValidated: { value: boolean },
   ): Promise<void> {
+    await this.ensureNativeAppContext();
     if (paywallValidated.value) {
       console.log('⏭️ Mobile Paywall already validated. Skipping duplicate validation.');
       return;
@@ -210,7 +254,17 @@ export class IOSValidationPage extends IOSBasePage {
     eventData.CURRENT_PAGE = 'Mobile Paywall';
     paywallValidated.value = true;
 
-    const { texts, pageSource, mobileDateText } = await this.gatherTextsFromPaywall();
+    const expectedNativeDate = this.getExpectedNativeEventDate(eventData);
+    const paywallSnapshot = await this.gatherTextsFromPaywall();
+    const { texts, pageSource } = paywallSnapshot;
+    // Restrict date selection to the configured event's day and month. Native
+    // page source also contains the dimmed screen behind the modal (for
+    // example, "22 JUN"), which must never become the PPV date actual.
+    const expectedDateTokens = expectedNativeDate.match(/^(\d{1,2})\s+([A-Z]{3})/);
+    const mobileDateText = expectedDateTokens
+      ? texts.find(t => new RegExp(`\\b${expectedDateTokens[1]}\\b\\s+${expectedDateTokens[2]}`, 'i').test(t))
+        || paywallSnapshot.mobileDateText
+      : paywallSnapshot.mobileDateText;
 
     const { getMobilePaywallData } = require('../../../utils/excelReader');
     const { resolveExpected: resolveExp } = require('../../../utils/resolveExpected');
@@ -236,6 +290,11 @@ export class IOSValidationPage extends IOSBasePage {
       for (const row of paywallRows) {
         const fieldName = (row['Field'] || '').trim();
         if (!fieldName) continue;
+
+        if (IOSValidationPage.IOS_ONLY_UNSUPPORTED_PAYWALL_FIELDS.has(fieldName.toLowerCase())) {
+          console.log(`⏭️ Skipping web-only paywall field on iOS: ${fieldName}`);
+          continue;
+        }
 
         if (fieldName === 'Copy Description' && source !== 'landing-page-banner') {
           continue;
@@ -278,12 +337,19 @@ export class IOSValidationPage extends IOSBasePage {
           }
         } else if (isDateField && mobileDateText !== 'Not found') {
           actualValue = mobileDateText;
+          const nativeExpected = expectedNativeDate;
+          // Native iOS renders an absolute, region-local event timestamp. Do
+          // not validate it against stale per-region spreadsheet strings.
+          if (nativeExpected) expectedValue = nativeExpected;
           isMatch = compare(actualValue, expectedValue);
           if (!isMatch) {
-            const dateRegex = /\b((Sun|Mon|Tue|Wed|Thu|Fri|Sat)[a-z]*\s+)?\d{1,2}(?:st|nd|rd|th)?\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(?:at|•)?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?/i;
-            if (dateRegex.test(actualValue)) {
-              isMatch = true;
-            }
+            const normaliseNativeDate = (value: string) => value.toLowerCase()
+              .replace(/(\d)\s*:\s*(\d)/g, '$1:$2')
+              .replace(/\b0(\d):/g, '$1:')
+              .replace(/[\s.,•]/g, '');
+            // Formatting differences are fine; a different date or time is
+            // not. The previous regex marked every date-shaped value as PASS.
+            isMatch = normaliseNativeDate(actualValue) === normaliseNativeDate(expectedValue);
           }
         } else {
           let matched = texts.find(t => {
@@ -309,6 +375,18 @@ export class IOSValidationPage extends IOSBasePage {
           : undefined;
         results.push({ page: 'Mobile Paywall', field: fieldName, expected: expectedValue, actual: actualValue, status, screenshot });
       }
+
+      const startLinkPresent = texts.some(t => /go\s+to\s+dazn\.com\/start/i.test(t));
+      results.push({
+        page: 'Mobile Paywall',
+        field: 'Go to dazn.com/start Link',
+        expected: 'Yes',
+        actual: startLinkPresent ? 'Yes' : 'No',
+        status: startLinkPresent ? 'PASS' : 'FAIL',
+        screenshot: startLinkPresent ? undefined : await this.captureAndMarkFailureScreenshot(
+          'Mobile Paywall', 'Go_to_dazn_com_start_Link', 'Yes', 'No',
+        ),
+      });
     } catch (err: any) {
       console.warn('⚠️ Mobile paywall validation sheet error:', err.message);
     }
@@ -321,6 +399,7 @@ export class IOSValidationPage extends IOSBasePage {
     source: string,
     results: IOSValidationResult[],
   ): Promise<void> {
+    await this.ensureNativeAppContext();
     console.log(`\n🔍 [${surface}] Running validations...`);
     eventData.CURRENT_PAGE = 'mobile';
 

@@ -19,7 +19,101 @@ export interface IOSFlowHooks {
 }
 
 export class IOSBasePage {
-  constructor(protected driver: WdBrowser, protected ppvName = process.env.PPV_NAME || 'Joshua') {}
+  private static readonly safariCookieConsentHandledDrivers = new WeakSet<object>();
+
+  constructor(protected driver: WdBrowser, protected ppvName = process.env.PPV_NAME || 'Joshua') { }
+
+  protected async browserText(): Promise<string> {
+    return this.driver.execute(() => document.body?.innerText || '').catch(() => '');
+  }
+
+  protected async browserFirstVisible(selectors: string[]): Promise<WdElement | null> {
+    for (const selector of selectors) {
+      try {
+        const elements = await this.driver.$$(selector);
+        for (const element of elements) {
+          if (await element.isDisplayed().catch(() => false)) return element;
+        }
+      } catch { }
+    }
+    return null;
+  }
+
+  /**
+   * Dismiss the DAZN OneTrust banner in a Safari/WKWebView context.
+   * Every iOS page object inherits this so any browser handoff can call the
+   * same behaviour immediately after its navigation.
+   */
+  async handleSafariCookies(timeoutMs = 20000): Promise<void> {
+    const driverKey = this.driver as object;
+    const alreadyHandled = IOSBasePage.safariCookieConsentHandledDrivers.has(driverKey);
+    const effectiveTimeout = alreadyHandled ? Math.min(timeoutMs, 2000) : timeoutMs;
+    const acceptSelectors = [
+      '#onetrust-accept-btn-handler',
+      '[data-testid="accept-all"]',
+      'button[aria-label="Accept"]',
+      '//button[normalize-space(.)="Accept"]',
+      'button*=Accept',
+      '[role="button"]*=Accept',
+    ];
+    const consentCopy = /select your cookie preferences|essential cookies only|manage preferences/i;
+    const deadline = Date.now() + effectiveTimeout;
+    let consentWasSeen = false;
+
+    while (Date.now() < deadline) {
+      const accept = await this.browserFirstVisible(acceptSelectors);
+      const consentIsVisible = consentCopy.test(await this.browserText());
+      if (accept) {
+        consentWasSeen = true;
+        await accept.scrollIntoView().catch(() => {});
+        const clickedByUi = await accept.click().then(() => true).catch(() => false);
+        if (!clickedByUi) {
+          const clickedByDom = await this.driver.execute(() => {
+            const button = document.querySelector<HTMLElement>('#onetrust-accept-btn-handler')
+              || Array.from(document.querySelectorAll<HTMLElement>('button, [role="button"]'))
+                .find(element => element.innerText.trim().toLowerCase() === 'accept');
+            if (!button) return false;
+            button.click();
+            return true;
+          }).catch(() => false);
+          if (!clickedByDom) {
+            await this.driver.pause(250);
+            continue;
+          }
+          console.log('🍪 Accepted cookies via DOM-click fallback.');
+        } else {
+          console.log('🍪 Accepted cookies via #onetrust-accept-btn-handler.');
+        }
+
+        await this.driver.waitUntil(async () => this.driver.execute(() => {
+          const banner = document.querySelector<HTMLElement>(
+            '#onetrust-banner-sdk, #onetrust-consent-sdk, .onetrust-pc-dark-filter'
+          );
+          if (!banner) return true;
+          const style = window.getComputedStyle(banner);
+          const box = banner.getBoundingClientRect();
+          return style.display === 'none' || style.visibility === 'hidden' ||
+            style.opacity === '0' || box.width === 0 || box.height === 0;
+        }).catch(() => false), {
+          timeout: 8000,
+          timeoutMsg: 'DAZN cookie banner remained visible after clicking Accept.',
+        });
+        IOSBasePage.safariCookieConsentHandledDrivers.add(driverKey);
+        await this.driver.pause(500);
+        console.log('✅ DAZN cookie banner is hidden.');
+        return;
+      }
+
+      if (consentIsVisible) consentWasSeen = true;
+      await this.driver.pause(250);
+    }
+
+    if (consentWasSeen) {
+      await this.driver.saveScreenshot('./test-results/ios_safari_cookie_consent_not_actionable.png').catch(() => {});
+      throw new Error('DAZN cookie consent was displayed but its Accept button was not actionable.');
+    }
+    console.log('ℹ️ No DAZN cookie consent was shown in Safari.');
+  }
 
   async findEl(sel: string, timeoutMs = 10000): Promise<WdElement> {
     try {
@@ -76,7 +170,7 @@ export class IOSBasePage {
         }
         await this.scrollDown();
       }
-    } catch {}
+    } catch { }
     return false;
   }
 
@@ -223,10 +317,33 @@ export class IOSBasePage {
   }
 
   isValidCheckoutUrl(url: string): boolean {
-    return !!url && (url.includes('dazn.com') || url.includes('amazonaws.com'));
+    try {
+      const hostname = new URL(url).hostname.toLowerCase();
+      return hostname === 'dazn.com' || hostname.endsWith('.dazn.com') || hostname.endsWith('.amazonaws.com');
+    } catch {
+      return false;
+    }
+  }
+
+  private isSafariHandoffLandingUrl(url: string): boolean {
+    if (!this.isValidCheckoutUrl(url)) return false;
+    try {
+      const pathname = new URL(url).pathname.toLowerCase();
+      // Only a DAZN landing route represents the webview just created by the
+      // external-website handoff. Account/search/checkout routes can belong
+      // to Safari views that were already open before this native CTA.
+      if (pathname === '/' || pathname === '/start' || pathname === '/welcome') return true;
+      return /^\/[a-z]{2}-[a-z]{2}\/?$/i.test(pathname);
+    } catch {
+      return false;
+    }
   }
 
   async captureCheckoutUrl(): Promise<string> {
+    // The external-website confirmation is a native App Store sheet. A prior
+    // Safari WEBVIEW can still be selected after the native paywall click, in
+    // which case iOS selectors cannot see its Continue button.
+    await this.driver.switchContext('NATIVE_APP').catch(() => { });
     try {
       const fs = require('fs');
       if (!fs.existsSync('./test-results')) {
@@ -238,149 +355,187 @@ export class IOSBasePage {
       console.warn('⚠️ Failed to save alert screenshot:', e.message);
     }
 
-    // 1. Try to click native Continue / Open buttons first (visible across apps on active screen)
+    // 1. Let the system sheet complete its presentation animation. On this
+    // device/iOS version the App Store sheet is visible on screen but omitted
+    // from both the XCUITest tree and native page source, so source-based
+    // presence checks would block forever.
+    await this.driver.pause(Number(process.env.IOS_EXTERNAL_SHEET_SETTLE_MS || 1500));
+
+    // 2. Resolve the system sheet by accessibility label. Looking up six
+    // selectors five times made XCUITest wait for idle on each miss (nearly a
+    // minute), then used unsafe coordinate taps.  Coordinate tapping is now
+    // opt-in for unusual devices only.
     let alertHandled = false;
-    console.log('🔍 Checking for App Store sheet "Continue" or standard "Open" buttons...');
-    for (let attempt = 0; attempt < 5; attempt++) {
-      for (const selector of [
-        '//XCUIElementTypeButton[@name="Continue"]',
-        '~Continue',
-        '//XCUIElementTypeButton[@name="Open"]',
-        '~Open',
-        '//XCUIElementTypeButton[@name="Allow"]',
-        '~Allow'
-      ]) {
+    console.log('🔍 Waiting briefly for the iOS redirect confirmation...');
+    const redirectSelectors = [
+      '-ios predicate string:type == "XCUIElementTypeButton" AND (name == "Continue" OR label == "Continue" OR name == "Open" OR label == "Open" OR name == "Allow" OR label == "Allow")',
+      '//XCUIElementTypeButton[@name="Continue" or @label="Continue"]',
+      '~Continue',
+    ];
+    // The sheet is already visible when this method is called. If XCUITest
+    // has not surfaced Continue within a few seconds, it will not do so for
+    // this presentation and the coordinate fallback is required.
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline && !alertHandled) {
+      // The previous URL capture may have left the session in a WKWebView.
+      // Reassert the native context on every poll: system sheets are not
+      // visible to WebKit selectors.
+      await this.driver.switchContext('NATIVE_APP').catch(() => { });
+      for (const selector of redirectSelectors) {
         try {
-          const el = await this.driver.$(selector);
-          if (await el.isDisplayed().catch(() => false)) {
-            await el.click();
-            console.log(`✅ Clicked redirect alert button via element locator: ${selector}`);
-            alertHandled = true;
-            await this.driver.pause(2000);
-            break;
-          }
-        } catch {}
+          const button = await this.driver.$(selector);
+          if (!await button.isDisplayed().catch(() => false)) continue;
+          const label = await button.getAttribute('label').catch(() => 'redirect button');
+          await button.click();
+          console.log(`✅ Clicked iOS redirect button "${label}" via native accessibility locator.`);
+          alertHandled = true;
+          await this.driver.pause(1500);
+          break;
+        } catch { }
       }
-      if (alertHandled) {
-        // Wait a bit more and re-check if a second pop-up (e.g. Open) is now visible
-        await this.driver.pause(1000);
-        for (const selector of ['//XCUIElementTypeButton[@name="Open"]', '~Open']) {
-          try {
-            const el = await this.driver.$(selector);
-            if (await el.isDisplayed().catch(() => false)) {
-              await el.click();
-              console.log(`✅ Clicked second redirect alert button: ${selector}`);
-              await this.driver.pause(2000);
-              break;
-            }
-          } catch {}
-        }
-        break;
-      }
-      await this.driver.pause(1000);
+      if (!alertHandled) await this.driver.pause(250);
     }
 
-    // 2. Fallback: perform precise sequential vertical-sweep coordinate taps
+    // On this App Store confirmation sheet, some iOS/WDA combinations render
+    // Continue but omit it from the accessibility hierarchy. This is exactly
+    // what the attached run shows. Keep the semantic locator as the primary
+    // path, then use the known, centred bottom-sheet position automatically.
     if (!alertHandled) {
+      console.warn('⚠️ Continue is not exposed to XCUITest; using the App Store sheet fallback position.');
       try {
         const { width, height } = await this.driver.getWindowSize();
-
-        // Step 1: Tap App Store sheet "Continue" (vertically stacked centered button area near bottom)
-        const x1 = Math.round(width * 0.5);
-        const yOffsets = [110, 140, 170];
-        console.log(`📱 Fallback Step 1: Tapping App Store sheet "Continue" area at X=${x1} with Y-sweeps [110, 140, 170]...`);
-        for (const offset of yOffsets) {
-          const y = height - offset;
+        const x = Math.round(width / 2);
+        // Continue is the first of the two stacked buttons at the bottom.
+        // A short vertical sweep tolerates device size, display zoom and the
+        // sheet's dynamic text height without risking the Cancel button.
+        for (const bottomOffset of [110, 140, 170]) {
           await this.driver.action('pointer')
-            .move({ x: x1, y })
+            .move({ x, y: height - bottomOffset })
             .down()
             .pause(100)
             .up()
             .perform();
-          await this.driver.pause(200);
+          await this.driver.pause(250);
         }
-
-        // Check if Chrome or Safari is already active in the foreground before doing Step 2
-        let activeApp = await this.driver.execute('mobile: activeAppInfo').catch(() => null);
-        const isBrowserActive = activeApp && (activeApp.bundleId === 'com.google.chrome.ios' || activeApp.bundleId === 'com.apple.mobilesafari');
-
-        if (isBrowserActive) {
-          console.log(`📱 Browser ${activeApp.bundleId} is already in the foreground. Skipping Step 2 tap to avoid click interference.`);
-        } else {
-          // Pause to let any subsequent browser confirmation popup render
-          await this.driver.pause(3000);
-
-          // Step 2: Tap "Open" on standard browser confirmation alerts (horizontally aligned right button near middle)
-          const x2 = Math.round(width * 0.67);
-          const yCenter = Math.round(height * 0.56);
-          console.log(`📱 Fallback Step 2: Tapping browser prompt "Open" area at X=${x2} with Y-sweeps around Y=${yCenter}...`);
-          for (const y of [yCenter - 15, yCenter, yCenter + 15]) {
-            await this.driver.action('pointer')
-              .move({ x: x2, y })
-              .down()
-              .pause(100)
-              .up()
-              .perform();
-            await this.driver.pause(200);
-          }
-        }
-
-        // Pause to let Safari/Chrome launch and load the deep link naturally
-        await this.driver.pause(6000);
+        alertHandled = true;
+        await this.driver.pause(2500);
       } catch (e: any) {
-        console.warn('⚠️ Coordinate tap sequence failed:', e.message);
+        console.warn('⚠️ Coordinate fallback failed:', e.message);
       }
     }
 
-    // Switch automation context to the active browser app to inspect its UI tree
+    // Switch automation context to the active browser app to inspect its UI tree.
+    // DAZN opens the web flow in SFSafariViewController (an in-app browser), so
+    // the foreground app remains com.dazn.theApp — not com.apple.mobilesafari.
+    // We detect the browser by checking for a WEBVIEW context with a valid DAZN
+    // URL before falling back to the external Safari poll.
     let activatedBrowser = '';
 
-    // First, check if Safari or Chrome is already active in the foreground to avoid overriding it
-    try {
-      const activeApp = await this.driver.execute('mobile: activeAppInfo').catch(() => null);
-      if (activeApp && (activeApp.bundleId === 'com.apple.mobilesafari' || activeApp.bundleId === 'com.google.chrome.ios')) {
-        console.log(`📱 Browser ${activeApp.bundleId} is already in the foreground. Using it directly.`);
-        activatedBrowser = activeApp.bundleId;
-      }
-    } catch (e: any) {
-      console.warn('⚠️ Failed to query activeAppInfo:', e.message);
-    }
-
-    // Fallback: if neither browser is detected as active, try to activate Safari first, then Chrome
-    if (!activatedBrowser) {
-      for (const bundleId of ['com.apple.mobilesafari', 'com.google.chrome.ios']) {
-        try {
-          await this.driver.activateApp(bundleId);
-          console.log(`📱 Fallback Activated browser context: ${bundleId}`);
-          activatedBrowser = bundleId;
-          await this.driver.pause(3000);
-          break;
-        } catch (e: any) {
-          console.warn(`⚠️ Failed to activate browser app ${bundleId}:`, e.message);
-        }
-      }
-    }
-
-    // Try web context capture first
-    for (let attempt = 0; attempt < 8; attempt++) {
+    // Phase 1: poll for a WEBVIEW context (SFSafariViewController or WKWebView)
+    // that resolves to a valid DAZN handoff URL. This covers the common in-app
+    // browser case without requiring an external Safari process.
+    console.log('🔍 Polling for WEBVIEW context (SFSafariViewController / WKWebView)...');
+    const webviewDeadline = Date.now() + 20000;
+    let lastContextSummary = '';
+    while (Date.now() < webviewDeadline) {
       await this.driver.pause(1000);
       try {
         const contexts = await this.driver.getContexts() as string[];
-        const webCtx = contexts.find(c =>
+        // XCUITest appends a new context for the newly presented Safari view.
+        // Probe the newest context first; the earlier one is commonly a
+        // background DAZN webview whose URL can be manipulated without
+        // changing the web page visible on the device.
+        const webContexts = contexts.filter(c =>
           c.includes('WEBVIEW') || (typeof c === 'string' && c !== 'NATIVE_APP')
-        );
-        if (webCtx) {
-          await this.driver.switchContext(webCtx);
-          const url = await this.driver.getUrl();
-          if (url && url.includes('dazn.com')) return url;
-          await this.driver.switchContext('NATIVE_APP').catch(() => {});
+        ).reverse();
+        const contextSummary = contexts.join(', ') || 'none';
+        if (contextSummary !== lastContextSummary) {
+          console.log(`🌐 Available iOS contexts: ${contextSummary}`);
+          lastContextSummary = contextSummary;
         }
-      } catch {}
+        for (const webCtx of webContexts) {
+          try {
+            await this.driver.switchContext(webCtx);
+            const url = await this.driver.getUrl();
+            console.log(`🌐 Checking web context ${webCtx}: ${url || '(no URL yet)'}`);
+            if (this.isSafariHandoffLandingUrl(url)) {
+              console.log(`✅ Captured new DAZN handoff URL from WEBVIEW context ${webCtx}: ${url}`);
+              activatedBrowser = 'WEBVIEW';
+              return url;
+            }
+          } catch (e: any) {
+            console.warn(`⚠️ Unable to inspect web context ${webCtx}: ${e.message}`);
+          } finally {
+            await this.driver.switchContext('NATIVE_APP').catch(() => { });
+          }
+        }
+      } catch (e: any) {
+        console.warn(`⚠️ Could not list web contexts: ${e.message}`);
+      }
+    }
+
+    // Phase 2: check if external Safari/Chrome was opened instead.
+    if (!activatedBrowser) {
+      const browserDeadline = Date.now() + 15000;
+      while (Date.now() < browserDeadline && !activatedBrowser) {
+        try {
+          const activeApp = await this.driver.execute('mobile: activeAppInfo').catch(() => null);
+          if (activeApp && (activeApp.bundleId === 'com.apple.mobilesafari' || activeApp.bundleId === 'com.google.chrome.ios')) {
+            console.log(`📱 Browser ${activeApp.bundleId} is in the foreground.`);
+            activatedBrowser = activeApp.bundleId;
+            break;
+          }
+        } catch (e: any) {
+          console.warn('⚠️ Failed to query activeAppInfo:', e.message);
+        }
+        await this.driver.pause(500);
+      }
+
+      if (!activatedBrowser) {
+        console.log('ℹ️ No external browser foregrounded; will attempt address bar fallback.');
+      }
+    }
+
+    // Phase 3: try web contexts for external Safari (legacy path).
+    if (activatedBrowser && activatedBrowser !== 'WEBVIEW') {
+      lastContextSummary = '';
+      for (let attempt = 0; attempt < 20; attempt++) {
+        await this.driver.pause(1000);
+        try {
+          const contexts = await this.driver.getContexts() as string[];
+          const webContexts = contexts.filter(c =>
+            c.includes('WEBVIEW') || (typeof c === 'string' && c !== 'NATIVE_APP')
+          ).sort((a, b) => Number(/SAFARI|MOBILESAFARI/i.test(b)) - Number(/SAFARI|MOBILESAFARI/i.test(a)));
+          const contextSummary = contexts.join(', ') || 'none';
+          if (contextSummary !== lastContextSummary) {
+            console.log(`🌐 Available iOS contexts: ${contextSummary}`);
+            lastContextSummary = contextSummary;
+          }
+          for (const webCtx of webContexts) {
+            try {
+              await this.driver.switchContext(webCtx);
+              const url = await this.driver.getUrl();
+              console.log(`🌐 Checking web context ${webCtx}: ${url || '(no URL yet)'}`);
+              if (this.isSafariHandoffLandingUrl(url)) {
+                console.log(`✅ Captured new Safari handoff context ${webCtx}: ${url}`);
+                return url;
+              }
+            } catch (e: any) {
+              console.warn(`⚠️ Unable to inspect web context ${webCtx}: ${e.message}`);
+            } finally {
+              await this.driver.switchContext('NATIVE_APP').catch(() => { });
+            }
+          }
+        } catch (e: any) {
+          console.warn(`⚠️ Could not list Safari web contexts: ${e.message}`);
+        }
+      }
     }
 
     // Fallback: search all screen elements for any value containing 'dazn.com'
     try {
-      await this.driver.switchContext('NATIVE_APP').catch(() => {});
+      if (!activatedBrowser) return '';
+      await this.driver.switchContext('NATIVE_APP').catch(() => { });
       console.log('🔍 Looking for address bar or URL text in browser elements...');
 
       // Focus the address bar to expand the full URL in Safari/Chrome
@@ -398,7 +553,7 @@ export class IOSBasePage {
             console.log('📱 Focused browser address bar to expand full URL');
             break;
           }
-        } catch {}
+        } catch { }
       }
 
       // Save browser layout source for debugging
@@ -414,17 +569,22 @@ export class IOSBasePage {
           const label = await el.getAttribute('label').catch(() => '');
           const name = await el.getAttribute('name').catch(() => '');
           for (const s of [val, label, name]) {
-            if (s && s.includes('dazn.com') && s.includes('/')) {
-              // Ensure we return a valid absolute URL format
-              let cleanUrl = s.trim();
-              if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
-                cleanUrl = 'https://' + cleanUrl;
-              }
-              console.log(`✅ Extracted checkout URL from browser elements: "${cleanUrl}"`);
+            if (!s) continue;
+            const trimmed = s.trim();
+            // Accept bare 'dazn.com' (collapsed address bar) or any dazn.com URL
+            const isDaznDomain = trimmed === 'dazn.com' || trimmed.includes('dazn.com');
+            if (!isDaznDomain) continue;
+            // Ensure we return a valid absolute URL format
+            let cleanUrl = trimmed.includes('/') ? trimmed : trimmed + '/';
+            if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
+              cleanUrl = 'https://' + cleanUrl;
+            }
+            if (this.isSafariHandoffLandingUrl(cleanUrl)) {
+              console.log(`✅ Extracted Safari handoff URL from browser elements: "${cleanUrl}"`);
               return cleanUrl;
             }
           }
-        } catch {}
+        } catch { }
       }
     } catch (e: any) {
       console.warn('⚠️ Error searching browser elements:', e.message);

@@ -3,6 +3,21 @@ import path from 'path';
 
 export type IOSSurface = 'PPV Banner' | 'PPV Tile';
 
+/**
+ * Describes how Safari must re-enter the DAZN web experience after iOS opens
+ * the external-website confirmation.  This is deliberately separate from the
+ * native source: iOS opens Safari at dazn.com home, not at the native paywall
+ * or a reusable checkout URL.
+ */
+export interface IOSBrowserReentry {
+  /** The source to exercise once Safari has loaded DAZN web. */
+  webSource: string;
+  /** The known entry page after the iOS external-website confirmation. */
+  entry: 'safari-home';
+  /** False prevents an unverified source from silently taking a wrong route. */
+  supported: boolean;
+}
+
 export interface IOSSurfacingPointConfig {
   source: string;
   page: string;
@@ -39,6 +54,31 @@ export function getIOSSurfacingPoint(source: string): IOSSurfacingPointConfig {
   };
 }
 
+/**
+ * This module is a flow manifest, not a screen/page object.  Native page
+ * objects navigate the DAZN app; the WebdriverIO Safari flow asks this
+ * resolver how to replay the source after the iOS handoff.
+ *
+ * Search is intentionally the only enabled web source for now.  The device
+ * evidence shows Safari starts at dazn.com home after the Apple confirmation,
+ * so every additional source needs a verified Safari navigation before it is
+ * enabled here.
+ */
+export function getIOSBrowserReentry(source: string): IOSBrowserReentry {
+  const normalizedSource = (source || '').trim().toLowerCase();
+
+  if (normalizedSource === 'search') {
+    return { webSource: 'search', entry: 'safari-home', supported: true };
+  }
+
+  return { webSource: normalizedSource, entry: 'safari-home', supported: false };
+}
+
+/**
+ * Returns the existing Android-named Excel sheet used to validate the native
+ * iOS banner/tile.  The workbook is shared intentionally; the name is kept as
+ * "Andriod_*" because that is how the existing Excel file is authored.
+ */
 export function getIOSValidationSheet(source: string, surface: IOSSurface): string {
   const normalizedSource = (source || '').trim().toLowerCase();
   const config = getIOSSurfacingPoint(source);
