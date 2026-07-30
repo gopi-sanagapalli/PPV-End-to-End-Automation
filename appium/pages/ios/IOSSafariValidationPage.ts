@@ -895,6 +895,77 @@ export class IOSSafariValidationPage extends IOSBasePage {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
+  // UPGRADE CONFIRMATION PAGE  (active_standard → ultimate upgrade)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Validate the Upgrade Confirmation page in Safari WebView.
+   * Reads rows from the Excel sheet "Upgrade Confirmation page" and evaluates
+   * each field directly from body text — mirrors the web flow's handling in
+   * existinguser.ppv.spec.ts (Flow B).
+   */
+  async validateUpgradeConfirmationPage(
+    eventData: Record<string, any>,
+    results: IOSValidationResult[],
+  ): Promise<void> {
+    const PAGE = 'Upgrade Confirmation (Safari)';
+    console.log(`\n📋 Validating ${PAGE}...`);
+    try {
+      // Wait for the upgrade confirmation surface to be ready
+      await this.driver.waitUntil(
+        async () => {
+          const t: string = await this.driver.execute(() => document.body?.innerText || '').catch(() => '');
+          const lower = t.toLowerCase();
+          return /your plan will be changed|confirm|plan change|upgrade/i.test(lower);
+        },
+        { timeout: 20000, timeoutMsg: 'Upgrade Confirmation page did not appear within 20s.' },
+      );
+
+      // Expand "... More" if present (same as Payment page)
+      const expanded = await this.driver.execute(() => {
+        const controls = Array.from(document.querySelectorAll<HTMLElement>('button, a, [role="button"], span'))
+          .filter(element => /^(?:(?:\.{3}|…)\s*)?more$/i.test((element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim()));
+        const control = controls.find(element => {
+          let parent: HTMLElement | null = element.parentElement;
+          while (parent && parent !== document.body) {
+            const text = (parent.innerText || '').toLowerCase();
+            if (text.includes('plan change') || text.includes('upgrade')) return true;
+            parent = parent.parentElement;
+          }
+          return false;
+        }) || controls[0];
+        if (!control) return false;
+        control.click();
+        return true;
+      }).catch(() => false);
+      if (expanded) {
+        console.log('🔽 [Upgrade Confirmation] Expanded description via More.');
+        await this.driver.waitUntil(
+          async () => /(?:\.\.\.|…)\s*less|\bless\b/i.test(await this.browserText()),
+          { timeout: 3000, timeoutMsg: 'Upgrade confirmation text did not expand.' },
+        ).catch(() => { });
+        await this.driver.pause(250);
+      }
+
+      const { getUpgradeConfirmationData } = require('../../../utils/excelReader');
+      const ratePlan = String(eventData.RATE_PLAN || process.env.RATE_PLAN || 'monthly').toLowerCase();
+      const rows = getUpgradeConfirmationData(ratePlan);
+
+      // Temporarily set TIER to ratePlan so the Tier column filter matches the sheet
+      const savedTier = eventData.TIER;
+      eventData.TIER = ratePlan;
+      eventData.CURRENT_PAGE = 'upgrade-confirmation';
+
+      await this.validateWebPageWithSheet(PAGE, rows, eventData, results);
+
+      // Restore
+      eventData.TIER = savedTier;
+    } catch (err: any) {
+      console.warn(`⚠️  Upgrade Confirmation page validation error: ${err.message}`);
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
   // PPV PAYMENT PAGE  (active_standard_* users — saved card checkout)
   // ─────────────────────────────────────────────────────────────────────────
 

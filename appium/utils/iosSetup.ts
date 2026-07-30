@@ -409,7 +409,41 @@ export async function handleStartupDialogs(driver: WdBrowser, timeoutMs = 20000)
 }
 
 async function acceptCookiesIfPresent(driver: WdBrowser): Promise<boolean> {
-  return tapDialogButton(driver, ['Accept Cookies', 'Accept All', 'Accept', 'OK'], 'Cookies accepted');
+  const accepted = await tapDialogButton(driver, [
+    'Accept Cookies', 'Accept All', 'Accept All Cookies', 'Accept',
+    'Allow All', 'Allow All Cookies', 'Allow', 'I Accept',
+    'OK', 'Confirm My Choices',
+  ], 'Cookies accepted');
+  if (accepted) {
+    await driver.pause(1500);
+    return true;
+  }
+
+  // Fallback: detect cookie consent via page source and try coordinate tap
+  try {
+    const source = (await driver.getPageSource()).toLowerCase();
+    const hasCookieConsent = /cookie|cookies|onetrust|consent|privacy/i.test(source);
+    if (!hasCookieConsent) return false;
+
+    // Try to find and click the accept/allow button by broader matching
+    const acceptSelectors = [
+      '-ios predicate string:type == "XCUIElementTypeButton" AND (name CONTAINS[c] "Accept" OR label CONTAINS[c] "Accept" OR name CONTAINS[c] "Allow" OR label CONTAINS[c] "Allow")',
+      '-ios predicate string:type == "XCUIElementTypeButton" AND (name CONTAINS[c] "OK" OR label CONTAINS[c] "OK")',
+      '//XCUIElementTypeButton[contains(@name, "Accept") or contains(@label, "Accept") or contains(@name, "Allow") or contains(@label, "Allow")]',
+    ];
+    for (const sel of acceptSelectors) {
+      const btn = await findVisible(driver, [sel]);
+      if (btn) {
+        try {
+          await btn.click();
+          console.log('[Cookies] Accepted via fallback broader selector.');
+          await driver.pause(1500);
+          return true;
+        } catch {}
+      }
+    }
+  } catch {}
+  return false;
 }
 
 async function dismissLandingPage(driver: WdBrowser): Promise<boolean> {

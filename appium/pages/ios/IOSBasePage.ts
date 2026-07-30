@@ -79,7 +79,10 @@ export class IOSBasePage {
         timeoutMsg: 'DAZN cookie banner remained visible after clicking Accept.',
       });
       IOSBasePage.safariCookieConsentHandledDrivers.add(driverKey);
-      await this.driver.pause(500);
+      // After cookie consent dismissal, wait for the underlying page to settle.
+      // On real iOS devices the page can take a few seconds to re-render after
+      // the OneTrust overlay is removed.
+      await this.driver.pause(Number(process.env.IOS_POST_COOKIE_SETTLE_MS || 3500));
       console.log('✅ DAZN cookie banner is hidden.');
     };
     const deadline = Date.now() + effectiveTimeout;
@@ -414,7 +417,7 @@ export class IOSBasePage {
     // device/iOS version the App Store sheet is visible on screen but omitted
     // from both the XCUITest tree and native page source, so source-based
     // presence checks would block forever.
-    await this.driver.pause(Number(process.env.IOS_EXTERNAL_SHEET_SETTLE_MS || 1500));
+    await this.driver.pause(Number(process.env.IOS_EXTERNAL_SHEET_SETTLE_MS || 3000));
 
     // 2. Resolve the system sheet by accessibility label. Looking up six
     // selectors five times made XCUITest wait for idle on each miss (nearly a
@@ -430,7 +433,7 @@ export class IOSBasePage {
     // The sheet is already visible when this method is called. If XCUITest
     // has not surfaced Continue within a few seconds, it will not do so for
     // this presentation and the coordinate fallback is required.
-    const deadline = Date.now() + 5000;
+    const deadline = Date.now() + 8000;
     while (Date.now() < deadline && !alertHandled) {
       // The previous URL capture may have left the session in a WKWebView.
       // Reassert the native context on every poll: system sheets are not
@@ -512,6 +515,11 @@ export class IOSBasePage {
     // We detect the browser by checking for a WEBVIEW context with a valid DAZN
     // URL before falling back to the external Safari poll.
     let activatedBrowser = '';
+
+    // After the App Store sheet is dismissed, Safari needs time to open and
+    // begin loading the DAZN URL. Without this pause the WEBVIEW poll starts
+    // immediately and sees only about:blank for several iterations.
+    await this.driver.pause(Number(process.env.IOS_POST_SHEET_SETTLE_MS || 5000));
 
     // Phase 1: poll for a WEBVIEW context (SFSafariViewController or WKWebView)
     // that resolves to a valid DAZN handoff URL. This covers the common in-app

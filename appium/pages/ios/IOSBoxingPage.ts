@@ -161,7 +161,9 @@ export class IOSBoxingPage extends IOSBasePage {
     }
 
     await sport.click();
-    await this.driver.pause(2500);
+    // Competition page content rails (e.g. Don't Miss) can take time to
+    // render after a sport tap — allow enough settle time.
+    await this.driver.pause(5000);
     await this.driver.saveScreenshot('./test-results/ios_sport_competition_page.png');
     console.log(`  Opened ${configuredSport} competition page via All Sports.`);
   }
