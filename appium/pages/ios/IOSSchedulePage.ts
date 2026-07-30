@@ -1,5 +1,4 @@
 import { IOSBasePage, IOSFlowHooks, WdBrowser, WdElement } from './IOSBasePage';
-import { navigateToPPVTile } from '../../utils/scheduleNavigator';
 
 export class IOSSchedulePage extends IOSBasePage {
   async navigate(): Promise<void> {
@@ -54,75 +53,82 @@ export class IOSSchedulePage extends IOSBasePage {
     }
   }
 
-  async clickBoxingFilterIfPresent(): Promise<void> {
-    console.log('Finding Boxing filter on top strip...');
-    const allSportsTab = [
-      '-ios predicate string:type == "XCUIElementTypeButton" AND (name == "All Sports" OR label == "All Sports")',
-      '~All Sports',
-    ];
-    const boxingTab = [
-      '-ios predicate string:(type == "XCUIElementTypeButton" OR type == "XCUIElementTypeStaticText") AND (name == "Boxing" OR label == "Boxing")',
-      '~Boxing',
+  async clickSportFilterIfPresent(eventConfig?: Record<string, any>): Promise<void> {
+    const sport = String(eventConfig?.SPORT || 'Boxing');
+    console.log(`Finding "${sport}" filter on top strip...`);
+
+    const sportTab = [
+      `-ios predicate string:(type == "XCUIElementTypeButton" OR type == "XCUIElementTypeStaticText") AND (name == "${sport}" OR label == "${sport}")`,
+      `~${sport}`,
     ];
 
-    let allSports: WdElement | null = null;
-    for (const sel of allSportsTab) {
+    // First check if the sport filter is already visible
+    let sportEl: WdElement | null = null;
+    for (const sel of sportTab) {
       try {
         const el = await this.driver.$(sel);
-        if (await el.isDisplayed()) { allSports = el; break; }
+        if (await el.isDisplayed()) { sportEl = el; break; }
       } catch {}
     }
 
-    if (!allSports) {
-      console.log('  All Sports tab not visible; skipping filter strip swipe');
-      return;
-    }
-
-    const loc = await allSports.getLocation();
-    const size = await allSports.getSize();
-    const menuY = Math.round(loc.y + size.height / 2);
-
-    let boxing: WdElement | null = null;
-    for (const sel of boxingTab) {
-      try {
-        const el = await this.driver.$(sel);
-        if (await el.isDisplayed()) { boxing = el; break; }
-      } catch {}
-    }
-
-    // Swipe horizontally to find Boxing tab
-    const { width } = await this.driver.getWindowRect();
-    for (let i = 0; i < 8 && !boxing; i++) {
-      console.log(`  Horizontal swipe ${i + 1} to find Boxing...`);
-      const fromX = Math.round(width * 0.80);
-      const toX = Math.round(width * 0.20);
-      await this.driver.performActions([{
-        type: 'pointer', id: 'pd', parameters: { pointerType: 'touch' },
-        actions: [
-          { type: 'pointerMove', duration: 0, x: fromX, y: menuY },
-          { type: 'pointerDown', button: 0 },
-          { type: 'pause', duration: 80 },
-          { type: 'pointerMove', duration: 250, x: toX, y: menuY },
-          { type: 'pointerUp', button: 0 },
-        ],
-      }]);
-      await this.driver.releaseActions();
-      await this.driver.pause(500);
-
-      for (const sel of boxingTab) {
+    // If not visible, swipe the filter strip horizontally to find it
+    if (!sportEl) {
+      const allSportsTab = [
+        '-ios predicate string:type == "XCUIElementTypeButton" AND (name == "All Sports" OR label == "All Sports")',
+        '~All Sports',
+      ];
+      let allSports: WdElement | null = null;
+      for (const sel of allSportsTab) {
         try {
           const el = await this.driver.$(sel);
-          if (await el.isDisplayed()) { boxing = el; break; }
+          if (await el.isDisplayed()) { allSports = el; break; }
         } catch {}
+      }
+
+      if (!allSports) {
+        console.log('  All Sports tab not visible; skipping filter strip swipe');
+        return;
+      }
+
+      const loc = await allSports.getLocation();
+      const size = await allSports.getSize();
+      const menuY = Math.round(loc.y + size.height / 2);
+      const { width } = await this.driver.getWindowRect();
+
+      for (let i = 0; i < 8 && !sportEl; i++) {
+        console.log(`  Horizontal swipe ${i + 1} to find ${sport}...`);
+        const fromX = Math.round(width * 0.80);
+        const toX = Math.round(width * 0.20);
+        await this.driver.performActions([{
+          type: 'pointer', id: 'pd', parameters: { pointerType: 'touch' },
+          actions: [
+            { type: 'pointerMove', duration: 0, x: fromX, y: menuY },
+            { type: 'pointerDown', button: 0 },
+            { type: 'pause', duration: 80 },
+            { type: 'pointerMove', duration: 250, x: toX, y: menuY },
+            { type: 'pointerUp', button: 0 },
+          ],
+        }]);
+        await this.driver.releaseActions();
+        await this.driver.pause(500);
+
+        for (const sel of sportTab) {
+          try {
+            const el = await this.driver.$(sel);
+            if (await el.isDisplayed()) { sportEl = el; break; }
+          } catch {}
+        }
       }
     }
 
-    if (boxing) {
-      await boxing.click();
-      console.log('✅ Boxing filter selected');
-      await this.driver.pause(1000);
+    if (sportEl) {
+      await sportEl.click();
+      // Wait for the schedule content to refresh after filter change
+      await this.driver.pause(3000);
+      await this.driver.saveScreenshot('./test-results/ios_schedule_after_sport_filter.png');
+      console.log(`✅ ${sport} filter selected`);
     } else {
-      console.warn('⚠️ Boxing filter not found, proceeding with default list');
+      console.warn(`⚠️ ${sport} filter not found, proceeding with default list`);
     }
   }
 
@@ -197,23 +203,19 @@ export class IOSSchedulePage extends IOSBasePage {
   async openPPVPaywall(eventConfig?: any, hooks: IOSFlowHooks = {}): Promise<boolean> {
     console.log('Navigating to Schedule page...');
     await this.navigate();
-    await this.driver.pause(3000);
-    await this.clickBoxingFilterIfPresent();
-    await this.driver.pause(3000);
+    // Allow Schedule page content to fully render before interacting
+    await this.driver.pause(7000);
+    await this.clickSportFilterIfPresent(eventConfig);
 
-    console.log(`Navigating to ${this.ppvName} using schedule navigator...`);
+    console.log(`Navigating to ${this.ppvName} using iOS schedule scroll...`);
     try {
-      if (eventConfig) {
-        await navigateToPPVTile(this.driver, eventConfig, hooks);
+      const ppvTile = await this.scrollToPPVTile(this.ppvName);
+      if (ppvTile) {
+        await this.runSurfaceValidation(hooks, 'PPV Tile');
+        await ppvTile.click();
+        console.log(`Clicked ${this.ppvName} tile`);
       } else {
-        const ppvTile = await this.scrollToPPVTile(this.ppvName);
-        if (ppvTile) {
-          await this.runSurfaceValidation(hooks, 'PPV Tile');
-          await ppvTile.click();
-          console.log(`Clicked ${this.ppvName} tile`);
-        } else {
-          throw new Error(`PPV tile not found: ${this.ppvName}`);
-        }
+        throw new Error(`PPV tile not found: ${this.ppvName}`);
       }
       hooks.recordAvailability?.(true, undefined, 'Schedule');
     } catch (e: any) {

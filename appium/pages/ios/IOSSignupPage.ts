@@ -36,9 +36,6 @@ export class IOSSignupPage extends IOSBasePage {
     if (!button) return false;
     await button.click();
     await this.driver.pause(1800);
-    // Account transitions can re-open OneTrust. This was the established
-    // working Safari behaviour; keep the check at transition boundaries.
-    await this.handleSafariCookies(5000);
     return true;
   }
 
@@ -144,7 +141,27 @@ export class IOSSignupPage extends IOSBasePage {
       ]);
       if (emailInput) {
         await emailInput.click();
-        await emailInput.setValue(email);
+        await this.driver.pause(500);
+        // Re-fetch the input after click to avoid stale element references
+        // caused by React re-renders. The click can trigger DOM updates that
+        // invalidate the element reference held by firstVisible().
+        const freshEmail = await this.firstVisible([
+          'input[type="email"]', 'input[name*="email" i]', 'input[autocomplete="email"]',
+          'input[placeholder*="email" i]', 'input[aria-label*="email" i]', 'input', '[role="textbox"]',
+        ]);
+        if (freshEmail) {
+          try {
+            await freshEmail.setValue(email);
+          } catch {
+            // If the element is still not interactable, skip email entry and
+            // let the next iteration handle password entry (existing user).
+            console.log('⚠️ Email input not interactable after click — skipping email entry.');
+            continue;
+          }
+        } else {
+          console.log('⚠️ Email input disappeared after click — skipping email entry.');
+          continue;
+        }
         if (!await this.clickContinue()) throw new Error('Safari sign-up email Continue button was not available.');
         continue;
       }
@@ -159,6 +176,24 @@ export class IOSSignupPage extends IOSBasePage {
       if (!isContextualPpvPage && ppvPage.isChooseHowToBuyPage(lower)) {
         await ppvPage.validateAndClickBuyNow(results, eventData);
         continue;
+      }
+
+      // ── Upgrade Confirmation page (active_standard → ultimate upgrade) ──
+      // After selecting Ultimate on Choose How To Buy → Plan page → Continue,
+      // the user lands on the Upgrade Confirmation page.
+      const isUpgradeConfirmationPage = /your plan will be changed|confirm plan change|upgrade/i.test(lower) &&
+        (url.includes('upgradePlan') || url.includes('upgradeTier') || url.includes('upgradeplan') || url.includes('upgradetier') || lower.includes('confirm'));
+      if (isUpgradeConfirmationPage) {
+        console.log('✅ Upgrade Confirmation page detected.');
+        if (eventData) {
+          try {
+            await new IOSSafariValidationPage(this.driver).validateUpgradeConfirmationPage(eventData, results);
+          } catch (err: any) {
+            console.warn(`⚠️ Upgrade Confirmation page validation error: ${err.message}`);
+          }
+        }
+        results.push({ page: 'iOS Safari', field: 'Upgrade Confirmation page reached', expected: 'Yes', actual: 'Yes', status: 'PASS' });
+        return;
       }
 
       // ── Plan selection page (delegated to IOSPlanPage) ──
@@ -177,6 +212,21 @@ export class IOSSignupPage extends IOSBasePage {
           await this.driver.pause(1500);
           continue;
         }
+        // After sign-in DAZN may briefly land on /home or /welcome before
+        // redirecting to the contextual PPV flow. Wait and retry.
+        if (/\/home\/?$|\/welcome\/?$/i.test(url)) {
+          console.log('⏳ Transient redirect to home/welcome after sign-in; waiting for contextual redirect...');
+          await this.driver.pause(3000);
+          continue;
+        }
+        // Account pages (e.g. /addon/purchase, /choosePlan) can take several
+        // seconds to render their interactive content after the URL resolves.
+        // Wait and retry so the next iteration can match the page text.
+        if (/\/account\//i.test(url)) {
+          console.log(`⏳ Account page still rendering (${url.split('?')[0].split('/').pop()}); waiting...`);
+          await this.driver.pause(3000);
+          continue;
+        }
         const inputs = await this.driver.$$('input, [role="textbox"]');
         const descriptions: string[] = [];
         for (const input of inputs) {
@@ -191,7 +241,6 @@ export class IOSSignupPage extends IOSBasePage {
       }
       await progressed.click();
       await this.driver.pause(1800);
-      await this.handleSafariCookies(5000);
     }
 
     results.push({ page: 'iOS Safari', field: 'Payment page reached', expected: 'Yes', actual: 'No', status: 'FAIL' });

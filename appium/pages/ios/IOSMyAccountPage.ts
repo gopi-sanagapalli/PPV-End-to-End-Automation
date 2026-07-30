@@ -104,7 +104,31 @@ export class IOSMyAccountPage extends IOSBasePage {
       await emailInput.waitForDisplayed({ timeout: 10000 });
       await emailInput.click();
       await this.driver.pause(500);
-      await emailInput.setValue(credentials.email);
+      // Re-fetch the input after click to avoid stale element references
+      // caused by React re-renders. The click can trigger DOM updates that
+      // invalidate the element reference held by the earlier $() call.
+      const freshEmailInput = await this.driver.$('//XCUIElementTypeTextField');
+      if (await freshEmailInput.isDisplayed().catch(() => false)) {
+        await freshEmailInput.setValue(credentials.email);
+      } else {
+        const fallbackInput = await this.driver.$('-ios predicate string:type == "XCUIElementTypeTextField" OR name CONTAINS[c] "email" OR label CONTAINS[c] "email"');
+        if (await fallbackInput.isDisplayed().catch(() => false)) {
+          await fallbackInput.setValue(credentials.email);
+        } else {
+          console.log('⚠️ Email input not interactable after click — attempting original reference.');
+          await emailInput.setValue(credentials.email).catch(async (e: any) => {
+            console.warn(`⚠️ Email input setValue failed after re-render: ${e.message}`);
+            // Last resort: try finding any visible text field
+            const allFields = await this.driver.$$('//XCUIElementTypeTextField');
+            for (const field of allFields) {
+              if (await field.isDisplayed().catch(() => false)) {
+                await field.setValue(credentials.email);
+                break;
+              }
+            }
+          });
+        }
+      }
       await this.driver.pause(500);
 
       // Tap Go / Next / Continue button
@@ -134,7 +158,29 @@ export class IOSMyAccountPage extends IOSBasePage {
       await passwordInput.waitForDisplayed({ timeout: 10000 });
       await passwordInput.click();
       await this.driver.pause(500);
-      await passwordInput.setValue(credentials.password);
+      // Re-fetch the password input after click to avoid stale element references
+      // caused by React re-renders (same pattern as email input above).
+      const freshPasswordInput = await this.driver.$('//XCUIElementTypeSecureTextField');
+      if (await freshPasswordInput.isDisplayed().catch(() => false)) {
+        await freshPasswordInput.setValue(credentials.password);
+      } else {
+        const fallbackPasswordInput = await this.driver.$('-ios predicate string:type == "XCUIElementTypeSecureTextField"');
+        if (await fallbackPasswordInput.isDisplayed().catch(() => false)) {
+          await fallbackPasswordInput.setValue(credentials.password);
+        } else {
+          console.log('⚠️ Password input not interactable after click — attempting original reference.');
+          await passwordInput.setValue(credentials.password).catch(async (e: any) => {
+            console.warn(`⚠️ Password input setValue failed after re-render: ${e.message}`);
+            const allSecureFields = await this.driver.$$('//XCUIElementTypeSecureTextField');
+            for (const field of allSecureFields) {
+              if (await field.isDisplayed().catch(() => false)) {
+                await field.setValue(credentials.password);
+                break;
+              }
+            }
+          });
+        }
+      }
       await this.driver.pause(500);
 
       // Hide keyboard if present by tapping return or done
