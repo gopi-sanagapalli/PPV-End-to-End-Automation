@@ -26,17 +26,6 @@ if (process.env.DEFAULT_SIGNUP_DEVMODE === 'true') {
   event.DEFAULT_SIGNUP_DEVMODE = false;
   event.HAS_DEFAULT_SIGNUP_PPV = true;
 }
-const eventDate = new Date(event.global?.PPV_UTC_DATE);
-const isDefaultMode = mode.startsWith('default-');
-// default-* modes get a 3-day buffer after the event so the workflow can
-// verify the PPV is removed from default signup pages and banners.
-const bufferMs = isDefaultMode ? 3 * 24 * 60 * 60 * 1000 : 0;
-if (Number.isNaN(eventDate.getTime()) || eventDate.getTime() + bufferMs <= Date.now()) {
-  const suffix = isDefaultMode
-    ? `; default-signup runs are allowed up to 3 days after the event.`
-    : '; only future PPVs may be run.';
-  throw new Error(`${configName} is not eligible: PPV_UTC_DATE is ${event.global?.PPV_UTC_DATE || 'missing'}${suffix}`);
-}
 if (!event.regions?.[country]) throw new Error(`${configName} is not available in ${country}: regions.${country} is missing.`);
 
 const sourceConfig = JSON.parse(fs.readFileSync('config/surfacingpoint.json', 'utf8'));
@@ -171,6 +160,16 @@ switch (mode) {
       { source: 'subscribe-without-pay-per-view', profile: 'freemium/standard_monthly' },
     ];
     break;
+  case 'removal-new': {
+    const sources = applicable(liveSources.new, true);
+    matrix = sources.map((source) => ({ source, plan: standardPlans[0] }));
+    break;
+  }
+  case 'removal-signed': {
+    const sources = applicable(liveSources.signed, true);
+    matrix = sources.map((source) => ({ source, profile: `freemium/${standardPlans[0]}` }));
+    break;
+  }
   default: throw new Error(`Unsupported matrix mode: ${mode}`);
 }
 

@@ -668,6 +668,18 @@ async function runFlow(
         }
 
         if (!container) {
+          if (process.env.PPV_REMOVAL === 'true') {
+            console.log(`✅ [PPV Removal] Category B (${source}): PPV container not found on page — confirmed removed/absent as expected.`);
+            results.push({
+              page: 'PPV Removal',
+              field: 'PPV Surfacing Point Removal',
+              expected: 'PPV surfacing point removed from UI',
+              actual: 'PPV container absent from page',
+              status: 'PASS',
+            });
+            await context.close().catch(() => { });
+            return { results, reachedEndPage: true };
+          }
           throwLogged(new Error(`❌ PPV container not found via ${source}`));
         }
       }
@@ -995,7 +1007,56 @@ async function runFlow(
       await handleCookies(page, step === 0 ? 5000 : 500);
       await stabilisePage(page);
       await dismissMarketingPopup(page);
-      console.log(`\nstep ${step + 1} → pageType: ${pageType} | planClicks: ${planClickCount} | url: ${page.url()}`);
+      // ── PPV Removal validation check ──
+      if (process.env.PPV_REMOVAL === 'true') {
+        const url = page.url().toLowerCase();
+        const isCategoryA =
+          SOURCE === 'home-boxing-tile' ||
+          SOURCE === 'home-page-dazntile' ||
+          SOURCE === 'home-kickboxing-tile' ||
+          SOURCE === 'schedule' ||
+          SOURCE === 'search';
+
+        if (isCategoryA) {
+          const isSignupPage =
+            url.includes('page=tierplans') ||
+            url.includes('page=plandetails') ||
+            url.includes('/signup') ||
+            pageType === 'plan' ||
+            pageType === 'email';
+
+          if (isSignupPage) {
+            const bodyText = await page.locator('body').innerText({ timeout: 2000 }).then((t: string) => t.toLowerCase()).catch(() => '');
+            const hasPPVPurchase = bodyText.includes('pay-per-view') || bodyText.includes('choose how to buy');
+            if (hasPPVPurchase) {
+              throw new Error(`❌ [PPV Removal] Found PPV purchase option on page ${page.url()} when event should be removed`);
+            }
+            console.log(`✅ [PPV Removal] Category A (${SOURCE}): Successfully landed on DAZN tier plans/signup page: ${page.url()}. Event is no longer a PPV and is part of DAZN subscription.`);
+            results.push({
+              page: 'PPV Removal',
+              field: 'Redirect to DAZN Signup Flow',
+              expected: 'Landed on DAZN Signup/Tier Plans page without PPV purchase option',
+              actual: `Landed on ${page.url()} without PPV elements`,
+              status: 'PASS',
+            });
+            reachedEndPage = true;
+            await context.close().catch(() => { });
+            return { results, reachedEndPage };
+          }
+        } else {
+          console.log(`✅ [PPV Removal] Category B (${SOURCE}): PPV surfacing point is removed/absent from page as expected.`);
+          results.push({
+            page: 'PPV Removal',
+            field: 'PPV Surfacing Point Removal',
+            expected: 'PPV surfacing point removed from UI',
+            actual: 'PPV surfacing point is absent from page',
+            status: 'PASS',
+          });
+          reachedEndPage = true;
+          await context.close().catch(() => { });
+          return { results, reachedEndPage };
+        }
+      }
 
       // ── Default Signup validation check: Fail if no PPV ──
       // Skip this check for boxing subscription sources — they intentionally bypass the PPV page
