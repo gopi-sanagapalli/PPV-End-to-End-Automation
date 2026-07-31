@@ -133,6 +133,10 @@ export async function handlePopupModal(
   source: string,
   clickBuyNow: boolean
 ): Promise<boolean> {
+  if (process.env.PPV_REMOVAL === 'true') {
+    console.log('ℹ️ [PPV Removal] Skipping popup check');
+    return false;
+  }
   const src = (source || '').toLowerCase();
 
   // 1. Skip check for landing-page-dont-miss flows since they are cards, not tiles (no popup modal displayed)

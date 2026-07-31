@@ -82,6 +82,10 @@ export const validateVariant = async (
   flow?:     string,   // ← optional: 'myaccount' | 'landing' | undefined
   skipLazyScroll?: boolean  // ← when true, skip the full-page lazy-load scroll
 ) => {
+  if (process.env.PPV_REMOVAL === 'true') {
+    console.log(`ℹ️ [PPV Removal] Skipping spreadsheet validation for page "${pageName}".`);
+    return;
+  }
   console.log(`🔍 validateVariant entry: pageName = "${pageName}", variant = "${variant}", hasEventData = ${!!eventData}, typeof eventData = ${typeof eventData}, keys = ${eventData ? Object.keys(eventData).join(', ') : 'none'}`);
   if (!eventData) throw new Error('❌ eventData is missing');
 

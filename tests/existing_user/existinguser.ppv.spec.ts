@@ -1211,7 +1211,7 @@ for (const stateKey of userStatesToRun) {
           }
 
 
-          if (scheduleEventClicked) {
+          if (scheduleEventClicked && process.env.PPV_REMOVAL !== 'true') {
             await handlePopupModal(page, results, eventData, SOURCE, false);
             await schedule.clickBuyNow();
           }
@@ -1254,10 +1254,11 @@ for (const stateKey of userStatesToRun) {
 
           await searchPage.clickPPVTile(eventData.PPV_NAME);
 
-          // Check and validate popup modal after clicking the tile and before clicking Buy Now
-          await handlePopupModal(page, results, eventData, SOURCE, false);
-
-          await searchPage.clickBuyNow();
+          if (process.env.PPV_REMOVAL !== 'true') {
+            // Check and validate popup modal after clicking the tile and before clicking Buy Now
+            await handlePopupModal(page, results, eventData, SOURCE, false);
+            await searchPage.clickBuyNow();
+          }
         } else {
           const isHomePageSource = SOURCE.startsWith('home-page-') ||
             SOURCE === 'home-biggest-fights' ||

@@ -540,7 +540,7 @@ async function runFlow(
         }
       }
 
-      if (scheduleEventClicked) {
+      if (scheduleEventClicked && process.env.PPV_REMOVAL !== 'true') {
         await handlePopupModal(page, results, eventData, source, false);
         await schedule.clickBuyNow();
       }
@@ -574,10 +574,11 @@ async function runFlow(
 
       await searchPage.clickPPVTile(eventData.PPV_NAME);
 
-      // Check and validate popup modal after clicking the tile and before clicking Buy Now
-      await handlePopupModal(page, results, eventData, source, false);
-
-      await searchPage.clickBuyNow();
+      if (process.env.PPV_REMOVAL !== 'true') {
+        // Check and validate popup modal after clicking the tile and before clicking Buy Now
+        await handlePopupModal(page, results, eventData, source, false);
+        await searchPage.clickBuyNow();
+      }
     } else {
       const landing = isHomePageSource
         ? new HomePage(page)
@@ -790,8 +791,10 @@ async function runFlow(
       // home-page-dazntile clicks the entitlement tile inside
       // findPPVContainer(), so it has no PPV container for the generic
       // Buy Now handler.
-      if (source !== 'home-page-dazntile') {
+      if (source !== 'home-page-dazntile' && process.env.PPV_REMOVAL !== 'true') {
         await landing.clickBuyNow(container, source);
+      } else if (process.env.PPV_REMOVAL === 'true') {
+        console.log('ℹ️ [PPV Removal] Generic Buy Now click skipped');
       } else {
         console.log(
           'ℹ️ [DAZN Tile] Generic PPV Buy Now click skipped; entitlement tile was already clicked'
