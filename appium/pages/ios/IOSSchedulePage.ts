@@ -36,6 +36,12 @@ export class IOSSchedulePage extends IOSBasePage {
     return closest?.element ?? null;
   }
 
+  private async isSelectedFilter(element: WdElement): Promise<boolean> {
+    if (await element.isSelected().catch(() => false)) return true;
+    const selected = String(await element.getAttribute('selected').catch(() => '')).toLowerCase();
+    return selected === 'true' || selected === '1';
+  }
+
   async navigate(): Promise<void> {
     console.log('Navigating to Schedule tab...');
     await this.driver.saveScreenshot('./test-results/before_ios_schedule_click.png');
@@ -69,11 +75,21 @@ export class IOSSchedulePage extends IOSBasePage {
     // because it still exposes "Schedule"; wait for the Schedule heading and
     // its filter strip, which confirms its data-bearing content has rendered.
     await this.driver.waitUntil(async () => {
-      const [title, allSports] = await Promise.all([
-        this.firstVisible(scheduleTitle),
-        this.firstVisible(allSportsTab),
-      ]);
-      return Boolean(title && allSports);
+      const { height } = await this.driver.getWindowRect().catch(() => ({ height: 0 }));
+      // `~Schedule` also matches the persistent bottom-navigation button.
+      // Restrict the heading to the upper screen before accepting the filter
+      // strip as Schedule content.
+      const title = await this.firstVisibleNearY(
+        scheduleTitle,
+        Math.round(height * 0.10),
+        Math.round(height * 0.18),
+      );
+      const titleLocation = title ? await title.getLocation().catch(() => null) : null;
+      const allSports = titleLocation
+        ? await this.firstVisibleNearY(allSportsTab, titleLocation.y + Math.round(height * 0.10), Math.round(height * 0.20))
+        : null;
+      const pageSource = await this.driver.getPageSource().catch(() => '');
+      return Boolean(title && allSports) && !/<XCUIElementTypeActivityIndicator\b/i.test(pageSource);
     }, {
       timeout: 20000,
       interval: 400,
@@ -100,7 +116,12 @@ export class IOSSchedulePage extends IOSBasePage {
       '-ios predicate string:type == "XCUIElementTypeButton" AND (name == "All Sports" OR label == "All Sports")',
       '~All Sports',
     ];
-    const allSports = await this.firstVisible(allSportsTab);
+    const { width, height } = await this.driver.getWindowRect();
+    const allSports = await this.firstVisibleNearY(
+      allSportsTab,
+      Math.round(height * 0.20),
+      Math.round(height * 0.24),
+    );
     if (!allSports) {
       throw new Error('Schedule filter strip was not visible after Schedule loaded.');
     }
@@ -108,7 +129,6 @@ export class IOSSchedulePage extends IOSBasePage {
     const location = await allSports.getLocation();
     const size = await allSports.getSize();
     const menuY = Math.round(location.y + size.height / 2);
-    const { width } = await this.driver.getWindowRect();
 
     // The event list can contain a Boxing label too. Restrict discovery to
     // the filter-strip row so the following click cannot select list content.
@@ -133,9 +153,29 @@ export class IOSSchedulePage extends IOSBasePage {
     }
 
     if (sportEl) {
+      if (await this.isSelectedFilter(sportEl)) {
+        console.log(`✅ ${sport} filter already selected`);
+        return;
+      }
+      const sourceBeforeFilterTap = await this.driver.getPageSource().catch(() => '');
       await sportEl.click();
+      await this.driver.waitUntil(async () => {
+        const selectedSport = await this.firstVisibleNearY(sportTab, menuY);
+        if (!selectedSport) return false;
+        const pageSource = await this.driver.getPageSource().catch(() => '');
+        const selectionExposed = await this.isSelectedFilter(selectedSport);
+        const contentRefreshed = Boolean(pageSource && pageSource !== sourceBeforeFilterTap);
+        return !/<XCUIElementTypeActivityIndicator\b/i.test(pageSource) && (selectionExposed || contentRefreshed);
+      }, {
+        timeout: 10000,
+        interval: 300,
+        timeoutMsg: `${sport} filter did not refresh Schedule content after it was tapped.`,
+      }).catch(async (error: any) => {
+        await this.driver.saveScreenshot('./test-results/ios_schedule_sport_filter_not_selected.png').catch(() => {});
+        throw error;
+      });
       await this.driver.saveScreenshot('./test-results/ios_schedule_after_sport_filter.png');
-      console.log(`✅ ${sport} filter selected`);
+      console.log(`✅ ${sport} filter applied and Schedule content settled`);
     } else {
       console.warn(`⚠️ ${sport} filter not found, proceeding with default list`);
     }

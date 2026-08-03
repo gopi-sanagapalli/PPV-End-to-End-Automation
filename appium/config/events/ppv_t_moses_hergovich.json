@@ -16,6 +16,7 @@
     "PPV_ENTITLEMENT_ID": "ppv_t_moses_hergovich",
     "PPV_DESCRIPTION": "Catch the biggest moment of the year. Select a DAZN plan to pair with your pay-per-view.",
     "PPV_UTC_DATE": "2026-08-29T16:00:00Z",
+    "PPV_TIME": "17:00",
     "PPV_LOCATION": "The 02, London",
     "BOXING_BANNER_SUBTITLE": "Undefeated. Unexplained. A Natural Born Thriller. Boxing's next superstar meets his most dangerous test yet",
     "PPV_CARD_TITLE": "Moses vs. Hrgovic",
@@ -25,6 +26,7 @@
   },
   "regions": {
     "GB": {
+      "PPV_TIME": "17:00",
       "MOBILE_PPV_DATE": "29 AUG 5:00 PM",
       "MOBILE_BANNER_TITLE": "Moses vs. Hrgovic",
       "MOBILE_BANNER_DATE_TIME": "Sat 29th Aug at 17:00",
@@ -41,6 +43,7 @@
       "PPV_NAME": "Moses vs. Hrgovic"
     },
     "US": {
+      "PPV_TIME": "12:00",
       "MOBILE_PPV_DATE": "29 AUG 10:30 AM",
       "MOBILE_BANNER_TITLE": "Moses vs. Hrgovic",
       "MOBILE_BANNER_DATE_TIME": "Sat 29th Aug at 12:00",
@@ -57,6 +60,7 @@
       "PPV_NAME": "Moses vs. Hrgovic"
     },
     "AU": {
+      "PPV_TIME": "02:00",
       "MOBILE_PPV_DATE": "29 AUG 12:30 AM",
       "MOBILE_BANNER_TITLE": "Moses vs. Hrgovic",
       "MOBILE_BANNER_DATE_TIME": "Sun 30th Aug at 02:00",
@@ -73,6 +77,7 @@
       "PPV_NAME": "Moses vs. Hrgovic"
     },
     "AE": {
+      "PPV_TIME": "20:00",
       "MOBILE_PPV_DATE": "29 AUG 6:30 PM",
       "MOBILE_BANNER_TITLE": "Moses vs. Hrgovic",
       "MOBILE_BANNER_DATE_TIME": "Sat 29th Aug at 20:00",
@@ -89,6 +94,7 @@
       "PPV_NAME": "Moses vs. Hrgovic"
     },
     "BR": {
+      "PPV_TIME": "13:00",
       "MOBILE_PPV_DATE": "29 AUG 11:30 AM",
       "MOBILE_BANNER_TITLE": "Moses vs. Hrgovic",
       "MOBILE_BANNER_DATE_TIME": "Sat 29th Aug at 13:00",

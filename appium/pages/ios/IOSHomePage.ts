@@ -87,13 +87,30 @@ export class IOSHomePage extends IOSLandingPage {
   ): Promise<boolean> {
     console.log('Home Page -> Find "Don\'t Miss" rail -> swipe to PPV tile -> open PPV');
     if (!options.skipEnsureHome) await this.ensureOnHome();
-    await this.driver.pause(2000);
     delete process.env.IOS_DONT_MISS_PPV_TILE_FOUND;
     delete process.env.IOS_DONT_MISS_OCR_TEXTS;
 
     // iOS accessibility labels vary between the straight and typographic
     // apostrophe, depending on the feed payload and OS text rendering.
     const railLabels = ["Don't Miss", 'Don’t Miss', 'Dont Miss'];
+    // XCUITest can report collection items as displayed while they sit beyond
+    // the left or right edge of a horizontally scrolling rail. Require the
+    // element's centre point to be on screen so an off-screen/edge-only PPV
+    // card cannot bypass the rail swipe loop.
+    const isInViewport = async (candidate: any): Promise<boolean> => {
+      if (typeof candidate?.getLocation !== 'function') return false;
+      const [viewport, location, size] = await Promise.all([
+        this.driver.getWindowRect().catch(() => null),
+        candidate.getLocation().catch(() => null),
+        typeof candidate.getSize === 'function'
+          ? candidate.getSize().catch(() => null)
+          : Promise.resolve(null),
+      ]);
+      if (!viewport || !location) return false;
+      const centreX = location.x + (size?.width || 0) / 2;
+      const centreY = location.y + (size?.height || 0) / 2;
+      return centreX >= 0 && centreX < viewport.width && centreY >= 0 && centreY < viewport.height;
+    };
     const findVisibleDontMissRail = async (): Promise<any | undefined> => {
       for (const label of railLabels) {
         const selectors = [
@@ -104,7 +121,12 @@ export class IOSHomePage extends IOSLandingPage {
         for (const selector of selectors) {
           const candidates = await this.driver.$$(selector);
           for (const candidate of candidates) {
-            if (await candidate.isDisplayed().catch(() => false)) return candidate;
+            if (!(await candidate.isDisplayed().catch(() => false))) continue;
+            // XCTest can retain a displayed accessibility node after its rail
+            // has moved outside the viewport. Do not lock horizontal swipes
+            // to that stale heading.
+            if (typeof candidate.getLocation !== 'function') continue;
+            if (await isInViewport(candidate)) return candidate;
           }
         }
       }
@@ -124,21 +146,47 @@ export class IOSHomePage extends IOSLandingPage {
       console.log(`  Found rendered Don't Miss heading at y=${railY}; stopping vertical scroll.`);
       return true;
     };
-    // Home can report its tab as visible before the content rails have
-    // rendered. Give the feed a short, non-scrolling settle window first.
-    for (let attempt = 0; attempt < 5 && !railFound; attempt++) {
+    // After an existing-user login, the Home tab is visible before its feed
+    // has rendered. Wait for the actual rail condition before any vertical
+    // movement; otherwise the scroll can outrun the late-arriving feed.
+    await this.driver.waitUntil(async () => {
       const rail = await findVisibleDontMissRail();
-      if (rail) {
-        railY = (await rail.getLocation()).y;
-        railFound = true;
-        console.log(`  Found visible Don't Miss rail at y=${railY}; stopping vertical scroll.`);
-      } else if (await findRailByRenderedHeading()) {
-        railFound = true;
-      } else {
-        await this.driver.pause(1000);
-      }
-    }
-    for (let attempt = 0; attempt < 12 && !railFound; attempt++) {
+      if (!rail) return false;
+      const location = await rail.getLocation().catch(() => null);
+      if (!location) return false;
+      railY = location.y;
+      railFound = true;
+      console.log(`  Found visible Don't Miss rail at y=${railY}; stopping vertical scroll.`);
+      return true;
+    }, {
+      timeout: 10000,
+      interval: 500,
+      timeoutMsg: "Don't Miss rail did not appear in the initial Home feed.",
+    }).catch(() => { });
+    // Some real-device builds render the heading in the screenshot before it
+    // becomes an accessibility element. Preserve the OCR fallback, but only
+    // after the native rail wait so it is not repeatedly invoked while the
+    // feed is still mounting.
+    if (!railFound) railFound = await findRailByRenderedHeading();
+    // Keep the vertical movement deliberately small. The generic scrollDown
+    // gesture moves roughly 40% of the screen and can take this rail from
+    // below the fold to above it in one action before it is checked again.
+    const scrollTowardDontMissRail = async (): Promise<void> => {
+      const { width, height } = await this.driver.getWindowRect();
+      const x = Math.round(width / 2);
+      await this.driver.performActions([{
+        type: 'pointer', id: 'dont-miss-vertical-search', parameters: { pointerType: 'touch' },
+        actions: [
+          { type: 'pointerMove', duration: 0, x, y: Math.round(height * 0.65) },
+          { type: 'pointerDown', button: 0 },
+          { type: 'pause', duration: 80 },
+          { type: 'pointerMove', duration: 250, x, y: Math.round(height * 0.50) },
+          { type: 'pointerUp', button: 0 },
+        ],
+      }]);
+      await this.driver.releaseActions();
+    };
+    for (let attempt = 0; attempt < 20 && !railFound; attempt++) {
       const rail = await findVisibleDontMissRail();
       if (rail) {
         const location = await rail.getLocation();
@@ -149,8 +197,49 @@ export class IOSHomePage extends IOSLandingPage {
         railFound = true;
       }
       if (!railFound) {
-        await this.scrollDown();
-        await this.driver.pause(800);
+        console.log(`  Don't Miss rail is not in the viewport; making short vertical swipe ${attempt + 1}/20.`);
+        await scrollTowardDontMissRail();
+        // Poll the real rail condition after each small gesture. This waits
+        // for the native list to settle without adding a blind delay.
+        await this.driver.waitUntil(async () => {
+          const appearedRail = await findVisibleDontMissRail();
+          if (!appearedRail) return false;
+          const location = await appearedRail.getLocation().catch(() => null);
+          if (!location) return false;
+          railY = location.y;
+          railFound = true;
+          console.log(`  Found visible Don't Miss rail at y=${railY}; stopping vertical scroll.`);
+          return true;
+        }, {
+          timeout: 1500,
+          interval: 250,
+          timeoutMsg: "Don't Miss rail did not appear after the short vertical swipe.",
+        }).catch(() => { });
+      }
+    }
+
+    // A heading at the bottom of the viewport leaves its cards underneath the
+    // bottom navigation, and a horizontal gesture at the calculated rail
+    // position lands above the cards. Move the discovered rail into the middle
+    // once, then re-query it before starting the horizontal search.
+    if (railFound) {
+      const { height } = await this.driver.getWindowRect();
+      if (railY > height * 0.55) {
+        console.log(`  Don't Miss rail is at y=${railY}; making one short swipe to centre its cards.`);
+        await scrollTowardDontMissRail();
+        await this.driver.waitUntil(async () => {
+          const centredRail = await findVisibleDontMissRail();
+          if (!centredRail) return false;
+          const location = await centredRail.getLocation().catch(() => null);
+          if (!location) return false;
+          railY = location.y;
+          return true;
+        }, {
+          timeout: 1500,
+          interval: 250,
+          timeoutMsg: "Don't Miss rail did not remain visible while being centred.",
+        });
+        console.log(`  Don't Miss rail centred at y=${railY}; starting horizontal search from its card row.`);
       }
     }
 
@@ -186,6 +275,10 @@ export class IOSHomePage extends IOSLandingPage {
           if (!(await candidate.isDisplayed().catch(() => false))) continue;
           const location = await candidate.getLocation().catch(() => undefined);
           if (!location || location.y < railY - 40 || location.y > railBottom) continue;
+          if (!(await isInViewport(candidate))) {
+            console.log(`  PPV tile using "${term}" is outside the horizontal viewport at x=${location.x}, y=${location.y}; continuing rail swipe search.`);
+            continue;
+          }
           console.log(`  Found PPV tile using "${term}" at y=${location.y}; stopping horizontal search.`);
           return candidate;
         }
@@ -197,7 +290,10 @@ export class IOSHomePage extends IOSLandingPage {
     // but not necessarily the PPV title inside the image. OCR the current
     // screenshot locally without changing the scroll or rail-location logic.
     const findPpvTileByImage = async (): Promise<{ x: number; y: number } | undefined> => {
-      const visualMatch = await locateIOSPpvTileByImage(this.driver, this.ppvName);
+      const visualMatch = await locateIOSPpvTileByImage(this.driver, this.ppvName, {
+        minYPercent: Math.max(0, railY / height),
+        maxYPercent: Math.min(1, railBottom / height),
+      });
       if (!visualMatch.visible || visualMatch.xPercent === null || visualMatch.yPercent === null) return undefined;
 
       const x = Math.round(width * visualMatch.xPercent);
@@ -364,7 +460,11 @@ async function locateIOSDontMissRailByImage(driver: WdBrowser): Promise<IOSVisua
   }
 }
 
-async function locateIOSPpvTileByImage(driver: WdBrowser, ppvName: string): Promise<IOSVisualTileMatch> {
+async function locateIOSPpvTileByImage(
+  driver: WdBrowser,
+  ppvName: string,
+  verticalRange?: { minYPercent: number; maxYPercent: number },
+): Promise<IOSVisualTileMatch> {
   let screenshotPath = '';
   try {
     screenshotPath = path.join(os.tmpdir(), `dazn-ppv-ocr-${process.pid}-${Date.now()}.png`);
@@ -402,15 +502,35 @@ async function locateIOSPpvTileByImage(driver: WdBrowser, ppvName: string): Prom
       .split(/\s+vs\.?\s+|[^a-z0-9]+/)
       .map(term => term.trim())
       .filter(term => term.length >= 3);
-    const match = observations.find(observation => {
-      const text = observation.text.toLowerCase();
-      return terms.some(term => text.includes(term));
-    });
+    const railObservations = verticalRange
+      ? observations.filter(observation =>
+        observation.yPercent >= verticalRange.minYPercent &&
+        observation.yPercent <= verticalRange.maxYPercent,
+      )
+      : observations;
+    // Prefer an OCR result containing more of the configured PPV name. A
+    // partial fighter-name match remains valid for artwork such as the Moses
+    // card, where Vision exposes the names as separate words.
+    const match = railObservations
+      .map(observation => ({
+        observation,
+        matchedTerms: terms.filter(term => observation.text.toLowerCase().includes(term)).length,
+      }))
+      .filter(candidate => candidate.matchedTerms > 0)
+      .sort((left, right) => right.matchedTerms - left.matchedTerms)[0]?.observation;
     if (!match) {
       return { visible: false, xPercent: null, yPercent: null };
     }
     console.log(`  Local OCR matched PPV artwork text: "${match.text}".`);
-    return { visible: true, xPercent: match.xPercent, yPercent: match.yPercent };
+    return {
+      visible: true,
+      xPercent: match.xPercent,
+      yPercent: match.yPercent,
+      // The surface validator uses this evidence for the artwork-only title
+      // and date checks. Previously it was discarded even after an OCR match,
+      // making those checks deterministically report "Not found".
+      ocrTexts: railObservations.map(observation => observation.text),
+    };
   } catch (error: any) {
     console.warn(`  Local OCR PPV lookup failed: ${error.message}`);
     return { visible: false, xPercent: null, yPercent: null };

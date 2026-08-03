@@ -90,7 +90,7 @@ export function resolveExpected(
   if (field === 'instruction header' && (pageName.includes('paywall') || pageName.includes('mobile'))) {
     const isNewUser = !currentUserState || currentUserState === 'new' || currentUserState === 'anonymous';
     const isLoginFirst = String(eventData.LOGIN_FIRST ?? process.env.LOGIN_FIRST ?? '').toLowerCase() === 'true';
-    if (!isNewUser && isLoginFirst) {
+    if (!isNewUser && (isLoginFirst || eventData.USER_EMAIL || process.env.USER_EMAIL)) {
       const email = eventData.USER_EMAIL || process.env.USER_EMAIL || '';
       return `To watch this and more check the email we just sent to ${email}`.trim();
     } else {
