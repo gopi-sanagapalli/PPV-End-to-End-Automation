@@ -226,6 +226,7 @@ export class IOSValidationPage extends IOSBasePage {
   async gatherTextsFromSurface(
     surface: IOSPPVSurface,
     titleExpected: string,
+    usePageSourceSnapshotOnly = false,
   ): Promise<{ texts: string[]; pageSource: string; targetXml: string }> {
     await this.ensureNativeAppContext();
     const textsSet = new Set<string>();
@@ -236,44 +237,58 @@ export class IOSValidationPage extends IOSBasePage {
       pageSource = await this.driver.getPageSource();
       targetXml = pageSource;
 
-      // Locate the main title element
-      const escTitle = titleExpected.replace(/'/g, "\\'");
-      const titleSel = `-ios predicate string:label CONTAINS[c] '${escTitle}' OR name CONTAINS[c] '${escTitle}'`;
-      const titleEl = await this.driver.$(titleSel);
+      if (usePageSourceSnapshotOnly) {
+        const attrRegex = /(?:label|name|value)="([^"]*)"/g;
+        for (const match of pageSource.matchAll(attrRegex)) {
+          const text = match[1]
+            .replace(/&quot;/g, '"')
+            .replace(/&apos;/g, "'")
+            .replace(/&amp;/g, '&')
+            .trim();
+          if (text) textsSet.add(text);
+        }
+        console.log(`📋 Used native page-source snapshot for ${surface} validation.`);
+      } else {
 
-      if (surface === 'PPV Tile' && await titleEl.isDisplayed().catch(() => false)) {
-        console.log(`🎯 Found title element for "${titleExpected}"`);
-        // Find container ancestor cell or group to isolate texts
-        let container: WdElement | null = null;
-        try {
-          // XCUIElementTypeCell is typical for list items / tiles
-          container = await titleEl.$('xpath:./ancestor::XCUIElementTypeCell[1]');
-          if (!await container.isExisting()) {
-            container = await titleEl.$('xpath:./ancestor::XCUIElementTypeOther[1]');
-          }
-        } catch { }
+        // Locate the main title element
+        const escTitle = titleExpected.replace(/'/g, "\\'");
+        const titleSel = `-ios predicate string:label CONTAINS[c] '${escTitle}' OR name CONTAINS[c] '${escTitle}'`;
+        const titleEl = await this.driver.$(titleSel);
 
-        if (container && await container.isExisting()) {
-          console.log(`🎯 Isolated container cell/group for PPV Tile`);
-          const children = await container.$$('.//XCUIElementTypeStaticText | .//XCUIElementTypeButton');
-          for (const el of children) {
-            const txt = await el.getAttribute('label').catch(() => '');
-            if (txt && txt.trim()) textsSet.add(txt.trim());
+        if (surface === 'PPV Tile' && await titleEl.isDisplayed().catch(() => false)) {
+          console.log(`🎯 Found title element for "${titleExpected}"`);
+          // Find container ancestor cell or group to isolate texts
+          let container: WdElement | null = null;
+          try {
+            // XCUIElementTypeCell is typical for list items / tiles
+            container = await titleEl.$('xpath:./ancestor::XCUIElementTypeCell[1]');
+            if (!await container.isExisting()) {
+              container = await titleEl.$('xpath:./ancestor::XCUIElementTypeOther[1]');
+            }
+          } catch { }
+
+          if (container && await container.isExisting()) {
+            console.log(`🎯 Isolated container cell/group for PPV Tile`);
+            const children = await container.$$('.//XCUIElementTypeStaticText | .//XCUIElementTypeButton');
+            for (const el of children) {
+              const txt = await el.getAttribute('label').catch(() => '');
+              if (txt && txt.trim()) textsSet.add(txt.trim());
+            }
+          } else {
+            // Fallback: collect all static texts on screen
+            const allTexts = await this.driver.$$('//XCUIElementTypeStaticText');
+            for (const el of allTexts) {
+              const txt = await el.getAttribute('label').catch(() => '');
+              if (txt && txt.trim()) textsSet.add(txt.trim());
+            }
           }
         } else {
-          // Fallback: collect all static texts on screen
-          const allTexts = await this.driver.$$('//XCUIElementTypeStaticText');
+          // Banner or full page: collect all texts
+          const allTexts = await this.driver.$$('//XCUIElementTypeStaticText | //XCUIElementTypeButton');
           for (const el of allTexts) {
             const txt = await el.getAttribute('label').catch(() => '');
             if (txt && txt.trim()) textsSet.add(txt.trim());
           }
-        }
-      } else {
-        // Banner or full page: collect all texts
-        const allElements = await this.driver.$$('//XCUIElementTypeStaticText | //XCUIElementTypeButton');
-        for (const el of allElements) {
-          const txt = await el.getAttribute('label').catch(() => '');
-          if (txt && txt.trim()) textsSet.add(txt.trim());
         }
       }
     } catch (e: any) {
@@ -487,7 +502,12 @@ export class IOSValidationPage extends IOSBasePage {
     eventData.CURRENT_PAGE = 'mobile';
 
     const titleExpected = eventData.MOBILE_BANNER_TITLE || eventData.PPV_DISPLAY_NAME || eventData.PPV_NAME;
-    const { texts, pageSource, targetXml } = await this.gatherTextsFromSurface(surface, titleExpected);
+    const useScheduleSnapshot = source.trim().toLowerCase() === 'schedule' && surface === 'PPV Tile';
+    const { texts, pageSource, targetXml } = await this.gatherTextsFromSurface(
+      surface,
+      titleExpected,
+      useScheduleSnapshot,
+    );
 
     const cleanStr = (s: string) =>
       (s || '').replace(/[\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]/g, ' ')

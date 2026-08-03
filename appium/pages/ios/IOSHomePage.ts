@@ -15,6 +15,11 @@ interface IOSVisualTileMatch {
   ocrTexts?: string[];
 }
 
+interface IOSVisualRailMatch {
+  visible: boolean;
+  yPercent: number | null;
+}
+
 export class IOSHomePage extends IOSLandingPage {
   async ensureOnHome(): Promise<void> {
     const homeTabSel = '-ios predicate string:(name == "Home" OR label == "Home") AND type == "XCUIElementTypeButton"';
@@ -107,6 +112,18 @@ export class IOSHomePage extends IOSLandingPage {
     };
     let railFound = false;
     let railY = 0;
+    const findRailByRenderedHeading = async (): Promise<boolean> => {
+      // On this real-device build, the screenshot shows the heading while its
+      // accessibility element can be absent from page source and predicates.
+      // Check the rendered screen directly, rather than gating OCR on the
+      // unavailable native hierarchy.
+      const visualRail = await locateIOSDontMissRailByImage(this.driver);
+      if (!visualRail.visible || visualRail.yPercent === null) return false;
+      const { height } = await this.driver.getWindowRect();
+      railY = Math.round(height * visualRail.yPercent);
+      console.log(`  Found rendered Don't Miss heading at y=${railY}; stopping vertical scroll.`);
+      return true;
+    };
     // Home can report its tab as visible before the content rails have
     // rendered. Give the feed a short, non-scrolling settle window first.
     for (let attempt = 0; attempt < 5 && !railFound; attempt++) {
@@ -115,6 +132,8 @@ export class IOSHomePage extends IOSLandingPage {
         railY = (await rail.getLocation()).y;
         railFound = true;
         console.log(`  Found visible Don't Miss rail at y=${railY}; stopping vertical scroll.`);
+      } else if (await findRailByRenderedHeading()) {
+        railFound = true;
       } else {
         await this.driver.pause(1000);
       }
@@ -126,6 +145,8 @@ export class IOSHomePage extends IOSLandingPage {
         railY = location.y;
         railFound = true;
         console.log(`  Found visible Don't Miss rail at y=${railY}; stopping vertical scroll.`);
+      } else if (await findRailByRenderedHeading()) {
+        railFound = true;
       }
       if (!railFound) {
         await this.scrollDown();
@@ -297,6 +318,52 @@ export async function openHomePageDontMissPaywall(
   return new IOSHomePage(driver, ppvName).openHomePageDontMissPaywall(hooks, options);
 }
 
+async function locateIOSDontMissRailByImage(driver: WdBrowser): Promise<IOSVisualRailMatch> {
+  let screenshotPath = '';
+  try {
+    screenshotPath = path.join(os.tmpdir(), `dazn-dont-miss-ocr-${process.pid}-${Date.now()}.png`);
+    fs.writeFileSync(screenshotPath, Buffer.from(await driver.takeScreenshot(), 'base64'));
+
+    const swiftVisionScript = `
+      import AppKit
+      import Vision
+
+      guard CommandLine.arguments.count > 1,
+            let image = NSImage(contentsOfFile: CommandLine.arguments[1]),
+            let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+        exit(1)
+      }
+      let request = VNRecognizeTextRequest()
+      request.recognitionLevel = .accurate
+      request.usesLanguageCorrection = true
+      request.recognitionLanguages = ["en-GB"]
+      let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+      try handler.perform([request])
+      let values = (request.results ?? []).compactMap { observation -> [String: Any]? in
+        guard let text = observation.topCandidates(1).first?.string else { return nil }
+        let box = observation.boundingBox
+        return ["text": text, "yPercent": 1 - box.midY]
+      }
+      let data = try JSONSerialization.data(withJSONObject: values)
+      print(String(data: data, encoding: .utf8)!)
+    `;
+    const output = execFileSync('/usr/bin/swift', ['-e', swiftVisionScript, screenshotPath], {
+      encoding: 'utf8',
+      timeout: 30000,
+    });
+    const observations = JSON.parse(output) as Array<{ text: string; yPercent: number }>;
+    const heading = observations.find(observation => /don.?t miss/i.test(observation.text));
+    return heading
+      ? { visible: true, yPercent: heading.yPercent }
+      : { visible: false, yPercent: null };
+  } catch (error: any) {
+    console.warn(`  Local OCR Don't Miss heading lookup failed: ${error.message}`);
+    return { visible: false, yPercent: null };
+  } finally {
+    if (screenshotPath && fs.existsSync(screenshotPath)) fs.unlinkSync(screenshotPath);
+  }
+}
+
 async function locateIOSPpvTileByImage(driver: WdBrowser, ppvName: string): Promise<IOSVisualTileMatch> {
   let screenshotPath = '';
   try {
@@ -343,12 +410,7 @@ async function locateIOSPpvTileByImage(driver: WdBrowser, ppvName: string): Prom
       return { visible: false, xPercent: null, yPercent: null };
     }
     console.log(`  Local OCR matched PPV artwork text: "${match.text}".`);
-    return {
-      visible: true,
-      xPercent: match.xPercent,
-      yPercent: match.yPercent,
-      ocrTexts: observations.map(observation => observation.text),
-    };
+    return { visible: true, xPercent: match.xPercent, yPercent: match.yPercent };
   } catch (error: any) {
     console.warn(`  Local OCR PPV lookup failed: ${error.message}`);
     return { visible: false, xPercent: null, yPercent: null };

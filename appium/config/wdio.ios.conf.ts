@@ -73,6 +73,10 @@ const simulatorCaps = {
   'appium:includeSafariInWebviews': true,
   'appium:webviewConnectRetries': 15,
   'appium:webviewConnectTimeout': 5000,
+  // Do not let one loading/blank Safari WebView block the whole handoff.
+  // The page objects poll contexts explicitly after these bounded failures.
+  'appium:webkitResponseTimeout': 5000,
+  'appium:webviewAtomWaitTimeout': 10000,
 };
 
 // Use pre-built WDA only when an explicit URL is provided.
@@ -99,6 +103,10 @@ const realDeviceCaps: Record<string, unknown> = {
   'appium:includeSafariInWebviews': true,
   'appium:webviewConnectRetries': 15,
   'appium:webviewConnectTimeout': 5000,
+  // A real-device Safari WebKit command can otherwise wait until Mocha's
+  // overall test timeout while the new private tab is still connecting.
+  'appium:webkitResponseTimeout': 5000,
+  'appium:webviewAtomWaitTimeout': 10000,
   'appium:showXcodeLog': true,
   'appium:newCommandTimeout': 120,
   // WDA — use pre-built if URL provided, otherwise Appium builds it (needed for new devices)

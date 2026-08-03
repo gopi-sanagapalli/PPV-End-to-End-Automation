@@ -54,6 +54,7 @@ import { copyImmediateCheckoutUrl } from '../../pages/ios/IOSPaywallPage';
 import {
   IOSFlowHooks,
   captureCheckoutUrl as sharedCaptureCheckoutUrl,
+  openCapturedUrlInNewSafariTab as sharedOpenCapturedUrlInNewSafariTab,
   findEl as sharedFindEl,
   findPPVBanner as sharedFindPPVBanner,
   isVisible as sharedIsVisible,
@@ -135,6 +136,7 @@ if (USER_PASSWORD) process.env.USER_PASSWORD = USER_PASSWORD;
 // ── Direct aliases for shared utilities ─────────
 const isVisible = sharedIsVisible;
 const captureCheckoutUrl = sharedCaptureCheckoutUrl;
+const openCapturedUrlInNewSafariTab = sharedOpenCapturedUrlInNewSafariTab;
 
 async function findEl(driver: WdBrowser, sel: string, timeoutMs = 10000): Promise<WdElement> {
   return sharedFindEl(driver, sel, timeoutMs);
@@ -495,6 +497,8 @@ describe('DAZN iOS PPV — Existing User Flow', () => {
     writeHandoffUrl(checkoutUrl);
     console.log('\u2705 URL written to mobile_entry_url.txt');
 
+    const safariContext = await openCapturedUrlInNewSafariTab(driver, checkoutUrl);
+
     // ── Safari-only Web Checkout Phase (mirrors newuserios.spec.ts) ──────────────────────
     // Do NOT terminate the app or launch a desktop Playwright browser.
     // Stay in the Safari WebView context and walk through sign-in, plan,
@@ -513,6 +517,7 @@ describe('DAZN iOS PPV — Existing User Flow', () => {
 
     await new IOSSearchPage(driver, PPV_NAME).continueSafariCheckout({
       capturedUrl: checkoutUrl,
+      safariContext,
       eventName: PPV_NAME,
       results: safariResults,
       eventData: eventData,
