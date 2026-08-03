@@ -96,6 +96,11 @@ export function recomputeMobileDatesForDeviceTimezone(
   // "5:00PM" → MOBILE_SCHEDULE_TIME
   const scheduleTime = `${hours12}:${pad(minutes)}${ampm}`;
 
+  // "17:00" → PPV_TIME. The Home of Boxing workbook validates this token
+  // directly, so it must follow the same device-local instant as the other
+  // iOS mobile date/time fields.
+  const ppvTime = `${pad(hours24)}:${pad(minutes)}`;
+
   // ── Apply overrides ──────────────────────────────────────────────────
   eventData.MOBILE_PPV_DATE = mobilePpvDate;
   eventData.MOBILE_BANNER_DATE_TIME = bannerDateTime;
@@ -108,6 +113,10 @@ export function recomputeMobileDatesForDeviceTimezone(
   eventData.MOBILE_SCHEDULE_MONTH = scheduleMonth;
   eventData.MOBILE_SCHEDULE_DATE = scheduleDate;
   eventData.MOBILE_SCHEDULE_TIME = scheduleTime;
+  eventData.PPV_TIME = ppvTime;
+  eventData.HOME_BOXING_UPCOMING_TIME = scheduleTime;
+  eventData.HOME_BOXING_UPCOMING_DATE_TIME_TEXT =
+    `WATCH LIVE ${eventData.HOME_BOXING_UPCOMING_DATE || mobilePpvDate} at ${scheduleTime}`;
 
   // Also update the web-side PPV_DATE_AND_TIME if it exists (used by Safari validations)
   eventData.PPV_DATE_AND_TIME = bannerDateTime;
@@ -118,4 +127,5 @@ export function recomputeMobileDatesForDeviceTimezone(
   console.log(`   UTC          : ${utcStr}`);
   console.log(`   MOBILE_PPV_DATE       : ${mobilePpvDate}`);
   console.log(`   MOBILE_BANNER_DATE_TIME: ${bannerDateTime}`);
+  console.log(`   PPV_TIME               : ${ppvTime}`);
 }

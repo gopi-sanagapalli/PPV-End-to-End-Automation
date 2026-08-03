@@ -227,11 +227,19 @@ export class IOSSearchPage extends IOSBasePage {
       ])) return true;
 
       // Mobile Safari sometimes exposes the dot in the DOM but does not
-      // report it as a WebDriver-visible element. It is still the same
-      // persistent completion signal, so check the document directly too.
-      return await this.driver.execute(() => Boolean(document.querySelector(
-        '[class*="dev-mode__circle"], [class*="dev-mode"]',
-      ))).catch(() => false);
+      // report it as a WebDriver-visible element. Do not treat a hidden
+      // dev-mode template as success: the yellow dot must actually be visible
+      // before checkout leaves this page.
+      return await this.driver.execute(() =>
+        Array.from(document.querySelectorAll<HTMLElement>(
+          '[class*="dev-mode__circle"], [class*="dev-mode"]',
+        )).some(element => {
+          const style = window.getComputedStyle(element);
+          const box = element.getBoundingClientRect();
+          return style.display !== 'none' && style.visibility !== 'hidden' &&
+            style.opacity !== '0' && box.width > 0 && box.height > 0;
+        }),
+      ).catch(() => false);
     };
     // A previous activation can already have completed before the current
     // method resumes. The visible yellow dot is the same success signal used
@@ -258,14 +266,31 @@ export class IOSSearchPage extends IOSBasePage {
     }
     if (!input) throw new Error('Safari dev mode could not find the Search input.');
 
-    // Use click + clearValue + addValue (types char-by-char triggering React
-    // events, same as Playwright's fill), then submit the focused iOS field.
-    await input.click();
+    // Do not use WebKit's element-click atom here: on real Safari it can wait
+    // for 10 seconds and be retried even though normal JavaScript still works.
+    // Focus the corresponding native Safari field, then return to WebKit to
+    // enter the command through the already-focused DOM input.
+    const safariContext = await this.driver.getContext().catch(() => '');
+    let focusedNatively = false;
+    try {
+      await this.driver.switchContext('NATIVE_APP');
+      const nativeInput = await this.browserFirstVisible([
+        '-ios predicate string:(type == "XCUIElementTypeSearchField" OR type == "XCUIElementTypeTextField") AND (name CONTAINS[c] "Search" OR label CONTAINS[c] "Search" OR value CONTAINS[c] "Search")',
+      ]);
+      if (nativeInput) {
+        await nativeInput.click();
+        focusedNatively = true;
+      }
+    } finally {
+      if (safariContext && safariContext !== 'NATIVE_APP') {
+        await this.driver.switchContext(safariContext);
+      }
+    }
+    // Retain the WebKit click only as a compatibility fallback when Safari
+    // does not expose its search field to the native accessibility tree.
+    if (!focusedNatively) await input.click();
     await input.clearValue().catch(() => {});
     await input.addValue('[dev_mode_on]');
-    // Keep the field focused so Safari presents the native keyboard and its
-    // Return action is available to submit the command.
-    await input.click();
     await this.submitSafariSearch();
     await this.driver.pause(1000);
 
@@ -296,7 +321,18 @@ export class IOSSearchPage extends IOSBasePage {
         }).catch(() => { });
       }
       if (copyId) {
-        await copyId.click();
+        // Safari's WebDriver click atom repeatedly times out on this control
+        // even though JavaScript commands remain responsive.  Trigger the
+        // visible Copy ID button through WebKit instead, then verify the
+        // yellow indicator only after the subsequent document load below.
+        const copiedByDom = await this.driver.execute(() => {
+          const button = Array.from(document.querySelectorAll<HTMLElement>('button, [role="button"]'))
+            .find(element => (element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase() === 'copy id');
+          if (!button) return false;
+          button.click();
+          return true;
+        }).catch(() => false);
+        if (!copiedByDom) throw new Error('Safari dev mode confirmation exposed Copy ID but it was not actionable.');
         copiedId = true;
       } else {
         const copiedByDom = await this.driver.execute(() => {
@@ -311,11 +347,17 @@ export class IOSSearchPage extends IOSBasePage {
       }
     }
 
+    let enabled = false;
     // Copy ID changes the Safari dev-mode state only after the next document
-    // load. Refresh explicitly and wait for the refreshed document before
-    // checking the yellow indicator; it can take noticeably longer on device.
+    // load. Stay on this same page: wait for a new, complete document and its
+    // visible yellow indicator before the caller navigates to Welcome.
     if (copiedId) {
       console.log('🔄 Refreshing Safari after Copy ID...');
+      const refreshMarker = `ios-dev-mode-refresh-${Date.now()}`;
+      const refreshMarkerApplied = await this.driver.execute((marker: string) => {
+        document.documentElement.setAttribute('data-ios-dev-mode-refresh', marker);
+        return document.documentElement.getAttribute('data-ios-dev-mode-refresh') === marker;
+      }, refreshMarker).catch(() => false);
       await this.driver.refresh();
       await this.driver.waitUntil(async () => this.browserDocumentReady(), {
         timeout: Number(process.env.IOS_SAFARI_SETTLE_TIMEOUT_MS || 35000),
@@ -323,31 +365,47 @@ export class IOSSearchPage extends IOSBasePage {
         timeoutMsg: 'Safari did not render after refreshing dev mode.',
       });
       console.log('🌐 Safari refreshed after Copy ID.');
-    }
-
-    // DAZN can redirect after Copy ID. Reload/search again and verify the
-    // same yellow dev-mode indicator that the web flow treats as confirmation.
-    if (!/\/search(?:[/?#]|$)/i.test(await this.driver.getUrl())) {
-      await this.openSafariSearchFromLanding();
-    }
-    let enabled = await hasDevIndicator();
-    if (!enabled) {
-      await this.driver.waitUntil(hasDevIndicator, {
-        timeout: 15000,
-        timeoutMsg: 'Safari dev mode was not confirmed by its yellow indicator.',
-      }).catch(() => { });
-      enabled = await hasDevIndicator();
-    }
-    // A Safari variant can activate without exposing Copy ID. Retain the
-    // existing refresh fallback for that variant, but wait for the document.
-    if (!enabled && !copiedId) {
-      await this.driver.refresh();
-      await this.driver.waitUntil(async () => this.browserDocumentReady(), {
+      console.log('⏳ Waiting for the visible yellow Safari dev-mode indicator on the refreshed page...');
+      await this.driver.waitUntil(async () => {
+        if (!await this.browserDocumentReady()) return false;
+        if (refreshMarkerApplied) {
+          const refreshedDocument = await this.driver.execute((marker: string) =>
+            document.documentElement.getAttribute('data-ios-dev-mode-refresh') !== marker,
+          refreshMarker).catch(() => false);
+          if (!refreshedDocument) return false;
+        }
+        enabled = await hasDevIndicator();
+        return enabled;
+      }, {
         timeout: Number(process.env.IOS_SAFARI_SETTLE_TIMEOUT_MS || 35000),
         interval: Number(process.env.IOS_SAFARI_SETTLE_POLL_MS || 2000),
-        timeoutMsg: 'Safari did not render after refreshing dev mode.',
+        timeoutMsg: 'Safari dev mode was not confirmed by a visible yellow indicator after Copy ID refresh.',
       });
-      enabled = await hasDevIndicator();
+    } else {
+      // A Safari variant can activate without exposing Copy ID. Preserve its
+      // search/refresh fallback, but still confirm the visible indicator.
+      if (!/\/search(?:[/?#]|$)/i.test(await this.driver.getUrl())) {
+        await this.openSafariSearchFromLanding();
+      }
+      await this.driver.waitUntil(async () => {
+        if (!await this.browserDocumentReady()) return false;
+        enabled = await hasDevIndicator();
+        return enabled;
+      }, {
+        timeout: 15000,
+        interval: 500,
+        timeoutMsg: 'Safari dev mode was not confirmed by its yellow indicator.',
+      }).catch(() => { });
+      enabled = enabled || await hasDevIndicator();
+      if (!enabled) {
+        await this.driver.refresh();
+        await this.driver.waitUntil(async () => this.browserDocumentReady(), {
+          timeout: Number(process.env.IOS_SAFARI_SETTLE_TIMEOUT_MS || 35000),
+          interval: Number(process.env.IOS_SAFARI_SETTLE_POLL_MS || 2000),
+          timeoutMsg: 'Safari did not render after refreshing dev mode.',
+        });
+        enabled = await hasDevIndicator();
+      }
     }
     if (!enabled) throw new Error('Safari dev mode was not confirmed by its yellow indicator.');
     console.log('✅ Safari dev mode confirmed.');

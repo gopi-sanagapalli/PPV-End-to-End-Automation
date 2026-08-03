@@ -30,6 +30,7 @@ export class IOSSafariValidationPage extends IOSBasePage {
     'google pay option',
     'apple pay option',
     // iOS payment page does not render a "Purchase summary" section heading
+    'payment method heading',
     'purchase summary heading',
     'welcome back banner cta',
     'tooltip text',
@@ -50,6 +51,60 @@ export class IOSSafariValidationPage extends IOSBasePage {
 
   constructor(driver: WdBrowser) {
     super(driver);
+  }
+
+  /** Save focused Safari evidence for a failed web validation. */
+  private async captureAndMarkFailureScreenshot(
+    pageName: string,
+    field: string,
+    expected: string,
+    actual: string,
+  ): Promise<string> {
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const shotsDir = path.resolve(process.cwd(), 'test-results', 'failure-shots');
+      if (!fs.existsSync(shotsDir)) fs.mkdirSync(shotsDir, { recursive: true });
+      const screenshot = path.join(
+        shotsDir,
+        `ios_safari_${pageName.replace(/[^a-zA-Z0-9]/g, '_')}_${field.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}.png`,
+      );
+      const markerId = `ios-safari-failure-${Date.now()}`;
+      const marked = await this.driver.execute((values: string[], id: string) => {
+        const normalise = (value: string) => value.replace(/\s+/g, ' ').trim().toLowerCase();
+        const candidates = values.map(normalise).filter(value => value && value !== 'not found');
+        let target: HTMLElement | null = null;
+        let smallestText = Number.POSITIVE_INFINITY;
+        for (const element of Array.from(document.querySelectorAll<HTMLElement>('body *'))) {
+          const text = normalise(element.innerText || element.textContent || '');
+          if (!text || !candidates.some(value => text === value || text.includes(value))) continue;
+          const box = element.getBoundingClientRect();
+          if (box.width <= 0 || box.height <= 0 || text.length >= smallestText) continue;
+          target = element;
+          smallestText = text.length;
+        }
+        if (!target) return false;
+        target.scrollIntoView({ block: 'center', inline: 'center' });
+        const box = target.getBoundingClientRect();
+        const marker = document.createElement('div');
+        marker.id = id;
+        Object.assign(marker.style, {
+          position: 'fixed', left: `${Math.max(0, box.left - 4)}px`, top: `${Math.max(0, box.top - 4)}px`,
+          width: `${Math.max(24, box.width + 8)}px`, height: `${Math.max(24, box.height + 8)}px`,
+          border: '4px solid #ff1744', borderRadius: '4px', boxSizing: 'border-box',
+          background: 'rgba(255, 23, 68, 0.18)', zIndex: '2147483647', pointerEvents: 'none',
+        });
+        document.body.appendChild(marker);
+        return true;
+      }, [actual, expected], markerId).catch(() => false);
+      await this.driver.saveScreenshot(screenshot);
+      await this.driver.execute((id: string) => document.getElementById(id)?.remove(), markerId).catch(() => {});
+      console.log(`📸 [Fail Shot] ${marked ? 'Highlighted' : 'Captured'} Safari field "${field}": ${screenshot}`);
+      return screenshot;
+    } catch (error: any) {
+      console.warn(`⚠️ Failed to capture Safari failure screenshot: ${error.message}`);
+      return '';
+    }
   }
 
   // ── Text extraction helpers ───────────────────────────────────
@@ -153,14 +208,13 @@ export class IOSSafariValidationPage extends IOSBasePage {
     const terms = presenceTerms[fieldLower];
 
     // ── Signed In As Text ────────────────────────────────────────
-    // The page shows the real user name (e.g. "Signed in as Hari Prasad"),
-    // not the {{FIRST_NAME}} {{LAST_NAME}} placeholder. Read the actual text
-    // and compare the prefix — PASS as long as "Signed in as <anything>" is found.
+    // Read the complete account identity and compare it with the resolved
+    // expected value. A prefix-only match hid account/session mismatches.
     if (fieldLower === 'signed in as text') {
       const signedInLine = texts.find(t => /^signed in as\b/i.test(t.trim()));
-      if (signedInLine) return { actual: signedInLine.trim(), isMatch: true };
+      if (signedInLine) return { actual: signedInLine.trim(), isMatch: compareFn(signedInLine.trim(), expected) };
       const bodyMatch = fullText.match(/signed in as\s+\S+(?:\s+\S+)*/i)?.[0];
-      if (bodyMatch) return { actual: bodyMatch.trim(), isMatch: true };
+      if (bodyMatch) return { actual: bodyMatch.trim(), isMatch: compareFn(bodyMatch.trim(), expected) };
       return { actual: 'Not found', isMatch: false };
     }
 
@@ -656,7 +710,10 @@ export class IOSSafariValidationPage extends IOSBasePage {
         `actual="${actual.substring(0, 80)}"`,
       );
 
-      results.push({ page: `${pageName} (Safari)`, field, expected, actual, status });
+      const screenshot = status === 'FAIL'
+        ? await this.captureAndMarkFailureScreenshot(pageName, field, expected, actual)
+        : undefined;
+      results.push({ page: `${pageName} (Safari)`, field, expected, actual, status, screenshot });
     }
   }
 
@@ -743,17 +800,28 @@ export class IOSSafariValidationPage extends IOSBasePage {
         }
       }
 
-      // Wait for payment methods to render
+      const userState = String(eventData.USER_STATE || process.env.USER_STATE || 'new').toLowerCase();
+      const expectsSavedCard = !userState.startsWith('new') && userState !== 'freemium';
+      // Wait for the visible payment state, and for the saved card when this
+      // flow expects one. "Choose how to pay" alone renders before the saved
+      // card section and previously caused a false "No" validation.
       await this.driver.waitUntil(
         async () => {
           const text = (await this.browserText()).toLowerCase();
-          return (
+          const paymentContentReady = (
             text.includes('credit') || text.includes('paypal') ||
             text.includes('google pay') || text.includes('payment method') ||
             text.includes('choose how to pay')
           );
+          const savedCardReady = /visa|mastercard|amex|\*{4}|saved card/i.test(text);
+          return paymentContentReady && (!expectsSavedCard || savedCardReady);
         },
-        { timeout: 15000, timeoutMsg: 'Payment content did not render' },
+        {
+          timeout: 15000,
+          timeoutMsg: expectsSavedCard
+            ? 'Payment page did not render the expected saved card.'
+            : 'Payment content did not render',
+        },
       ).catch(() => { });
 
       // Match the web PaymentPage behaviour: the annual legal text is
@@ -1075,7 +1143,10 @@ export class IOSSafariValidationPage extends IOSBasePage {
         const status = matches ? 'PASS' : 'FAIL';
         const icon = status === 'PASS' ? '✅' : '❌';
         console.log(`  ${icon} [${field}] expected="${expected}" actual="${actual}"`);
-        results.push({ page: PAGE, field, expected, actual, status });
+        const screenshot = status === 'FAIL'
+          ? await this.captureAndMarkFailureScreenshot(PAGE, field, expected, actual)
+          : undefined;
+        results.push({ page: PAGE, field, expected, actual, status, screenshot });
       }
     } catch (err: any) {
       console.warn(`⚠️  PPV Payment page validation error: ${err.message}`);

@@ -103,16 +103,41 @@ export class IOSValidationPage extends IOSBasePage {
       );
       await this.driver.saveScreenshot(screenshotPath);
 
-      // Artwork text in the Don't Miss rail is commonly absent from the
-      // XCUITest tree. If a failed title/date cannot be resolved to a native
-      // element, mark the rail itself so the report still shows the exact
-      // visual area that was validated.
+      // Highlight the visible failing native field when XCUITest exposes it.
+      // Artwork text in the Don't Miss rail is commonly absent from the tree;
+      // retain the rail fallback so that case still has focused evidence.
       let bounds: { x: number; y: number; width: number; height: number } | null = null;
-      if (surface === 'PPV Tile') {
+      const getElementBounds = async (element: any): Promise<{ x: number; y: number; width: number; height: number } | null> => {
+        // WDIO's iOS element wrapper does not consistently implement getRect;
+        // location and size are available for both native element variants.
+        if (typeof element?.getLocation !== 'function' || typeof element?.getSize !== 'function') return null;
+        const [location, size] = await Promise.all([
+          element.getLocation().catch(() => null),
+          element.getSize().catch(() => null),
+        ]);
+        return location && size && size.width > 0 && size.height > 0
+          ? { x: location.x, y: location.y, width: size.width, height: size.height }
+          : null;
+      };
+      const candidates = [actualValue, expectedValue]
+        .filter(value => value && value !== 'Not found' && value.length > 2)
+        .map(value => value.replace(/\\/g, '\\\\').replace(/'/g, "\\'"))
+        .map(value => value.slice(0, 120));
+      for (const candidate of candidates) {
+        const selector = `-ios predicate string:label CONTAINS[c] '${candidate}' OR name CONTAINS[c] '${candidate}' OR value CONTAINS[c] '${candidate}'`;
+        const element = await this.driver.$(selector).catch(() => null);
+        if (!element || !await element.isDisplayed().catch(() => false)) continue;
+        const rect = await getElementBounds(element);
+        if (rect) {
+          bounds = rect;
+          break;
+        }
+      }
+      if (!bounds && surface === 'PPV Tile') {
         for (const label of ["Don't Miss", 'Don’t Miss', 'Dont Miss']) {
           const header = await this.driver.$(`~${label}`).catch(() => null);
           if (header && await header.isDisplayed().catch(() => false)) {
-            const rect = await header.getRect().catch(() => null);
+            const rect = await getElementBounds(header);
             const screen = await this.driver.getWindowRect().catch(() => null);
             if (rect && screen) {
               bounds = {
@@ -148,7 +173,7 @@ export class IOSValidationPage extends IOSBasePage {
           }
         }
         await image.writeAsync(screenshotPath);
-        console.log(`📸 [Fail Shot] Highlighted Don't Miss rail for "${fieldName}": ${screenshotPath}`);
+        console.log(`📸 [Fail Shot] Highlighted iOS field "${fieldName}": ${screenshotPath}`);
       }
       return screenshotPath;
     } catch (e: any) {
@@ -502,7 +527,8 @@ export class IOSValidationPage extends IOSBasePage {
     eventData.CURRENT_PAGE = 'mobile';
 
     const titleExpected = eventData.MOBILE_BANNER_TITLE || eventData.PPV_DISPLAY_NAME || eventData.PPV_NAME;
-    const useScheduleSnapshot = source.trim().toLowerCase() === 'schedule' && surface === 'PPV Tile';
+    const normalizedSource = source.trim().toLowerCase();
+    const useScheduleSnapshot = ['schedule', 'home-boxing-upcoming'].includes(normalizedSource) && surface === 'PPV Tile';
     const { texts, pageSource, targetXml } = await this.gatherTextsFromSurface(
       surface,
       titleExpected,
@@ -682,6 +708,19 @@ export class IOSValidationPage extends IOSBasePage {
               isMatch = true;
             }
           }
+        } else if (
+          source.trim().toLowerCase() === 'home-boxing-upcoming' &&
+          fieldName.trim().toLowerCase() === 'ppv time'
+        ) {
+          // Use the WATCH LIVE copy immediately after this PPV's own title.
+          // The page also contains neighbouring fight cards with their own
+          // times, so a global time lookup can validate the wrong card.
+          const titleIndex = texts.findIndex(text => cleanStr(text) === cleanStr(titleExpected));
+          const targetCardTexts = titleIndex >= 0 ? texts.slice(titleIndex + 1, titleIndex + 5) : [];
+          const description = targetCardTexts.find(text => /watch\s+live/i.test(text));
+          const time = description?.match(/\b\d{1,2}:\d{2}\s*(?:a\.?m\.?|p\.?m\.?)?\b/i)?.[0];
+          actualValue = time || 'Not found';
+          isMatch = Boolean(time && compare(actualValue, expectedValue));
         } else if (fieldName === 'Banner - Event Date' || fieldName === 'Banner Date' || fieldName === 'Date and Time') {
           const normalizeDateString = (s: string) => {
             let clean = String(s || '').toLowerCase()
@@ -720,7 +759,12 @@ export class IOSValidationPage extends IOSBasePage {
             }
           }
         } else {
-          const matched = texts.find(t => {
+          const expectedAlternatives = expectedValue.split('|').map(cleanStr);
+          // Prefer a full expected value over a partial match. Upcoming Fights
+          // exposes many cards at once, so a promotion or adjacent event can
+          // contain the same PPV name/date fragment as the target card.
+          const exactMatch = texts.find(t => expectedAlternatives.includes(cleanStr(t)));
+          const matched = exactMatch || texts.find(t => {
             const cleanT = t.toLowerCase().trim();
             const cleanExp = expectedValue.replace(/[\u200b\u200c\u200d\ufeff]/g, '').trim().toLowerCase();
             return compare(t, expectedValue) || cleanT.includes(cleanExp);
