@@ -27,6 +27,20 @@ export class IOSBasePage {
     return this.driver.execute(() => document.body?.innerText || '').catch(() => '');
   }
 
+  /**
+   * WebKit script execution can block while a Safari document is navigating.
+   * Use a regular WebDriver element query for readiness polling so a loading
+   * document simply returns false and the next poll can proceed.
+   */
+  protected async browserDocumentReady(): Promise<boolean> {
+    try {
+      const body = await this.driver.$('body');
+      return await body.isDisplayed().catch(() => false);
+    } catch {
+      return false;
+    }
+  }
+
   protected async browserFirstVisible(selectors: string[]): Promise<WdElement | null> {
     for (const selector of selectors) {
       try {
@@ -48,6 +62,11 @@ export class IOSBasePage {
     const driverKey = this.driver as object;
     const alreadyHandled = IOSBasePage.safariCookieConsentHandledDrivers.has(driverKey);
     const effectiveTimeout = alreadyHandled ? Math.min(timeoutMs, 2000) : timeoutMs;
+    // OneTrust cookie consent loads asynchronously after document ready;
+    // on first check, allow extra time for the banner to render.
+    if (!alreadyHandled) {
+      await this.driver.pause(5000);
+    }
     const acceptSelectors = [
       // OneTrust expanded preference centre. Prefer the explicit "Accept
       // All" control; it is different from the first-layer banner button.
@@ -525,46 +544,50 @@ export class IOSBasePage {
     // that resolves to a valid DAZN handoff URL. This covers the common in-app
     // browser case without requiring an external Safari process.
     console.log('🔍 Polling for WEBVIEW context (SFSafariViewController / WKWebView)...');
-    const webviewDeadline = Date.now() + 20000;
+    const webviewTimeoutMs = Number(process.env.IOS_WEBVIEW_CONTEXT_TIMEOUT_MS || 35000);
+    const webviewPollIntervalMs = Number(process.env.IOS_WEBVIEW_CONTEXT_POLL_MS || 2000);
+    const webviewDeadline = Date.now() + webviewTimeoutMs;
     let lastContextSummary = '';
     while (Date.now() < webviewDeadline) {
-      await this.driver.pause(1000);
+      await this.driver.pause(webviewPollIntervalMs);
       try {
-        const contexts = await this.driver.getContexts() as string[];
-        // XCUITest appends a new context for the newly presented Safari view.
-        // Probe the newest context first; the earlier one is commonly a
-        // background DAZN webview whose URL can be manipulated without
-        // changing the web page visible on the device.
-        const webContexts = contexts.filter(c =>
-          c.includes('WEBVIEW') || (typeof c === 'string' && c !== 'NATIVE_APP')
-        ).reverse();
-        const contextSummary = contexts.join(', ') || 'none';
+        // Do not switch into every listed WebView while Safari is connecting:
+        // on real devices that context-switch request can block until the
+        // overall Mocha timeout. The XCUITest extension exposes each context's
+        // URL directly, so an unready/blank context can be skipped and polled
+        // again on the next two-second iteration.
+        const contextDetails = await this.driver.execute('mobile: getContexts', {
+          waitForWebviewMs: 0,
+        }).catch((error: any) => {
+          console.warn(`⚠️ Could not retrieve iOS web-context metadata: ${error.message}`);
+          return [];
+        }) as Array<{ id?: string; url?: string | null }>;
+        const contextSummary = contextDetails
+          .map(context => context.id || 'unknown')
+          .join(', ') || 'none';
         if (contextSummary !== lastContextSummary) {
           console.log(`🌐 Available iOS contexts: ${contextSummary}`);
           lastContextSummary = contextSummary;
         }
+        const webContexts = contextDetails
+          .filter(context => context.id && context.id !== 'NATIVE_APP')
+          .reverse();
         for (let contextIndex = 0; contextIndex < webContexts.length; contextIndex++) {
-          const webCtx = webContexts[contextIndex];
-          try {
-            await this.driver.switchContext(webCtx);
-            const url = await this.driver.getUrl();
-            console.log(`🌐 Checking web context ${webCtx}: ${url || '(no URL yet)'}`);
-            if (this.isSafariHandoffLandingUrl(url)) {
-              // When two contexts exist, a localized /welcome can be an old
-              // background Safari view while the newer view is still loading.
-              // Give the newer context a short opportunity to resolve first.
-              if (this.isLocalizedWelcomeUrl(url) && webContexts.length > 1 && contextIndex > 0 &&
-                Date.now() < webviewDeadline - 5000) {
-                continue;
-              }
-              console.log(`✅ Captured new DAZN handoff URL from WEBVIEW context ${webCtx}: ${url}`);
-              activatedBrowser = 'WEBVIEW';
-              return url;
+          const webContext = webContexts[contextIndex];
+          const webCtx = webContext.id!;
+          const url = String(webContext.url || '');
+          console.log(`🌐 Checking web context ${webCtx}: ${url || '(no URL yet)'}`);
+          if (this.isSafariHandoffLandingUrl(url)) {
+            // When two contexts exist, a localized /welcome can be an old
+            // background Safari view while the newer view is still loading.
+            // Give the newer context a short opportunity to resolve first.
+            if (this.isLocalizedWelcomeUrl(url) && webContexts.length > 1 && contextIndex > 0 &&
+              Date.now() < webviewDeadline - 5000) {
+              continue;
             }
-          } catch (e: any) {
-            console.warn(`⚠️ Unable to inspect web context ${webCtx}: ${e.message}`);
-          } finally {
-            await this.driver.switchContext('NATIVE_APP').catch(() => { });
+            console.log(`✅ Captured new DAZN handoff URL from WEBVIEW context ${webCtx}: ${url}`);
+            activatedBrowser = 'WEBVIEW';
+            return url;
           }
         }
       } catch (e: any) {
@@ -689,6 +712,125 @@ export class IOSBasePage {
     }
 
     return '';
+  }
+
+  /**
+   * Opens the captured native-app handoff URL in a distinct Safari private tab.
+   *
+   * The DAZN handoff can be hosted by SFSafariViewController, which is not a
+   * Safari tab that XCUITest can manage.  Open the URL through Safari's native
+   * tab UI so the subsequent WebKit checkout journey runs in a deliberate new
+   * private tab, while leaving the original handoff and its diagnostics intact.
+   *
+   * @returns the WebKit context associated with the newly opened Safari private tab.
+   */
+  async openCapturedUrlInNewSafariTab(capturedUrl: string): Promise<string> {
+    if (!this.isValidCheckoutUrl(capturedUrl)) {
+      throw new Error(`Cannot open an invalid DAZN handoff URL in Safari: ${capturedUrl || '(empty)'}`);
+    }
+
+    const expectedHostname = new URL(capturedUrl).hostname.replace(/^www\./i, '').toLowerCase();
+    const findVisibleNativeControl = async (selectors: string[]): Promise<WdElement | null> => {
+      for (const selector of selectors) {
+        try {
+          const control = await this.driver.$(selector);
+          if (await control.isDisplayed().catch(() => false)) return control;
+        } catch { }
+      }
+      return null;
+    };
+    const waitForVisibleNativeControl = async (
+      selectors: string[],
+      description: string,
+      timeout = 15000,
+    ): Promise<WdElement> => {
+      let control: WdElement | null = null;
+      await this.driver.waitUntil(async () => {
+        control = await findVisibleNativeControl(selectors);
+        return Boolean(control);
+      }, {
+        timeout,
+        interval: 300,
+        timeoutMsg: `Safari did not expose ${description}.`,
+      });
+      return control!;
+    };
+    const hasExpectedSafariUrl = (url: string): boolean => {
+      try {
+        return new URL(url).hostname.replace(/^www\./i, '').toLowerCase() === expectedHostname;
+      } catch {
+        return false;
+      }
+    };
+
+    const moreButtonSelectors = [
+      '-ios predicate string:type == "XCUIElementTypeButton" AND (name == "More" OR label == "More")',
+      '-ios predicate string:type == "XCUIElementTypeButton" AND (name == "More Actions" OR label == "More Actions")',
+      '-ios predicate string:type == "XCUIElementTypeButton" AND (name == "More Options" OR label == "More Options")',
+    ];
+    const newPrivateTabSelectors = [
+      '-ios predicate string:type == "XCUIElementTypeButton" AND (name == "New Private Tab" OR label == "New Private Tab")',
+    ];
+    const addressFieldSelectors = [
+      '-ios predicate string:type == "XCUIElementTypeTextField" AND (name CONTAINS[c] "address" OR label CONTAINS[c] "address" OR name CONTAINS[c] "search" OR label CONTAINS[c] "search" OR value CONTAINS[c] "search")',
+      '-ios predicate string:type == "XCUIElementTypeURLField"',
+    ];
+    const addressButtonSelectors = [
+      '-ios predicate string:type == "XCUIElementTypeButton" AND (name CONTAINS[c] "address" OR label CONTAINS[c] "address" OR name CONTAINS[c] "search" OR label CONTAINS[c] "search")',
+    ];
+
+    console.log('🧭 Opening captured handoff URL in a new Safari private tab...');
+    await this.driver.switchContext('NATIVE_APP').catch(() => { });
+    const existingWebContexts = new Set(
+      (await this.driver.getContexts().catch(() => []) as string[])
+        .filter(context => context !== 'NATIVE_APP'),
+    );
+
+    // The Safari handoff already owns the foreground browser view. Keep that
+    // view open and create the requested New Private Tab from its ellipsis menu.
+    const moreButton = await waitForVisibleNativeControl(moreButtonSelectors, 'the Safari More (… ) button');
+    await moreButton.click();
+
+    const newPrivateTabButton = await waitForVisibleNativeControl(newPrivateTabSelectors, 'the Safari New Private Tab button');
+    await newPrivateTabButton.click();
+
+    let addressField = await findVisibleNativeControl(addressFieldSelectors);
+    if (!addressField) {
+      const addressButton = await waitForVisibleNativeControl(addressButtonSelectors, 'the Safari address bar');
+      await addressButton.click();
+      addressField = await waitForVisibleNativeControl(addressFieldSelectors, 'an editable Safari address bar');
+    }
+    await addressField.clearValue().catch(() => { });
+    await addressField.setValue(capturedUrl);
+
+    await this.driver.keys(['Enter']);
+
+    let safariContext = '';
+    await this.driver.waitUntil(async () => {
+      const contexts = await this.driver.getContexts().catch(() => []) as string[];
+      // A matching DAZN tab may have existed before this handoff. Require the
+      // tab action to create a new WebKit context so the checkout cannot
+      // silently continue in that older tab.
+      for (const context of contexts.filter(value => value !== 'NATIVE_APP' && !existingWebContexts.has(value)).reverse()) {
+        try {
+          await this.driver.switchContext(context);
+          const url = await this.driver.getUrl();
+          if (hasExpectedSafariUrl(url)) {
+            safariContext = context;
+            return true;
+          }
+        } catch { }
+      }
+      await this.driver.switchContext('NATIVE_APP').catch(() => { });
+      return false;
+    }, {
+      timeout: 30000,
+      interval: 500,
+      timeoutMsg: `New Safari private tab did not expose a WebKit context for ${capturedUrl}.`,
+    });
+    await this.driver.switchContext('NATIVE_APP').catch(() => { });
+    console.log(`✅ Opened captured handoff URL in new Safari private tab (${safariContext}).`);
+    return safariContext;
   }
 
   /**
@@ -847,4 +989,8 @@ export async function findPPVBanner(driver: WdBrowser, ppvName: string): Promise
 
 export async function captureCheckoutUrl(driver: WdBrowser): Promise<string> {
   return new IOSBasePage(driver).captureCheckoutUrl();
+}
+
+export async function openCapturedUrlInNewSafariTab(driver: WdBrowser, capturedUrl: string): Promise<string> {
+  return new IOSBasePage(driver).openCapturedUrlInNewSafariTab(capturedUrl);
 }

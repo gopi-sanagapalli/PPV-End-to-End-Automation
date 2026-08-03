@@ -4,6 +4,7 @@ import { IOSValidationResult } from './IOSValidationPage';
 
 export interface IOSSafariSearchOptions {
   capturedUrl: string;
+  safariContext?: string;
   eventName: string;
   results: IOSValidationResult[];
   eventData?: Record<string, any>;
@@ -46,15 +47,48 @@ export class IOSSearchPage extends IOSBasePage {
     throw new Error(`Safari WebKit context was not exposed for ${expectedUrl}.`);
   }
 
+  private async switchToPreferredSafariContext(context: string, expectedUrl: string): Promise<boolean> {
+    try {
+      await this.driver.switchContext(context);
+      const url = await this.driver.getUrl();
+      const expectedHostname = new URL(expectedUrl).hostname.replace(/^www\./, '');
+      const actualHostname = new URL(url).hostname.replace(/^www\./, '');
+      if (expectedHostname === actualHostname) {
+        console.log(`🌐 Switched to the new Safari private-tab context: ${context} (${url})`);
+        return true;
+      }
+    } catch { }
+    await this.driver.switchContext('NATIVE_APP').catch(() => { });
+    return false;
+  }
+
   private async waitForSafariStartToSettle(): Promise<void> {
-    await this.driver.waitUntil(async () => (await this.browserText()).trim().length > 0, {
-      timeout: 20000,
+    await this.driver.waitUntil(async () => this.browserDocumentReady(), {
+      timeout: Number(process.env.IOS_SAFARI_SETTLE_TIMEOUT_MS || 35000),
+      interval: Number(process.env.IOS_SAFARI_SETTLE_POLL_MS || 2000),
       timeoutMsg: 'Safari /start page did not render a document body.',
     });
-    // The handoff route can replace its initial shell after DOM content is
-    // available. Allow that transition to finish before opening the source tab.
-    await this.driver.pause(2000);
     console.log(`🌐 Safari handoff landing settled: ${await this.driver.getUrl()}`);
+  }
+
+  private async waitForSafariLandingNavigation(): Promise<void> {
+    const landingControls = [
+      'a*=Explore', 'button*=Explore', '[role="button"]*=Explore',
+      'header a[href*="/search"]', 'header button[aria-label*="Search" i]',
+      'header [data-testid*="search" i]', 'a[href*="/search"]',
+      'button[aria-label*="Search" i]', '[role="button"][aria-label*="Search" i]',
+      '[data-testid*="search" i]',
+    ];
+    console.log('⏳ Waiting for Safari landing controls after cookie handling...');
+    await this.driver.waitUntil(async () => {
+      if (!await this.browserDocumentReady()) return false;
+      if (/\/search(?:[/?#]|$)/i.test(await this.driver.getUrl())) return true;
+      return Boolean(await this.browserFirstVisible(landingControls));
+    }, {
+      timeout: 30000,
+      interval: 2000,
+      timeoutMsg: 'Safari landing page did not expose Explore or Search after cookie handling.',
+    });
   }
 
   private async openSafariSearchFromLanding(): Promise<void> {
@@ -93,7 +127,7 @@ export class IOSSearchPage extends IOSBasePage {
       if (!searchControl) await this.driver.pause(300);
     }
     if (!searchControl) {
-      await this.driver.saveScreenshot('./test-results/ios_safari_search_icon_not_found.png').catch(() => {});
+      await this.driver.saveScreenshot('./test-results/ios_safari_search_icon_not_found.png').catch(() => { });
       throw new Error('Safari home did not expose a Search icon after Explore.');
     }
 
@@ -103,6 +137,79 @@ export class IOSSearchPage extends IOSBasePage {
       timeoutMsg: 'Safari Search icon did not open the DAZN search route.',
     });
     console.log(`🌐 Safari Search icon opened: ${await this.driver.getUrl()}`);
+  }
+
+  /**
+   * In a Safari WebKit context, driver.keys('Enter') can leave the iOS
+   * keyboard open without firing the search form's submit action. Submit via
+   * the visible native Return key when WebDriverAgent exposes it.
+   */
+  private async submitSafariSearch(): Promise<void> {
+    const safariContext = await this.driver.getContext().catch(() => '');
+    let submitted = false;
+
+    try {
+      await this.driver.switchContext('NATIVE_APP');
+      const returnKeySelectors = [
+        '~Return', '~return', '~Enter', '~enter',
+        '-ios predicate string:(type == "XCUIElementTypeKey" OR type == "XCUIElementTypeButton") AND (name == "Return" OR label == "Return" OR value == "Return" OR name == "return" OR label == "return" OR value == "return" OR name == "Enter" OR label == "Enter" OR value == "Enter" OR name == "enter" OR label == "enter" OR value == "enter")',
+      ];
+      let returnKey: WdElement | null = null;
+      let keyboardShown = false;
+      await this.driver.waitUntil(async () => {
+        keyboardShown = await this.driver.isKeyboardShown().catch(() => false);
+        returnKey = await this.browserFirstVisible(returnKeySelectors);
+        return Boolean(returnKey) || keyboardShown;
+      }, {
+        timeout: 5000,
+        interval: 250,
+        timeoutMsg: 'iOS Safari keyboard did not appear.',
+      }).catch(() => { });
+      if (returnKey) {
+        await returnKey.click();
+        submitted = true;
+        console.log('⌨️ Submitted Safari search using the native Return key.');
+      } else if (keyboardShown) {
+        // Safari on iOS 16.5 can render the Return glyph without exposing an
+        // accessible key element. Its position is fixed within the visible
+        // iPhone keyboard; derive the tap from the current screen size rather
+        // than hard-coding a device resolution.
+        const { width, height } = await this.driver.getWindowSize();
+        const returnX = Math.round(width * 0.86);
+        const returnY = Math.round(height * 0.88);
+        await this.driver.performActions([{
+          type: 'pointer', id: 'safari-keyboard-return', parameters: { pointerType: 'touch' },
+          actions: [
+            { type: 'pointerMove', duration: 0, x: returnX, y: returnY },
+            { type: 'pointerDown', button: 0 },
+            { type: 'pause', duration: 60 },
+            { type: 'pointerUp', button: 0 },
+          ],
+        }]);
+        await this.driver.releaseActions();
+        submitted = true;
+        console.log(`⌨️ Submitted Safari search by tapping the visible Return key (${returnX}, ${returnY}).`);
+      } else {
+        // WDA's dedicated keyboard endpoint can still reach Safari's Return
+        // action when the keyboard is visible on screen but isKeyboardShown()
+        // is not reported for the external Safari process.
+        const pressedByWda = await this.driver.execute('mobile: hideKeyboard', {
+          keys: ['return', 'Return', 'enter', 'Enter'],
+        }).then(() => true).catch(() => false);
+        if (pressedByWda) {
+          submitted = true;
+          console.log('⌨️ Submitted Safari search using WDA’s native Return action.');
+        }
+      }
+    } finally {
+      if (safariContext && safariContext !== 'NATIVE_APP') {
+        await this.driver.switchContext(safariContext);
+      }
+    }
+
+    if (!submitted) {
+      await this.driver.keys('Enter');
+    }
   }
 
   /**
@@ -151,9 +258,15 @@ export class IOSSearchPage extends IOSBasePage {
     }
     if (!input) throw new Error('Safari dev mode could not find the Search input.');
 
+    // Use click + clearValue + addValue (types char-by-char triggering React
+    // events, same as Playwright's fill), then submit the focused iOS field.
     await input.click();
-    await input.setValue('[dev_mode_on]');
-    await this.driver.keys('Enter');
+    await input.clearValue().catch(() => {});
+    await input.addValue('[dev_mode_on]');
+    // Keep the field focused so Safari presents the native keyboard and its
+    // Return action is available to submit the command.
+    await input.click();
+    await this.submitSafariSearch();
     await this.driver.pause(1000);
 
     // Safari can first show "no results" and only then mount the UUID/Copy ID
@@ -166,12 +279,25 @@ export class IOSSearchPage extends IOSBasePage {
         /copy id/i.test(text);
     }, { timeout: 30000, timeoutMsg: 'Safari dev mode confirmation did not appear.' });
 
+    let copiedId = false;
     if (!await hasDevIndicator()) {
-      const copyId = await this.browserFirstVisible([
+      const copyIdSelectors = [
         'button*=Copy ID', '[role="button"]*=Copy ID', 'button[aria-label*="Copy ID" i]',
-      ]);
+      ];
+      let copyId = await this.browserFirstVisible(copyIdSelectors);
+      if (!copyId) {
+        await this.driver.waitUntil(async () => {
+          copyId = await this.browserFirstVisible(copyIdSelectors);
+          return Boolean(copyId);
+        }, {
+          timeout: 10000,
+          interval: 500,
+          timeoutMsg: 'Safari dev mode confirmation did not expose Copy ID.',
+        }).catch(() => { });
+      }
       if (copyId) {
         await copyId.click();
+        copiedId = true;
       } else {
         const copiedByDom = await this.driver.execute(() => {
           const button = Array.from(document.querySelectorAll<HTMLElement>('button, [role="button"]'))
@@ -181,12 +307,26 @@ export class IOSSearchPage extends IOSBasePage {
           return true;
         }).catch(() => false);
         if (!copiedByDom) throw new Error('Safari dev mode confirmation appeared but Copy ID was not actionable.');
+        copiedId = true;
       }
+    }
+
+    // Copy ID changes the Safari dev-mode state only after the next document
+    // load. Refresh explicitly and wait for the refreshed document before
+    // checking the yellow indicator; it can take noticeably longer on device.
+    if (copiedId) {
+      console.log('🔄 Refreshing Safari after Copy ID...');
+      await this.driver.refresh();
+      await this.driver.waitUntil(async () => this.browserDocumentReady(), {
+        timeout: Number(process.env.IOS_SAFARI_SETTLE_TIMEOUT_MS || 35000),
+        interval: Number(process.env.IOS_SAFARI_SETTLE_POLL_MS || 2000),
+        timeoutMsg: 'Safari did not render after refreshing dev mode.',
+      });
+      console.log('🌐 Safari refreshed after Copy ID.');
     }
 
     // DAZN can redirect after Copy ID. Reload/search again and verify the
     // same yellow dev-mode indicator that the web flow treats as confirmation.
-    await this.driver.pause(1500);
     if (!/\/search(?:[/?#]|$)/i.test(await this.driver.getUrl())) {
       await this.openSafariSearchFromLanding();
     }
@@ -198,11 +338,15 @@ export class IOSSearchPage extends IOSBasePage {
       }).catch(() => { });
       enabled = await hasDevIndicator();
     }
-    // Match the web flow's final refresh only as a fallback; Safari normally
-    // returns to Search with the yellow dot already visible after Copy ID.
-    if (!enabled) {
+    // A Safari variant can activate without exposing Copy ID. Retain the
+    // existing refresh fallback for that variant, but wait for the document.
+    if (!enabled && !copiedId) {
       await this.driver.refresh();
-      await this.driver.pause(1000);
+      await this.driver.waitUntil(async () => this.browserDocumentReady(), {
+        timeout: Number(process.env.IOS_SAFARI_SETTLE_TIMEOUT_MS || 35000),
+        interval: Number(process.env.IOS_SAFARI_SETTLE_POLL_MS || 2000),
+        timeoutMsg: 'Safari did not render after refreshing dev mode.',
+      });
       enabled = await hasDevIndicator();
     }
     if (!enabled) throw new Error('Safari dev mode was not confirmed by its yellow indicator.');
@@ -268,7 +412,10 @@ export class IOSSearchPage extends IOSBasePage {
   }
 
   async continueSafariCheckout(options: IOSSafariSearchOptions): Promise<void> {
-    await this.switchToSafariWebContext(options.capturedUrl);
+    const switchedToNewTab = options.safariContext
+      ? await this.switchToPreferredSafariContext(options.safariContext, options.capturedUrl)
+      : false;
+    if (!switchedToNewTab) await this.switchToSafariWebContext(options.capturedUrl);
     const landedUrl = await this.driver.getUrl();
     options.results.push({
       page: 'iOS Safari',
@@ -289,6 +436,7 @@ export class IOSSearchPage extends IOSBasePage {
     const region = String(options.eventData?.DAZN_REGION || process.env.DAZN_REGION || '').toUpperCase();
     const devModeForced = String(process.env.DEV_MODE_ON || '').toLowerCase() === 'on';
     if (devModeForced || (tier === 'ultimate' && (region === 'GB' || region === 'US'))) {
+      await this.waitForSafariLandingNavigation();
       await this.enableSafariDevMode();
       // Always navigate explicitly to welcome — dev mode ends on /search.
       await this.navigateToWelcomePage();
@@ -321,7 +469,7 @@ export class IOSSearchPage extends IOSBasePage {
           searchBtn = el;
           break;
         }
-      } catch {}
+      } catch { }
     }
 
     if (searchBtn) {
@@ -430,7 +578,7 @@ export class IOSSearchPage extends IOSBasePage {
           searchInput = el;
           break;
         }
-      } catch {}
+      } catch { }
     }
 
     if (!searchInput) {
@@ -441,7 +589,7 @@ export class IOSSearchPage extends IOSBasePage {
     try {
       await searchInput.click();
       await this.driver.pause(500);
-      await searchInput.clearValue().catch(() => {});
+      await searchInput.clearValue().catch(() => { });
       await searchInput.setValue(searchQuery);
       await this.driver.pause(500);
 
@@ -471,7 +619,7 @@ export class IOSSearchPage extends IOSBasePage {
       if (!submitted) await this.driver.keys(['\n']);
       await this.driver.pause(1500);
     } catch (e: any) {
-      await this.driver.saveScreenshot('./test-results/ios_search_query_entry_failed.png').catch(() => {});
+      await this.driver.saveScreenshot('./test-results/ios_search_query_entry_failed.png').catch(() => { });
       throw new Error(`Unable to enter and submit iOS Search query "${searchQuery}": ${e.message}`);
     }
   }

@@ -56,6 +56,7 @@ import {
 import {
   IOSFlowHooks,
   captureCheckoutUrl as sharedCaptureCheckoutUrl,
+  openCapturedUrlInNewSafariTab as sharedOpenCapturedUrlInNewSafariTab,
   findEl as sharedFindEl,
   findPPVBanner as sharedFindPPVBanner,
   isVisible as sharedIsVisible,
@@ -80,6 +81,7 @@ const BUNDLE_ID = process.env.DAZN_BUNDLE_ID || (MODE === 'real' ? 'com.dazn.the
 // ── Direct aliases for shared utilities ─────────
 const isVisible = sharedIsVisible;
 const captureCheckoutUrl = sharedCaptureCheckoutUrl;
+const openCapturedUrlInNewSafariTab = sharedOpenCapturedUrlInNewSafariTab;
 
 async function findEl(driver: WdBrowser, sel: string, timeoutMs = 10000): Promise<WdElement> {
   return sharedFindEl(driver, sel, timeoutMs);
@@ -465,9 +467,10 @@ describe('DAZN iOS PPV — New User Handoff Flow', () => {
     writeHandoffUrl(checkoutUrl);
     console.log("✅ URL written to mobile_entry_url.txt");
 
-    // Continue in the Safari WebKit context from the URL the user actually
-    // landed on.  Do not terminate DAZN or create a desktop Playwright browser:
-    // both actions sever the native iOS → Safari journey we are validating.
+    const safariContext = await openCapturedUrlInNewSafariTab(driver, checkoutUrl);
+
+    // Continue in the newly opened native Safari tab. Do not terminate DAZN or
+    // create a desktop Playwright browser: both sever the iOS journey.
     const { configureExcelPathForEvent } = require('../../../utils/excelReader');
     configureExcelPathForEvent(json.eventKey || '');
 
@@ -478,6 +481,7 @@ describe('DAZN iOS PPV — New User Handoff Flow', () => {
     }
     await new IOSSearchPage(driver, PPV_NAME).continueSafariCheckout({
       capturedUrl: checkoutUrl,
+      safariContext,
       eventName: PPV_NAME,
       results: safariResults,
       eventData: eventData,

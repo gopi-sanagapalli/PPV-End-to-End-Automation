@@ -6,274 +6,202 @@ export interface IOSLoginCredentials {
   navigateToHomeAfterLogin?: boolean;
 }
 
+const LOGIN_SCREENSHOT_PATH = './test-results/ios_native_login_failure.png';
+
+const loginButtonSelectors = [
+  '-ios predicate string:type == "XCUIElementTypeButton" AND (name == "Log in" OR label == "Log in")',
+  '~Log in',
+  '-ios predicate string:type == "XCUIElementTypeStaticText" AND (name == "Log in" OR label == "Log in")',
+];
+
+const emailFieldSelectors = [
+  '-ios predicate string:type == "XCUIElementTypeTextField" AND (name CONTAINS[c] "Email" OR label CONTAINS[c] "Email" OR value CONTAINS[c] "Email")',
+  '-ios predicate string:type == "XCUIElementTypeTextField"',
+];
+
+const passwordFieldSelectors = [
+  '-ios predicate string:type == "XCUIElementTypeSecureTextField" AND (name CONTAINS[c] "Password" OR label CONTAINS[c] "Password" OR value CONTAINS[c] "Password")',
+  '-ios predicate string:type == "XCUIElementTypeSecureTextField"',
+];
+
+const emailContinueSelectors = [
+  '-ios predicate string:type == "XCUIElementTypeButton" AND (name == "Continue" OR label == "Continue")',
+  '~Continue',
+];
+
+const passwordSubmitSelectors = [
+  '-ios predicate string:type == "XCUIElementTypeButton" AND (name == "Sign In" OR label == "Sign In" OR name == "Sign in" OR label == "Sign in")',
+  '-ios predicate string:type == "XCUIElementTypeButton" AND (name == "Continue" OR label == "Continue")',
+  '-ios predicate string:type == "XCUIElementTypeButton" AND (name == "Log in" OR label == "Log in" OR name == "Log In" OR label == "Log In")',
+  '~Sign In',
+  '~Sign in',
+  '~Continue',
+  '~Log in',
+];
+
+const profileSelectors = [
+  '-ios predicate string:type == "XCUIElementTypeButton" AND (name CONTAINS[c] "Profile" OR label CONTAINS[c] "Profile" OR name CONTAINS[c] "Account" OR label CONTAINS[c] "Account")',
+  '-ios predicate string:type == "XCUIElementTypeButton" AND name MATCHES "^[A-Z]$"',
+  '-ios predicate string:type == "XCUIElementTypeImage" AND (name CONTAINS[c] "avatar" OR name CONTAINS[c] "profile")',
+];
+
+async function firstVisible(driver: WdBrowser, selectors: string[]): Promise<WdElement | null> {
+  for (const selector of selectors) {
+    try {
+      const elements = await driver.$$(selector);
+      for (const element of elements) {
+        if (await element.isDisplayed().catch(() => false)) return element;
+      }
+    } catch {
+      // A locator can be absent while the native screen is transitioning.
+    }
+  }
+  return null;
+}
+
+async function dismissKnownSystemAlert(driver: WdBrowser): Promise<boolean> {
+  const dismissLabels = ["Don't Allow", 'Not Now', 'OK'];
+  try {
+    if (await driver.isAlertOpen()) {
+      const buttons = await driver.execute('mobile: alert', { action: 'getButtons' }) as string[];
+      const button = dismissLabels.find(label => buttons?.some(value => value?.trim() === label));
+      if (button) {
+        await driver.execute('mobile: alert', { action: 'accept', buttonLabel: button });
+        console.log(`  Dismissed iOS system alert with "${button}".`);
+        return true;
+      }
+    }
+  } catch {
+    // Fall through to the native accessibility tree. Some real devices do not
+    // expose a system alert through isAlertOpen immediately.
+  }
+
+  const button = await firstVisible(driver, dismissLabels.flatMap(label => [
+    `-ios predicate string:type == "XCUIElementTypeButton" AND (name == "${label}" OR label == "${label}")`,
+    `~${label}`,
+  ]));
+  if (!button) return false;
+
+  await button.click();
+  console.log('  Dismissed visible iOS system alert.');
+  return true;
+}
+
 export class IOSMyAccountPage extends IOSBasePage {
   async preLoginFlow(baseUrl: string, credentials: IOSLoginCredentials = {}): Promise<void> {
     void baseUrl;
-    console.log('\nPRE-LOGIN FLOW: Signing in existing iOS user...');
-    await this.driver.pause(500);
-
-    // Check if we are already on email input screen
-    let emailInput = await this.driver.$('//XCUIElementTypeTextField');
-    let emailInputVisible = await emailInput.isDisplayed().catch(() => false);
-
-    const directLoginSelectors = [
-      '-ios predicate string:type == "XCUIElementTypeButton" AND (name == "Sign In" OR name == "Sign in" OR name == "Log In" OR name == "Log in" OR name == "Login")',
-      '~Sign In',
-      '~Sign in',
-      '~Log In',
-      '~Log in',
-      '~Login',
-    ];
-
-    let loginClicked = emailInputVisible;
-    for (const selector of emailInputVisible ? [] : directLoginSelectors) {
-      try {
-        const loginBtn = await this.driver.$(selector);
-        if (await loginBtn.isDisplayed()) {
-          console.log(`  Found direct login button with selector: ${selector}, clicking...`);
-          await loginBtn.click();
-          await this.driver.pause(1500);
-          loginClicked = true;
-          break;
-        }
-      } catch {}
+    if (!credentials.email || !credentials.password) {
+      throw new Error('Native iOS login requires both an email and password.');
     }
 
-    if (!loginClicked) {
-      console.log('  Direct login button not found, trying via Profile/Account icon...');
-      const profileSelectors = [
-        '~Profile',
-        '~Account',
-        '-ios predicate string:name CONTAINS[c] "Profile" OR label CONTAINS[c] "Profile"',
-        '-ios predicate string:name CONTAINS[c] "Account" OR label CONTAINS[c] "Account"',
-      ];
+    console.log('\nPRE-LOGIN FLOW: Signing in existing iOS user through the native app...');
+    try {
+      await this.driver.switchContext('NATIVE_APP');
 
-      let profileFound = false;
-      for (const selector of profileSelectors) {
-        try {
-          const profileBtn = await this.driver.$(selector);
-          if (await profileBtn.isDisplayed()) {
-            console.log('  Found Profile/Account button, tapping...');
-            await profileBtn.click();
-            await this.driver.pause(800);
-            profileFound = true;
-            break;
-          }
-        } catch {}
+      if (await firstVisible(this.driver, profileSelectors)) {
+        console.log('  Logged-in profile control is already visible; skipping native login.');
+        await this.navigateHomeAfterLogin(credentials.navigateToHomeAfterLogin);
+        return;
       }
 
-      if (!profileFound) {
-        console.log('  Profile button not found via selectors, trying top-right coordinate tap...');
-        const { width } = await this.driver.getWindowSize();
-        // Top right coordinate (around 90% width, 60px height)
-        await this.driver.performActions([{
-          type: 'pointer', id: 'pt', parameters: { pointerType: 'touch' },
-          actions: [
-            { type: 'pointerMove', duration: 0, x: Math.round(width * 0.90), y: 60 },
-            { type: 'pointerDown', button: 0 },
-            { type: 'pause', duration: 60 },
-            { type: 'pointerUp', button: 0 },
-          ],
-        }]);
-        await this.driver.releaseActions();
-        await this.driver.pause(1000);
+      let emailField = await firstVisible(this.driver, emailFieldSelectors);
+      if (!emailField) {
+        const loginButton = await this.waitForNativeElement(loginButtonSelectors, 15000, 'landing-page "Log in" button');
+        console.log('  Opening the native login screen from the landing page...');
+        await loginButton.click();
+
+        // The Face ID prompt is optional. Poll for the actual next screen, and
+        // dismiss only known opt-out/info buttons if a system dialog appears.
+        await this.driver.waitUntil(async () => {
+          await dismissKnownSystemAlert(this.driver);
+          emailField = await firstVisible(this.driver, emailFieldSelectors);
+          return Boolean(emailField);
+        }, {
+          timeout: 15000,
+          interval: 300,
+          timeoutMsg: 'Native iOS login screen did not show an email field after tapping "Log in".',
+        });
       }
 
-      for (const selector of directLoginSelectors) {
-        try {
-          const signInBtn = await this.driver.$(selector);
-          if (await signInBtn.isDisplayed()) {
-            console.log('  Found Sign In button in profile menu, tapping...');
-            await signInBtn.click();
-            await this.driver.pause(1500);
-            loginClicked = true;
-            break;
-          }
-        } catch {}
-      }
-    }
+      console.log('  Entering email address...');
+      await emailField!.click();
+      await emailField!.clearValue().catch(() => {});
+      await emailField!.setValue(credentials.email);
 
-    if (credentials.email) {
-      console.log(`  Entering email: ${credentials.email}`);
-      emailInput = await this.driver.$('//XCUIElementTypeTextField');
-      if (!await emailInput.isDisplayed().catch(() => false)) {
-        // Try other selector matches
-        emailInput = await this.driver.$('-ios predicate string:type == "XCUIElementTypeTextField" OR name CONTAINS[c] "email" OR label CONTAINS[c] "email"');
-      }
+      const continueButton = await this.waitForNativeElement(emailContinueSelectors, 10000, 'email "Continue" button');
+      console.log('  Submitting email address...');
+      await continueButton.click();
 
-      await emailInput.waitForDisplayed({ timeout: 10000 });
-      await emailInput.click();
-      await this.driver.pause(500);
-      // Re-fetch the input after click to avoid stale element references
-      // caused by React re-renders. The click can trigger DOM updates that
-      // invalidate the element reference held by the earlier $() call.
-      const freshEmailInput = await this.driver.$('//XCUIElementTypeTextField');
-      if (await freshEmailInput.isDisplayed().catch(() => false)) {
-        await freshEmailInput.setValue(credentials.email);
-      } else {
-        const fallbackInput = await this.driver.$('-ios predicate string:type == "XCUIElementTypeTextField" OR name CONTAINS[c] "email" OR label CONTAINS[c] "email"');
-        if (await fallbackInput.isDisplayed().catch(() => false)) {
-          await fallbackInput.setValue(credentials.email);
-        } else {
-          console.log('⚠️ Email input not interactable after click — attempting original reference.');
-          await emailInput.setValue(credentials.email).catch(async (e: any) => {
-            console.warn(`⚠️ Email input setValue failed after re-render: ${e.message}`);
-            // Last resort: try finding any visible text field
-            const allFields = await this.driver.$$('//XCUIElementTypeTextField');
-            for (const field of allFields) {
-              if (await field.isDisplayed().catch(() => false)) {
-                await field.setValue(credentials.email);
-                break;
-              }
-            }
-          });
-        }
-      }
-      await this.driver.pause(500);
+      let passwordField: WdElement | null = null;
+      await this.driver.waitUntil(async () => {
+        await dismissKnownSystemAlert(this.driver);
+        passwordField = await firstVisible(this.driver, passwordFieldSelectors);
+        return Boolean(passwordField);
+      }, {
+        timeout: 15000,
+        interval: 300,
+        timeoutMsg: 'Password field did not appear after submitting the email address.',
+      });
 
-      // Tap Go / Next / Continue button
-      const continueSelectors = [
-        '~Get Started',
-        '~Get started',
-        '~Continue',
-        '~Next',
-        '-ios predicate string:type == "XCUIElementTypeButton" AND (name MATCHES[c] "Get started|Get Started|Continue|Next")',
-      ];
-
-      for (const selector of continueSelectors) {
-        try {
-          const continueBtn = await this.driver.$(selector);
-          if (await continueBtn.isDisplayed()) {
-            await continueBtn.click();
-            await this.driver.pause(2000);
-            break;
-          }
-        } catch {}
-      }
-    }
-
-    if (credentials.password) {
       console.log('  Entering password...');
-      const passwordInput = await this.driver.$('//XCUIElementTypeSecureTextField');
-      await passwordInput.waitForDisplayed({ timeout: 10000 });
-      await passwordInput.click();
-      await this.driver.pause(500);
-      // Re-fetch the password input after click to avoid stale element references
-      // caused by React re-renders (same pattern as email input above).
-      const freshPasswordInput = await this.driver.$('//XCUIElementTypeSecureTextField');
-      if (await freshPasswordInput.isDisplayed().catch(() => false)) {
-        await freshPasswordInput.setValue(credentials.password);
-      } else {
-        const fallbackPasswordInput = await this.driver.$('-ios predicate string:type == "XCUIElementTypeSecureTextField"');
-        if (await fallbackPasswordInput.isDisplayed().catch(() => false)) {
-          await fallbackPasswordInput.setValue(credentials.password);
-        } else {
-          console.log('⚠️ Password input not interactable after click — attempting original reference.');
-          await passwordInput.setValue(credentials.password).catch(async (e: any) => {
-            console.warn(`⚠️ Password input setValue failed after re-render: ${e.message}`);
-            const allSecureFields = await this.driver.$$('//XCUIElementTypeSecureTextField');
-            for (const field of allSecureFields) {
-              if (await field.isDisplayed().catch(() => false)) {
-                await field.setValue(credentials.password);
-                break;
-              }
-            }
-          });
-        }
-      }
-      await this.driver.pause(500);
+      await passwordField!.click();
+      await passwordField!.clearValue().catch(() => {});
+      await passwordField!.setValue(credentials.password);
 
-      // Hide keyboard if present by tapping return or done
-      if (await this.driver.isKeyboardShown().catch(() => false)) {
-        try {
-          const doneButton = await this.driver.$('~Done');
-          if (await doneButton.isDisplayed()) {
-            await doneButton.click();
-          } else {
-            const hideKey = await this.driver.$('~Hide keyboard');
-            if (await hideKey.isDisplayed()) {
-              await hideKey.click();
-            } else {
-              // Tap somewhere safe to dismiss keyboard
-              const { width, height } = await this.driver.getWindowSize();
-              await this.driver.performActions([{
-                type: 'pointer', id: 'pt', parameters: { pointerType: 'touch' },
-                actions: [
-                  { type: 'pointerMove', duration: 0, x: Math.round(width * 0.5), y: Math.round(height * 0.1) },
-                  { type: 'pointerDown', button: 0 },
-                  { type: 'pause', duration: 60 },
-                  { type: 'pointerUp', button: 0 },
-                ],
-              }]);
-              await this.driver.releaseActions();
-            }
-          }
-        } catch {}
-        await this.driver.pause(1000);
-      }
+      // The native Log in control remains above the iOS keyboard. WDA cannot
+      // reliably dismiss this app's keyboard, so submit directly once enabled.
+      const signInButton = await this.waitForNativeElement(passwordSubmitSelectors, 10000, 'enabled password submit button', true);
+      console.log('  Submitting native login credentials...');
+      await signInButton.click();
 
-      const signInSelectors = [
-        '-ios predicate string:type == "XCUIElementTypeButton" AND (name MATCHES[c] "Sign In|Sign in|Log In|Log in")',
-        '~Sign In',
-        '~Sign in',
-        '~Log In',
-        '~Log in',
-      ];
+      await this.driver.waitUntil(async () => {
+        await dismissKnownSystemAlert(this.driver);
+        return Boolean(await firstVisible(this.driver, profileSelectors));
+      }, {
+        timeout: 30000,
+        interval: 500,
+        timeoutMsg: 'Native iOS login did not reach a logged-in state (profile control was not visible).',
+      });
 
-      for (const selector of signInSelectors) {
-        try {
-          const signInBtnFinal = await this.driver.$(selector);
-          if (await signInBtnFinal.isDisplayed()) {
-            await signInBtnFinal.click();
-            await this.driver.pause(3000);
-            break;
-          }
-        } catch {}
-      }
+      console.log('✅ Native iOS login completed; logged-in profile control is visible.\n');
+      await this.navigateHomeAfterLogin(credentials.navigateToHomeAfterLogin);
+    } catch (error: any) {
+      await this.driver.saveScreenshot(LOGIN_SCREENSHOT_PATH).catch(() => {});
+      throw new Error(`Native iOS login failed. Screenshot: ${LOGIN_SCREENSHOT_PATH}. ${error?.message || error}`);
+    }
+  }
+
+  private async waitForNativeElement(
+    selectors: string[],
+    timeoutMs: number,
+    description: string,
+    requireEnabled = false,
+  ): Promise<WdElement> {
+    let element: WdElement | null = null;
+    await this.driver.waitUntil(async () => {
+      element = await firstVisible(this.driver, selectors);
+      return Boolean(element) && (!requireEnabled || await element!.isEnabled().catch(() => false));
+    }, {
+      timeout: timeoutMs,
+      interval: 300,
+      timeoutMsg: `Could not find ${description}.`,
+    });
+    return element!;
+  }
+
+  private async navigateHomeAfterLogin(navigateToHomeAfterLogin = true): Promise<void> {
+    if (!navigateToHomeAfterLogin) {
+      console.log('  Skipping Home navigation for the requested flow.');
+      return;
     }
 
-    await this.driver.pause(2000);
-
-    if (credentials.navigateToHomeAfterLogin !== false) {
-      console.log('Ensuring navigation to Home page after login...');
-      const homeSelectorsAfterLogin = [
-        '-ios predicate string:(name == "Home" OR label == "Home") AND type == "XCUIElementTypeButton"',
-        '~Home',
-      ];
-
-      let homeFound = false;
-      for (const selector of homeSelectorsAfterLogin) {
-        try {
-          const homeEl = await this.driver.$(selector);
-          if (await homeEl.isDisplayed()) {
-            console.log('  Found Home tab, tapping to navigate home...');
-            await homeEl.click();
-            await this.driver.pause(2000);
-            homeFound = true;
-            break;
-          }
-        } catch {}
-      }
-
-      if (!homeFound) {
-        console.log('  Home tab not found via selectors, trying bottom-left coordinate tap...');
-        const { width, height } = await this.driver.getWindowSize();
-        // Bottom left tab (around 12.5% width, 95% height)
-        await this.driver.performActions([{
-          type: 'pointer', id: 'pt', parameters: { pointerType: 'touch' },
-          actions: [
-            { type: 'pointerMove', duration: 0, x: Math.round(width * 0.125), y: Math.round(height * 0.95) },
-            { type: 'pointerDown', button: 0 },
-            { type: 'pause', duration: 60 },
-            { type: 'pointerUp', button: 0 },
-          ],
-        }]);
-        await this.driver.releaseActions();
-        await this.driver.pause(2000);
-      }
-      console.log('Post-login navigation to Home completed\n');
-    } else {
-      console.log('Skipping Home navigation (myaccount flow)\n');
+    const home = await firstVisible(this.driver, [
+      '-ios predicate string:type == "XCUIElementTypeButton" AND (name == "Home" OR label == "Home")',
+      '~Home',
+    ]);
+    if (home) {
+      await home.click();
+      console.log('  Navigated to Home using the native tab control.');
     }
   }
 

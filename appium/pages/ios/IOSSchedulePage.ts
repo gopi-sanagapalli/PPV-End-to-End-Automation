@@ -1,6 +1,41 @@
 import { IOSBasePage, IOSFlowHooks, WdBrowser, WdElement } from './IOSBasePage';
 
 export class IOSSchedulePage extends IOSBasePage {
+  private async firstVisible(selectors: string[]): Promise<WdElement | null> {
+    for (const selector of selectors) {
+      try {
+        const elements = await this.driver.$$(selector);
+        for (const element of elements) {
+          if (await element.isDisplayed().catch(() => false)) return element;
+        }
+      } catch {
+        // The native hierarchy can change while the selected tab is loading.
+      }
+    }
+    return null;
+  }
+
+  private async firstVisibleNearY(selectors: string[], targetY: number, tolerance = 120): Promise<WdElement | null> {
+    let closest: { element: WdElement; distance: number } | null = null;
+    for (const selector of selectors) {
+      try {
+        const elements = await this.driver.$$(selector);
+        for (const element of elements) {
+          if (!(await element.isDisplayed().catch(() => false))) continue;
+          const location = await element.getLocation().catch(() => null);
+          const size = await element.getSize().catch(() => null);
+          if (!location || !size) continue;
+          const distance = Math.abs(location.y + size.height / 2 - targetY);
+          if (distance > tolerance || (closest && distance >= closest.distance)) continue;
+          closest = { element, distance };
+        }
+      } catch {
+        // The Schedule filter hierarchy can be rebuilt while the tab scrolls.
+      }
+    }
+    return closest?.element ?? null;
+  }
+
   async navigate(): Promise<void> {
     console.log('Navigating to Schedule tab...');
     await this.driver.saveScreenshot('./test-results/before_ios_schedule_click.png');
@@ -15,42 +50,41 @@ export class IOSSchedulePage extends IOSBasePage {
       '~Schedule',
     ];
 
-    let navBtn: WdElement | null = null;
-    for (const sel of bottomNavSchedule) {
-      try {
-        const el = await this.driver.$(sel);
-        if (await el.isDisplayed()) {
-          navBtn = el;
-          break;
-        }
-      } catch {}
+    const allSportsTab = [
+      '-ios predicate string:type == "XCUIElementTypeButton" AND (name == "All Sports" OR label == "All Sports")',
+      '~All Sports',
+    ];
+
+    const navBtn = await this.firstVisible(bottomNavSchedule);
+
+    if (!navBtn) {
+      await this.driver.saveScreenshot('./test-results/ios_schedule_tab_not_found.png');
+      throw new Error('Schedule button was not found in the native bottom navigation.');
     }
 
-    if (navBtn) {
-      console.log('  Found Schedule button, clicking...');
-      await navBtn.click();
-      await this.driver.pause(3000);
-      await this.driver.saveScreenshot('./test-results/after_ios_schedule_click.png');
-    } else {
-      console.log('  Schedule button not found in bottom nav');
-    }
+    console.log('  Found Schedule button, clicking...');
+    await navBtn.click();
 
-    // Verify Schedule page title is displayed
-    let titleVisible = false;
-    for (const sel of scheduleTitle) {
-      try {
-        const el = await this.driver.$(sel);
-        if (await el.isDisplayed()) {
-          titleVisible = true;
-          break;
-        }
-      } catch {}
-    }
-    if (titleVisible) {
-      console.log('Schedule tab loaded successfully');
-    } else {
-      console.warn('⚠️ Schedule title not detected after navigation');
-    }
+    // The tab bar remains visible on every screen. Do not proceed merely
+    // because it still exposes "Schedule"; wait for the Schedule heading and
+    // its filter strip, which confirms its data-bearing content has rendered.
+    await this.driver.waitUntil(async () => {
+      const [title, allSports] = await Promise.all([
+        this.firstVisible(scheduleTitle),
+        this.firstVisible(allSportsTab),
+      ]);
+      return Boolean(title && allSports);
+    }, {
+      timeout: 20000,
+      interval: 400,
+      timeoutMsg: 'Schedule page did not render its heading and filter strip after selecting the Schedule tab.',
+    }).catch(async (error: any) => {
+      await this.driver.saveScreenshot('./test-results/ios_schedule_not_ready.png').catch(() => {});
+      throw error;
+    });
+
+    await this.driver.saveScreenshot('./test-results/after_ios_schedule_click.png');
+    console.log('Schedule page content loaded successfully');
   }
 
   async clickSportFilterIfPresent(eventConfig?: Record<string, any>): Promise<void> {
@@ -62,69 +96,44 @@ export class IOSSchedulePage extends IOSBasePage {
       `~${sport}`,
     ];
 
-    // First check if the sport filter is already visible
-    let sportEl: WdElement | null = null;
-    for (const sel of sportTab) {
-      try {
-        const el = await this.driver.$(sel);
-        if (await el.isDisplayed()) { sportEl = el; break; }
-      } catch {}
+    const allSportsTab = [
+      '-ios predicate string:type == "XCUIElementTypeButton" AND (name == "All Sports" OR label == "All Sports")',
+      '~All Sports',
+    ];
+    const allSports = await this.firstVisible(allSportsTab);
+    if (!allSports) {
+      throw new Error('Schedule filter strip was not visible after Schedule loaded.');
     }
 
-    // If not visible, swipe the filter strip horizontally to find it
-    if (!sportEl) {
-      const allSportsTab = [
-        '-ios predicate string:type == "XCUIElementTypeButton" AND (name == "All Sports" OR label == "All Sports")',
-        '~All Sports',
-      ];
-      let allSports: WdElement | null = null;
-      for (const sel of allSportsTab) {
-        try {
-          const el = await this.driver.$(sel);
-          if (await el.isDisplayed()) { allSports = el; break; }
-        } catch {}
-      }
+    const location = await allSports.getLocation();
+    const size = await allSports.getSize();
+    const menuY = Math.round(location.y + size.height / 2);
+    const { width } = await this.driver.getWindowRect();
 
-      if (!allSports) {
-        console.log('  All Sports tab not visible; skipping filter strip swipe');
-        return;
-      }
-
-      const loc = await allSports.getLocation();
-      const size = await allSports.getSize();
-      const menuY = Math.round(loc.y + size.height / 2);
-      const { width } = await this.driver.getWindowRect();
-
-      for (let i = 0; i < 8 && !sportEl; i++) {
-        console.log(`  Horizontal swipe ${i + 1} to find ${sport}...`);
-        const fromX = Math.round(width * 0.80);
-        const toX = Math.round(width * 0.20);
-        await this.driver.performActions([{
-          type: 'pointer', id: 'pd', parameters: { pointerType: 'touch' },
-          actions: [
-            { type: 'pointerMove', duration: 0, x: fromX, y: menuY },
-            { type: 'pointerDown', button: 0 },
-            { type: 'pause', duration: 80 },
-            { type: 'pointerMove', duration: 250, x: toX, y: menuY },
-            { type: 'pointerUp', button: 0 },
-          ],
-        }]);
-        await this.driver.releaseActions();
-        await this.driver.pause(500);
-
-        for (const sel of sportTab) {
-          try {
-            const el = await this.driver.$(sel);
-            if (await el.isDisplayed()) { sportEl = el; break; }
-          } catch {}
-        }
-      }
+    // The event list can contain a Boxing label too. Restrict discovery to
+    // the filter-strip row so the following click cannot select list content.
+    let sportEl = await this.firstVisibleNearY(sportTab, menuY);
+    for (let attempt = 0; attempt < 8 && !sportEl; attempt++) {
+      console.log(`  Horizontal swipe ${attempt + 1} to find ${sport} in the filter strip...`);
+      await this.driver.performActions([{
+        type: 'pointer', id: 'schedule-filter-strip', parameters: { pointerType: 'touch' },
+        actions: [
+          { type: 'pointerMove', duration: 0, x: Math.round(width * 0.80), y: menuY },
+          { type: 'pointerDown', button: 0 },
+          { type: 'pause', duration: 80 },
+          { type: 'pointerMove', duration: 250, x: Math.round(width * 0.20), y: menuY },
+          { type: 'pointerUp', button: 0 },
+        ],
+      }]);
+      await this.driver.releaseActions();
+      await this.driver.waitUntil(async () => {
+        sportEl = await this.firstVisibleNearY(sportTab, menuY);
+        return Boolean(sportEl);
+      }, { timeout: 1200, interval: 200 }).catch(() => {});
     }
 
     if (sportEl) {
       await sportEl.click();
-      // Wait for the schedule content to refresh after filter change
-      await this.driver.pause(3000);
       await this.driver.saveScreenshot('./test-results/ios_schedule_after_sport_filter.png');
       console.log(`✅ ${sport} filter selected`);
     } else {
@@ -203,8 +212,6 @@ export class IOSSchedulePage extends IOSBasePage {
   async openPPVPaywall(eventConfig?: any, hooks: IOSFlowHooks = {}): Promise<boolean> {
     console.log('Navigating to Schedule page...');
     await this.navigate();
-    // Allow Schedule page content to fully render before interacting
-    await this.driver.pause(7000);
     await this.clickSportFilterIfPresent(eventConfig);
 
     console.log(`Navigating to ${this.ppvName} using iOS schedule scroll...`);

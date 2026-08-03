@@ -30,17 +30,64 @@ export class IOSSignupPage extends IOSBasePage {
   }
 
   private async clickContinue(): Promise<boolean> {
-    const button = await this.firstVisible([
-      'button[type="submit"]', 'button*=Continue', '[role="button"]*=Continue',
-    ]);
-    if (!button) return false;
+    const selectors = [
+      'button[type="submit"]', 'input[type="submit"]', 'button*=Continue',
+      '[role="button"]*=Continue', '[aria-label*="Continue" i]',
+    ];
+    let button: any | null = null;
+    const available = await this.driver.waitUntil(async () => {
+      button = await this.firstVisible(selectors);
+      return Boolean(button) && await button.isEnabled().catch(() => false);
+    }, {
+      timeout: 10000,
+      interval: 250,
+      timeoutMsg: 'Safari Continue button did not become available.',
+    }).then(() => true).catch(() => false);
+    if (!available || !button) return false;
+
+    // The enabled-state update can replace the button node. Re-query it so
+    // the click never uses the pre-validation element reference.
+    button = await this.firstVisible(selectors);
+    if (!button || !await button.isEnabled().catch(() => false)) return false;
+
+    const urlBeforeClick = await this.driver.getUrl().catch(() => '');
     await button.click();
-    await this.driver.pause(1800);
+    // Email validation re-renders this form asynchronously in Safari. Wait
+    // for an observable transition instead of assuming the next page has
+    // mounted after a fixed delay.
+    await this.driver.waitUntil(async () => {
+      if ((await this.driver.getUrl().catch(() => '')) !== urlBeforeClick) return true;
+      return !(await button.isExisting().catch(() => false));
+    }, {
+      timeout: 8000,
+      interval: 250,
+      timeoutMsg: 'Safari account form did not transition after Continue.',
+    }).catch(() => { });
     return true;
   }
 
   private async text(): Promise<string> {
     return this.driver.execute(() => document.body?.innerText || '').catch(() => '');
+  }
+
+  private async acceptKeepMeUpdatedPrompt(): Promise<boolean> {
+    const keepMeUpdated = await this.firstVisible([
+      'button*=Keep me updated', '[role="button"]*=Keep me updated',
+      '[aria-label*="Keep me updated" i]',
+    ]);
+    if (!keepMeUpdated) return false;
+
+    await keepMeUpdated.click();
+    await this.driver.waitUntil(async () => !(await this.firstVisible([
+      'button*=Keep me updated', '[role="button"]*=Keep me updated',
+      '[aria-label*="Keep me updated" i]',
+    ])), {
+      timeout: 8000,
+      interval: 250,
+      timeoutMsg: 'Keep me updated prompt remained open after selecting it.',
+    });
+    console.log('✅ Selected Safari “Keep me updated” prompt.');
+    return true;
   }
 
   async completeToPayment(results: IOSValidationResult[], eventName = '', eventData?: Record<string, any>): Promise<void> {
@@ -69,6 +116,11 @@ export class IOSSignupPage extends IOSBasePage {
       const lower = body.toLowerCase();
       const url = await this.driver.getUrl();
       console.log(`Safari account step ${step + 1}: ${url}`);
+
+      // DAZN can show this optional marketing prompt immediately after either
+      // sign-in or sign-up. Accept the requested option before evaluating the
+      // underlying account or payment page.
+      if (await this.acceptKeepMeUpdatedPrompt()) continue;
 
       // ── Payment page (terminal) ──
       if (/payment method|choose how to pay|card number|payment details/.test(lower)) {
