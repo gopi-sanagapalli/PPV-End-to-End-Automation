@@ -91,13 +91,14 @@ export class IOSValidationPage extends IOSBasePage {
     expectedValue: string,
     actualValue: string
   ): Promise<string> {
+    let screenshotPath = '';
     try {
       const fs = require('fs');
       const path = require('path');
       const SHOTS_DIR = path.resolve(process.cwd(), 'test-results/failure-shots');
       if (!fs.existsSync(SHOTS_DIR)) fs.mkdirSync(SHOTS_DIR, { recursive: true });
 
-      const screenshotPath = path.resolve(
+      screenshotPath = path.resolve(
         SHOTS_DIR,
         `ios_${String(surface || 'page').replace(/[^a-zA-Z0-9]/g, '_')}_${String(fieldName || 'field').replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}.png`
       );
@@ -153,7 +154,11 @@ export class IOSValidationPage extends IOSBasePage {
       }
 
       if (bounds) {
-        const Jimp = require('jimp');
+        // Jimp v1 exports its constructor as `{ Jimp }`; v0 exported the
+        // constructor directly. Support both so diagnostics never fail solely
+        // because the installed Jimp API changed.
+        const jimpModule = require('jimp');
+        const Jimp = jimpModule.Jimp || jimpModule;
         const image = await Jimp.read(screenshotPath);
         const screen = await this.driver.getWindowRect().catch(() => null);
         const scaleX = image.bitmap.width / (screen?.width || image.bitmap.width);
@@ -172,13 +177,19 @@ export class IOSValidationPage extends IOSBasePage {
             image.setPixelColor(0xff1744ff, Math.max(left, right - thickness), y);
           }
         }
-        await image.writeAsync(screenshotPath);
+        if (typeof image.writeAsync === 'function') {
+          await image.writeAsync(screenshotPath);
+        } else {
+          await image.write(screenshotPath);
+        }
         console.log(`📸 [Fail Shot] Highlighted iOS field "${fieldName}": ${screenshotPath}`);
       }
       return screenshotPath;
     } catch (e: any) {
       console.warn(`⚠️ Failed to capture failure screenshot:`, e.message);
-      return '';
+      // The base screenshot was saved before optional annotation. Keep it as
+      // report evidence even if the image-marking library is unavailable.
+      return screenshotPath;
     }
   }
 
@@ -625,12 +636,14 @@ export class IOSValidationPage extends IOSBasePage {
           isMatch = Boolean(matchingText);
         } else if (isDontMissTile && fieldName === 'PPV Date') {
           const expectedDateTerms = expectedValue.toLowerCase().match(/jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|\b\d{1,2}\b/g) || [];
-          const matchingText = dontMissOcrTexts.find(text => {
-            const normalized = text.toLowerCase();
-            return expectedDateTerms.length > 0 && expectedDateTerms.every((term: string) => normalized.includes(term.slice(0, 3)) || normalized.includes(term));
-          });
-          actualValue = matchingText || 'Not found';
-          isMatch = Boolean(matchingText);
+          // Vision can expose `AUG` and `29` as separate observations. Search
+          // the complete visible-card OCR corpus, not just one observation.
+          const ocrCorpus = dontMissOcrTexts.join(' ').toLowerCase();
+          const matchesDate = expectedDateTerms.length > 0 && expectedDateTerms.every((term: string) =>
+            ocrCorpus.includes(term.slice(0, 3)) || ocrCorpus.includes(term),
+          );
+          actualValue = matchesDate ? expectedValue : 'Not found';
+          isMatch = matchesDate;
         } else if (isDontMissTile && fieldName === 'PPV Image Present') {
           actualValue = dontMissTileFound ? 'Yes' : 'No';
           isMatch = dontMissTileFound && expectedValue.toLowerCase() === 'yes';

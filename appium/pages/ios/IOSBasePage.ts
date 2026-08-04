@@ -416,6 +416,29 @@ export class IOSBasePage {
     }
   }
 
+  /** Fail explicitly when the external App Store sheet cannot load. */
+  private async failIfAppStoreCannotConnect(): Promise<void> {
+    await this.driver.switchContext('NATIVE_APP').catch(() => { });
+    const source = await this.driver.getPageSource().catch(() => '');
+    let cannotConnect = /cannot connect/i.test(source);
+    let retryVisible = /retry/i.test(source);
+    if (!cannotConnect || !retryVisible) {
+      const [cannotConnectElement, retryElement] = await Promise.all([
+        this.driver.$('-ios predicate string:name CONTAINS[c] "Cannot Connect" OR label CONTAINS[c] "Cannot Connect"')
+          .catch(() => null),
+        this.driver.$('-ios predicate string:name == "Retry" OR label == "Retry"')
+          .catch(() => null),
+      ]);
+      cannotConnect = cannotConnect || Boolean(await cannotConnectElement?.isDisplayed().catch(() => false));
+      retryVisible = retryVisible || Boolean(await retryElement?.isDisplayed().catch(() => false));
+    }
+    if (!cannotConnect || !retryVisible) return;
+
+    const screenshotPath = './test-results/ios_app_store_cannot_connect.png';
+    await this.driver.saveScreenshot(screenshotPath).catch(() => { });
+    throw new Error(`iOS App Store sheet could not connect and displayed Retry. See ${screenshotPath}`);
+  }
+
   async captureCheckoutUrl(): Promise<string> {
     // The external-website confirmation is a native App Store sheet. A prior
     // Safari WEBVIEW can still be selected after the native paywall click, in
@@ -437,6 +460,7 @@ export class IOSBasePage {
     // from both the XCUITest tree and native page source, so source-based
     // presence checks would block forever.
     await this.driver.pause(Number(process.env.IOS_EXTERNAL_SHEET_SETTLE_MS || 3000));
+    await this.failIfAppStoreCannotConnect();
 
     // 2. Resolve the system sheet by accessibility label. Looking up six
     // selectors five times made XCUITest wait for idle on each miss (nearly a
@@ -527,6 +551,10 @@ export class IOSBasePage {
         console.warn('⚠️ Coordinate fallback failed:', e.message);
       }
     }
+
+    // Do not treat an old DAZN WebView as a successful handoff when the
+    // current App Store presentation has failed with a Retry surface.
+    await this.failIfAppStoreCannotConnect();
 
     // Switch automation context to the active browser app to inspect its UI tree.
     // DAZN opens the web flow in SFSafariViewController (an in-app browser), so

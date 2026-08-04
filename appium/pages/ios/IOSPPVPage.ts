@@ -25,9 +25,28 @@ export class IOSPPVPage extends IOSBasePage {
     return null;
   }
 
-  /** Returns true when the visible page text matches the contextual PPV page. */
-  isContextualPPVPage(bodyTextLower: string): boolean {
-    return /pay-per-view, you.ll need a dazn plan|ultimate fan package/.test(bodyTextLower);
+  /**
+   * Returns true for the PPV tier-choice surface, which can transiently use
+   * the PlanDetails route before DAZN appends `upsellTierSelected`.
+   */
+  async isContextualPPVPage(bodyTextLower: string, url = ''): Promise<boolean> {
+    const hasPpvChoiceCopy = /pay-per-view, you.ll need a dazn plan|ultimate fan package|continue with pay-per-view|just the fight|to watch your pay-per-view/.test(bodyTextLower);
+    const lowerUrl = url.toLowerCase();
+    if (!lowerUrl.includes('contextualppvid=')) return hasPpvChoiceCopy;
+
+    // These flags identify the actual plan page after the PPV tier was
+    // selected (or deliberately skipped), so it must not be re-handled here.
+    if (lowerUrl.includes('upselltierselected=true') || lowerUrl.includes('upselltierskipped=true')) return false;
+    if (hasPpvChoiceCopy || lowerUrl.includes('upselltiershown=true')) return true;
+
+    // The recorded Safari flow shows the PPV selection page for only a couple
+    // of seconds on the PlanDetails route. Its document text can still be the
+    // previous sign-in snapshot, while the PPV CTA is already interactable.
+    return Boolean(await this.firstVisible([
+      '//button[contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "continue with pay-per-view")]',
+      '//button[contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "continue with dazn ultimate")]',
+      '//button[contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "continue with ultimate")]',
+    ]));
   }
 
   /**
@@ -72,15 +91,75 @@ export class IOSPPVPage extends IOSBasePage {
 
     const wantsUltimate = this.getRequestedPlan().tier === 'ultimate';
     const targetText = wantsUltimate ? 'Ultimate' : (eventName.split(/\s+vs\.?\s+/i)[0] || 'pay-per-view');
-    const ppvOrUltimate = await this.firstVisible([
+    let ppvOrUltimate = await this.firstVisible([
       `//*[self::label or self::button or @role="radio" or @role="button"][contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "${targetText.toLowerCase()}")]`,
     ]);
+    // Safari sometimes exposes only the radio inside a generic card. Match it
+    // against its visible ancestor text rather than falling through to PPV.
+    if (!ppvOrUltimate) {
+      const radios = await this.driver.$$('input[type="radio"]').catch(() => []);
+      for (const radio of radios) {
+        const isTargetRadio = await this.driver.execute((input: HTMLInputElement, text: string) => {
+          for (let node: HTMLElement | null = input.parentElement; node && node !== document.body; node = node.parentElement) {
+            const style = window.getComputedStyle(node);
+            const box = node.getBoundingClientRect();
+            if (style.display !== 'none' && style.visibility !== 'hidden' && box.width > 0 && box.height > 0 &&
+              (node.textContent || '').toLowerCase().includes(text)) return true;
+          }
+          return false;
+        }, radio, targetText.toLowerCase()).catch(() => false);
+        if (isTargetRadio) {
+          ppvOrUltimate = radio;
+          break;
+        }
+      }
+    }
     if (!ppvOrUltimate) {
       throw new Error(`Requested contextual ${wantsUltimate ? 'Ultimate' : 'PPV'} option was not exposed.`);
     }
-    await ppvOrUltimate.click();
+    const selected = await this.driver.execute((el: HTMLElement) => {
+      if (el.matches('input[type="radio"]')) {
+        (el as HTMLInputElement).click();
+        return 'radio-input';
+      }
+      el.click();
+      return 'option';
+    }, ppvOrUltimate).catch(() => null);
+    if (!selected) await ppvOrUltimate.click();
     console.log(`✅ Selected contextual PPV option: ${wantsUltimate ? 'Ultimate' : 'PPV'}`);
-    await this.driver.pause(800);
+
+    // The parent signup flow has generic Continue locators, with the PPV CTA
+    // first. Submit the CTA here while the requested option is explicit;
+    // otherwise an Ultimate selection can be followed by "Continue with
+    // pay-per-view" and the handoff reports upsellTierSkipped=true.
+    const optionCtaSelectors = wantsUltimate
+      ? [
+        '//button[contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "continue with dazn ultimate")]',
+        '//button[contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "continue with ultimate")]',
+      ]
+      : [
+        '//button[contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "continue with pay-per-view")]',
+        '//button[contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "continue with ppv")]',
+        '//button[contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "buy now")]',
+        '//button[contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "continue")]',
+      ];
+    let optionCta = await this.firstVisible(optionCtaSelectors);
+    if (!optionCta) {
+      await this.driver.waitUntil(async () => {
+        optionCta = await this.firstVisible(optionCtaSelectors);
+        return Boolean(optionCta);
+      }, {
+        timeout: 8000,
+        interval: 250,
+        timeoutMsg: `Requested contextual ${wantsUltimate ? 'Ultimate' : 'PPV'} option did not expose its Continue CTA after selection.`,
+      }).catch(() => { });
+    }
+    if (!optionCta) {
+      throw new Error(`Requested contextual ${wantsUltimate ? 'Ultimate' : 'PPV'} option did not expose its Continue CTA.`);
+    }
+    await optionCta.scrollIntoView().catch(() => { });
+    await optionCta.click();
+    console.log(`✅ Continued with contextual ${wantsUltimate ? 'DAZN Ultimate' : 'pay-per-view'} option.`);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -133,8 +212,7 @@ export class IOSPPVPage extends IOSBasePage {
       // Click "Continue with DAZN Ultimate" CTA
       const ultimateCta = await this.firstVisible([
         '//button[contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "continue with dazn ultimate")]',
-        '//button[contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "continue")]',
-        'button[type="submit"]',
+        '//button[contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "continue with ultimate")]',
       ]);
       if (!ultimateCta) {
         throw new Error('"Continue with DAZN Ultimate" CTA not found on "Choose how to buy" page.');
@@ -159,4 +237,3 @@ export class IOSPPVPage extends IOSBasePage {
     }
   }
 }
-
