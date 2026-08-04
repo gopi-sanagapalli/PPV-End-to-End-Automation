@@ -9,6 +9,7 @@ import { writeHandoffUrl, readHandoffUrl, clearHandoffUrl } from '../../utils/ha
 import { prepareAndroidApp } from '../../utils/androidSetup';
 import { loadEventConfig } from '../../utils/eventLoader';
 import { openSchedulePPVPaywall } from '../../pages/android/AndroidSchedulePage';
+import { openFireTvSchedulePPVPaywall } from '../../pages/tv/FireTvSchedulePage';
 import { openSearchResultPaywall } from '../../pages/android/AndroidSearchPage';
 import { openHomeBannerPaywall, openGenericPPVPaywall } from '../../pages/android/AndroidHomePage';
 import { openLandingBannerPaywall } from '../../pages/android/AndroidLandingPage';
@@ -933,6 +934,10 @@ async function runBrowserLoginAndSwitchBack(driver: any, options: { allowHandoff
 // Routes only this TV PPV spec to the configured in-app source.
 async function openTvPpvFlow(driver: any, hooks: any = {}): Promise<boolean> {
   if (SOURCE === 'schedule') {
+    if (TV_TARGET === 'firetv') {
+      return openFireTvSchedulePPVPaywall(driver, PPV_NAME, event, hooks);
+    }
+
     return openSchedulePPVPaywall(driver, PPV_NAME, event, hooks);
   }
 

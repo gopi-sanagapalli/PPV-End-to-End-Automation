@@ -115,16 +115,6 @@ export class AndroidSchedulePage extends AndroidBasePage {
     };
   }
 
-  private async isFireTvStillOnScheduleSurface(ppvName = this.ppvName): Promise<boolean> {
-    const source = await this.driver.getPageSource().catch(() => '');
-    const hasScheduleChrome = /text="Schedule"|content-desc="Schedule"|text="Previous"|text="Boxing"|text="Chess"/.test(source);
-    const hasScheduleContent =
-      this.normalizeScheduleText(source).includes(this.normalizeScheduleText(ppvName)) ||
-      /text="Sat"|text="Sun"|text="Mon"|text="Tue"|text="Wed"|text="Thu"|text="Fri"|text="Aug"|text="Sep"|text="Oct"/.test(source);
-
-    return hasScheduleChrome && hasScheduleContent;
-  }
-
   private async isFireTvPpvPaywallVisible(ppvName = this.ppvName): Promise<boolean> {
     const source = await this.driver.getPageSource().catch(() => '');
     const lowerSource = source.toLowerCase();
@@ -135,117 +125,28 @@ export class AndroidSchedulePage extends AndroidBasePage {
     return hasPpvName && hasTvPurchaseMessage && hasPaywallCloseButton;
   }
 
-  private isFireTvLocationUnavailableDialogVisible(source: string): boolean {
-    const lowerSource = source.toLowerCase();
-    return lowerSource.includes('current location') || lowerSource.includes('not available to you');
-  }
-
-  private getVisibleFireTvScheduleTiles(source: string): Array<{ label: string; x1: number; y1: number; x2: number; y2: number }> {
-    const screen = getScreenSize();
-    const tiles: Array<{ label: string; x1: number; y1: number; x2: number; y2: number }> = [];
-
-    for (const match of source.matchAll(/<[^>]+>/g)) {
-      const node = match[0];
-      const label = this.getXmlAttribute(node, 'text') || this.getXmlAttribute(node, 'content-desc');
-      if (!label || !label.includes(' vs. ')) continue;
-
-      const bounds = this.getXmlBounds(node);
-      if (!bounds) continue;
-
-      const isVisibleTile =
-        bounds.x1 >= Math.round(screen.width * 0.08) &&
-        bounds.y1 >= Math.round(screen.height * 0.22) &&
-        bounds.x2 > bounds.x1 &&
-        bounds.y2 > bounds.y1 &&
-        (bounds.x2 - bounds.x1) >= Math.round(screen.width * 0.12) &&
-        (bounds.y2 - bounds.y1) >= Math.round(screen.height * 0.12);
-
-      if (isVisibleTile) {
-        tiles.push({ label, ...bounds });
-      }
-    }
-
-    return tiles.sort((a, b) => a.y1 - b.y1 || a.x1 - b.x1);
-  }
-
-  private getFocusedFireTvScheduleTile(source: string, tiles: Array<{ label: string; x1: number; y1: number; x2: number; y2: number }>) {
-    const screen = getScreenSize();
-
-    for (const match of source.matchAll(/<[^>]+>/g)) {
-      const node = match[0];
-      if (!/focused="true"/.test(node)) continue;
-
-      const focusedBounds = this.getXmlBounds(node);
-      if (!focusedBounds) continue;
-      if ((focusedBounds.x2 - focusedBounds.x1) > Math.round(screen.width * 0.75)) continue;
-      if ((focusedBounds.y2 - focusedBounds.y1) > Math.round(screen.height * 0.75)) continue;
-
-      const focusedCenterX = Math.round((focusedBounds.x1 + focusedBounds.x2) / 2);
-      const focusedCenterY = Math.round((focusedBounds.y1 + focusedBounds.y2) / 2);
-      const focusedTile = tiles.find(tile =>
-        focusedCenterX >= tile.x1 &&
-        focusedCenterX <= tile.x2 &&
-        focusedCenterY >= tile.y1 &&
-        focusedCenterY <= tile.y2
-      );
-
-      if (focusedTile) return focusedTile;
-    }
-
-    return undefined;
-  }
-
-  private getGridIndex(value: number, centers: number[]): number {
-    return centers.findIndex(center => Math.abs(center - value) <= 120);
-  }
-
-  private async moveFireTvFocusToScheduleTile(
-    fromTile: { label: string; x1: number; y1: number; x2: number; y2: number },
-    targetTile: { label: string; x1: number; y1: number; x2: number; y2: number },
-    tiles: Array<{ label: string; x1: number; y1: number; x2: number; y2: number }>
-  ): Promise<void> {
-    const uniqueCenters = (values: number[]) => values
-      .sort((a, b) => a - b)
-      .reduce<number[]>((centers, value) => {
-        if (!centers.some(center => Math.abs(center - value) <= 120)) centers.push(value);
-        return centers;
-      }, []);
-    const centerX = (tile: { x1: number; x2: number }) => Math.round((tile.x1 + tile.x2) / 2);
-    const centerY = (tile: { y1: number; y2: number }) => Math.round((tile.y1 + tile.y2) / 2);
-    const columns = uniqueCenters(tiles.map(centerX));
-    const rows = uniqueCenters(tiles.map(centerY));
-    const fromColumn = this.getGridIndex(centerX(fromTile), columns);
-    const targetColumn = this.getGridIndex(centerX(targetTile), columns);
-    const fromRow = this.getGridIndex(centerY(fromTile), rows);
-    const targetRow = this.getGridIndex(centerY(targetTile), rows);
-
-    if (fromColumn < 0 || targetColumn < 0 || fromRow < 0 || targetRow < 0) {
-      throw new Error(`Fire TV Schedule debug: could not map visible tile grid from "${fromTile.label}" to "${targetTile.label}".`);
-    }
-
-    console.log(`  Fire TV moving focus from "${fromTile.label}" to "${targetTile.label}" by remote keys.`);
-
-    for (let step = 0; step < Math.abs(targetRow - fromRow); step++) {
-      await this.pressScheduleKeyForFireTv(targetRow > fromRow ? TV_KEYCODES.DPAD_DOWN : TV_KEYCODES.DPAD_UP);
-      await this.driver.pause(700);
-    }
-
-    for (let step = 0; step < Math.abs(targetColumn - fromColumn); step++) {
-      await this.pressScheduleKeyForFireTv(targetColumn > fromColumn ? TV_KEYCODES.DPAD_RIGHT : TV_KEYCODES.DPAD_LEFT);
-      await this.driver.pause(700);
-    }
-  }
-
   private async tapExactVisiblePpvTileForFireTv(ppvName = this.ppvName): Promise<void> {
     console.log(`Fire TV Schedule debug: clicking exact visible PPV tile: ${ppvName}`);
     await this.driver.saveScreenshot('./test-results/firetv_schedule_before_exact_tile_click.png').catch(() => {});
 
     const source = await this.driver.getPageSource().catch(() => '');
     const target = this.normalizeScheduleText(ppvName);
-    const tiles = this.getVisibleFireTvScheduleTiles(source);
+    const candidates: Array<{ label: string; x1: number; y1: number; x2: number; y2: number }> = [];
 
-    const tile = tiles
-      .filter(candidate => this.normalizeScheduleText(candidate.label) === target)
+    for (const match of source.matchAll(/<[^>]+>/g)) {
+      const node = match[0];
+      const text = this.getXmlAttribute(node, 'text');
+      const desc = this.getXmlAttribute(node, 'content-desc');
+      const label = text || desc;
+      if (this.normalizeScheduleText(label) !== target) continue;
+
+      const bounds = this.getXmlBounds(node);
+      if (!bounds) continue;
+      candidates.push({ label, ...bounds });
+    }
+
+    const tile = candidates
+      .filter(candidate => candidate.x2 > candidate.x1 && candidate.y2 > candidate.y1)
       .sort((a, b) => a.y1 - b.y1 || a.x1 - b.x1)[0];
 
     if (!tile) {
@@ -253,35 +154,37 @@ export class AndroidSchedulePage extends AndroidBasePage {
       throw new Error(`Fire TV Schedule debug: exact PPV tile not visible on the checked date: ${ppvName}`);
     }
 
+    const tapX = Math.round((tile.x1 + tile.x2) / 2);
+    const tapY = Math.round((tile.y1 + tile.y2) / 2);
     console.log(`✅ Fire TV Schedule debug: exact tile found: "${tile.label}" at [${tile.x1},${tile.y1}][${tile.x2},${tile.y2}]`);
-    const focusedTile = this.getFocusedFireTvScheduleTile(source, tiles) || tiles[0];
-    await this.moveFireTvFocusToScheduleTile(focusedTile, tile, tiles);
-    await this.driver.saveScreenshot('./test-results/firetv_schedule_before_target_center.png').catch(() => {});
+    adbTap(tapX, tapY);
 
-    const sourceBeforeCenter = await this.driver.getPageSource().catch(() => '');
-    if (this.isFireTvLocationUnavailableDialogVisible(sourceBeforeCenter)) {
-      await this.driver.saveScreenshot('./test-results/firetv_schedule_location_unavailable_before_center.png').catch(() => {});
-      throw new Error(`Fire TV Schedule debug: location unavailable dialog appeared before opening target PPV tile: ${ppvName}`);
-    }
-
-    console.log('  Pressing Center on the exact PPV tile...');
-    await this.pressScheduleKeyForFireTv(TV_KEYCODES.DPAD_CENTER);
-
-    const deadline = Date.now() + 8000;
-    while (Date.now() < deadline) {
+    const firstOpenDeadline = Date.now() + 2500;
+    while (Date.now() < firstOpenDeadline) {
       await this.driver.pause(500);
-      const currentSource = await this.driver.getPageSource().catch(() => '');
-      if (this.isFireTvLocationUnavailableDialogVisible(currentSource)) {
-        await this.driver.saveScreenshot('./test-results/firetv_schedule_location_unavailable_after_center.png').catch(() => {});
-        throw new Error(`Fire TV Schedule debug: opening "${ppvName}" showed the location unavailable dialog.`);
-      }
-
       if (await this.isFireTvPpvPaywallVisible(ppvName)) {
         console.log(`✅ Fire TV Schedule debug: exact PPV tile opened paywall: ${ppvName}`);
         return;
       }
 
-      if (!await this.isFireTvStillOnScheduleSurface(ppvName)) {
+      if (!await this.isSchedulePageVisible()) {
+        console.log(`✅ Fire TV Schedule debug: exact PPV tile opened: ${ppvName}`);
+        return;
+      }
+    }
+
+    console.log('  Exact PPV tile selected but paywall not open yet. Pressing Center once to activate it...');
+    await this.pressScheduleKeyForFireTv(TV_KEYCODES.DPAD_CENTER);
+
+    const deadline = Date.now() + 8000;
+    while (Date.now() < deadline) {
+      await this.driver.pause(500);
+      if (await this.isFireTvPpvPaywallVisible(ppvName)) {
+        console.log(`✅ Fire TV Schedule debug: exact PPV tile opened paywall: ${ppvName}`);
+        return;
+      }
+
+      if (!await this.isSchedulePageVisible()) {
         console.log(`✅ Fire TV Schedule debug: exact PPV tile opened: ${ppvName}`);
         return;
       }
@@ -379,50 +282,10 @@ export class AndroidSchedulePage extends AndroidBasePage {
     return eventConfig?.regions?.[region]?.PPV_DATE || eventConfig?.global?.PPV_DATE;
   }
 
-  private isConfiguredPpvDateVisibleInSource(source: string, ppvDate: string): boolean {
-    const parsedDate = parsePPVDate(ppvDate);
-    const targetDay = String(parsedDate.day);
-    const targetMonth = parsedDate.month.toLowerCase();
-    const targetMonthShort = targetMonth.slice(0, 3);
-    const stripOrdinals = (value: string) => value.replace(/(\d+)(st|nd|rd|th)\b/gi, '$1');
-    const monthDayPattern = new RegExp(`\\b${targetMonthShort}[a-z]*\\s+${targetDay}\\b`, 'i');
-    const dayMonthPattern = new RegExp(`\\b${targetDay}\\s+${targetMonthShort}[a-z]*\\b`, 'i');
-    const screen = getScreenSize();
-
-    const dateNodes: Array<{ text: string; x1: number; y1: number; x2: number; y2: number }> = [];
-    for (const match of source.matchAll(/<[^>]+>/g)) {
-      const node = match[0];
-      if (!/displayed="true"/.test(node)) continue;
-
-      const text = this.getXmlAttribute(node, 'text') || this.getXmlAttribute(node, 'content-desc');
-      if (!text) continue;
-
-      const bounds = this.getXmlBounds(node);
-      if (!bounds) continue;
-      if (bounds.x2 <= bounds.x1 || bounds.y2 <= bounds.y1) continue;
-      if (bounds.y2 < Math.round(screen.height * 0.16) || bounds.y1 > Math.round(screen.height * 0.95)) continue;
-
-      dateNodes.push({ text: stripOrdinals(this.normalizeScheduleText(text)), ...bounds });
-    }
-
-    if (dateNodes.some(node => monthDayPattern.test(node.text) || dayMonthPattern.test(node.text))) {
-      return true;
-    }
-
-    const dayNodes = dateNodes.filter(node => node.text === targetDay);
-    const monthNodes = dateNodes.filter(node => node.text === targetMonthShort || node.text === targetMonth);
-
-    return dayNodes.some(dayNode => monthNodes.some(monthNode => {
-      const sameDateColumn = Math.abs(((dayNode.x1 + dayNode.x2) / 2) - ((monthNode.x1 + monthNode.x2) / 2)) <= 80;
-      const closeDateStack = Math.abs(((dayNode.y1 + dayNode.y2) / 2) - ((monthNode.y1 + monthNode.y2) / 2)) <= 120;
-      return sameDateColumn && closeDateStack;
-    }));
-  }
-
   private async moveDownAndAssertPpvDateForFireTv(eventConfig?: any): Promise<void> {
     console.log('Fire TV Schedule debug: moving Down from Boxing to check PPV date first...');
-    //sendTvKeyevent(TV_KEYCODES.DPAD_DOWN);
-   // await this.driver.pause(1200);
+    sendTvKeyevent(TV_KEYCODES.DPAD_DOWN);
+    await this.driver.pause(1200);
     await this.driver.saveScreenshot('./test-results/firetv_schedule_after_boxing_down.png').catch(() => {});
 
     const ppvDate = this.getConfiguredPpvDate(eventConfig);
@@ -430,31 +293,30 @@ export class AndroidSchedulePage extends AndroidBasePage {
       console.warn('Fire TV Schedule debug: PPV_DATE not configured, skipping date assertion.');
       return;
     }
-    const maxAttempts = 15;
-  for (let i = 0; i < maxAttempts; i++) {
-    const sourceBeforeDown = await this.driver.getPageSource();
-    if (this.isConfiguredPpvDateVisibleInSource(sourceBeforeDown, ppvDate)) {
-      console.log(`Fire TV Schedule debug: PPV date "${ppvDate}" found before DOWN press ${i + 1}.`);
-      await this.driver.saveScreenshot('./test-results/firetv_schedule_ppv_date_found.png').catch(() => {});
-      return;
-    }
 
-    sendTvKeyevent(TV_KEYCODES.DPAD_DOWN);
-    await this.driver.pause(1200);
-
-    const pageSource = await this.driver.getPageSource();
-    if (this.isConfiguredPpvDateVisibleInSource(pageSource, ppvDate)) {
-      console.log(`Fire TV Schedule debug: PPV date "${ppvDate}" found after ${i + 1} DOWN press(es).`);
-      await this.driver.saveScreenshot('./test-results/firetv_schedule_ppv_date_found.png').catch(() => {});
-      return;
-    }
-      console.log(`Fire TV Schedule debug: DOWN press ${i + 1} — PPV date not visible yet.`);
-  }
+    const parsedDate = parsePPVDate(ppvDate);
+    const targetDay = String(parsedDate.day);
+    const targetMonth = parsedDate.month.toLowerCase();
+    const targetMonthShort = targetMonth.slice(0, 3);
+    const monthDayPattern = new RegExp(`\\b${targetMonthShort}[a-z]*\\s+${targetDay}\\b`, 'i');
+    const dayMonthPattern = new RegExp(`\\b${targetDay}\\s+${targetMonthShort}[a-z]*\\b`, 'i');
     const deadline = Date.now() + 6000;
 
     while (Date.now() < deadline) {
       const source = await this.driver.getPageSource().catch(() => '');
-      if (this.isConfiguredPpvDateVisibleInSource(source, ppvDate)) {
+      const visibleTexts = Array.from(source.matchAll(/(?:text|content-desc)="([^"]+)"/g), match => match[1].trim());
+      const dateVisible = visibleTexts.some(text => {
+        const lower = text.toLowerCase().replace(/\s+/g, ' ').trim();
+        return lower === targetDay ||
+          lower.includes(`${targetDay} ${targetMonthShort}`) ||
+          lower.includes(`${targetMonthShort} ${targetDay}`) ||
+          lower.includes(`${targetDay} ${targetMonth}`) ||
+          lower.includes(`${targetMonth} ${targetDay}`) ||
+          monthDayPattern.test(lower) ||
+          dayMonthPattern.test(lower);
+      });
+
+      if (dateVisible) {
         console.log(`✅ Fire TV Schedule debug: PPV date visible before tile search: ${ppvDate}`);
         return;
       }
