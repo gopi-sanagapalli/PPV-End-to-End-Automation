@@ -13,6 +13,7 @@
 //        home-boxing-upcoming    → Home Boxing filter → Upcoming Fights → Buy
 //        home-boxing-banner      → Home hero banner → Buy
 //        home-boxing-tile        → Home Boxing rail → Buy
+//        home-page-dont-miss     → Home → Don't Miss rail → PPV tile → Buy
 //        search                  → Search icon/tab → Search for event → find PPV tile → Buy
 //   4. App opens Safari View Controller or Safari with DAZN checkout URL
 //   5. Captures URL via WebView context switch or Safari address bar fallback
@@ -22,7 +23,7 @@
 //
 // HOW TO RUN:
 //   cd appium
-//   IOS_DEVICE_MODE=real IOS_UDID=<udid> SOURCE=landing-page-banner npx wdio run config/wdio.ios.conf.ts --spec tests/ios/ppv.handoff.spec.ts
+//   IOS_DEVICE_MODE=real IOS_UDID=<udid> SOURCE=landing-page-banner npx wdio run config/wdio.ios.conf.ts --spec tests/ios/newuserios.spec.ts
 // ─────────────────────────────────────────────────────────────────────────────
 
 // WebdriverIO injects `browser` as a global at runtime — declare so TS is happy.
@@ -33,16 +34,17 @@ type WdElement = any;
 
 import { writeHandoffUrl, clearHandoffUrl } from '../../utils/handoff';
 import { prepareIosApp, waitForHomePage } from '../../utils/iosSetup';
+import { startIOSRecording, stopIOSRecording } from '../../utils/iosVideoRecorder';
+import { recomputeMobileDatesForDeviceTimezone } from '../../utils/deviceTimezone';
 import { loadEventConfig, EventConfig } from '../../utils/eventLoader';
 import { openSchedulePPVPaywall } from '../../pages/ios/IOSSchedulePage';
 import { IOSSearchPage, openSearchResultPaywall } from '../../pages/ios/IOSSearchPage';
 import {
-  openBoxingUpcomingFightsPaywall,
-  openBoxingPageBannerPaywall,
   openHomeBoxingBannerPaywall,
   openHomeBoxingUpcomingPaywall,
+  openHomeBoxingDontMissTilePaywall,
 } from '../../pages/ios/IOSBoxingPage';
-import { openHomeBannerPaywall, openGenericPPVPaywall } from '../../pages/ios/IOSHomePage';
+import { openHomeBannerPaywall, openGenericPPVPaywall, openHomePageDontMissPaywall } from '../../pages/ios/IOSHomePage';
 import { openLandingBannerPaywall } from '../../pages/ios/IOSLandingPage';
 import { copyImmediateCheckoutUrl } from '../../pages/ios/IOSPaywallPage';
 import { getIOSBrowserReentry, getIOSSurfacingPoint, getIOSValidationSheet } from '../../pages/ios/IOSSurfacingPoint';
@@ -54,6 +56,7 @@ import {
 import {
   IOSFlowHooks,
   captureCheckoutUrl as sharedCaptureCheckoutUrl,
+  openCapturedUrlInNewSafariTab as sharedOpenCapturedUrlInNewSafariTab,
   findEl as sharedFindEl,
   findPPVBanner as sharedFindPPVBanner,
   isVisible as sharedIsVisible,
@@ -78,6 +81,7 @@ const BUNDLE_ID = process.env.DAZN_BUNDLE_ID || (MODE === 'real' ? 'com.dazn.the
 // ── Direct aliases for shared utilities ─────────
 const isVisible = sharedIsVisible;
 const captureCheckoutUrl = sharedCaptureCheckoutUrl;
+const openCapturedUrlInNewSafariTab = sharedOpenCapturedUrlInNewSafariTab;
 
 async function findEl(driver: WdBrowser, sel: string, timeoutMs = 10000): Promise<WdElement> {
   return sharedFindEl(driver, sel, timeoutMs);
@@ -205,6 +209,10 @@ describe('DAZN iOS PPV — New User Handoff Flow', () => {
     clearHandoffUrl();
     require('fs').mkdirSync('./test-results/gemini-banner', { recursive: true });
 
+    // Record the complete native journey, including DAZN launch and startup
+    // dialogs, rather than beginning only after Home is ready.
+    await startIOSRecording(browser);
+
     const shouldWaitHome = SOURCE !== 'landing-page-banner';
     const clearData = SOURCE === 'landing-page-banner';
     await prepareIosApp(browser, { clearAppData: clearData, waitForHome: shouldWaitHome });
@@ -220,12 +228,6 @@ describe('DAZN iOS PPV — New User Handoff Flow', () => {
   it('navigates to PPV buy button, opens Safari, captures checkout URL', async () => {
     const driver = browser;
 
-    console.log('🎥 Starting screen recording on iOS device...');
-    await driver.startRecordingScreen({
-      timeLimit: 300,
-      videoType: 'mp4',
-    }).catch(e => console.error('⚠️ Failed to start screen recording:', e));
-
     console.log('✅ Startup handled by prepareIosApp; beginning PPV navigation');
 
     const fs = require('fs');
@@ -238,7 +240,11 @@ describe('DAZN iOS PPV — New User Handoff Flow', () => {
     const ENV = (process.env.DAZN_ENV || 'stag').toLowerCase();
     const PAYMENT_METHOD = (process.env.PAYMENT_METHOD || 'credit_card').toLowerCase();
 
-    const json = loadEventConfig(EVENT_CONFIG);
+    // Use the same config-loader entry point as the web flow, including the
+    // requested PLAN.  Loading the event alone silently defaults to
+    // standard_monthly, which makes Safari validate the wrong prices, offers
+    // and payment copy for APM/APU and Ultimate journeys.
+    const json = loadEventConfig(EVENT_CONFIG, PLAN);
 
     const plansPath = path.resolve(__dirname, '../../..', 'config/DaznPlan.json');
     const plans = JSON.parse(fs.readFileSync(plansPath, 'utf-8'));
@@ -280,6 +286,56 @@ describe('DAZN iOS PPV — New User Handoff Flow', () => {
     eventData.SOURCE = SOURCE;
     eventData.MOBILE_WEB_HANDOFF = 'true';
     Object.assign(eventData, mobileRegional);
+
+    // Recompute mobile date/time tokens from PPV_UTC_DATE using the device's
+    // actual timezone — matches how Playwright uses timezoneId for web.
+    recomputeMobileDatesForDeviceTimezone(eventData);
+
+    // Keep Safari's shared Excel validation data aligned with the established
+    // web flow. The workbook uses these derived fields as {{...}} templates;
+    // without them, the iOS report records literal placeholders instead of
+    // validating the selected plan.
+    const offerType = String(eventData.OFFER_TYPE || '1_month_free').toLowerCase();
+    const isNoOffer = offerType === 'no_offer' || offerType === 'none';
+    const activeOfferPresent = String(eventData.ACTIVE_OFFER_PRESENT || '').toLowerCase() === 'true';
+    eventData.DAZN_TIER = planTier === 'ultimate' ? 'DAZN Ultimate' : 'DAZN Standard';
+    eventData.PLAN_CTA_BUTTON = planTier === 'ultimate'
+      ? (eventData.PLAN_CTA_BUTTON_ULTIMATE || 'Continue with DAZN Ultimate')
+      : (offerType === '1_month_free' && ratePlan.includes('annual')
+        ? 'Continue with 1st Month Free'
+      : (isNoOffer
+        ? (eventData.PLAN_CTA_BUTTON_STANDARD || 'Continue with DAZN Standard')
+        : (eventData.PLAN_CTA_BUTTON_STANDARD || `Continue with ${eventData.FREE_TRIAL_DAYS || '7'}-day Free Trial`)));
+
+    if (activeOfferPresent && ratePlan === 'monthly') {
+      eventData.PAYMENT_PAGE_TITLE = eventData.PAYMENT_PAGE_TITLE_STANDARD || 'Choose how to pay';
+      eventData.PAYMENT_PLAN_NAME = eventData.PAYMENT_PLAN_LABEL || 'Flex – Pay Monthly - First Month Only';
+      eventData.PAYMENT_FREE_TEXT = 'N/A';
+      eventData.CANCELLATION_TEXT = eventData.CANCELLATION_TEXT_TRIAL || '';
+    } else if (/^\d+_day_trial$/.test(offerType) && planTier === 'standard' && ratePlan === 'monthly') {
+      eventData.PAYMENT_PAGE_TITLE = eventData.PAYMENT_PAGE_TITLE_TRIAL || 'Choose how to pay after your free trial';
+      eventData.PAYMENT_PLAN_NAME = eventData.PAYMENT_FREE_TEXT_TRIAL || `${eventData.FREE_TRIAL_DAYS || '7'}-days free`;
+      eventData.PAYMENT_FREE_TEXT = eventData.PAYMENT_FREE_TEXT_TRIAL || `${eventData.FREE_TRIAL_DAYS || '7'}-days free`;
+      eventData.CANCELLATION_TEXT = eventData.CANCELLATION_TEXT_TRIAL || '';
+    } else if (ratePlan === 'annual pay monthly' || ratePlan === 'annual pay upfront') {
+      eventData.PAYMENT_PAGE_TITLE = eventData.PAYMENT_PAGE_TITLE_STANDARD || 'Choose how to pay';
+      eventData.PAYMENT_PLAN_NAME = eventData.PAYMENT_PLAN_NAME_ANNUAL ||
+        (ratePlan === 'annual pay upfront' ? 'Annual - Pay Upfront' : 'Annual - Pay Monthly');
+      eventData.PAYMENT_FREE_TEXT = offerType === '1_month_free'
+        ? (eventData.PAYMENT_FREE_TEXT_MONTHLY || 'First month free')
+        : 'N/A';
+      eventData.CANCELLATION_TEXT = planTier === 'ultimate'
+        ? (ratePlan === 'annual pay monthly'
+          ? (eventData.CANCELLATION_TEXT_ULTIMATE_APM || '')
+          : (eventData.CANCELLATION_TEXT_ULTIMATE_APU || ''))
+        : (eventData.CANCELLATION_TEXT_ANNUAL || '');
+    } else {
+      eventData.PAYMENT_PAGE_TITLE = eventData.PAYMENT_PAGE_TITLE_STANDARD || 'Choose how to pay';
+      eventData.PAYMENT_PLAN_NAME = eventData.PAYMENT_PLAN_NAME_FLEX || 'Flex – Pay Monthly';
+      eventData.PAYMENT_FREE_TEXT = isNoOffer ? 'N/A' : (eventData.PAYMENT_FREE_TEXT_MONTHLY || 'First month free');
+      eventData.CANCELLATION_TEXT = eventData.CANCELLATION_TEXT_TRIAL || '';
+    }
+    eventData.DAZN_REGION = REGION;
 
     let buyTapped = false;
     let bannerUrlCaptured = false;
@@ -355,7 +411,11 @@ describe('DAZN iOS PPV — New User Handoff Flow', () => {
     }
     // ── home-boxing-banner ────────────────────────────────────────────────
     else if (SOURCE === 'home-boxing-banner') {
-      buyTapped = await openHomeBoxingBannerPaywall(driver, PPV_NAME, iosFlowHooks);
+      buyTapped = await openHomeBoxingBannerPaywall(driver, PPV_NAME, json, iosFlowHooks);
+    }
+    // ── home-boxing-tile ──────────────────────────────────────────────────
+    else if (SOURCE === 'home-boxing-tile') {
+      buyTapped = await openHomeBoxingDontMissTilePaywall(driver, PPV_NAME, json, iosFlowHooks);
     }
     // ── home-page-banner ──────────────────────────────────────────────────
     else if (SOURCE === 'home-page-banner') {
@@ -369,6 +429,10 @@ describe('DAZN iOS PPV — New User Handoff Flow', () => {
       bannerCheckoutUrl = copyResult.url;
       bannerUrlCaptured = copyResult.captured;
       buyTapped = true;
+    }
+    // ── home-page-dont-miss ───────────────────────────────────────────────
+    else if (SOURCE === 'home-page-dont-miss') {
+      buyTapped = await openHomePageDontMissPaywall(driver, PPV_NAME, iosFlowHooks);
     }
     // Do not substitute a Home flow for an unsupported source.  A run must
     // exercise exactly the source supplied in SOURCE.
@@ -403,277 +467,53 @@ describe('DAZN iOS PPV — New User Handoff Flow', () => {
     writeHandoffUrl(checkoutUrl);
     console.log("✅ URL written to mobile_entry_url.txt");
 
-    // Continue in the Safari WebKit context from the URL the user actually
-    // landed on.  Do not terminate DAZN or create a desktop Playwright browser:
-    // both actions sever the native iOS → Safari journey we are validating.
+    const safariContext = await openCapturedUrlInNewSafariTab(driver, checkoutUrl);
+
+    // Continue in the newly opened native Safari tab. Do not terminate DAZN or
+    // create a desktop Playwright browser: both sever the iOS journey.
+    const { configureExcelPathForEvent } = require('../../../utils/excelReader');
+    configureExcelPathForEvent(json.eventKey || '');
+
     const safariResults = [...iosAvailabilityResults];
     const browserReentry = getIOSBrowserReentry(SOURCE);
-    if (!browserReentry.supported || browserReentry.webSource !== 'search') {
-      throw new Error(`iOS Safari re-entry is not verified for SOURCE="${SOURCE}".`);
+    if (!browserReentry.supported) {
+      throw new Error(`iOS Safari re-entry via welcome page is not yet verified for SOURCE="${SOURCE}". Add it to getIOSBrowserReentry() in IOSSurfacingPoint.ts once confirmed on device.`);
     }
     await new IOSSearchPage(driver, PPV_NAME).continueSafariCheckout({
       capturedUrl: checkoutUrl,
+      safariContext,
       eventName: PPV_NAME,
       results: safariResults,
+      eventData: eventData,
     });
     const { writeResults } = require('../../../utils/excelWriter');
     const { displayResultsTable } = require('../../../utils/resultsDisplay');
     const { generateReports } = require('../../../utils/reportGenerator');
-    const { excelPath, videoPath } = await writeResults(safariResults);
+    const videoOutputPath = await stopIOSRecording(driver);
+    const { excelPath, videoPath } = await writeResults(safariResults, videoOutputPath);
     displayResultsTable(safariResults, 'ppv', { event: json.PPV_NAME, region: REGION, excelPath, videoPath });
     await generateReports(safariResults, {
       event: json.PPV_NAME, region: REGION, source: SOURCE, ratePlan, tier: planTier,
       env: ENV, flowName: `iOS Safari: ${SOURCE}`, startTime: new Date(), endTime: new Date(),
       excelPath, videoPath, userType: 'new-user', platform: 'iOS',
     });
-    return;
 
-    try {
-      await driver.terminateApp(BUNDLE_ID);
-    } catch {}
-    await driver.pause(1000);
-
-    // ── Playwright Web Checkout Phase ──────────────────────────────────────────
-    console.log("📱 Launching Desktop Playwright checkout flow...");
-    const originalCwd = process.cwd();
-    let playwrightBrowser: any = null;
-    let context: any = null;
-    const runStart = new Date();
-    let finalResults: any[] = [];
-    let finalJson: any = null;
-    let finalFlowConfig: any = null;
-    let reachedEndPage = false;
-
-    try {
-      const nodePath = require('path');
-      const nodeFs = require('fs');
-      process.chdir(nodePath.resolve(__dirname, '../../..'));
-
-      const { chromium } = require('@playwright/test');
-      const fs = nodeFs;
-      const path = nodePath;
-
-      const { SignupPage } = require('../../../pages/SignupPage');
-      const { PaymentPage } = require('../../../pages/PaymentPage');
-      const {
-        configureExcelPathForEvent,
-        getPaymentDataByTierAndPlan,
-      } = require('../../../utils/excelReader');
-
-      const { detectVariant } = require('../../../flows/detectVariant');
-      const { detectPageType } = require('../../../utils/flowHelpers');
-      const { displayResultsTable } = require('../../../utils/resultsDisplay');
-      const { writeResults } = require('../../../utils/excelWriter');
-      const { generateReports } = require('../../../utils/reportGenerator');
-
-      const {
-        sleep,
-        handleCookies,
-        stabilisePage,
-        dismissMarketingPopup,
-      } = require('../../../utils/helpers');
-
-      let webCheckoutUrl = checkoutUrl.replace('platform=ios', 'platform=web').replace('platform=android', 'platform=web');
-      const separator = webCheckoutUrl.includes('?') ? '&' : '?';
-      webCheckoutUrl = `${webCheckoutUrl}${separator}country=${REGION.toLowerCase()}`;
-
-      const planName = ratePlan === 'monthly' ? 'Flex Monthly' : 'APM';
-      const tierName = planTier.charAt(0).toUpperCase() + planTier.slice(1);
-      const srcLabel = SOURCE.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-
-      const flowConfig = {
-        name: `iOS New User: ${srcLabel} → ${tierName} → ${planName}`,
-        source: SOURCE,
-        tier: planTier,
-        ratePlan: ratePlan,
-        endPage: 'payment',
-        planKey: PLAN
-      };
-
-      console.log(`\n╔═══════════════════════════════════════════════════════╗`);
-      console.log(`║  RUNNING LOCAL PLAYWRIGHT WEB CHECKOUT: ${flowConfig.name}`);
-      console.log(`╚═══════════════════════════════════════════════════════╝\n`);
-
-      const results: any[] = [];
-      results.push(...iosAvailabilityResults);
-      finalJson = json;
-      finalFlowConfig = flowConfig;
-      finalResults = results;
-      configureExcelPathForEvent(json.eventKey || '');
-
-      const regionLocaleMap: Record<string, { locale: string; timezoneId: string }> = {
-        GB: { locale: 'en-GB', timezoneId: 'Europe/London' },
-        UK: { locale: 'en-GB', timezoneId: 'Europe/London' },
-        US: { locale: 'en-US', timezoneId: 'America/New_York' },
-      };
-      const { locale: activeLocale, timezoneId: activeTz } =
-        regionLocaleMap[REGION] ?? { locale: 'en-GB', timezoneId: 'Europe/London' };
-
-      playwrightBrowser = await chromium.launch({
-        headless: true,
-        args: ['--incognito', '--no-first-run', '--disable-first-run-ui']
-      });
-
-      context = await playwrightBrowser.newContext({
-        viewport: { width: 375, height: 667 },
-        timezoneId: activeTz,
-        locale: activeLocale,
-        userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1'
-      });
-
-      // Inject country override cookies to force target region layout on local machine Playwright instance
-      await context.addCookies([
-        { name: 'user_country', value: REGION.toUpperCase(), domain: '.dazn.com', path: '/' },
-        { name: 'country', value: REGION.toUpperCase(), domain: '.dazn.com', path: '/' },
-        { name: 'detected_country', value: REGION.toUpperCase(), domain: '.dazn.com', path: '/' },
-        { name: 'selected_country', value: REGION.toUpperCase(), domain: '.dazn.com', path: '/' },
-      ]);
-
-      const page = await context.newPage();
-      await page.goto(webCheckoutUrl);
-
-      // Explicitly wait for cookies
-      const acceptBtn = page.locator('#onetrust-accept-btn-handler');
-      try {
-        await acceptBtn.waitFor({ state: 'visible', timeout: 20000 });
-        await acceptBtn.click({ force: true });
-        await page.locator('#onetrust-banner-sdk').waitFor({ state: 'hidden', timeout: 8000 }).catch(() => { });
-      } catch (e) {
-        await handleCookies(page, 5000);
-      }
-
-      const variant = await detectVariant(page, json.variants).catch(() => 'variant1');
-
-      let pageType: string = 'unknown';
-
-      // Traverse checkout funnel
-      for (let step = 0; step < 15; step++) {
-        if (page.isClosed()) throw new Error('❌ Page closed unexpectedly');
-
-        pageType = await detectPageType(page, json.pages, 0);
-        await handleCookies(page, 5000);
-        await stabilisePage(page);
-        await dismissMarketingPopup(page);
-        console.log(`\nstep ${step + 1} → pageType: ${pageType} | url: ${page.url()}`);
-
-        // Welcome page handler (clicks CTA using LandingPage page object)
-        if (pageType === 'welcome') {
-          console.log('👉 Welcome page: finding PPV container & clicking Buy Now...');
-          const { LandingPage } = require('../../../pages/LandingPage');
-          const landing = new LandingPage(page);
-          // Re-map real iOS device SOURCE to the matching web landing page equivalent
-          const webSource = SOURCE === 'landing-page-banner' ? 'landing-page-banner' : SOURCE;
-          const container = await landing.findPPVContainer(eventData, webSource);
-          await landing.clickBuyNow(container, webSource);
-          await page.waitForTimeout(2000);
-          continue;
-        }
-
-        // New user registration (signup)
-        if (pageType === 'email') {
-          const signup = new SignupPage(page);
-          const randEmail = `newuser.ios.${Date.now()}@yopmail.com`;
-          console.log(`👉 Signup page: entering email ${randEmail}`);
-          await signup.enterEmail(randEmail);
-          await signup.clickContinue();
-          await page.waitForTimeout(2000);
-          continue;
-        }
-
-        if (pageType === 'password') {
-          const signup = new SignupPage(page);
-          console.log('👉 Password signup page: entering password');
-          await signup.enterPassword('Dazn@1234');
-          await signup.clickContinue();
-          await page.waitForTimeout(2000);
-          continue;
-        }
-
-        if (pageType === 'payment') {
-          console.log('💳 Reached Payment page');
-          reachedEndPage = true;
-
-          const payment = new PaymentPage(page);
-          if (await payment.isPaymentPage()) {
-            const planKey = SOURCE.startsWith('boxing-bundle') ? `${ratePlan} bundle` : ratePlan;
-            const paymentData = getPaymentDataByTierAndPlan(planTier, planKey);
-            await payment.validate(paymentData, results, eventData, 'newuser');
-          }
-          break;
-        }
-
-        // Fallback progress clicker
-        try {
-          const nextBtn = page.locator('button:has-text("Continue"), button:has-text("Next"), button[type="submit"]').first();
-          if (await nextBtn.isVisible()) {
-            await nextBtn.click();
-            await page.waitForTimeout(2500);
-            continue;
-          }
-        } catch {}
-
-        break;
-      }
-
-      console.log('🎥 Stopping screen recording on iOS device...');
-      let videoOutputPath: string | null = null;
-      try {
-        const videoBuffer = await driver.stopRecordingScreen();
-        if (videoBuffer) {
-          const videoDir = path.resolve(process.cwd(), 'test-results');
-          if (!fs.existsSync(videoDir)) fs.mkdirSync(videoDir, { recursive: true });
-          videoOutputPath = path.join(videoDir, `handoff_run_${Date.now()}.mp4`);
-          fs.writeFileSync(videoOutputPath, Buffer.from(videoBuffer, 'base64'));
-          console.log(`🎥 Video saved to: ${videoOutputPath}`);
-        }
-      } catch {}
-
-      // Write results to Excel
-      const { excelPath, videoPath } = await writeResults(results, videoOutputPath);
-      displayResultsTable(results, 'ppv', {
-        event: json.PPV_NAME,
-        region: REGION,
-        excelPath,
-        videoPath,
-      });
-
-      await generateReports(results, {
-        event: json.PPV_NAME,
-        region: REGION,
-        source: flowConfig.source,
-        ratePlan: flowConfig.ratePlan,
-        tier: flowConfig.tier,
-        env: ENV,
-        flowName: flowConfig.name,
-        startTime: runStart,
-        endTime: new Date(),
-        excelPath,
-        videoPath,
-        userType: 'new-user',
-        platform: 'iOS',
-      });
-
-      const passed = results.filter(r => r.status === 'PASS').length;
-      const failed = results.filter(r => r.status === 'FAIL').length;
-      const total = passed + failed;
-
-      console.log(`\n✅ Flow "${flowConfig.name}" complete: ${passed}/${total} passed`);
-
-      if (total === 0) throw new Error('❌ Had 0 validation checks');
-      if (!reachedEndPage) throw new Error('❌ Did not reach expected end page');
-
-    } catch (playwrightErr: any) {
-      console.error(`❌ Local Playwright Web Checkout failed: ${playwrightErr.message}`);
-      throw playwrightErr;
-    } finally {
-      if (context) await context.close().catch(() => { });
-      if (playwrightBrowser) await playwrightBrowser.close().catch(() => { });
-      process.chdir(originalCwd);
+    // ── Check for failures (same as web) ──────────────────────────
+    const passed = safariResults.filter((r: any) => r.status === 'PASS').length;
+    const failed = safariResults.filter((r: any) => r.status === 'FAIL').length;
+    const total = passed + failed;
+    console.log(`\n📊 iOS Safari flow complete: ${passed}/${total} passed, ${failed} failed`);
+    if (failed > 0) {
+      throw new Error(`❌ ${failed} of ${total} Safari web validation(s) failed. See report for details.`);
     }
   });
 
+
+
   after(async () => {
     try {
+      // Recording is stopped inside the test to capture the video path.
+      // This is a safety stop in case the test errored before reaching that point.
       await browser.stopRecordingScreen().catch(() => { });
     } catch {}
   });

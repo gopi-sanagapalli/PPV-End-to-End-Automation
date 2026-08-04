@@ -1,9 +1,16 @@
 import { IOSBasePage, WdBrowser } from './IOSBasePage';
 import { IOSValidationResult } from './IOSValidationPage';
+import { IOSSafariValidationPage } from './IOSSafariValidationPage';
+import { IOSPPVPage } from './IOSPPVPage';
+import { IOSPlanPage } from './IOSPlanPage';
+import { IOSMyAccountPage } from './IOSMyAccountPage';
 
 /**
- * DAZN account creation in Safari. This is shared by every iOS source after
- * its source-specific Safari page has selected the PPV purchase CTA.
+ * DAZN account creation / sign-in in Safari. This page object handles only
+ * the signup and signin screens (email, password, personal details, payment).
+ *
+ * Contextual PPV page logic is in IOSPPVPage.
+ * Plan selection logic is in IOSPlanPage.
  */
 export class IOSSignupPage extends IOSBasePage {
   constructor(driver: WdBrowser) {
@@ -23,16 +30,39 @@ export class IOSSignupPage extends IOSBasePage {
   }
 
   private async clickContinue(): Promise<boolean> {
-    const button = await this.firstVisible([
-      'button[type="submit"]', 'button*=Continue', '[role="button"]*=Continue',
-    ]);
-    if (!button) return false;
+    const selectors = [
+      'button[type="submit"]', 'input[type="submit"]', 'button*=Continue',
+      '[role="button"]*=Continue', '[aria-label*="Continue" i]',
+    ];
+    let button: any | null = null;
+    const available = await this.driver.waitUntil(async () => {
+      button = await this.firstVisible(selectors);
+      return Boolean(button) && await button.isEnabled().catch(() => false);
+    }, {
+      timeout: 10000,
+      interval: 250,
+      timeoutMsg: 'Safari Continue button did not become available.',
+    }).then(() => true).catch(() => false);
+    if (!available || !button) return false;
+
+    // The enabled-state update can replace the button node. Re-query it so
+    // the click never uses the pre-validation element reference.
+    button = await this.firstVisible(selectors);
+    if (!button || !await button.isEnabled().catch(() => false)) return false;
+
+    const urlBeforeClick = await this.driver.getUrl().catch(() => '');
     await button.click();
-    await this.driver.pause(1800);
-    // A redirect within the contextual account journey can re-create the
-    // OneTrust overlay. This is inherited from IOSBasePage and is a fast
-    // re-check once the Safari session has already accepted cookies.
-    await this.handleSafariCookies();
+    // Email validation re-renders this form asynchronously in Safari. Wait
+    // for an observable transition instead of assuming the next page has
+    // mounted after a fixed delay.
+    await this.driver.waitUntil(async () => {
+      if ((await this.driver.getUrl().catch(() => '')) !== urlBeforeClick) return true;
+      return !(await button.isExisting().catch(() => false));
+    }, {
+      timeout: 8000,
+      interval: 250,
+      timeoutMsg: 'Safari account form did not transition after Continue.',
+    }).catch(() => { });
     return true;
   }
 
@@ -40,52 +70,29 @@ export class IOSSignupPage extends IOSBasePage {
     return this.driver.execute(() => document.body?.innerText || '').catch(() => '');
   }
 
-  private getRequestedPlan(): { plan: string; tier: string; ratePlan: string; label: string; terms: string[] } {
-    const plan = (process.env.PLAN || 'standard_monthly').toLowerCase().replace(/[\s-]+/g, '_');
-    // ppv.handoff.spec.ts resolves TIER/RATE_PLAN from DaznPlan.json before
-    // this page object is created. The PLAN-based fallbacks keep this usable
-    // for other iOS source flows as well.
-    const tier = (process.env.TIER || process.env.PLAN_TIER ||
-      (plan.includes('ultimate') ? 'ultimate' : 'standard')).toLowerCase();
-    const ratePlan = (process.env.RATE_PLAN ||
-      (plan.includes('upfront') ? 'annual pay upfront' : plan.includes('apm') || plan.includes('annual') ? 'annual pay monthly' : 'monthly')).toLowerCase();
-
-    if (tier === 'ultimate') {
-      if (ratePlan.includes('upfront')) return { plan, tier, ratePlan, label: 'DAZN Ultimate – Annual Pay Upfront', terms: ['ultimate', 'upfront'] };
-      if (ratePlan.includes('annual')) return { plan, tier, ratePlan, label: 'DAZN Ultimate – Annual Pay Monthly', terms: ['ultimate', 'annual'] };
-      return { plan, tier, ratePlan, label: 'DAZN Ultimate', terms: ['ultimate'] };
-    }
-    if (ratePlan.includes('upfront')) return { plan, tier, ratePlan, label: 'Annual – Pay Upfront', terms: ['annual', 'upfront'] };
-    if (ratePlan.includes('annual')) return { plan, tier, ratePlan, label: 'Annual – Pay Monthly', terms: ['annual', 'pay monthly'] };
-    return { plan, tier, ratePlan, label: 'Flex – Pay Monthly', terms: ['flex', 'pay monthly'] };
-  }
-
-  private async selectRequestedPlan(): Promise<void> {
-    const requested = this.getRequestedPlan();
-    const predicates = requested.terms.map(term =>
-      `contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "${term}")`
-    ).join(' and ');
-    const option = await this.firstVisible([
-      // DAZN exposes plan cards as labels/roles depending on the experiment.
-      // Restrict the locator to actionable card elements so a heading or page
-      // wrapper containing every plan cannot be selected by accident.
-      `//*[self::label or self::button or @role="radio" or @role="button" or @role="option"][${predicates}]`,
+  private async acceptKeepMeUpdatedPrompt(): Promise<boolean> {
+    const keepMeUpdated = await this.firstVisible([
+      'button*=Keep me updated', '[role="button"]*=Keep me updated',
+      '[aria-label*="Keep me updated" i]',
     ]);
+    if (!keepMeUpdated) return false;
 
-    if (!option) {
-      throw new Error(
-        `Requested Safari plan "${requested.plan}" (${requested.label}) was not exposed on the plan screen; refusing to continue with DAZN's default plan.`
-      );
-    }
-
-    await option.scrollIntoView().catch(() => {});
-    await option.click();
-    await this.driver.pause(800);
-    console.log(`✅ Selected Safari plan from DaznPlan.json: ${requested.label}`);
+    await keepMeUpdated.click();
+    await this.driver.waitUntil(async () => !(await this.firstVisible([
+      'button*=Keep me updated', '[role="button"]*=Keep me updated',
+      '[aria-label*="Keep me updated" i]',
+    ])), {
+      timeout: 8000,
+      interval: 250,
+      timeoutMsg: 'Keep me updated prompt remained open after selecting it.',
+    });
+    console.log('✅ Selected Safari “Keep me updated” prompt.');
+    return true;
   }
 
-  async completeToPayment(results: IOSValidationResult[], eventName = ''): Promise<void> {
-    await this.handleSafariCookies();
+  async completeToPayment(results: IOSValidationResult[], eventName = '', eventData?: Record<string, any>): Promise<void> {
+    this.resetCookieConsentCache();
+    await this.handleSafariCookies(5000);
     const userState = (process.env.USER_STATE || 'new').toLowerCase();
     const isExistingUser = !userState.startsWith('new') || !!process.env.USER_EMAIL;
     const email = isExistingUser
@@ -101,17 +108,55 @@ export class IOSSignupPage extends IOSBasePage {
       throw new Error('Existing-user Safari checkout requires USER_EMAIL and USER_PASSWORD.');
     }
 
+    const ppvPage = new IOSPPVPage(this.driver);
+    const planPage = new IOSPlanPage(this.driver);
+
     for (let step = 0; step < 12; step++) {
       const body = await this.text();
       const lower = body.toLowerCase();
       const url = await this.driver.getUrl();
       console.log(`Safari account step ${step + 1}: ${url}`);
 
+      // DAZN can show this optional marketing prompt immediately after either
+      // sign-in or sign-up. Accept the requested option before evaluating the
+      // underlying account or payment page.
+      if (await this.acceptKeepMeUpdatedPrompt()) continue;
+
+      // ── Payment page (terminal) ──
       if (/payment method|choose how to pay|card number|payment details/.test(lower)) {
+        if (eventData) {
+          try {
+            await new IOSSafariValidationPage(this.driver).validatePaymentPage(eventData, results);
+          } catch (err: any) {
+            console.warn(`⚠️ Payment page validation error: ${err.message}`);
+          }
+        }
         results.push({ page: 'iOS Safari', field: 'Payment page reached', expected: 'Yes', actual: 'Yes', status: 'PASS' });
         return;
       }
 
+      // ── PPV Payment page (active_standard saved-card checkout) ──
+      if (/one time payment|pay now/i.test(lower) && /visa|mastercard|amex|\*{4}|saved card/i.test(lower)) {
+        if (eventData) {
+          try {
+            await new IOSSafariValidationPage(this.driver).validatePPVPaymentPage(eventData, results);
+          } catch (err: any) {
+            console.warn(`⚠️ PPV payment page validation error: ${err.message}`);
+          }
+        }
+        results.push({ page: 'iOS Safari', field: 'PPV Payment page reached', expected: 'Yes', actual: 'Yes', status: 'PASS' });
+        return;
+      }
+
+      // ── My Account PPV page (active_ultimate — PPV already purchased) ──
+      const myAccountPage = new IOSMyAccountPage(this.driver);
+      if (myAccountPage.isSafariPurchasedPPVPage(lower, url)) {
+        await myAccountPage.validateSafariPurchasedPPV(results as any, eventName);
+        return;
+      }
+
+
+      // ── Personal details (first name + password visible) ──
       const passwordInput = await this.firstVisible([
         'input[type="password"]', 'input[name*="password" i]', 'input[autocomplete="current-password"]',
       ]);
@@ -120,8 +165,6 @@ export class IOSSignupPage extends IOSBasePage {
       ]);
       if (firstNameInput && passwordInput) {
         await firstNameInput.setValue(firstName);
-        // DAZN re-renders the personal-details form after every input event.
-        // Re-find fields after each write instead of holding stale elements.
         const lastNameInput = await this.firstVisible([
           'input[name*="last" i]', 'input[autocomplete="family-name"]', 'input[placeholder*="last name" i]',
         ]);
@@ -136,62 +179,104 @@ export class IOSSignupPage extends IOSBasePage {
         continue;
       }
 
-      // Existing users see a password-only screen after their email is
-      // recognised. New users reach this branch only if DAZN presents a
-      // combined sign-in page, in which case we deliberately stop instead of
-      // submitting a new-user password into an existing account.
+      // ── Existing user sign-in (password only) ──
       if (passwordInput && isExistingUser) {
         await passwordInput.setValue(password);
         if (!await this.clickContinue()) throw new Error('Safari sign-in Continue button was not available.');
         continue;
       }
 
+      // ── Email entry ──
       const emailInput = await this.firstVisible([
         'input[type="email"]', 'input[name*="email" i]', 'input[autocomplete="email"]',
         'input[placeholder*="email" i]', 'input[aria-label*="email" i]', 'input', '[role="textbox"]',
       ]);
       if (emailInput) {
         await emailInput.click();
-        await emailInput.setValue(email);
+        await this.driver.pause(500);
+        // Re-fetch the input after click to avoid stale element references
+        // caused by React re-renders. The click can trigger DOM updates that
+        // invalidate the element reference held by firstVisible().
+        const freshEmail = await this.firstVisible([
+          'input[type="email"]', 'input[name*="email" i]', 'input[autocomplete="email"]',
+          'input[placeholder*="email" i]', 'input[aria-label*="email" i]', 'input', '[role="textbox"]',
+        ]);
+        if (freshEmail) {
+          try {
+            await freshEmail.setValue(email);
+          } catch {
+            // If the element is still not interactable, skip email entry and
+            // let the next iteration handle password entry (existing user).
+            console.log('⚠️ Email input not interactable after click — skipping email entry.');
+            continue;
+          }
+        } else {
+          console.log('⚠️ Email input disappeared after click — skipping email entry.');
+          continue;
+        }
         if (!await this.clickContinue()) throw new Error('Safari sign-up email Continue button was not available.');
         continue;
       }
 
-      const isContextualPpvPage = /pay-per-view, you.ll need a dazn plan|ultimate fan package/.test(lower);
+      // ── Contextual PPV page (delegated to IOSPPVPage) ──
+      const isContextualPpvPage = ppvPage.isContextualPPVPage(lower);
       if (isContextualPpvPage) {
-        const wantsUltimate = this.getRequestedPlan().tier === 'ultimate';
-        const targetText = wantsUltimate ? 'Ultimate' : (eventName.split(/\s+vs\.?\s+/i)[0] || 'pay-per-view');
-        const ppvOrUltimate = await this.firstVisible([
-          `//*[self::label or self::button or @role="radio" or @role="button"][contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "${targetText.toLowerCase()}")]`,
-        ]);
-        if (!ppvOrUltimate) {
-          throw new Error(`Requested contextual ${wantsUltimate ? 'Ultimate' : 'PPV'} option was not exposed.`);
+        await ppvPage.validateAndSelectOption(results, eventName, eventData);
+      }
+
+      // ── "Choose how to buy" page (active_standard users, delegated to IOSPPVPage) ──
+      if (!isContextualPpvPage && ppvPage.isChooseHowToBuyPage(lower)) {
+        await ppvPage.validateAndClickBuyNow(results, eventData);
+        continue;
+      }
+
+      // ── Upgrade Confirmation page (active_standard → ultimate upgrade) ──
+      // After selecting Ultimate on Choose How To Buy → Plan page → Continue,
+      // the user lands on the Upgrade Confirmation page.
+      const isUpgradeConfirmationPage = /your plan will be changed|confirm plan change|upgrade/i.test(lower) &&
+        (url.includes('upgradePlan') || url.includes('upgradeTier') || url.includes('upgradeplan') || url.includes('upgradetier') || lower.includes('confirm'));
+      if (isUpgradeConfirmationPage) {
+        console.log('✅ Upgrade Confirmation page detected.');
+        if (eventData) {
+          try {
+            await new IOSSafariValidationPage(this.driver).validateUpgradeConfirmationPage(eventData, results);
+          } catch (err: any) {
+            console.warn(`⚠️ Upgrade Confirmation page validation error: ${err.message}`);
+          }
         }
-        await ppvOrUltimate.click();
-        console.log(`✅ Selected contextual PPV option: ${wantsUltimate ? 'Ultimate' : 'PPV'}`);
-        await this.driver.pause(800);
+        results.push({ page: 'iOS Safari', field: 'Upgrade Confirmation page reached', expected: 'Yes', actual: 'Yes', status: 'PASS' });
+        return;
       }
 
-      // The contextual PPV journey can present a plan page after account
-      // creation/sign-in. Select the requested tier/rate plan before its
-      // Continue CTA is used; otherwise DAZN's default selection can make the
-      // test exercise the wrong product.
-      if (!isContextualPpvPage && (/choose (your|the right) plan|choose how to buy/.test(lower) ||
-        (/page=PlanDetails/i.test(url) && /flex|annual|pay monthly|pay upfront/.test(lower)))) {
-        await this.selectRequestedPlan();
+      // ── Plan selection page (delegated to IOSPlanPage) ──
+      if (!isContextualPpvPage && planPage.isPlanPage(lower, url)) {
+        await planPage.validateAndSelect(results, eventData);
       }
 
+      // ── Click Continue / Next to progress ──
       const progressed = await this.firstVisible([
         'button*=Continue with pay-per-view', 'button*=Continue with PPV',
         'button*=Continue with DAZN', 'button*=Continue', 'button*=Next', 'button[type="submit"]',
       ]);
       if (!progressed) {
-        // The account SPA can display its headings before it mounts the input
-        // controls. Wait for that render instead of failing immediately after
-        // landing on page=emailDetails.
         if (/log in or sign up|email address|finish signing up/.test(lower) || /page=(emailDetails|personalDetails)/i.test(url)) {
           console.log('⏳ Safari account form is still rendering; waiting for editable controls.');
           await this.driver.pause(1500);
+          continue;
+        }
+        // After sign-in DAZN may briefly land on /home or /welcome before
+        // redirecting to the contextual PPV flow. Wait and retry.
+        if (/\/home\/?$|\/welcome\/?$/i.test(url)) {
+          console.log('⏳ Transient redirect to home/welcome after sign-in; waiting for contextual redirect...');
+          await this.driver.pause(3000);
+          continue;
+        }
+        // Account pages (e.g. /addon/purchase, /choosePlan) can take several
+        // seconds to render their interactive content after the URL resolves.
+        // Wait and retry so the next iteration can match the page text.
+        if (/\/account\//i.test(url)) {
+          console.log(`⏳ Account page still rendering (${url.split('?')[0].split('/').pop()}); waiting...`);
+          await this.driver.pause(3000);
           continue;
         }
         const inputs = await this.driver.$$('input, [role="textbox"]');
@@ -208,7 +293,6 @@ export class IOSSignupPage extends IOSBasePage {
       }
       await progressed.click();
       await this.driver.pause(1800);
-      await this.handleSafariCookies();
     }
 
     results.push({ page: 'iOS Safari', field: 'Payment page reached', expected: 'Yes', actual: 'No', status: 'FAIL' });

@@ -15,11 +15,10 @@
 //   4. Navigate to PPV buy button based on SOURCE env var:
 //        myaccount                → My Account → Find PPV → Buy
 //        schedule                 → Bottom tab → Schedule → scroll to event → Buy
-//        boxing-upcoming-fights   → Sports tab → Boxing → Upcoming Big Fights → Buy
-//        boxing-page-banner       → Sports tab → Boxing → hero banner → Buy
 //        home-boxing-banner       → Home Boxing filter → Boxing page → hero banner → Buy
 //        home-boxing-upcoming     → Home Boxing filter → Upcoming Fights → Buy
 //        home-boxing-tile         → Home Boxing rail → Buy
+//        home-page-dont-miss      → Home → Don't Miss rail → PPV tile → Buy
 //        search                   → Search icon/tab → Search for event → Buy
 //   5. App opens Safari View Controller or redirects to Safari
 //   6. Captures URL via WebView context switch or Safari address bar fallback
@@ -38,22 +37,24 @@ type WdElement = any;
 
 import { writeHandoffUrl, clearHandoffUrl } from '../../utils/handoff';
 import { prepareIosApp, waitForHomePage } from '../../utils/iosSetup';
+import { startIOSRecording, stopIOSRecording } from '../../utils/iosVideoRecorder';
+import { recomputeMobileDatesForDeviceTimezone } from '../../utils/deviceTimezone';
 import { loadEventConfig, EventConfig } from '../../utils/eventLoader';
 import { openSchedulePPVPaywall } from '../../pages/ios/IOSSchedulePage';
-import { openSearchResultPaywall } from '../../pages/ios/IOSSearchPage';
+import { IOSSearchPage, openSearchResultPaywall } from '../../pages/ios/IOSSearchPage';
 import {
-  openBoxingUpcomingFightsPaywall,
-  openBoxingPageBannerPaywall,
   openHomeBoxingBannerPaywall,
   openHomeBoxingUpcomingPaywall,
+  openHomeBoxingDontMissTilePaywall,
 } from '../../pages/ios/IOSBoxingPage';
 import { IOSMyAccountPage, openMyAccountPPVPaywall, preLoginFlow as sharedPreLoginFlow } from '../../pages/ios/IOSMyAccountPage';
-import { openHomeBannerPaywall, openGenericPPVPaywall } from '../../pages/ios/IOSHomePage';
+import { openHomeBannerPaywall, openGenericPPVPaywall, openHomePageDontMissPaywall } from '../../pages/ios/IOSHomePage';
 import { openLandingBannerPaywall } from '../../pages/ios/IOSLandingPage';
 import { copyImmediateCheckoutUrl } from '../../pages/ios/IOSPaywallPage';
 import {
   IOSFlowHooks,
   captureCheckoutUrl as sharedCaptureCheckoutUrl,
+  openCapturedUrlInNewSafariTab as sharedOpenCapturedUrlInNewSafariTab,
   findEl as sharedFindEl,
   findPPVBanner as sharedFindPPVBanner,
   isVisible as sharedIsVisible,
@@ -62,12 +63,13 @@ import {
   swipeLeft as sharedSwipeLeft,
   tapByText as sharedTapByText,
 } from '../../pages/ios/IOSBasePage';
-import { getIOSSurfacingPoint, getIOSValidationSheet } from '../../pages/ios/IOSSurfacingPoint';
+import { getIOSBrowserReentry, getIOSSurfacingPoint, getIOSValidationSheet } from '../../pages/ios/IOSSurfacingPoint';
 import {
   validateMobilePaywallPage,
   validateMobileBannerOrTilePage,
   IOSValidationResult,
 } from '../../pages/ios/IOSValidationPage';
+
 
 // ── Config ───────────────────────────────────────────────────────────────────
 const event: EventConfig = loadEventConfig();
@@ -108,9 +110,33 @@ if (!USER_EMAIL || !USER_PASSWORD) {
   }
 }
 
+// If still missing, try reading directly from userstatus.json (avoids loadEventConfig dependency)
+if (!USER_EMAIL || !USER_PASSWORD) {
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const statusPath = path.resolve(__dirname, '../../../config/userstatus.json');
+    const userStatuses = JSON.parse(fs.readFileSync(statusPath, 'utf-8'));
+    const state = userStatuses[USER_STATE];
+    const env = (process.env.DAZN_ENV || 'stag').toLowerCase();
+    const regionBlock = state?.regions?.[REGION] ?? state?.regions?.UK ?? {};
+    const envBlock = regionBlock?.environments?.[env] ?? {};
+    USER_EMAIL = USER_EMAIL || envBlock.USER_EMAIL || regionBlock.USER_EMAIL || '';
+    USER_PASSWORD = USER_PASSWORD || envBlock.USER_PASSWORD || regionBlock.USER_PASSWORD || '';
+    if (USER_EMAIL) console.log(`🔑 Resolved credentials from userstatus.json: ${USER_EMAIL}`);
+  } catch (e: any) {
+    console.warn('⚠️ Failed to read userstatus.json:', e.message);
+  }
+}
+
+// Write resolved credentials back to process.env so page objects can read them
+if (USER_EMAIL) process.env.USER_EMAIL = USER_EMAIL;
+if (USER_PASSWORD) process.env.USER_PASSWORD = USER_PASSWORD;
+
 // ── Direct aliases for shared utilities ─────────
 const isVisible = sharedIsVisible;
 const captureCheckoutUrl = sharedCaptureCheckoutUrl;
+const openCapturedUrlInNewSafariTab = sharedOpenCapturedUrlInNewSafariTab;
 
 async function findEl(driver: WdBrowser, sel: string, timeoutMs = 10000): Promise<WdElement> {
   return sharedFindEl(driver, sel, timeoutMs);
@@ -244,11 +270,7 @@ describe('DAZN iOS PPV — Existing User Flow', () => {
     console.log(`║  User   : ${USER_STATE.padEnd(40)}║`);
     console.log(`╚════════════════════════════════════════════════════╝\n`);
 
-    console.log('🎥 Starting screen recording on iOS device/simulator...');
-    await browser.startRecordingScreen({
-      timeLimit: 600,
-      videoType: 'mp4',
-    }).catch(e => console.error('⚠️ Failed to start screen recording:', e));
+    await startIOSRecording(browser);
 
     await prepareIosApp(browser, {
       clearAppData: false, // iOS simulator/real devices preserve cache
@@ -304,6 +326,11 @@ describe('DAZN iOS PPV — Existing User Flow', () => {
     } catch (e: any) {
       console.warn(`⚠️ Failed to load mobile overrides: ${e.message}`);
     }
+
+    // Recompute mobile date/time tokens from PPV_UTC_DATE using the device's
+    // actual timezone — on real iOS devices we can't change the timezone like
+    // Playwright does with timezoneId, so we adapt the expected values instead.
+    recomputeMobileDatesForDeviceTimezone(eventData);
 
     // validateMobilePaywall
     async function validateMobilePaywall() {
@@ -405,21 +432,17 @@ describe('DAZN iOS PPV — Existing User Flow', () => {
       searchQuery = searchQuery.replace(/\./g, '');
       buyTapped = await openSearchResultPaywall(driver, PPV_NAME, searchQuery, iosFlowHooks);
     }
-    // ── boxing-upcoming-fights ────────────────────────────────────────────
-    else if (SOURCE === 'boxing-upcoming-fights') {
-      buyTapped = await openBoxingUpcomingFightsPaywall(driver, PPV_NAME, iosFlowHooks);
-    }
-    // ── boxing-page-banner ────────────────────────────────────────────────
-    else if (SOURCE === 'boxing-page-banner') {
-      buyTapped = await openBoxingPageBannerPaywall(driver, PPV_NAME, iosFlowHooks, { requireBanner: true });
-    }
     // ── home-boxing-upcoming ──────────────────────────────────────────────
     else if (SOURCE === 'home-boxing-upcoming') {
       buyTapped = await openHomeBoxingUpcomingPaywall(driver, PPV_NAME, event, iosFlowHooks);
     }
     // ── home-boxing-banner ────────────────────────────────────────────────
     else if (SOURCE === 'home-boxing-banner') {
-      buyTapped = await openHomeBoxingBannerPaywall(driver, PPV_NAME, iosFlowHooks);
+      buyTapped = await openHomeBoxingBannerPaywall(driver, PPV_NAME, event, iosFlowHooks);
+    }
+    // ── home-boxing-tile ──────────────────────────────────────────────────
+    else if (SOURCE === 'home-boxing-tile') {
+      buyTapped = await openHomeBoxingDontMissTilePaywall(driver, PPV_NAME, event, iosFlowHooks);
     }
     // ── home-page-banner ──────────────────────────────────────────────────
     else if (SOURCE === 'home-page-banner') {
@@ -433,6 +456,10 @@ describe('DAZN iOS PPV — Existing User Flow', () => {
       bannerCheckoutUrl = copyResult.url;
       bannerUrlCaptured = copyResult.captured;
       buyTapped = true;
+    }
+    // ── home-page-dont-miss ───────────────────────────────────────────────
+    else if (SOURCE === 'home-page-dont-miss') {
+      buyTapped = await openHomePageDontMissPaywall(driver, PPV_NAME, iosFlowHooks);
     }
     // ── landing-page-banner ───────────────────────────────────────────────
     else if (SOURCE === 'landing-page-banner') {
@@ -468,350 +495,82 @@ describe('DAZN iOS PPV — Existing User Flow', () => {
 
     console.log(`\n🌐 Checkout URL captured:\n   ${checkoutUrl}\n`);
     writeHandoffUrl(checkoutUrl);
-    console.log("✅ URL written to mobile_entry_url.txt");
-    console.log("📱 Closing DAZN app...");
-    try {
-      await driver.terminateApp(BUNDLE_ID);
-    } catch {}
-    await driver.pause(1000);
+    console.log('\u2705 URL written to mobile_entry_url.txt');
 
-    // ── Playwright Web Checkout Phase ──────────────────────────────────────────
-    console.log("📱 Launching Desktop Playwright checkout flow...");
-    const originalCwd = process.cwd();
-    let playwrightBrowser: any = null;
-    let context: any = null;
-    const runStart = new Date();
-    let finalResults: any[] = [];
-    let finalJson: any = null;
-    let finalFlowConfig: any = null;
-    let finalExcelPath: string | null = null;
-    let finalVideoPath: string | null = null;
-    let finalNativeVideoPath: string | null = null;
-    let reportGenerated = false;
+    const safariContext = await openCapturedUrlInNewSafariTab(driver, checkoutUrl);
 
-    try {
-      const nodePath = require('path');
-      const nodeFs = require('fs');
-      process.chdir(nodePath.resolve(__dirname, '../../..'));
-      console.log(`📂 Changed working directory to: ${process.cwd()}`);
+    // ── Safari-only Web Checkout Phase (mirrors newuserios.spec.ts) ──────────────────────
+    // Do NOT terminate the app or launch a desktop Playwright browser.
+    // Stay in the Safari WebView context and walk through sign-in, plan,
+    // and payment pages — exactly as newuserios.spec.ts does for new users.
+    const { configureExcelPathForEvent } = require('../../../utils/excelReader');
+    configureExcelPathForEvent(json.eventKey || '');
 
-      const { chromium } = require('@playwright/test');
-      const fs = nodeFs;
-      const path = nodePath;
-
-      const { SignupPage } = require('../../../pages/SignupPage');
-      const { PaymentPage } = require('../../../pages/PaymentPage');
-      const { SearchPage } = require('../../../pages/SearchPage');
-      const { MyAccountPage } = require('../../../pages/MyAccountPage');
-      const { SchedulePage: WebSchedulePage } = require('../../../pages/schedulepage');
-
-      const {
-        configureExcelPathForEvent,
-        getPaymentDataByTierAndPlan,
-        getOTPPageData,
-        getPhonePageData,
-        getPPVPaymentData,
-      } = require('../../../utils/excelReader');
-
-      const { detectVariant } = require('../../../flows/detectVariant');
-      const { buildEventData } = require('../../../utils/buildEventData');
-      const { detectPageType } = require('../../../utils/flowHelpers');
-      const { displayResultsTable } = require('../../../utils/resultsDisplay');
-      const { writeResults } = require('../../../utils/excelWriter');
-      const { generateReports } = require('../../../utils/reportGenerator');
-
-      const {
-        sleep,
-        handleCookies,
-        stabilisePage,
-        dismissMarketingPopup,
-      } = require('../../../utils/helpers');
-
-      const REGION = process.env.DAZN_REGION || 'GB';
-      const EVENT_CONFIG = process.env.PPV_CONFIG || 'ppv_t_joshua_prenga.json';
-      const PLAN = process.env.PLAN || 'standard_monthly';
-      const PPV_TYPE = (process.env.PPV_TYPE || 'normal').toLowerCase();
-      const SWITCH_TO_ULTIMATE = (process.env.SWITCH || '').toLowerCase() === 'true';
-      const PLAN_TARGET = (process.env.PLAN || '').toLowerCase().replace(/[- ]/g, '_');
-      const WANT_ULTIMATE = SWITCH_TO_ULTIMATE || PLAN_TARGET === 'ultimate_apm' || PLAN_TARGET === 'ultimate_apu';
-      const ENV = (process.env.DAZN_ENV || 'stag').toLowerCase();
-      const PAYMENT_METHOD = (process.env.PAYMENT_METHOD || 'credit_card').toLowerCase();
-
-      async function captureFailShot(page: any, field: string): Promise<string | undefined> {
-        try {
-          const dir = path.resolve(process.cwd(), 'test-results', 'screenshots');
-          if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-          const safe = field.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 40);
-          const shotPath = path.join(dir, `FAIL_${safe}_${Date.now()}.jpg`);
-          await page.screenshot({ path: shotPath, type: 'jpeg', quality: 75 });
-          return shotPath;
-        } catch {
-          return undefined;
-        }
-      }
-
-      let webCheckoutUrl = checkoutUrl.replace('platform=ios', 'platform=web').replace('platform=android', 'platform=web');
-
-      const json = loadEventConfig(EVENT_CONFIG);
-      const plansPath = path.resolve(__dirname, '../../..', 'config/DaznPlan.json');
-      const plans = JSON.parse(fs.readFileSync(plansPath, 'utf-8'));
-      const planData = plans[PLAN];
-      if (!planData) {
-        throw new Error(`❌ Plan "${PLAN}" not found in DaznPlan.json`);
-      }
-
-      const planTier = (planData.TIER || 'standard').toLowerCase();
-      const ratePlan = (planData.RATE_PLAN || 'monthly').toLowerCase();
-
-      const planName = ratePlan === 'monthly'
-        ? 'Flex Monthly'
-        : (ratePlan.includes('upfront') ? 'APU' : 'APM');
-      const tierName = planTier.charAt(0).toUpperCase() + planTier.slice(1);
-      const srcLabel = SOURCE.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-
-      const formattedUserState = USER_STATE
-        .split('_')
-        .map(w => w.charAt(0).toUpperCase() + w.slice(1))
-        .join(' ');
-
-      const flowConfig = {
-        name: `iOS ${formattedUserState}: ${srcLabel} → ${tierName} → ${planName}`,
-        source: SOURCE,
-        tier: planTier,
-        ratePlan: ratePlan,
-        endPage: 'payment',
-        enableDevMode: planTier === 'ultimate',
-        planKey: PLAN
-      };
-
-      console.log(`\n╔═══════════════════════════════════════════════════════╗`);
-      console.log(`║  RUNNING LOCAL PLAYWRIGHT WEB CHECKOUT: ${flowConfig.name}`);
-      console.log(`╚═══════════════════════════════════════════════════════╝\n`);
-
-      const results: any[] = [];
-      results.push(...iosAvailabilityResults);
-      results.push(...appiumResults);
-      finalJson = json;
-      finalFlowConfig = flowConfig;
-      finalResults = results;
-      configureExcelPathForEvent(json.eventKey || '');
-
-      const eventData = buildEventData(json, REGION, planTier, ratePlan.replace(/-/g, ' '), SOURCE);
-      eventData.source = SOURCE;
-      eventData.SOURCE = SOURCE;
-      eventData.MOBILE_WEB_HANDOFF = 'true';
-
-      const regionLocaleMap: Record<string, { locale: string; timezoneId: string }> = {
-        GB: { locale: 'en-GB', timezoneId: 'Europe/London' },
-        UK: { locale: 'en-GB', timezoneId: 'Europe/London' },
-        US: { locale: 'en-US', timezoneId: 'America/New_York' },
-      };
-      const REGION_KEY = (process.env.DAZN_REGION || 'GB').toUpperCase();
-      const { locale: activeLocale, timezoneId: activeTz } =
-        regionLocaleMap[REGION_KEY] ?? { locale: 'en-GB', timezoneId: 'Europe/London' };
-
-      console.log('Launching desktop Chromium browser for checkout...');
-      playwrightBrowser = await chromium.launch({
-        headless: true,
-        args: ['--incognito', '--no-first-run', '--disable-first-run-ui']
-      });
-
-      context = await playwrightBrowser.newContext({
-        viewport: { width: 375, height: 667 },
-        timezoneId: activeTz,
-        locale: activeLocale,
-        userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1'
-      });
-
-      const page = await context.newPage();
-      console.log(`\n🌐 Opening handoff URL in Playwright: ${webCheckoutUrl}\n`);
-      await page.goto(webCheckoutUrl);
-
-      // Explicitly wait for cookies
-      const acceptBtn = page.locator('#onetrust-accept-btn-handler');
-      try {
-        await acceptBtn.waitFor({ state: 'visible', timeout: 20000 });
-        await acceptBtn.click({ force: true });
-        await page.locator('#onetrust-banner-sdk').waitFor({ state: 'hidden', timeout: 8000 }).catch(() => { });
-      } catch (e) {
-        await handleCookies(page, 5000);
-      }
-
-      const variant = await detectVariant(page, json.variants).catch(() => 'variant1');
-      console.log('🎯 variant:', variant);
-
-      let reachedEndPage = false;
-      let ppvValidated = false;
-      let firstPaymentDone = false;
-      let savedCardPaymentDone = false;
-      let pageType: string = 'unknown';
-
-      // Traverse checkout funnel
-      for (let step = 0; step < 15; step++) {
-        if (page.isClosed()) throw new Error('❌ Page closed unexpectedly');
-
-        pageType = await detectPageType(page, json.pages, 0);
-        await handleCookies(page, 500);
-        await stabilisePage(page);
-        await dismissMarketingPopup(page);
-        console.log(`\nstep ${step + 1} → pageType: ${pageType} | url: ${page.url()}`);
-
-        if (pageType === 'myaccount-ppv') {
-          console.log('\n✅ [Purchased] Landed on My Account PPV page.');
-          reachedEndPage = true;
-          try {
-            const myAccountPage = new MyAccountPage(page);
-            await myAccountPage.validatePPVOnCurrentPage(eventData.PPV_NAME, results, eventData);
-          } catch (myAccountErr: any) {
-            console.warn(`⚠️ [My Account PPV] Validation error: ${myAccountErr.message}`);
-          }
-          break;
-        }
-
-        // OTP Verification page
-        if (pageType === 'otp') {
-          console.log('🔑 Reached OTP Verification page');
-          reachedEndPage = true;
-          try {
-            const otpData = getOTPPageData();
-            for (const row of otpData) {
-              const field = (row['Field'] || '').trim();
-              const expected = (row['Expected'] || '').toString().trim();
-              if (!field) continue;
-
-              let actual = 'N/A';
-              const fieldLower = field.toLowerCase();
-              if (fieldLower === 'page title') {
-                actual = await page.locator('h1').first().textContent().catch(() => 'N/A');
-              } else if (fieldLower === 'otp input present') {
-                actual = await page.locator('input').count() > 0 ? 'Yes' : 'No';
-              }
-              const status = actual.toLowerCase().includes(expected.toLowerCase()) ? 'PASS' : 'FAIL';
-              results.push({ page: 'OTP Verification', field, expected, actual, status });
-            }
-          } catch {}
-          break;
-        }
-
-        // Phone Number page
-        if (pageType === 'phone') {
-          console.log('Referencing phone number page');
-          reachedEndPage = true;
-          try {
-            const phoneData = getPhonePageData();
-            for (const row of phoneData) {
-              const field = (row['Field'] || '').trim();
-              const expected = (row['Expected'] || '').toString().trim();
-              if (!field) continue;
-              let actual = 'N/A';
-              if (field.toLowerCase() === 'page title') {
-                actual = await page.locator('h1').first().textContent().catch(() => 'N/A');
-              }
-              results.push({ page: 'Phone Number', field, expected, actual, status: 'PASS' });
-            }
-          } catch {}
-          break;
-        }
-
-        // Saved Card Payment
-        if (pageType === 'saved-card-payment' && !savedCardPaymentDone) {
-          console.log('💳 PPV Saved Card Payment (existing user)');
-          reachedEndPage = true;
-          savedCardPaymentDone = true;
-          break;
-        }
-
-        // Payment Details Page
-        if (pageType === 'payment') {
-          console.log('💳 Reached Payment page');
-          reachedEndPage = true;
-
-          const payment = new PaymentPage(page);
-          if (await payment.isPaymentPage()) {
-            const planKey = SOURCE.startsWith('boxing-bundle') ? `${ratePlan} bundle` : ratePlan;
-            const paymentData = getPaymentDataByTierAndPlan(planTier, planKey);
-            await payment.validate(paymentData, results, eventData, 'existinguser');
-          }
-
-          if (ENV === 'stag') {
-            console.log(`💳 DAZN_ENV is stag — filling payment via method: ${PAYMENT_METHOD}`);
-            try {
-              if (PAYMENT_METHOD === 'gpay') {
-                await payment.fillGooglePayAndSubmit(results, eventData);
-                await payment.verifyPaymentSuccess();
-                await payment.clickSuccessContinue();
-              } else {
-                await payment.fillPaymentAndSubmit();
-                await payment.verifyPaymentSuccess();
-                await payment.clickSuccessContinue();
-              }
-              results.push({
-                page: 'Payment Success',
-                field: 'Payment Completed',
-                expected: 'Success page reached',
-                actual: 'Success page reached',
-                status: 'PASS',
-              });
-            } catch (paymentErr: any) {
-              console.error(`❌ Payment filling failed: ${paymentErr.message}`);
-              throw paymentErr;
-            }
-          }
-          break;
-        }
-
-        // Email / Login page
-        if (pageType === 'email') {
-          console.log('👉 Email/Login page');
-          const signup = new SignupPage(page);
-          await signup.enterEmail(USER_EMAIL);
-          await signup.clickContinue();
-          await page.waitForTimeout(2000);
-          continue;
-        }
-
-        // Password page
-        if (pageType === 'password') {
-          console.log('🔑 Password page');
-          const signup = new SignupPage(page);
-          await signup.enterPassword(USER_PASSWORD);
-          await signup.clickContinue();
-          await page.waitForTimeout(2000);
-          continue;
-        }
-
-        // Fallback progress clicker
-        try {
-          const nextBtn = page.locator('button:has-text("Continue"), button:has-text("Next"), button[type="submit"]').first();
-          if (await nextBtn.isVisible()) {
-            console.log('  Tapping generic Next/Continue button...');
-            await nextBtn.click();
-            await page.waitForTimeout(2500);
-            continue;
-          }
-        } catch {}
-
-        console.log('  ⚠️ Funnel page unrecognized, breaking to avoid infinite loop.');
-        break;
-      }
-
-    } catch (playwrightErr: any) {
-      console.error(`❌ Local Playwright Web Checkout failed: ${playwrightErr.message}`);
-      throw playwrightErr;
-    } finally {
-      if (context) await context.close().catch(() => { });
-      if (playwrightBrowser) await playwrightBrowser.close().catch(() => { });
-      process.chdir(originalCwd);
+    const safariResults: IOSValidationResult[] = [...iosAvailabilityResults, ...appiumResults];
+    const browserReentry = getIOSBrowserReentry(SOURCE);
+    if (!browserReentry.supported) {
+      throw new Error(
+        `iOS Safari re-entry via welcome page is not yet verified for SOURCE="${SOURCE}". ` +
+        `Add it to getIOSBrowserReentry() in IOSSurfacingPoint.ts once confirmed on device.`
+      );
     }
 
-    // ── Generate reports ──
-    const passed = finalResults.filter(r => r.status === 'PASS').length;
-    const failed = finalResults.filter(r => r.status === 'FAIL').length;
-    console.log(`\n📊 Run Summary: ${passed} passed, ${failed} failed`);
+    await new IOSSearchPage(driver, PPV_NAME).continueSafariCheckout({
+      capturedUrl: checkoutUrl,
+      safariContext,
+      eventName: PPV_NAME,
+      results: safariResults,
+      eventData: eventData,
+    });
+
+    const { writeResults } = require('../../../utils/excelWriter');
+    const { displayResultsTable } = require('../../../utils/resultsDisplay');
+    const { generateReports } = require('../../../utils/reportGenerator');
+    const videoOutputPath = await stopIOSRecording(browser);
+    const { excelPath, videoPath } = await writeResults(safariResults, videoOutputPath);
+
+    const srcLabel = SOURCE.split('-').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    const formattedUserState = USER_STATE
+      .split('_')
+      .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(' ');
+
+    displayResultsTable(safariResults, 'ppv', {
+      event: PPV_NAME,
+      region: REGION,
+      excelPath,
+      videoPath,
+    });
+    await generateReports(safariResults, {
+      event: PPV_NAME,
+      region: REGION,
+      source: SOURCE,
+      ratePlan,
+      tier: planTier,
+      env: (process.env.DAZN_ENV || 'stag').toLowerCase(),
+      flowName: `iOS ${formattedUserState}: ${srcLabel}`,
+      startTime: new Date(),
+      endTime: new Date(),
+      excelPath,
+      videoPath,
+      userType: 'existing-user',
+      userStatus: USER_STATE,
+      platform: 'iOS',
+    });
+
+    // Fail the test if any Safari web validation failed
+    const passed = safariResults.filter((r: any) => r.status === 'PASS').length;
+    const failed = safariResults.filter((r: any) => r.status === 'FAIL').length;
+    const total = passed + failed;
+    console.log(`\n📊 iOS Safari flow complete: ${passed}/${total} passed, ${failed} failed`);
+    if (failed > 0) {
+      throw new Error(`❌ ${failed} of ${total} Safari web validation(s) failed. See report for details.`);
+    }
   });
 
   after(async () => {
     try {
+      // Safety stop — recording is already stopped inside the test to capture the path.
       await browser.stopRecordingScreen().catch(() => { });
     } catch {}
   });
