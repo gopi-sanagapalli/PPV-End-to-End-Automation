@@ -116,11 +116,16 @@ export class IOSSignupPage extends IOSBasePage {
       const lower = body.toLowerCase();
       const url = await this.driver.getUrl();
       console.log(`Safari account step ${step + 1}: ${url}`);
+      if (!body.trim() && /\/account\//i.test(url)) {
+        console.log('⏳ Safari account page is still rendering; waiting for WebKit content...');
+        await this.driver.pause(3000);
+        continue;
+      }
 
       // DAZN can show this optional marketing prompt immediately after either
       // sign-in or sign-up. Accept the requested option before evaluating the
       // underlying account or payment page.
-      if (await this.acceptKeepMeUpdatedPrompt()) continue;
+      if (/keep me updated/i.test(lower) && await this.acceptKeepMeUpdatedPrompt()) continue;
 
       // ── Payment page (terminal) ──
       if (/payment method|choose how to pay|card number|payment details/.test(lower)) {

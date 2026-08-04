@@ -102,7 +102,14 @@ export class IOSValidationPage extends IOSBasePage {
         SHOTS_DIR,
         `ios_${String(surface || 'page').replace(/[^a-zA-Z0-9]/g, '_')}_${String(fieldName || 'field').replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}.png`
       );
-      await this.driver.saveScreenshot(screenshotPath);
+      const verifiedBannerScreenshot = surface === 'PPV Banner'
+        ? this.getCurrentBannerValidationScreenshot()
+        : '';
+      if (verifiedBannerScreenshot) {
+        fs.writeFileSync(screenshotPath, Buffer.from(verifiedBannerScreenshot, 'base64'));
+      } else {
+        await this.driver.saveScreenshot(screenshotPath);
+      }
 
       // Highlight the visible failing native field when XCUITest exposes it.
       // Artwork text in the Don't Miss rail is commonly absent from the tree;
@@ -266,14 +273,15 @@ export class IOSValidationPage extends IOSBasePage {
   ): Promise<{ texts: string[]; pageSource: string; targetXml: string }> {
     await this.ensureNativeAppContext();
     const textsSet = new Set<string>();
-    let pageSource = '';
+    const bannerSnapshot = surface === 'PPV Banner' ? this.takeCurrentBannerValidationSnapshot() : '';
+    let pageSource = bannerSnapshot;
     let targetXml = '';
 
     try {
-      pageSource = await this.driver.getPageSource();
+      if (!pageSource) pageSource = await this.driver.getPageSource();
       targetXml = pageSource;
 
-      if (usePageSourceSnapshotOnly) {
+      if (usePageSourceSnapshotOnly || bannerSnapshot) {
         const attrRegex = /(?:label|name|value)="([^"]*)"/g;
         for (const match of pageSource.matchAll(attrRegex)) {
           const text = match[1]
@@ -283,7 +291,7 @@ export class IOSValidationPage extends IOSBasePage {
             .trim();
           if (text) textsSet.add(text);
         }
-        console.log(`📋 Used native page-source snapshot for ${surface} validation.`);
+        console.log(`📋 Used ${bannerSnapshot ? 'verified banner' : 'native page-source'} snapshot for ${surface} validation.`);
       } else {
 
         // Locate the main title element
@@ -387,10 +395,26 @@ export class IOSValidationPage extends IOSBasePage {
     // page source also contains the dimmed screen behind the modal (for
     // example, "22 JUN"), which must never become the PPV date actual.
     const expectedDateTokens = expectedNativeDate.match(/^(\d{1,2})\s+([A-Z]{3})/);
-    const mobileDateText = expectedDateTokens
-      ? texts.find(t => new RegExp(`\\b${expectedDateTokens[1]}\\b\\s+${expectedDateTokens[2]}`, 'i').test(t))
-      || paywallSnapshot.mobileDateText
-      : paywallSnapshot.mobileDateText;
+    let mobileDateText = paywallSnapshot.mobileDateText;
+    if (expectedDateTokens) {
+      const datePattern = new RegExp(`\\b${expectedDateTokens[1]}\\b\\s+${expectedDateTokens[2]}`, 'i');
+      const candidates = texts.filter(t => datePattern.test(t));
+      // Prefer the candidate whose time matches the expected — background
+      // elements behind the modal can show a different timezone rendering.
+      const expTimeMatch = expectedNativeDate.match(/(\d{1,2}):(\d{2})/);
+      if (expTimeMatch && candidates.length > 1) {
+        const expH = parseInt(expTimeMatch[1], 10);
+        const expM = expTimeMatch[2];
+        const best = candidates.find(t => {
+          const m = t.match(/(\d{1,2}):(\d{2})/);
+          return m && parseInt(m[1], 10) === expH && m[2] === expM;
+        });
+        if (best) mobileDateText = best;
+        else mobileDateText = candidates[0];
+      } else {
+        mobileDateText = candidates[0] || paywallSnapshot.mobileDateText;
+      }
+    }
 
     const { getMobilePaywallData } = require('../../../utils/excelReader');
     const { resolveExpected: resolveExp } = require('../../../utils/resolveExpected');
@@ -490,7 +514,7 @@ export class IOSValidationPage extends IOSBasePage {
             const cleanT = t.toLowerCase().trim();
             const cleanExp = expectedValue.replace(/[\u200b\u200c\u200d\ufeff]/g, '').trim().toLowerCase();
             return compare(t, expectedValue) ||
-              cleanT.includes(cleanExp) ||
+              cleanT.includes(cleanExp) && cleanT.length <= cleanExp.length * 2 + 30 ||
               (cleanT.length > 10 && cleanExp.includes(cleanT));
           });
           if (matched) {
@@ -607,9 +631,19 @@ export class IOSValidationPage extends IOSBasePage {
         const fieldName = (row['Field'] || '').trim();
         if (!fieldName) continue;
 
+        // The native Landing banner hands off through the App Store sheet.
+        // It has no Copy control and its CTA is deliberately not Buy now.
+        if (surface === 'PPV Banner' && source.trim().toLowerCase() === 'landing-page-banner' && fieldName === 'Copy Button') {
+          continue;
+        }
+
         let expectedValue = '';
         try { expectedValue = resolveExp(row, eventData); }
         catch { expectedValue = String(row['Expected'] || ''); }
+
+        if (surface === 'PPV Banner' && source.trim().toLowerCase() === 'landing-page-banner' && fieldName === 'Buy Now CTA') {
+          expectedValue = 'Go to dazn.com/start';
+        }
 
         if (!expectedValue || expectedValue.toUpperCase() === 'N/A') {
           continue;
@@ -769,6 +803,11 @@ export class IOSValidationPage extends IOSBasePage {
             if (parsedExpected && texts.some(t => normalizeDateString(t).includes(normalizeDateString(parsedExpected)))) {
               actualValue = parsedExpected;
               isMatch = true;
+            } else {
+              const visibleDate = texts.find(t =>
+                /\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b.*\b\d{1,2}:\d{2}\s*(?:a\.?m\.?|p\.?m\.?)?\b/i.test(t),
+              );
+              if (visibleDate) actualValue = visibleDate;
             }
           }
         } else {

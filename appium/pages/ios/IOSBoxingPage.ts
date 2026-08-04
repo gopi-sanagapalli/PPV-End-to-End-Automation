@@ -293,7 +293,7 @@ export class IOSBoxingPage extends IOSBasePage {
   }
 
   async clickUpcomingFightsFilter(): Promise<void> {
-    console.log('  Clicking "Upcoming Fights" filter on boxing page...');
+    console.log('  Waiting for the Boxing page to load its "Upcoming Fights" filter...');
     const selectors = [
       '~Upcoming Fights',
       '-ios predicate string:name CONTAINS "Upcoming Fights" OR label CONTAINS "Upcoming Fights"',
@@ -316,28 +316,9 @@ export class IOSBoxingPage extends IOSBasePage {
       return Boolean(upcomingFilter);
     }, { timeout, interval: 300 }).then(() => true).catch(() => false);
 
-    // The sport competition screen loads its tab strip independently from the
-    // hero/rails. Do not start PPV scrolling until the required tab exists.
-    let found = await waitForUpcoming(45000);
-    if (!found) {
-      const { width, height } = await this.driver.getWindowRect();
-      const filterY = Math.round(height * 0.22);
-      for (let attempt = 0; attempt < 4 && !found; attempt++) {
-        console.log(`  Swiping tab strip to find "Upcoming Fights" (attempt ${attempt + 1})...`);
-        await this.driver.performActions([{
-          type: 'pointer', id: 'upcoming-fights-filter', parameters: { pointerType: 'touch' },
-          actions: [
-            { type: 'pointerMove', duration: 0, x: Math.round(width * 0.75), y: filterY },
-            { type: 'pointerDown', button: 0 },
-            { type: 'pause', duration: 80 },
-            { type: 'pointerMove', duration: 250, x: Math.round(width * 0.25), y: filterY },
-            { type: 'pointerUp', button: 0 },
-          ],
-        }]);
-        await this.driver.releaseActions();
-        found = await waitForUpcoming(1500);
-      }
-    }
+    // The destination header appears before its content and tab strip. Wait
+    // for the required tab instead of swiping an unloaded Boxing page.
+    const found = await waitForUpcoming(60000);
 
     if (!found || !upcomingFilter) {
       await this.driver.saveScreenshot('./test-results/ios_upcoming_filter_not_found.png');
@@ -468,11 +449,11 @@ export class IOSBoxingPage extends IOSBasePage {
     await this.navigateToConfiguredSport(eventConfig);
     await this.driver.saveScreenshot('./test-results/ios_boxing_page.png');
 
-    let found = await this.findPPVBanner(this.ppvName);
-    for (let i = 0; i < 8 && !found; i++) {
-      await this.scrollDown();
-      found = await this.isVisible(this.ppvName, 1500);
-    }
+    const bannerCtas = ['Buy now', 'Buy Now'];
+    const found = await this.findBannerOnCurrentPage(this.ppvName, {
+      ctaTexts: bannerCtas,
+      verticalScrolls: 0,
+    });
 
     if (!found) {
       const shot = hooks.saveScreenshot
@@ -495,7 +476,17 @@ export class IOSBoxingPage extends IOSBasePage {
       return true;
     }
 
-    return this.tapBuyCtaWithFallback();
+    const stillOnPPVBanner = await this.findBannerOnCurrentPage(this.ppvName, {
+      horizontalSwipes: 8,
+      verticalScrolls: 0,
+      ctaTexts: bannerCtas,
+    });
+    if (!stillOnPPVBanner) {
+      await this.driver.saveScreenshot('./test-results/ios_home_boxing_buy_cta_not_found.png');
+      throw new Error(`PPV banner "${this.ppvName}" moved before Buy CTA tap. See test-results/ios_home_boxing_buy_cta_not_found.png`);
+    }
+
+    return Boolean(await this.tapFirstText(bannerCtas, 6000));
   }
 
   async openHomeBoxingUpcomingPaywall(eventConfig?: any, hooks: IOSFlowHooks = {}): Promise<boolean> {
