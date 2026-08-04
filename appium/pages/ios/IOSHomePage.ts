@@ -258,6 +258,21 @@ export class IOSHomePage extends IOSLandingPage {
     // all remaining discovery happens in its horizontal card row.
     console.log(`  Don't Miss rail locked at y=${railY}; starting horizontal search only.`);
     const swipeY = Math.max(Math.round(height * 0.30), Math.min(Math.round(height * 0.80), railY + Math.round(height * 0.16)));
+    const swipeRail = async (direction: 'left' | 'right', pointerId: string): Promise<void> => {
+      const startX = direction === 'left' ? Math.round(width * 0.68) : Math.round(width * 0.32);
+      const endX = direction === 'left' ? Math.round(width * 0.38) : Math.round(width * 0.62);
+      await this.driver.performActions([{
+        type: 'pointer', id: pointerId, parameters: { pointerType: 'touch' },
+        actions: [
+          { type: 'pointerMove', duration: 0, x: startX, y: swipeY },
+          { type: 'pointerDown', button: 0 },
+          { type: 'pause', duration: 80 },
+          { type: 'pointerMove', duration: 300, x: endX, y: swipeY },
+          { type: 'pointerUp', button: 0 },
+        ],
+      }]);
+      await this.driver.releaseActions();
+    };
     // The native tile artwork does not consistently expose the complete event
     // name to XCTest.  Match the full name first, then the fighter names, and
     // keep the actual matching element so it can be tapped immediately.
@@ -268,6 +283,7 @@ export class IOSHomePage extends IOSLandingPage {
     ].filter(term => term.length >= 3)));
     const railBottom = railY + Math.round(height * 0.45);
     const findVisiblePpvTile = async (): Promise<any | undefined> => {
+      const inspectedCandidates = new Set<string>();
       for (const term of ppvTerms) {
         const escapedTerm = term.replace(/"/g, '\\"');
         const candidates = await this.driver.$$(`-ios predicate string:name CONTAINS[c] "${escapedTerm}" OR label CONTAINS[c] "${escapedTerm}"`);
@@ -275,7 +291,16 @@ export class IOSHomePage extends IOSLandingPage {
           if (!(await candidate.isDisplayed().catch(() => false))) continue;
           const location = await candidate.getLocation().catch(() => undefined);
           if (!location || location.y < railY - 40 || location.y > railBottom) continue;
-          if (!(await isInViewport(candidate))) {
+          const size = await candidate.getSize().catch(() => null);
+          const fingerprint = `${location.x}:${location.y}:${size?.width || 0}:${size?.height || 0}`;
+          // The full event name and both fighter names frequently resolve to
+          // the same XCTest node. Inspect and log that node only once per
+          // search pass instead of repeating three expensive geometry calls.
+          if (inspectedCandidates.has(fingerprint)) continue;
+          inspectedCandidates.add(fingerprint);
+          const centreX = location.x + (size?.width || 0) / 2;
+          const centreY = location.y + (size?.height || 0) / 2;
+          if (centreX < 0 || centreX >= width || centreY < 0 || centreY >= height) {
             console.log(`  PPV tile using "${term}" is outside the horizontal viewport at x=${location.x}, y=${location.y}; continuing rail swipe search.`);
             continue;
           }
@@ -308,23 +333,17 @@ export class IOSHomePage extends IOSLandingPage {
     };
 
     let ppvTile = await findVisiblePpvTile();
-    let visualTile = ppvTile ? undefined : await findPpvTileByImage();
+    let visualTile: { x: number; y: number } | undefined;
     for (let attempt = 0; attempt < 10 && !ppvTile && !visualTile; attempt++) {
-      await this.driver.performActions([{
-        type: 'pointer', id: 'dont-miss-rail', parameters: { pointerType: 'touch' },
-        actions: [
-          { type: 'pointerMove', duration: 0, x: Math.round(width * 0.80), y: swipeY },
-          { type: 'pointerDown', button: 0 },
-          { type: 'pause', duration: 80 },
-          { type: 'pointerMove', duration: 300, x: Math.round(width * 0.20), y: swipeY },
-          { type: 'pointerUp', button: 0 },
-        ],
-      }]);
-      await this.driver.releaseActions();
-      await this.driver.pause(800);
+      console.log(`  PPV tile is not in the current card viewport; making short horizontal swipe ${attempt + 1}/10.`);
+      await swipeRail('left', 'dont-miss-rail-search');
       ppvTile = await findVisiblePpvTile();
-      visualTile = ppvTile ? undefined : await findPpvTileByImage();
     }
+
+    // Vision OCR starts a Swift process and can take tens of seconds on the
+    // test host. It is an artwork-only fallback, so never run it between
+    // horizontal swipes; do one evidence/fallback pass after native search.
+    if (!ppvTile) visualTile = await findPpvTileByImage();
 
     if (!ppvTile && !visualTile) {
       const shot = hooks.saveScreenshot
@@ -334,6 +353,44 @@ export class IOSHomePage extends IOSLandingPage {
       await hooks.generateAvailabilityFailureReport?.(`PPV "${this.ppvName}" not found in Don't Miss rail`);
       throw new Error(`PPV "${this.ppvName}" not found in Don't Miss rail. See test-results/ios_dont_miss_ppv_not_found.png`);
     }
+
+    // Centre the found card before validation and interaction. The card can
+    // first appear at either edge after a search swipe, where validation
+    // screenshots are incomplete and the title element is a poor tap target.
+    for (let adjustment = 0; adjustment < 2; adjustment++) {
+      const location = ppvTile
+        ? await ppvTile.getLocation().catch(() => null)
+        : visualTile;
+      const size = ppvTile
+        ? await ppvTile.getSize().catch(() => null)
+        : null;
+      if (!location) break;
+      const tileCenterX = location.x + (size?.width || 0) / 2;
+      const centreTolerance = width * 0.15;
+      if (Math.abs(tileCenterX - width / 2) <= centreTolerance) break;
+
+      const direction = tileCenterX > width / 2 ? 'left' : 'right';
+      console.log(`  PPV tile is at x=${Math.round(tileCenterX)}; making short ${direction} swipe to centre it before validation.`);
+      await swipeRail(direction, 'dont-miss-rail-centre');
+      if (ppvTile) {
+        await this.driver.waitUntil(async () => Boolean(await findVisiblePpvTile()), {
+          timeout: 1200,
+          interval: 250,
+          timeoutMsg: `PPV tile "${this.ppvName}" did not remain visible while being centred.`,
+        });
+      }
+      ppvTile = await findVisiblePpvTile();
+      visualTile = ppvTile ? undefined : await findPpvTileByImage();
+      if (!ppvTile && !visualTile) {
+        throw new Error(`PPV "${this.ppvName}" disappeared while being centred in Don't Miss rail.`);
+      }
+    }
+
+    // Native title nodes do not contain the date rendered in the card artwork.
+    // Capture OCR evidence once the target is centred so PPV Date validation
+    // uses the visible card rather than replacing it with the title alone.
+    const visualEvidence = await findPpvTileByImage();
+    if (visualEvidence) visualTile = visualTile || visualEvidence;
 
     process.env.IOS_DONT_MISS_PPV_TILE_FOUND = 'true';
     if (ppvTile && !process.env.IOS_DONT_MISS_OCR_TEXTS) {

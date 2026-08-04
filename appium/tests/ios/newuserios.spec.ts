@@ -172,7 +172,8 @@ async function generateIOSAvailabilityFailureReport(errorMessage: string): Promi
       ratePlan: 'monthly',
     }));
 
-    const { excelPath, videoPath } = await writeResults(rows);
+    const videoOutputPath = await stopIOSRecording(browser);
+    const { excelPath, videoPath } = await writeResults(rows, videoOutputPath);
     displayResultsTable(rows, 'ppv', {
       event: PPV_NAME,
       region: REGION,
@@ -512,9 +513,10 @@ describe('DAZN iOS PPV — New User Handoff Flow', () => {
 
   after(async () => {
     try {
-      // Recording is stopped inside the test to capture the video path.
-      // This is a safety stop in case the test errored before reaching that point.
-      await browser.stopRecordingScreen().catch(() => { });
+      // Save the recording even if the test errors before normal report
+      // generation can attach it to the report bundle.
+      const videoPath = await stopIOSRecording(browser);
+      if (videoPath) console.log(`🎥 Failure/debug video available: ${videoPath}`);
     } catch {}
   });
 });

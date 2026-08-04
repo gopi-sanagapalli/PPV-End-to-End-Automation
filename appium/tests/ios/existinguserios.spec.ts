@@ -225,7 +225,8 @@ async function generateIOSAvailabilityFailureReport(errorMessage: string): Promi
       ratePlan: 'monthly',
     }));
 
-    const { excelPath, videoPath } = await writeResults(rows);
+    const videoOutputPath = await stopIOSRecording(browser);
+    const { excelPath, videoPath } = await writeResults(rows, videoOutputPath);
     displayResultsTable(rows, 'ppv', {
       event: PPV_NAME,
       region: REGION,
@@ -570,8 +571,10 @@ describe('DAZN iOS PPV — Existing User Flow', () => {
 
   after(async () => {
     try {
-      // Safety stop — recording is already stopped inside the test to capture the path.
-      await browser.stopRecordingScreen().catch(() => { });
+      // Save the recording even when the test aborts before its normal report
+      // generation path (for example, on a plan-selection failure).
+      const videoPath = await stopIOSRecording(browser);
+      if (videoPath) console.log(`🎥 Failure/debug video available: ${videoPath}`);
     } catch {}
   });
 });

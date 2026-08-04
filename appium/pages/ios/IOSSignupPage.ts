@@ -219,9 +219,13 @@ export class IOSSignupPage extends IOSBasePage {
       }
 
       // ── Contextual PPV page (delegated to IOSPPVPage) ──
-      const isContextualPpvPage = ppvPage.isContextualPPVPage(lower);
+      const isContextualPpvPage = await ppvPage.isContextualPPVPage(lower, url);
       if (isContextualPpvPage) {
         await ppvPage.validateAndSelectOption(results, eventName, eventData);
+        // validateAndSelectOption submits the CTA associated with the chosen
+        // PPV/Ultimate option. Do not fall through to the generic Continue
+        // locator below, which prioritises the PPV CTA.
+        continue;
       }
 
       // ── "Choose how to buy" page (active_standard users, delegated to IOSPPVPage) ──
@@ -251,6 +255,11 @@ export class IOSSignupPage extends IOSBasePage {
       // ── Plan selection page (delegated to IOSPlanPage) ──
       if (!isContextualPpvPage && planPage.isPlanPage(lower, url)) {
         await planPage.validateAndSelect(results, eventData);
+        // The plan card has been verified above. Use its tier-specific CTA;
+        // do not let the generic PPV-first Continue list choose a different
+        // purchase path.
+        await planPage.continueWithSelectedPlan();
+        continue;
       }
 
       // ── Click Continue / Next to progress ──
