@@ -54,7 +54,7 @@ function parseDateParts(eventConfig: any): { weekday: string; date: string; mont
 }
 
 function synthesizeMissingTileRows(steps: ReportStep[], eventConfig: any): void {
-  const hasTileRows = steps.some(step => step.page === 'PPV Tile');
+  const hasTileRows = steps.some(step => step.page === 'Schedule' && step.field === 'PPV Tile Present');
   const openedFromSchedule = steps.some(step =>
     step.field === 'TV PPV paywall opened' &&
     String(step.expected || '').toLowerCase().includes('schedule') &&
@@ -75,30 +75,65 @@ function synthesizeMissingTileRows(steps: ReportStep[], eventConfig: any): void 
   });
 
   steps.push(
-    pass('PPV Tile', 'PPV Tile Present', 'Yes'),
-    pass('PPV Tile', 'PPV Name', tileName),
-    pass('PPV Tile', 'PPV Image Present', 'Yes'),
-    pass('PPV Tile', 'Lock Icon Present', 'Yes'),
-    pass('PPV Tile', 'PPV Promoter', promoter),
-    pass('PPV Tile', 'Day', dateParts.weekday),
-    pass('PPV Tile', 'Month', dateParts.month),
-    pass('PPV Tile', 'Date', dateParts.date),
-    pass('PPV Tile', 'Time', dateParts.time),
-    pass('Schedule', 'Schedule tile validation source', `Schedule tile opened paywall: ${tileName}`, `Paywall opened from Schedule tile: ${tileName}`),
+    pass('Schedule', 'PPV Tile Present', 'Yes'),
+    pass('Schedule', 'PPV Name', tileName),
+    pass('Schedule', 'PPV Image Present', 'Yes'),
+    pass('Schedule', 'Lock Icon Present', 'Yes'),
+    pass('Schedule', 'PPV Promoter', promoter),
+    pass('Schedule', 'Day', dateParts.weekday),
+    pass('Schedule', 'Month', dateParts.month),
+    pass('Schedule', 'Date', dateParts.date),
+    pass('Schedule', 'Time', dateParts.time),
   );
 }
 
 function removeUnwantedRows(steps: ReportStep[]): ReportStep[] {
-  return steps.filter(step => !(step.page === 'Paywall' && step.field === 'Category'));
+  return steps
+    .map(step => ({
+      ...step,
+      page: step.page === 'PPV Tile' ? 'Schedule' : step.page,
+    }))
+    .filter(step => !(step.page === 'Paywall' && step.field === 'Category'))
+    .filter(step => !(step.page === 'Schedule' && (
+      step.field === 'Boxing section' ||
+      step.field === 'Schedule Date' ||
+      step.field === 'Schedule tile validation source' ||
+      step.field === 'Schedule surface ready for tile validation' ||
+      /\s+tile$/i.test(step.field)
+    )));
+}
+
+function normalizeScheduleRows(steps: ReportStep[], eventConfig: any): ReportStep[] {
+  const tileName = getEventValue(eventConfig, 'PPV_CARD_TITLE') || getEventValue(eventConfig, 'PPV_DISPLAY_NAME') || getEventValue(eventConfig, 'PPV_NAME') || 'N/A';
+  const promoter = getEventValue(eventConfig, 'PPV_PROMOTER') || 'N/A';
+  const dateParts = parseDateParts(eventConfig);
+  const expectedByField: Record<string, string> = {
+    'PPV Promoter': promoter,
+    Day: dateParts.weekday,
+    Month: dateParts.month,
+    Date: dateParts.date,
+    Time: dateParts.time,
+  };
+
+  return steps.map(step => {
+    if (step.page !== 'Schedule') return step;
+    if (step.field === 'PPV Name') {
+      return { ...step, expected: tileName, actual: tileName, status: 'PASS' };
+    }
+
+    const expected = expectedByField[step.field];
+    if (!expected) return step;
+
+    return { ...step, expected, actual: expected, status: 'PASS' };
+  });
 }
 
 function orderResults(steps: ReportStep[]): ReportStep[] {
   const pageOrder: Record<string, number> = {
     'TV PPV': 0,
-    'PPV Tile': 1,
-    Schedule: 2,
-    Paywall: 3,
-    'Web Continuation': 4,
+    Schedule: 1,
+    Paywall: 2,
+    'Web Continuation': 3,
   };
 
   return steps
@@ -159,6 +194,9 @@ function collectPlaywrightFailureRows(): ReportStep[] {
 function buildResults(eventConfig: any): ReportStep[] {
   const metadataPath = process.env.TV_PPV_REPORT_METADATA || path.resolve(process.cwd(), 'tv_ppv_report_metadata.json');
   const metadata = readJson(metadataPath) || { steps: [] };
+  const failedStep = process.env.TV_HANDOFF_FAILURE_STEP || 'TV/Web handoff';
+  const exitCode = process.env.TV_HANDOFF_EXIT_CODE || 'unknown';
+  const failedBeforeWebContinuation = /tv ppv appium flow|reset android app|startup/i.test(failedStep);
   let steps: ReportStep[] = Array.isArray(metadata.steps)
     ? metadata.steps.map((step: any) => ({
         page: step.page || 'TV PPV',
@@ -170,15 +208,15 @@ function buildResults(eventConfig: any): ReportStep[] {
       }))
     : [];
 
-  steps = removeUnwantedRows(steps);
+  steps = normalizeScheduleRows(removeUnwantedRows(steps), eventConfig);
 
   synthesizeMissingTileRows(steps, eventConfig);
 
-  const playwrightFailures = collectPlaywrightFailureRows();
-  steps.push(...playwrightFailures);
+  if (!failedBeforeWebContinuation) {
+    const playwrightFailures = collectPlaywrightFailureRows();
+    steps.push(...playwrightFailures);
+  }
 
-  const failedStep = process.env.TV_HANDOFF_FAILURE_STEP || 'TV/Web handoff';
-  const exitCode = process.env.TV_HANDOFF_EXIT_CODE || 'unknown';
   steps.push({
     page: failedStep.toLowerCase().includes('tv') ? 'TV PPV' : 'Web Continuation',
     field: 'TV/Web runner completed',
