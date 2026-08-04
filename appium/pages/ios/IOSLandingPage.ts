@@ -4,7 +4,6 @@ import {
   IOSPPVSurface,
   WdBrowser,
 } from './IOSBasePage';
-import { holdBannerCarousel } from '../../utils/bannerInteraction';
 
 export interface IOSBannerFlowOptions {
   label: string;
@@ -12,9 +11,9 @@ export interface IOSBannerFlowOptions {
   missingScreenshot: string;
   foundScreenshot: string;
   buyMissingScreenshot: string;
+  ctaTexts: string[];
   validateSurface?: IOSPPVSurface;
   immediatePaywall?: boolean;
-  keepCarouselLockedForCopy?: boolean;
   recordPage?: string;
   ensureBannerStillVisibleBeforeBuy?: boolean;
   waitForBannerImageBeforeBuy?: boolean;
@@ -25,7 +24,14 @@ export class IOSLandingPage extends IOSBasePage {
     console.log(`${options.label} -> Find PPV banner -> Buy now`);
     console.log(`  Finding PPV banner for "${this.ppvName}" on ${options.pageName || options.label}...`);
 
-    const found = await this.findBannerOnCurrentPage(this.ppvName);
+    if (options.waitForBannerImageBeforeBuy) {
+      await this.waitForBannerImageBeforeBuy();
+    }
+
+    const found = await this.findBannerOnCurrentPage(this.ppvName, {
+      ctaTexts: options.ctaTexts,
+      verticalScrolls: 0,
+    });
     if (!found) {
       const shot = hooks.saveScreenshot
         ? await hooks.saveScreenshot(options.missingScreenshot)
@@ -41,18 +47,15 @@ export class IOSLandingPage extends IOSBasePage {
     console.log(`  Verified banner title: "${this.ppvName}"`);
     await this.driver.saveScreenshot(options.foundScreenshot);
 
-    if (options.waitForBannerImageBeforeBuy) {
-      await this.waitForBannerImageBeforeBuy();
-    }
-
     if (options.validateSurface) {
       await this.runSurfaceValidation(hooks, options.validateSurface);
     }
 
     if (options.ensureBannerStillVisibleBeforeBuy) {
       const stillOnPPVBanner = await this.findBannerOnCurrentPage(this.ppvName, {
-        horizontalSwipes: 6,
+        horizontalSwipes: 8,
         verticalScrolls: 0,
+        ctaTexts: options.ctaTexts,
       });
       if (!stillOnPPVBanner) {
         await this.driver.saveScreenshot(options.buyMissingScreenshot);
@@ -68,8 +71,8 @@ export class IOSLandingPage extends IOSBasePage {
       return true;
     }
 
-    console.log('  Clicking "Buy now" on the PPV banner...');
-    const buyTapped = await this.tapBuyCtaWithFallback();
+    console.log(`  Clicking PPV banner CTA "${options.ctaTexts[0]}"...`);
+    const buyTapped = Boolean(await this.tapFirstText(options.ctaTexts, 6000));
     if (!buyTapped) {
       await this.driver.saveScreenshot(options.buyMissingScreenshot);
       throw new Error(`Could not tap Buy CTA on PPV banner. See ${options.buyMissingScreenshot}`);
@@ -78,9 +81,6 @@ export class IOSLandingPage extends IOSBasePage {
     if (!options.immediatePaywall) {
       await this.driver.pause(3000);
       console.log('  On paywall screen - will capture URL via Copy button');
-    } else if (buyTapped && options.keepCarouselLockedForCopy) {
-      console.log('  Holding PPV banner while checkout Copy control renders...');
-      await holdBannerCarousel(this.driver, this.ppvName);
     }
 
     return true;
@@ -118,9 +118,9 @@ export class IOSLandingPage extends IOSBasePage {
       missingScreenshot: './test-results/ios_landing_ppv_banner_not_found.png',
       foundScreenshot: './test-results/ios_landing_ppv_banner_found.png',
       buyMissingScreenshot: './test-results/ios_landing_buy_cta_not_found.png',
+      ctaTexts: ['Go to dazn.com/start', 'Go to DAZN.com/start', 'dazn.com/start'],
       validateSurface: 'PPV Banner',
       immediatePaywall: true,
-      keepCarouselLockedForCopy: true,
       recordPage: 'Landing',
       ensureBannerStillVisibleBeforeBuy: true,
       waitForBannerImageBeforeBuy: true,

@@ -47,9 +47,11 @@ export class IOSHomePage extends IOSLandingPage {
       missingScreenshot: './test-results/ios_home_ppv_banner_not_found.png',
       foundScreenshot: './test-results/ios_home_ppv_banner_found.png',
       buyMissingScreenshot: './test-results/ios_home_buy_cta_not_found.png',
+      ctaTexts: ['Buy now', 'Buy Now'],
       validateSurface: 'PPV Banner',
       immediatePaywall: options.immediatePaywall ?? true,
       recordPage: 'Home Page',
+      ensureBannerStillVisibleBeforeBuy: true,
     }, hooks);
   }
 

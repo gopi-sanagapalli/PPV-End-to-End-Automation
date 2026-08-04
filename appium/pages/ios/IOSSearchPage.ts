@@ -91,6 +91,11 @@ export class IOSSearchPage extends IOSBasePage {
     });
   }
 
+  private isAccountCheckoutUrl(url: string): boolean {
+    return /\/account\//i.test(url) &&
+      (/\/signup/i.test(url) || /[?&]page=/i.test(url) || /payment|checkout|purchase|choose/i.test(url));
+  }
+
   private async openSafariSearchFromLanding(): Promise<void> {
     // Follow the visible web journey, matching the native flow: the welcome
     // screen exposes Explore, and the resulting home header exposes Search.
@@ -483,6 +488,13 @@ export class IOSSearchPage extends IOSBasePage {
       status: /dazn\.com/i.test(landedUrl) ? 'PASS' : 'FAIL',
     });
     await this.waitForSafariStartToSettle();
+    const settledUrl = await this.driver.getUrl().catch(() => '');
+    if (this.isAccountCheckoutUrl(settledUrl)) {
+      console.log(`ℹ️ Safari handoff is already in account checkout: ${settledUrl}`);
+      await new IOSSignupPage(this.driver).completeToPayment(options.results, options.eventName, options.eventData);
+      return;
+    }
+
     this.resetCookieConsentCache();
     await this.handleSafariCookies();
 
