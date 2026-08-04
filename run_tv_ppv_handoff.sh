@@ -15,6 +15,30 @@ WEB_SPEC="${WEB_SPEC:-tests/existing_user/existinguser.ppv.spec.ts}"
 TV_PPV_CONFIG="${PPV_CONFIG:-}"
 WEB_PPV_CONFIG="${WEB_PPV_CONFIG:-$TV_PPV_CONFIG}"
 WEB_USER_STATE="${WEB_USER_STATE:-${USER_STATE:-active_standard_monthly}}"
+FAILED_STEP="startup"
+
+generate_failure_report() {
+  local exit_code=$?
+  if [ "$exit_code" -eq 0 ]; then
+    return
+  fi
+
+  echo ""
+  echo "📊 Generating TV/Web fallback report after failure in: $FAILED_STEP"
+  (
+    cd "$ROOT_DIR"
+    TV_HANDOFF_FAILURE_STEP="$FAILED_STEP" \
+    TV_HANDOFF_EXIT_CODE="$exit_code" \
+    PPV_CONFIG="${WEB_PPV_CONFIG:-$TV_PPV_CONFIG}" \
+    TS_NODE_TRANSPILE_ONLY=true \
+    TS_NODE_COMPILER_OPTIONS='{"module":"commonjs","moduleResolution":"node","resolveJsonModule":true,"esModuleInterop":true,"ignoreDeprecations":"5.0"}' \
+    node -r ts-node/register/transpile-only scripts/generateTvHandoffFailureReport.ts
+  ) || echo "⚠️ Failed to generate fallback TV/Web report."
+
+  exit "$exit_code"
+}
+
+trap generate_failure_report EXIT
 
 SOURCE_NORMALIZED="$(printf '%s' "$SOURCE_RAW" | tr '[:upper:]' '[:lower:]' | tr '_' '-')"
 case "$SOURCE_NORMALIZED" in
@@ -74,10 +98,12 @@ echo "LOGIN_FIRST        : $LOGIN_FIRST"
 echo "TV_HANDOFF_MODE    : $TV_HANDOFF_MODE"
 echo ""
 
+FAILED_STEP="reset Android app"
 echo "🧹 Step 1: Clearing and force-stopping DAZN app..."
 npm --prefix "$ROOT_DIR/appium" run reset:android-app
 
 echo ""
+FAILED_STEP="TV PPV Appium flow"
 echo "📺 Step 2: Running TV PPV Appium flow..."
 (
   cd "$ROOT_DIR/appium"
@@ -89,7 +115,8 @@ echo "📺 Step 2: Running TV PPV Appium flow..."
 )
 
 echo ""
-echo "🌐 Step 3: Continuing checkout from TV handoff URL in Playwright..."
+FAILED_STEP="existing web continuation"
+echo "🌐 Step 3: Continuing checkout from TV handoff URL in the existing web script..."
 (
   cd "$ROOT_DIR"
   if [ -n "$WEB_PPV_CONFIG" ]; then

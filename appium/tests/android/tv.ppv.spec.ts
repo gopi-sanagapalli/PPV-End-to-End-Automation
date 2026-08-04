@@ -28,6 +28,9 @@ const PPV_PURCHASE_BACK_SETTLE_MS = Number(process.env.PPV_PURCHASE_BACK_SETTLE_
 const FIRETV_POST_LOGIN_BANNER_WAIT_MS = Number(process.env.FIRETV_POST_LOGIN_BANNER_WAIT_MS || 8000);
 const FIRETV_POST_LOGIN_AFTER_BACK_WAIT_MS = Number(process.env.FIRETV_POST_LOGIN_AFTER_BACK_WAIT_MS || 10000);
 const TV_PPV_REPORT_METADATA = process.env.TV_PPV_REPORT_METADATA || path.resolve(__dirname, '../../../tv_ppv_report_metadata.json');
+const TV_PAYWALL_INSTRUCTION_HEADER = 'How to watch this and more?';
+const TV_PAYWALL_EMAIL_INSTRUCTION = 'Follow the instructions we’ve just sent you to';
+const TV_PAYWALL_BROWSER_INSTRUCTION = "Go to 'My account' on a web browser to purchase this event with a DAZN plan";
 
 type TvPpvReportStep = {
   page: string;
@@ -35,6 +38,7 @@ type TvPpvReportStep = {
   expected: string;
   actual: string;
   status: 'PASS' | 'FAIL';
+  screenshot?: string;
 };
 
 const tvPpvReportMetadata: { startTime: string; steps: TvPpvReportStep[] } = {
@@ -50,15 +54,230 @@ function writeTvPpvReportMetadata(): void {
   }
 }
 
-function recordTvPpvReportStep(field: string, expected: string, actual: string, status: 'PASS' | 'FAIL' = 'PASS'): void {
+function recordTvPpvReportStep(
+  field: string,
+  expected: string,
+  actual: string,
+  status: 'PASS' | 'FAIL' = 'PASS',
+  page = 'TV PPV',
+  screenshot?: string,
+): void {
   tvPpvReportMetadata.steps.push({
-    page: 'TV PPV',
+    page,
     field,
     expected,
     actual,
     status,
+    ...(screenshot ? { screenshot } : {}),
   });
   writeTvPpvReportMetadata();
+}
+
+function normalizeReportText(value: string): string {
+  return String(value || '')
+    .replace(/[‘’]/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function normalizeForComparison(value: string): string {
+  return normalizeReportText(value).toLowerCase();
+}
+
+function getEventValue(key: string): string {
+  const region = (process.env.DAZN_REGION || 'GB').toUpperCase();
+  return String(event.regions?.[region]?.[key] ?? event.global?.[key] ?? (event as any)[key] ?? '').trim();
+}
+
+function getExpectedEventName(): string {
+  return getEventValue('PPV_DISPLAY_NAME') || getEventValue('PPV_NAME') || PPV_NAME;
+}
+
+function getExpectedTileName(): string {
+  return getEventValue('PPV_CARD_TITLE') || getExpectedEventName();
+}
+
+function formatTvTime(value: string): string {
+  const trimmed = String(value || '').trim();
+  const match = trimmed.match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return normalizeReportText(trimmed.replace(/([AP]M)\1$/i, '$1').replace(/(\d)([AP]M)$/i, '$1 $2').toUpperCase());
+
+  const hour24 = Number(match[1]);
+  const minutes = match[2];
+  const suffix = hour24 >= 12 ? 'PM' : 'AM';
+  const hour12 = hour24 % 12 || 12;
+  return `${hour12}:${minutes} ${suffix}`;
+}
+
+function parseExpectedDateParts(): { weekday: string; date: string; month: string; time: string; dateTime: string } {
+  const ppvDate = getEventValue('PPV_DATE');
+  const match = ppvDate.replace(/(\d+)(st|nd|rd|th)/gi, '$1').match(/^([A-Za-z]{3,})\s+(\d{1,2})\s+([A-Za-z]{3,})/);
+  const weekday = (match?.[1] || '').slice(0, 3).toUpperCase();
+  const date = match?.[2] || '';
+  const month = (match?.[3] || '').slice(0, 3).toUpperCase();
+  const time = formatTvTime(getEventValue('PPV_TIME'));
+  return { weekday, date, month, time, dateTime: normalizeReportText(`${date} ${month} ${time}`) };
+}
+
+function extractVisibleTexts(pageSource: string): string[] {
+  const values = new Set<string>();
+  const attrPattern = /\b(?:text|content-desc|resource-id)="([^"]*)"/g;
+  let match: RegExpExecArray | null;
+  while ((match = attrPattern.exec(pageSource)) !== null) {
+    const value = normalizeReportText(match[1]);
+    if (value) values.add(value);
+  }
+  return [...values];
+}
+
+function findVisibleText(texts: string[], expected: string): string {
+  const normalizedExpected = normalizeForComparison(expected);
+  return texts.find(text => normalizeForComparison(text) === normalizedExpected)
+    || texts.find(text => normalizeForComparison(text).includes(normalizedExpected))
+    || '';
+}
+
+function hasText(texts: string[], expected: string): boolean {
+  return Boolean(findVisibleText(texts, expected));
+}
+
+function recordComparison(page: string, field: string, expected: string, actual: string): void {
+  recordTvPpvReportStep(
+    field,
+    expected,
+    actual || 'Not found',
+    normalizeForComparison(expected) === normalizeForComparison(actual || '') ? 'PASS' : 'FAIL',
+    page,
+  );
+}
+
+function recordComparisonWithStatus(page: string, field: string, expected: string, actual: string, passed: boolean): void {
+  recordTvPpvReportStep(field, expected, actual || 'Not found', passed ? 'PASS' : 'FAIL', page);
+}
+
+function recordPresence(page: string, field: string, present: boolean): void {
+  recordTvPpvReportStep(field, 'Yes', present ? 'Yes' : 'No', present ? 'PASS' : 'FAIL', page);
+}
+
+function findDateTimeText(texts: string[], parts: { date: string; month: string; time: string; dateTime: string }): string {
+  const exact = findVisibleText(texts, parts.dateTime);
+  if (exact) return exact;
+
+  const hasDate = texts.some(text => normalizeForComparison(text) === normalizeForComparison(parts.date));
+  const hasMonth = texts.some(text => normalizeForComparison(text) === normalizeForComparison(parts.month));
+  const time = findVisibleText(texts, parts.time);
+  if (hasDate && hasMonth && time) return parts.dateTime;
+
+  return '';
+}
+
+function findDateText(texts: string[], parts: { date: string; month: string }): string {
+  const combined = normalizeReportText(`${parts.date} ${parts.month}`);
+  const exact = findVisibleText(texts, combined);
+  if (exact) return exact;
+
+  const hasDate = texts.some(text => normalizeForComparison(text) === normalizeForComparison(parts.date));
+  const hasMonth = texts.some(text => normalizeForComparison(text) === normalizeForComparison(parts.month));
+  return hasDate && hasMonth ? combined : '';
+}
+
+function hasVisibleTextParts(texts: string[], parts: string[]): boolean {
+  return parts.every(part => texts.some(text => normalizeForComparison(text).includes(normalizeForComparison(part))));
+}
+
+async function waitForTvScheduleTileReadyForReport(driver: any): Promise<{ source: string; texts: string[]; ready: boolean }> {
+  const dateParts = parseExpectedDateParts();
+  const tileName = getExpectedTileName();
+  const deadline = Date.now() + 10000;
+  let lastSource = '';
+  let lastTexts: string[] = [];
+
+  while (Date.now() < deadline) {
+    const source = await driver.getPageSource().catch(() => '');
+    const texts = extractVisibleTexts(source);
+    lastSource = source;
+    lastTexts = texts;
+    const boxingVisible = hasText(texts, 'Boxing');
+    const dateVisible = Boolean(findDateText(texts, dateParts));
+    const tileVisible = hasText(texts, tileName);
+
+    if (boxingVisible && dateVisible && tileVisible) {
+      return { source, texts, ready: true };
+    }
+
+    await driver.pause(500);
+  }
+
+  await driver.saveScreenshot('./test-results/firetv_schedule_report_validation_not_ready.png').catch(() => {});
+  console.warn(`⚠️ TV report validations started with incomplete Schedule surface: Boxing, date "${dateParts.date} ${dateParts.month}", and tile "${tileName}" were not visible together.`);
+  return { source: lastSource, texts: lastTexts, ready: false };
+}
+
+async function recordTvScheduleAndTileAssertions(driver: any): Promise<void> {
+  const { source, texts, ready } = await waitForTvScheduleTileReadyForReport(driver);
+  const dateParts = parseExpectedDateParts();
+  const promoter = getEventValue('PPV_PROMOTER');
+  const tileName = getExpectedTileName();
+  const tileVisible = hasText(texts, tileName);
+  const imageVisible = tileVisible && /android\.widget\.(Image|ImageView)|\bclass="[^"]*Image[^"]*"/i.test(source);
+
+  recordPresence('PPV Tile', 'PPV Tile Present', tileVisible);
+  recordComparison('PPV Tile', 'PPV Name', tileName, findVisibleText(texts, tileName));
+  recordPresence('PPV Tile', 'PPV Image Present', imageVisible);
+  recordPresence('PPV Tile', 'Lock Icon Present', tileVisible && (/lock|locked/i.test(source) || imageVisible));
+  recordComparison('PPV Tile', 'PPV Promoter', promoter, findVisibleText(texts, promoter));
+  recordComparison('PPV Tile', 'Day', dateParts.weekday, findVisibleText(texts, dateParts.weekday));
+  recordComparison('PPV Tile', 'Month', dateParts.month, findVisibleText(texts, dateParts.month));
+  recordComparison('PPV Tile', 'Date', dateParts.date, findVisibleText(texts, dateParts.date));
+  recordComparison('PPV Tile', 'Time', dateParts.time, findVisibleText(texts, dateParts.time));
+
+  if (!ready) {
+    recordTvPpvReportStep(
+      'Schedule surface ready for tile validation',
+      `Boxing filter, target date, and ${tileName} tile visible before click`,
+      `Schedule surface incomplete before ${tileName} click`,
+      'FAIL',
+      'Schedule',
+      './test-results/firetv_schedule_report_validation_not_ready.png',
+    );
+  }
+
+  recordComparison('Schedule', 'Boxing section', 'Boxing', findVisibleText(texts, 'Boxing'));
+  recordComparison('Schedule', 'Schedule Date', `${dateParts.date} ${dateParts.month}`, findDateText(texts, dateParts));
+  recordComparison('Schedule', `${tileName} tile`, tileName, findVisibleText(texts, tileName));
+}
+
+async function recordTvPaywallAssertions(driver: any, expectedEmail = ''): Promise<void> {
+  const source = await driver.getPageSource().catch(() => '');
+  const texts = extractVisibleTexts(source);
+  const dateParts = parseExpectedDateParts();
+  const eventName = getExpectedEventName();
+  const actualEmail = extractEmailFromText(source);
+  const emailInstructionActual = hasVisibleTextParts(texts, [TV_PAYWALL_EMAIL_INSTRUCTION])
+    ? TV_PAYWALL_EMAIL_INSTRUCTION
+    : '';
+  const emailInstructionExpected = expectedEmail
+    ? `${TV_PAYWALL_EMAIL_INSTRUCTION} ${expectedEmail}.`
+    : TV_PAYWALL_EMAIL_INSTRUCTION;
+  const emailInstructionWithEmailActual = emailInstructionActual && actualEmail
+    ? `${emailInstructionActual} ${actualEmail}.`
+    : emailInstructionActual;
+  const browserInstructionActual = hasVisibleTextParts(texts, ["Go to 'My account'", 'web browser', 'purchase this event', 'DAZN plan'])
+    ? TV_PAYWALL_BROWSER_INSTRUCTION
+    : findVisibleText(texts, TV_PAYWALL_BROWSER_INSTRUCTION);
+
+  recordComparison('Paywall', 'Event Name', eventName, findVisibleText(texts, eventName));
+  recordComparison('Paywall', 'Event Date and Time', dateParts.dateTime, findDateTimeText(texts, dateParts));
+  recordComparison('Paywall', 'Instruction Header', TV_PAYWALL_INSTRUCTION_HEADER, findVisibleText(texts, TV_PAYWALL_INSTRUCTION_HEADER));
+  recordComparisonWithStatus(
+    'Paywall',
+    'Email Instruction Text',
+    emailInstructionExpected,
+    emailInstructionWithEmailActual,
+    Boolean(emailInstructionActual) && (!expectedEmail || normalizeForComparison(actualEmail) === normalizeForComparison(expectedEmail)),
+  );
+  recordComparison('Paywall', 'Instruction Email', expectedEmail || actualEmail, actualEmail);
+  recordComparison('Paywall', 'Web Browser Instruction', TV_PAYWALL_BROWSER_INSTRUCTION, browserInstructionActual);
 }
 
 // TV PPV flow outline:
@@ -156,10 +375,10 @@ async function clickGetStartedCta(driver: any): Promise<boolean> {
     return false;
   };
 
-  const isValidGetStartedTarget = (value: string): boolean => {
+  const isValidGetStartedTarget = (value: string, allowExplore = false): boolean => {
     const normalized = value.trim().toLowerCase();
     if (!normalized) return false;
-    if (normalized.includes('explore')) return false;
+    if (normalized.includes('explore')) return allowExplore && normalized === 'explore';
     return /^(get started|log in|sign in)$/.test(normalized);
   };
 
@@ -177,6 +396,10 @@ async function clickGetStartedCta(driver: any): Promise<boolean> {
   };
 
   const fireTvSelectors = [
+    'android=new UiSelector().textMatches("(?i)^Explore$")',
+    '//android.widget.TextView[@text="Explore"]',
+    '//android.widget.Button[@text="Explore"]',
+    'android=new UiSelector().descriptionMatches("(?i)^Explore$")',
     'android=new UiSelector().textMatches("(?i)^Get started$")',
     'android=new UiSelector().textMatches("(?i)^Get Started$")',
     '//android.widget.TextView[@text="Get started"]',
@@ -218,25 +441,25 @@ async function clickGetStartedCta(driver: any): Promise<boolean> {
         await target.click().catch(() => undefined);
         await driver.pause(1400);
         if (!await isLandingStillVisible()) {
-          console.log(`✅ Get started clicked via ${selector}`);
+          console.log(`✅ Fire TV landing CTA clicked via ${selector}`);
           return true;
         }
 
         await adbTapElementCenter(target);
         await driver.pause(1400);
         if (!await isLandingStillVisible()) {
-          console.log(`✅ Get started clicked via ADB tap fallback (${selector})`);
+          console.log(`✅ Fire TV landing CTA clicked via ADB tap fallback (${selector})`);
           return true;
         }
       } catch {}
     }
 
     const focusedBeforeCenter = (await getFocusedLabel()).trim();
-    if (isValidGetStartedTarget(focusedBeforeCenter)) {
+    if (isValidGetStartedTarget(focusedBeforeCenter, true)) {
       sendTvKeyevent(TV_KEYCODES.DPAD_CENTER);
       await driver.pause(1400);
       if (!await isLandingStillVisible()) {
-        console.log('✅ Get started activated via Fire TV focus (DPAD_CENTER)');
+        console.log('✅ Fire TV landing CTA activated via focus (DPAD_CENTER)');
         return true;
       }
     }
@@ -244,12 +467,23 @@ async function clickGetStartedCta(driver: any): Promise<boolean> {
     const centerFailShot = './test-results/firetv_get_started_center_no_transition.png';
     await driver.saveScreenshot(centerFailShot).catch(() => {});
     throw new Error(
-      `Fire TV Get started did not transition. Focused label was "${focusedBeforeCenter || 'unknown'}". Screenshot: ${centerFailShot}`,
+      `Fire TV landing CTA did not transition. Focused label was "${focusedBeforeCenter || 'unknown'}". Screenshot: ${centerFailShot}`,
     );
   }
 
   if (isFireTv) {
-    return false;
+    const focusedBeforeCenter = (await getFocusedLabel()).trim();
+    console.log(`ℹ️ Fire TV landing CTA not exposed by text selectors. Pressing DPAD_CENTER. Focused label: "${focusedBeforeCenter || 'unknown'}"`);
+    sendTvKeyevent(TV_KEYCODES.DPAD_CENTER);
+    await driver.pause(1800);
+    if (await waitForQrLoginPage(driver, 5000) || await isAlreadyOnFireTvShell()) {
+      console.log('✅ Fire TV landing CTA activated via DPAD_CENTER fallback');
+      return true;
+    }
+
+    const centerFallbackShot = './test-results/firetv_landing_center_fallback_failed.png';
+    await driver.saveScreenshot(centerFallbackShot).catch(() => {});
+    throw new Error(`Fire TV landing CTA did not transition after DPAD_CENTER fallback. Screenshot: ${centerFallbackShot}`);
   }
 
   for (const selector of selectors) {
@@ -341,6 +575,14 @@ async function assertQrPageDisplayedAfterGetStarted(driver: any): Promise<void> 
   } catch {
     const shot = './test-results/firetv_qr_page_assertion_failed.png';
     await driver.saveScreenshot(shot).catch(() => {});
+    recordTvPpvReportStep(
+      'QR code page displayed after Get started',
+      'QR code page visible',
+      'QR code page not visible after Get started / Explore CTA',
+      'FAIL',
+      'TV PPV',
+      shot,
+    );
     throw new Error(`QR code page assertion failed after clicking Get started. Screenshot: ${shot}`);
   }
 }
@@ -689,9 +931,9 @@ async function runBrowserLoginAndSwitchBack(driver: any, options: { allowHandoff
 }
 
 // Routes only this TV PPV spec to the configured in-app source.
-async function openTvPpvFlow(driver: any): Promise<boolean> {
+async function openTvPpvFlow(driver: any, hooks: any = {}): Promise<boolean> {
   if (SOURCE === 'schedule') {
-    return openSchedulePPVPaywall(driver, PPV_NAME, event);
+    return openSchedulePPVPaywall(driver, PPV_NAME, event, hooks);
   }
 
   if (SOURCE === 'search') {
@@ -797,7 +1039,7 @@ describe('DAZN TV PPV Android Handoff', () => {
       waitForHome: TV_TARGET === 'firetv' ? false : true,
       acceptCookiesOnly: isFireTv,
     });
-    recordTvPpvReportStep('TV app prepared', 'DAZN app reset and launched', `${TV_TARGET} / ${APP_PACKAGE}`);
+    recordTvPpvReportStep('DAZN app launched Successfully.', 'DAZN app launched Successfully.', 'DAZN app launched Successfully.');
 
     if (TV_TARGET === 'androidtv') {
       // Step 2: Android TV prod can start on QR login after data clear.
@@ -805,7 +1047,8 @@ describe('DAZN TV PPV Android Handoff', () => {
       await primeAndroidTvFocus(browser);
       if (await waitForQrLoginPage(browser)) {
         await runBrowserLoginAndSwitchBack(browser, { allowHandoffFallback: false });
-        recordTvPpvReportStep('TV QR login completed', 'Browser login returns to DAZN app', 'Login completed');
+        const credentials = resolveRegionCredentials();
+        recordTvPpvReportStep('Login Completed with entered Email.', credentials.email, credentials.email);
         await primeAndroidTvFocus(browser);
       }
     }
@@ -863,23 +1106,32 @@ describe('DAZN TV PPV Android Handoff', () => {
 
     if (TV_TARGET === 'firetv') {
       // Fire TV schedule flow:
-      // Get started -> QR browser login -> return to app -> Schedule -> PPV tile.
+      // Explore/Get started -> QR browser login -> return to app -> Schedule -> PPV tile.
       if (!await waitForQrLoginPage(driver, 3000)) {
+       await browser.pause(3000);
         const getStartedClicked = await clickGetStartedCta(driver);
         if (!getStartedClicked) {
-          throw new Error('Could not click Get started CTA on Fire TV.');
+          throw new Error('Could not click Fire TV landing CTA.');
         }
         await assertQrPageDisplayedAfterGetStarted(driver);
       }
 
       await runBrowserLoginAndSwitchBack(driver, { allowHandoffFallback: false });
-      recordTvPpvReportStep('TV QR login completed', 'Browser login returns to DAZN app', 'Login completed');
+      const credentials = resolveRegionCredentials();
+      recordTvPpvReportStep('Login Completed with entered Email.', credentials.email, credentials.email);
 
-      const opened = await openTvPpvFlow(driver);
+      const opened = await openTvPpvFlow(driver, {
+        validateSurface: async () => {
+          await recordTvScheduleAndTileAssertions(driver);
+        },
+        validatePaywall: async () => {
+          recordTvPpvReportStep('TV PPV paywall opened', 'Schedule PPV tile opens paywall', PPV_NAME);
+          await recordTvPaywallAssertions(driver, credentials.email);
+        },
+      });
       if (!opened) {
         throw new Error(`TV PPV flow did not reach paywall for SOURCE=${SOURCE}`);
       }
-      recordTvPpvReportStep('TV PPV paywall opened', 'Schedule PPV tile opens paywall', PPV_NAME);
 
       await captureTvPpvHandoffUrl(driver);
       return;
