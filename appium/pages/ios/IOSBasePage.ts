@@ -204,7 +204,7 @@ export class IOSBasePage {
       consentWasSeen = true;
       const accept = await this.browserFirstVisible(acceptSelectors);
       if (accept) {
-        await accept.scrollIntoView().catch(() => {});
+        await accept.scrollIntoView().catch(() => { });
         const clickedByUi = await accept.click().then(() => true).catch(() => false);
         if (!clickedByUi) {
           const clickedByDom = await this.driver.execute(() => {
@@ -253,7 +253,7 @@ export class IOSBasePage {
     }
 
     if (consentWasSeen) {
-      await this.driver.saveScreenshot('./test-results/ios_safari_cookie_consent_not_actionable.png').catch(() => {});
+      await this.driver.saveScreenshot('./test-results/ios_safari_cookie_consent_not_actionable.png').catch(() => { });
       throw new Error('DAZN cookie consent was displayed but its Accept button was not actionable.');
     }
     console.log('ℹ️ No DAZN cookie consent was shown in Safari.');
@@ -1023,7 +1023,7 @@ export class IOSBasePage {
    */
   async navigateToWelcomePage(baseUrl = 'https://www.dazn.com'): Promise<void> {
     console.log('🌐 Navigating to DAZN welcome page...');
-    await this.driver.url(baseUrl).catch(() => {});
+    await this.driver.url(baseUrl).catch(() => { });
     await this.driver.waitUntil(async () => (await this.browserText()).trim().length > 0, {
       timeout: 20000,
       timeoutMsg: 'DAZN welcome page did not render a document body.',
@@ -1046,6 +1046,24 @@ export class IOSBasePage {
   async findWelcomePagePPVTile(eventName: string, maxCarouselScrolls = 8): Promise<void> {
     const simplified = eventName.split(/ vs/i)[0].trim().replace(/\./g, '').toLowerCase();
     console.log(`🔍 Looking for PPV tile "${eventName}" in Don't miss section...`);
+
+    // ── Step 0: Wait for the page to be in a ready/rendered state ────────────
+    // The WebView context switches before the React SPA has finished mounting.
+    // Poll until document.readyState is 'complete' AND there are visible DOM
+    // nodes, so the subsequent scroll and tile search operate on a loaded page.
+    await this.driver.waitUntil(async () => {
+      const ready = await this.driver.execute(() =>
+        document.readyState === 'complete' &&
+        document.querySelectorAll('div, section, article').length > 10
+      ).catch(() => false);
+      return ready;
+    }, {
+      timeout: 30000,
+      interval: 500,
+      timeoutMsg: 'Safari welcome page did not reach ready state within 30 seconds.',
+    }).catch(() => {
+      console.log('⚠️ Safari page-ready wait timed out; proceeding anyway.');
+    });
 
     // ── Step 1: Scroll the page down until "Don't miss" is visible ───────────
     const isDontMissVisible = async (): Promise<boolean> =>
@@ -1091,7 +1109,7 @@ export class IOSBasePage {
         try {
           const btn = await tile.$(selector);
           if (btn && await btn.isDisplayed().catch(() => false)) {
-            await btn.scrollIntoView().catch(() => {});
+            await btn.scrollIntoView().catch(() => { });
             await btn.click();
             console.log(`✅ Clicked "Buy now" on PPV tile for "${eventName}"`);
             return true;
@@ -1100,7 +1118,7 @@ export class IOSBasePage {
       }
       // Fallback: click the tile card itself (it is often an <a> link)
       try {
-        await tile.scrollIntoView().catch(() => {});
+        await tile.scrollIntoView().catch(() => { });
         await tile.click();
         console.log(`✅ Clicked PPV tile card directly for "${eventName}"`);
         return true;
@@ -1123,7 +1141,7 @@ export class IOSBasePage {
           '[class*="slider" i], [class*="scroll" i]'
         )).find(el => el.scrollWidth > el.clientWidth && el.offsetParent !== null);
         if (rail) rail.scrollLeft += rail.clientWidth * 0.8;
-      }).catch(() => {});
+      }).catch(() => { });
       await this.driver.pause(600);
 
       tile = await findMatchingTile();
@@ -1134,7 +1152,7 @@ export class IOSBasePage {
     }
 
     // ── Failure: screenshot + descriptive error ───────────────────────────────
-    await this.driver.saveScreenshot('./test-results/ios_safari_ppv_tile_not_found.png').catch(() => {});
+    await this.driver.saveScreenshot('./test-results/ios_safari_ppv_tile_not_found.png').catch(() => { });
     const pageText = (await this.browserText()).slice(0, 600);
     throw new Error(
       `Safari welcome page: PPV tile not found for "${eventName}" after ${maxCarouselScrolls} carousel scrolls.\n` +
