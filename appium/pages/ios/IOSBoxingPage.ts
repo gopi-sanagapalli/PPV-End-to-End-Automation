@@ -285,6 +285,21 @@ export class IOSBoxingPage extends IOSBasePage {
     }
     await this.driver.saveScreenshot('./test-results/ios_sport_competition_page.png');
     console.log(`  Opened ${configuredSport} competition page via All Sports.`);
+    // The page heading appears immediately but the feed content (rails) loads
+    // asynchronously. Wait for scrollable content to mount before the caller
+    // starts searching for rails.
+    console.log(`  Waiting for ${configuredSport} page feed content to load...`);
+    await this.driver.waitUntil(async () => {
+      const cells = await this.driver.$$('-ios class chain:**/XCUIElementTypeCell').catch(() => []);
+      if (cells.length > 0) return true;
+      const texts = await this.driver.$$(`-ios predicate string:type == "XCUIElementTypeStaticText" AND visible == true`).catch(() => []);
+      return texts.length > 3;
+    }, {
+      timeout: 30000,
+      interval: 500,
+      timeoutMsg: `${configuredSport} page feed content did not load within 15 seconds.`,
+    }).catch(() => { });
+    console.log(`  ${configuredSport} page feed content loaded.`);
   }
 
   // Backwards-compatible API retained for callers that have no event config.

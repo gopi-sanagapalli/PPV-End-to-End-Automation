@@ -171,6 +171,13 @@ export function resolveExpected(
       return 'N/A';
     }
 
+    // Active standard users upgrading to add a PPV always see "Choose how to pay",
+    // never the trial variant. OFFER_TYPE on the event config belongs to the new-user
+    // funnel and must not bleed into the active-user upgrade payment page title.
+    if (isActiveStandardUser && (field === 'header' || field === 'page header' || field === 'payment page title')) {
+      return eventData.PAYMENT_PAGE_TITLE_STANDARD || eventData.PAYMENT_PAGE_TITLE || 'Choose how to pay';
+    }
+
     const isReturning =
       String(rule.Flow || rule.flow).toLowerCase() === 'returning' ||
       ['frozen', 'sub_active', 'cancelled'].includes(String(eventData.USER_STATE || process.env.USER_STATE || '').toLowerCase().trim());

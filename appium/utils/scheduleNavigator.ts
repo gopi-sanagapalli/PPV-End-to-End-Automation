@@ -45,14 +45,14 @@ const MAX_MONTH_NAV_ITERATIONS = 40;
 
 /** Large swipe: finger travels 75 % → 20 % of screen height (scroll forward). */
 const LARGE_SWIPE_START_Y = 0.75;
-const LARGE_SWIPE_END_Y   = 0.20;
+const LARGE_SWIPE_END_Y = 0.20;
 
 /** Moderate swipe: 70 % → 35 % — used when 1–2 months away. */
 const MODERATE_SWIPE_END_Y = 0.35;
 
 /** Gentle swipe: 60 % → 42 % — day-level fine navigation. */
 const GENTLE_SWIPE_START_Y = 0.60;
-const GENTLE_SWIPE_END_Y   = 0.42;
+const GENTLE_SWIPE_END_Y = 0.42;
 
 /** Below this ratio the tile is behind the bottom nav bar. */
 const BOTTOM_NAV_THRESHOLD = 0.70;
@@ -61,7 +61,7 @@ const BOTTOM_NAV_THRESHOLD = 0.70;
 const CENTER_TARGET_Y = 0.45;
 
 /** Full and abbreviated month names, 0-indexed (January = 0). */
-const MONTH_FULL  = [
+const MONTH_FULL = [
   'january', 'february', 'march', 'april', 'may', 'june',
   'july', 'august', 'september', 'october', 'november', 'december',
 ];
@@ -114,8 +114,8 @@ export async function swipeUp(
   driver: WdBrowser,
   dims: ScreenDimensions,
   startYRatio = LARGE_SWIPE_START_Y,
-  endYRatio   = LARGE_SWIPE_END_Y,
-  durationMs  = 220,
+  endYRatio = LARGE_SWIPE_END_Y,
+  durationMs = 220,
 ): Promise<void> {
   const cx = Math.round(dims.width / 2);
   const y1 = Math.round(dims.height * startYRatio);
@@ -124,11 +124,11 @@ export async function swipeUp(
     type: 'pointer', id: 'finger1',
     parameters: { pointerType: 'touch' },
     actions: [
-      { type: 'pointerMove', duration: 0,         x: cx, y: y1 },
+      { type: 'pointerMove', duration: 0, x: cx, y: y1 },
       { type: 'pointerDown', button: 0 },
-      { type: 'pause',       duration: 40 },
+      { type: 'pause', duration: 40 },
       { type: 'pointerMove', duration: durationMs, x: cx, y: y2 },
-      { type: 'pointerUp',   button: 0 },
+      { type: 'pointerUp', button: 0 },
     ],
   }]);
   await driver.releaseActions();
@@ -139,8 +139,8 @@ export async function swipeDown(
   driver: WdBrowser,
   dims: ScreenDimensions,
   startYRatio = LARGE_SWIPE_END_Y,
-  endYRatio   = LARGE_SWIPE_START_Y,
-  durationMs  = 220,
+  endYRatio = LARGE_SWIPE_START_Y,
+  durationMs = 220,
 ): Promise<void> {
   return swipeUp(driver, dims, startYRatio, endYRatio, durationMs);
 }
@@ -151,10 +151,10 @@ export async function tap(driver: WdBrowser, x: number, y: number): Promise<void
     type: 'pointer', id: 'finger1',
     parameters: { pointerType: 'touch' },
     actions: [
-      { type: 'pointerMove', duration: 0,  x, y },
+      { type: 'pointerMove', duration: 0, x, y },
       { type: 'pointerDown', button: 0 },
-      { type: 'pause',       duration: 80 },
-      { type: 'pointerUp',   button: 0 },
+      { type: 'pause', duration: 80 },
+      { type: 'pointerUp', button: 0 },
     ],
   }]);
   await driver.releaseActions();
@@ -166,7 +166,7 @@ export async function tap(driver: WdBrowser, x: number, y: number): Promise<void
 
 /** Returns center coordinates of a WebdriverIO element. */
 export async function getElementCenter(el: WdElement): Promise<{ x: number; y: number }> {
-  const loc  = await el.getLocation();
+  const loc = await el.getLocation();
   const size = await el.getSize();
   return { x: loc.x + Math.round(size.width / 2), y: loc.y + Math.round(size.height / 2) };
 }
@@ -215,7 +215,7 @@ export async function findWithScroll(
 
 export async function scrollIntoViewAndroid(driver: WdBrowser, text: string): Promise<WdElement> {
   const sel = `android=new UiScrollable(new UiSelector().scrollable(true))` +
-              `.scrollIntoView(new UiSelector().textContains("${text}"))`;
+    `.scrollIntoView(new UiSelector().textContains("${text}"))`;
   const el = await driver.$(sel);
   await el.waitForDisplayed({ timeout: 10000 });
   return el;
@@ -398,10 +398,10 @@ export async function findPPVTileInMonth(
 ): Promise<WdElement> {
   console.log(`\n🔍 Phase 3: Searching for "${ppvName}" in ${MONTH_FULL[targetMonthIndex]}…`);
 
-  const nextMonthFull  = MONTH_FULL[(targetMonthIndex + 1) % 12];
+  const nextMonthFull = MONTH_FULL[(targetMonthIndex + 1) % 12];
   const nextMonthShort = MONTH_SHORT[(targetMonthIndex + 1) % 12];
 
-  const escapedName  = ppvName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const escapedName = ppvName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   // Strict regex matches name exactly (ignoring case, optional surrounding spaces)
   // to avoid matching weigh-ins or press conferences.
   const strictTileSelector = `android=new UiSelector().textMatches("(?i)^\\\\s*${escapedName}\\\\s*$")`;
@@ -421,7 +421,7 @@ export async function findPPVTileInMonth(
     // ── Check exact TextView matches after whitespace normalization ─────────
     const textEls: WdElement[] =
       await driver.$$('android=new UiSelector().className("android.widget.TextView")').catch(() => []);
-    
+
     let matchedEl: WdElement | null = null;
     for (const el of textEls) {
       const text = await el.getText().catch(() => '');
@@ -593,7 +593,7 @@ export async function tapTile(driver: WdBrowser, tile: WdElement): Promise<void>
   try {
     text = await tile.getText().catch(() => 'Unknown');
     const rect = await tile.getRect();
-    tapX = rect.x + Math.round(rect.width  / 2);
+    tapX = rect.x + Math.round(rect.width / 2);
     tapY = rect.y + Math.round(rect.height / 2);
   } catch {
     const { x, y } = await getElementCenter(tile);
@@ -769,7 +769,7 @@ export async function navigateToPPVTile(
   console.warn('⚠️ navigateToPPVTile: No PPV_DATE — UiScrollable fallback with full name.');
   const dims = await getScreenDimensions(driver);
 
-  const esc      = ppvName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const esc = ppvName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const selector = `android=new UiSelector().textMatches("(?i).*${esc}.*")`;
 
   let tile: WdElement;

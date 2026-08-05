@@ -260,9 +260,11 @@ export class IOSHomePage extends IOSLandingPage {
     // all remaining discovery happens in its horizontal card row.
     console.log(`  Don't Miss rail locked at y=${railY}; starting horizontal search only.`);
     const swipeY = Math.max(Math.round(height * 0.30), Math.min(Math.round(height * 0.80), railY + Math.round(height * 0.16)));
-    const swipeRail = async (direction: 'left' | 'right', pointerId: string): Promise<void> => {
-      const startX = direction === 'left' ? Math.round(width * 0.68) : Math.round(width * 0.32);
-      const endX = direction === 'left' ? Math.round(width * 0.38) : Math.round(width * 0.62);
+    const swipeRail = async (direction: 'left' | 'right', pointerId: string, centreTile = false): Promise<void> => {
+      const startRatio = centreTile ? 0.56 : 0.75;
+      const endRatio = centreTile ? 0.44 : 0.25;
+      const startX = direction === 'left' ? Math.round(width * startRatio) : Math.round(width * (1 - startRatio));
+      const endX = direction === 'left' ? Math.round(width * endRatio) : Math.round(width * (1 - endRatio));
       await this.driver.performActions([{
         type: 'pointer', id: pointerId, parameters: { pointerType: 'touch' },
         actions: [
@@ -335,11 +337,13 @@ export class IOSHomePage extends IOSLandingPage {
     };
 
     let ppvTile = await findVisiblePpvTile();
-    let visualTile: { x: number; y: number } | undefined;
-    for (let attempt = 0; attempt < 10 && !ppvTile && !visualTile; attempt++) {
-      console.log(`  PPV tile is not in the current card viewport; making short horizontal swipe ${attempt + 1}/10.`);
+    let visualTile = ppvTile ? undefined : await findPpvTileByImage();
+    for (let attempt = 0; attempt < 30 && !ppvTile && !visualTile; attempt++) {
+      console.log(`  PPV tile is not in the current card viewport; making short horizontal swipe ${attempt + 1}/30.`);
       await swipeRail('left', 'dont-miss-rail-search');
+      await this.driver.pause(800);
       ppvTile = await findVisiblePpvTile();
+      visualTile = ppvTile ? undefined : await findPpvTileByImage();
     }
 
     // Vision OCR starts a Swift process and can take tens of seconds on the
@@ -372,8 +376,8 @@ export class IOSHomePage extends IOSLandingPage {
       if (Math.abs(tileCenterX - width / 2) <= centreTolerance) break;
 
       const direction = tileCenterX > width / 2 ? 'left' : 'right';
-      console.log(`  PPV tile is at x=${Math.round(tileCenterX)}; making short ${direction} swipe to centre it before validation.`);
-      await swipeRail(direction, 'dont-miss-rail-centre');
+      console.log(`  PPV tile is at x=${Math.round(tileCenterX)}; making very short ${direction} swipe to centre it before validation.`);
+      await swipeRail(direction, 'dont-miss-rail-centre', true);
       if (ppvTile) {
         await this.driver.waitUntil(async () => Boolean(await findVisiblePpvTile()), {
           timeout: 1200,
@@ -443,7 +447,7 @@ export class IOSHomePage extends IOSLandingPage {
     await this.driver.saveScreenshot('./test-results/ios_dont_miss_native_paywall.png');
     await this.runPaywallValidation(hooks);
 
-    return this.tapBuyCtaWithFallback(['Buy now', 'Buy Now', 'Buy', 'Get PPV', 'Purchase']);
+    return this.tapBuyCtaWithFallback(['Go to dazn.com/start', 'Go to DAZN.com/start', 'Buy now', 'Buy Now', 'Buy', 'Get PPV', 'Purchase']);
   }
 }
 

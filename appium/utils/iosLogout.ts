@@ -50,6 +50,26 @@ async function firstVisible(driver: WdBrowser, selectors: string[]): Promise<WdE
   return null;
 }
 
+async function firstVisibleInViewport(driver: WdBrowser, selectors: string[]): Promise<WdElement | null> {
+  const viewport = await driver.getWindowRect().catch(() => null);
+  if (!viewport) return null;
+
+  for (const sel of selectors) {
+    try {
+      const elements = await driver.$$(sel);
+      for (const el of elements) {
+        if (!(await el.isDisplayed().catch(() => false))) continue;
+        const [location, size] = await Promise.all([
+          el.getLocation().catch(() => null),
+          el.getSize().catch(() => null),
+        ]);
+        if (location && size && location.y >= 0 && location.y + size.height <= viewport.height) return el;
+      }
+    } catch { /* not found or stale */ }
+  }
+  return null;
+}
+
 // ── Main ─────────────────────────────────────────────────────────────────
 
 export async function ensureLoggedOut(driver: WdBrowser): Promise<void> {
@@ -81,16 +101,42 @@ export async function ensureLoggedOut(driver: WdBrowser): Promise<void> {
     await profileIcon.click();
     console.log('🔓 [Logout] Tapped profile icon.');
 
-    // 3. Wait for Profile page and find "Log out".
+    // 3. Find a fully visible "Log out" button. XCUITest can report the
+    // partially clipped control at the bottom of Profile as displayed, but a
+    // click on that control does not open the confirmation modal.
     let logoutBtn: WdElement | null = null;
     await driver.waitUntil(async () => {
-      logoutBtn = await firstVisible(driver, LOGOUT_BUTTON_SELECTORS);
+      logoutBtn = await firstVisibleInViewport(driver, LOGOUT_BUTTON_SELECTORS);
       return Boolean(logoutBtn);
     }, {
-      timeout: 10_000,
-      interval: 500,
+      timeout: 2_000,
+      interval: 250,
       timeoutMsg: '"Log out" button not visible on Profile page.',
     }).catch(() => { });
+
+    if (!logoutBtn) {
+      const { width, height } = await driver.getWindowRect();
+      console.log('🔓 [Logout] "Log out" is outside the Profile viewport; making one downward swipe.');
+      await driver.performActions([{
+        type: 'pointer', id: 'profile-logout-scroll', parameters: { pointerType: 'touch' },
+        actions: [
+          { type: 'pointerMove', duration: 0, x: Math.round(width / 2), y: Math.round(height * 0.70) },
+          { type: 'pointerDown', button: 0 },
+          { type: 'pause', duration: 80 },
+          { type: 'pointerMove', duration: 300, x: Math.round(width / 2), y: Math.round(height * 0.35) },
+          { type: 'pointerUp', button: 0 },
+        ],
+      }]);
+      await driver.releaseActions();
+      await driver.waitUntil(async () => {
+        logoutBtn = await firstVisibleInViewport(driver, LOGOUT_BUTTON_SELECTORS);
+        return Boolean(logoutBtn);
+      }, {
+        timeout: 10_000,
+        interval: 250,
+        timeoutMsg: '"Log out" button not visible after scrolling Profile page.',
+      }).catch(() => { });
+    }
 
     if (!logoutBtn) {
       await driver.saveScreenshot('./test-results/ios_logout_no_button.png').catch(() => { });

@@ -1,4 +1,8 @@
 import { BannerInteraction } from '../../utils/bannerInteraction';
+import { execFileSync } from 'child_process';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 
 export type WdBrowser = any;
 export type WdElement = any;
@@ -25,6 +29,57 @@ export class IOSBasePage {
   private appStoreRetryAttempted = false;
 
   constructor(protected driver: WdBrowser, protected ppvName = process.env.PPV_NAME || 'Joshua') { }
+
+  /** Finds the rendered Continue label when the App Store sheet has no XCUITest node. */
+  private async findRenderedAppStoreContinue(): Promise<{ x: number; y: number } | null> {
+    let screenshotPath = '';
+    try {
+      const screenshot = await this.driver.takeScreenshot();
+      screenshotPath = path.join(os.tmpdir(), `dazn-app-store-continue-${process.pid}-${Date.now()}.png`);
+      fs.writeFileSync(screenshotPath, Buffer.from(screenshot, 'base64'));
+
+      const swiftVisionScript = `
+        import AppKit
+        import Vision
+
+        guard CommandLine.arguments.count > 1,
+              let image = NSImage(contentsOfFile: CommandLine.arguments[1]),
+              let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+          exit(1)
+        }
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.usesLanguageCorrection = false
+        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+        try handler.perform([request])
+        let values = (request.results ?? []).compactMap { observation -> [String: Any]? in
+          guard let text = observation.topCandidates(1).first?.string else { return nil }
+          let box = observation.boundingBox
+          return ["text": text, "xPercent": box.midX, "yPercent": 1 - box.midY]
+        }
+        let data = try JSONSerialization.data(withJSONObject: values)
+        print(String(data: data, encoding: .utf8)!)
+      `;
+      const output = execFileSync('/usr/bin/swift', ['-e', swiftVisionScript, screenshotPath], {
+        encoding: 'utf8',
+        timeout: 30000,
+      });
+      const observations = JSON.parse(output) as Array<{ text: string; xPercent: number; yPercent: number }>;
+      const continueText = observations.find(observation => /^continue$/i.test(observation.text.trim()));
+      if (!continueText) return null;
+
+      const { width, height } = await this.driver.getWindowSize();
+      return {
+        x: Math.round(width * continueText.xPercent),
+        y: Math.round(height * continueText.yPercent),
+      };
+    } catch (error: any) {
+      console.warn(`⚠️ Could not locate App Store Continue text on screen: ${error.message}`);
+      return null;
+    } finally {
+      if (screenshotPath && fs.existsSync(screenshotPath)) fs.unlinkSync(screenshotPath);
+    }
+  }
 
   private async captureCurrentBannerValidationSnapshot(): Promise<void> {
     if (!this.driver.isIOS) return;
@@ -626,28 +681,29 @@ export class IOSBasePage {
           // The native alert endpoint handled the sheet; do not send a second
           // coordinate tap into the newly opened browser.
         } else {
-          const { width, height } = await this.driver.getWindowSize();
-          const x = Math.round(width / 2);
-          // Leave-app sheets place Continue above Cancel at roughly 83% of the
-          // screen height on the iOS devices used here. The old bottom offsets
-          // were in/under the Cancel region, so the handoff never began.
-          const y = Math.round(height * 0.83);
-          const tapped = await this.driver.execute('mobile: tap', { x, y })
-            .then(() => true)
-            .catch(() => false);
-          if (!tapped) {
-            await this.driver.action('pointer')
-              .move({ x, y })
-              .down()
-              .pause(100)
-              .up()
-              .perform();
+          const continuePosition = await this.findRenderedAppStoreContinue();
+          if (!continuePosition) {
+            await this.driver.saveScreenshot('./test-results/ios_app_store_continue_not_found.png').catch(() => { });
+            throw new Error('App Store Continue text was not exposed to XCUITest or found in the rendered sheet.');
           }
+          const { x, y } = continuePosition;
+          await this.driver.performActions([{
+            type: 'pointer', id: 'app-store-continue', parameters: { pointerType: 'touch' },
+            actions: [
+              { type: 'pointerMove', duration: 0, x, y },
+              { type: 'pointerDown', button: 0 },
+              { type: 'pause', duration: 100 },
+              { type: 'pointerUp', button: 0 },
+            ],
+          }]);
+          await this.driver.releaseActions();
+          console.log('✅ Tapped App Store sheet Continue using its rendered text location.');
           alertHandled = true;
           await this.driver.pause(2500);
         }
       } catch (e: any) {
-        console.warn('⚠️ Coordinate fallback failed:', e.message);
+        console.warn('⚠️ App Store Continue fallback failed:', e.message);
+        throw e;
       }
     }
 
@@ -819,7 +875,7 @@ export class IOSBasePage {
           const name = await el.getAttribute('name').catch(() => '');
           for (const s of [val, label, name]) {
             if (!s) continue;
-            const trimmed = s.trim();
+            const trimmed = s.replace(/[\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g, '').trim();
             // Accept bare 'dazn.com' (collapsed address bar) or any dazn.com URL
             const isDaznDomain = trimmed === 'dazn.com' || trimmed.includes('dazn.com');
             if (!isDaznDomain) continue;
