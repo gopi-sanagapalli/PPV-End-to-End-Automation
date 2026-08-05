@@ -30,6 +30,7 @@ export class IOSSafariValidationPage extends IOSBasePage {
     'google pay option',
     'apple pay option',
     // iOS payment page does not render a "Purchase summary" section heading
+    'payment method heading',
     'purchase summary heading',
     'welcome back banner cta',
     'tooltip text',
@@ -50,6 +51,96 @@ export class IOSSafariValidationPage extends IOSBasePage {
 
   constructor(driver: WdBrowser) {
     super(driver);
+  }
+
+  /** Wait for Safari's asynchronously rendered checkout content to settle. */
+  private async waitForSafariPageContentToSettle(pageName: string): Promise<void> {
+    let previousText = '';
+    let stablePolls = 0;
+
+    console.log(`⏳ [${pageName}] Waiting for Safari page content to settle...`);
+    await this.driver.waitUntil(async () => {
+      const snapshot = await this.driver.execute(() => {
+        const body = document.body;
+        const text = (body?.innerText || '').replace(/\s+/g, ' ').trim();
+        const busy = Array.from(document.querySelectorAll<HTMLElement>('[aria-busy="true"]'))
+          .some(element => {
+            const style = window.getComputedStyle(element);
+            const box = element.getBoundingClientRect();
+            return style.display !== 'none' && style.visibility !== 'hidden' && box.width > 0 && box.height > 0;
+          });
+        return { ready: document.readyState === 'complete', text, busy };
+      }).catch(() => ({ ready: false, text: '', busy: true }));
+
+      if (!snapshot.ready || snapshot.busy || snapshot.text.length <= 50) {
+        previousText = '';
+        stablePolls = 0;
+        return false;
+      }
+
+      stablePolls = snapshot.text === previousText ? stablePolls + 1 : 0;
+      previousText = snapshot.text;
+      return stablePolls >= 3;
+    }, {
+      timeout: 30000,
+      interval: 500,
+      timeoutMsg: `${pageName} content did not settle in Safari.`,
+    });
+    console.log(`✅ [${pageName}] Safari page content settled.`);
+  }
+
+  /** Save focused Safari evidence for a failed web validation. */
+  private async captureAndMarkFailureScreenshot(
+    pageName: string,
+    field: string,
+    expected: string,
+    actual: string,
+  ): Promise<string> {
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const shotsDir = path.resolve(process.cwd(), 'test-results', 'failure-shots');
+      if (!fs.existsSync(shotsDir)) fs.mkdirSync(shotsDir, { recursive: true });
+      const screenshot = path.join(
+        shotsDir,
+        `ios_safari_${pageName.replace(/[^a-zA-Z0-9]/g, '_')}_${field.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}.png`,
+      );
+      const markerId = `ios-safari-failure-${Date.now()}`;
+      const marked = await this.driver.execute((values: string[], id: string) => {
+        const normalise = (value: string) => value.replace(/\s+/g, ' ').trim().toLowerCase();
+        const candidates = values.map(normalise).filter(value => value && value !== 'not found');
+        let target: HTMLElement | null = null;
+        let smallestText = Number.POSITIVE_INFINITY;
+        for (const element of Array.from(document.querySelectorAll<HTMLElement>('body *'))) {
+          const text = normalise(element.innerText || element.textContent || '');
+          if (!text || !candidates.some(value => text === value || text.includes(value))) continue;
+          const box = element.getBoundingClientRect();
+          if (box.width <= 0 || box.height <= 0 || text.length >= smallestText) continue;
+          target = element;
+          smallestText = text.length;
+        }
+        if (!target) return false;
+        target.scrollIntoView({ block: 'center', inline: 'center' });
+        const box = target.getBoundingClientRect();
+        const marker = document.createElement('div');
+        marker.id = id;
+        Object.assign(marker.style, {
+          position: 'fixed', left: `${Math.max(0, box.left - 4)}px`, top: `${Math.max(0, box.top - 4)}px`,
+          width: `${Math.max(24, box.width + 8)}px`, height: `${Math.max(24, box.height + 8)}px`,
+          border: '4px solid #ff1744', borderRadius: '4px', boxSizing: 'border-box',
+          background: 'rgba(255, 23, 68, 0.18)', zIndex: '2147483647', pointerEvents: 'none',
+        });
+        document.body.appendChild(marker);
+        return true;
+      }, [actual, expected], markerId).catch(() => false);
+      await this.driver.saveScreenshot(screenshot);
+      await this.driver.execute((id: string) => document.getElementById(id)?.remove(), markerId).catch(() => {});
+      console.log(`📸 [Fail Shot] ${marked ? 'Highlighted' : 'Captured'} Safari field "${field}": ${screenshot}`);
+      return screenshot;
+    } catch (error: any) {
+      console.warn(`⚠️ Failed to capture Safari failure screenshot: ${error.message}`);
+      return '';
+    }
   }
 
   // ── Text extraction helpers ───────────────────────────────────
@@ -74,11 +165,11 @@ export class IOSSafariValidationPage extends IOSBasePage {
   /** Extract the main heading (h1) from the web page. */
   private async getH1Text(): Promise<string> {
     try {
-      const h1 = await this.driver.$('h1');
-      if (await h1.isDisplayed().catch(() => false)) {
-        const text = await h1.getText();
-        return (text || '').replace(/\u200B/g, '').replace(/\s+/g, ' ').trim();
-      }
+      const text: string = await this.driver.execute(() => {
+        const h1 = document.querySelector('h1');
+        return h1 ? (h1.innerText || '').trim() : '';
+      });
+      return (text || '').replace(/\u200B/g, '').replace(/\s+/g, ' ').trim();
     } catch { }
     return '';
   }
@@ -86,16 +177,23 @@ export class IOSSafariValidationPage extends IOSBasePage {
   /** Collect text content of all visible buttons/links on the page. */
   private async getButtonTexts(): Promise<string[]> {
     try {
-      const buttons = await this.driver.$$('button, a[role="button"], [role="button"]');
-      const texts: string[] = [];
-      for (const btn of buttons) {
-        if (await btn.isDisplayed().catch(() => false)) {
-          const text = (await btn.getText().catch(() => ''))
-            .replace(/\u200B/g, '').replace(/\s+/g, ' ').trim();
-          if (text) texts.push(text);
+      // Use a single JS execution to avoid stale-element floods when React
+      // re-renders the page while we iterate through button references.
+      const texts: string[] = await this.driver.execute(() => {
+        const results: string[] = [];
+        const elements = Array.from(document.querySelectorAll<HTMLElement>('button, a[role="button"], [role="button"]'));
+        for (let i = 0; i < elements.length; i++) {
+          const el = elements[i];
+          const style = window.getComputedStyle(el);
+          const box = el.getBoundingClientRect();
+          if (style.display !== 'none' && style.visibility !== 'hidden' && box.width > 0 && box.height > 0) {
+            const text = (el.innerText || '').replace(/\u200B/g, '').replace(/\s+/g, ' ').trim();
+            if (text) results.push(text);
+          }
         }
-      }
-      return texts;
+        return results;
+      });
+      return texts || [];
     } catch {
       return [];
     }
@@ -153,14 +251,13 @@ export class IOSSafariValidationPage extends IOSBasePage {
     const terms = presenceTerms[fieldLower];
 
     // ── Signed In As Text ────────────────────────────────────────
-    // The page shows the real user name (e.g. "Signed in as Hari Prasad"),
-    // not the {{FIRST_NAME}} {{LAST_NAME}} placeholder. Read the actual text
-    // and compare the prefix — PASS as long as "Signed in as <anything>" is found.
+    // Read the complete account identity and compare it with the resolved
+    // expected value. A prefix-only match hid account/session mismatches.
     if (fieldLower === 'signed in as text') {
       const signedInLine = texts.find(t => /^signed in as\b/i.test(t.trim()));
-      if (signedInLine) return { actual: signedInLine.trim(), isMatch: true };
+      if (signedInLine) return { actual: signedInLine.trim(), isMatch: compareFn(signedInLine.trim(), expected) };
       const bodyMatch = fullText.match(/signed in as\s+\S+(?:\s+\S+)*/i)?.[0];
-      if (bodyMatch) return { actual: bodyMatch.trim(), isMatch: true };
+      if (bodyMatch) return { actual: bodyMatch.trim(), isMatch: compareFn(bodyMatch.trim(), expected) };
       return { actual: 'Not found', isMatch: false };
     }
 
@@ -521,11 +618,7 @@ export class IOSSafariValidationPage extends IOSBasePage {
 
     console.log(`\n🔍 [${pageName}] Safari web validation — ${rows.length} rows`);
 
-    // Wait for the page content to render
-    await this.driver.waitUntil(
-      async () => (await this.browserText()).length > 50,
-      { timeout: 15000, timeoutMsg: `${pageName} content did not render` },
-    ).catch(() => console.warn(`⚠️  ${pageName} content may not be fully rendered`));
+    await this.waitForSafariPageContentToSettle(pageName);
 
     const texts = await this.gatherWebTexts();
     const fullText = texts.join(' ');
@@ -584,6 +677,15 @@ export class IOSSafariValidationPage extends IOSBasePage {
       // Safari checkout. They otherwise appear as false "Not found" errors.
       if (userState.startsWith('new') && (rowFlow === 'returning' || rowFlow === 'myaccount')) {
         console.log(`⏭️  Skipping ${rowFlow}-only Safari field: ${field}`);
+        continue;
+      }
+      // Skip account-only fields for freemium, new-user, and ultimate users.
+      // These fields only apply to frozen / active_standard users.
+      const isFreemiumOrNewOrUltimate = userState === 'freemium' || userState.startsWith('new') ||
+        (eventData.TIER || '').toLowerCase() === 'ultimate';
+      if (isFreemiumOrNewOrUltimate &&
+          (fieldLower === 'log out present' || fieldLower === 'signed in as text' || fieldLower === 'saved card present')) {
+        console.log(`⏭️  Skipping ${fieldLower} for ${userState} user.`);
         continue;
       }
       // The web flow only validates flow-scoped rows on their matching
@@ -656,7 +758,10 @@ export class IOSSafariValidationPage extends IOSBasePage {
         `actual="${actual.substring(0, 80)}"`,
       );
 
-      results.push({ page: `${pageName} (Safari)`, field, expected, actual, status });
+      const screenshot = status === 'FAIL'
+        ? await this.captureAndMarkFailureScreenshot(pageName, field, expected, actual)
+        : undefined;
+      results.push({ page: `${pageName} (Safari)`, field, expected, actual, status, screenshot });
     }
   }
 
@@ -698,7 +803,9 @@ export class IOSSafariValidationPage extends IOSBasePage {
       // skipped as an unresolved token and the plan-page check count is 1 short.
       if (!eventData.PLAN_CTA_BUTTON) {
         const trialDays = eventData.TRIAL_DAYS || eventData.FREE_TRIAL_DAYS || '8';
-        if (ratePlan.includes('flex') || (!ratePlan.includes('annual') && !ratePlan.includes('upfront') && !ratePlan.includes('apm') && !ratePlan.includes('apu'))) {
+        if (tier === 'ultimate') {
+          eventData.PLAN_CTA_BUTTON = 'Continue with DAZN Ultimate';
+        } else if (ratePlan.includes('flex') || (!ratePlan.includes('annual') && !ratePlan.includes('upfront') && !ratePlan.includes('apm') && !ratePlan.includes('apu'))) {
           eventData.PLAN_CTA_BUTTON = `Continue with ${trialDays}-day Free Trial`;
         } else if (ratePlan.includes('upfront') || ratePlan.includes('apu')) {
           eventData.PLAN_CTA_BUTTON = 'Continue';
@@ -743,17 +850,38 @@ export class IOSSafariValidationPage extends IOSBasePage {
         }
       }
 
-      // Wait for payment methods to render
+      const userState = String(eventData.USER_STATE || process.env.USER_STATE || 'new').toLowerCase();
+      const expectsSavedCard = !userState.startsWith('new') && userState !== 'freemium';
+      // Wait for the visible payment state, and for the saved card when this
+      // flow expects one. "Choose how to pay" alone renders before the saved
+      // card section and previously caused a false "No" validation.
       await this.driver.waitUntil(
         async () => {
           const text = (await this.browserText()).toLowerCase();
-          return (
+          const paymentContentReady = (
             text.includes('credit') || text.includes('paypal') ||
             text.includes('google pay') || text.includes('payment method') ||
             text.includes('choose how to pay')
           );
+          const savedCardReady = /visa|mastercard|amex|\*{4}|saved card/i.test(text);
+          return paymentContentReady && (!expectsSavedCard || savedCardReady);
         },
-        { timeout: 15000, timeoutMsg: 'Payment content did not render' },
+        {
+          timeout: 15000,
+          timeoutMsg: expectsSavedCard
+            ? 'Payment page did not render the expected saved card.'
+            : 'Payment content did not render',
+        },
+      ).catch(() => { });
+
+      // Wait for the full payment page content (plan name & price) to render
+      // before running field-level validations.
+      await this.driver.waitUntil(
+        async () => {
+          const text = (await this.browserText()).toLowerCase();
+          return /dazn|annual|flex|monthly|upfront/i.test(text) && /\d+[.,]\d{2}/.test(text);
+        },
+        { timeout: 10000, timeoutMsg: 'Payment page plan/price did not render.' },
       ).catch(() => { });
 
       // Match the web PaymentPage behaviour: the annual legal text is
@@ -991,6 +1119,8 @@ export class IOSSafariValidationPage extends IOSBasePage {
         { timeout: 20000, timeoutMsg: 'PPV Payment page did not appear within 20s.' },
       );
 
+      await this.waitForSafariPageContentToSettle(PAGE);
+
       const { getPPVPaymentData } = lazyExcelReader();
       const rows = getPPVPaymentData();
       eventData.CURRENT_PAGE = 'ppv-payment';
@@ -1075,7 +1205,10 @@ export class IOSSafariValidationPage extends IOSBasePage {
         const status = matches ? 'PASS' : 'FAIL';
         const icon = status === 'PASS' ? '✅' : '❌';
         console.log(`  ${icon} [${field}] expected="${expected}" actual="${actual}"`);
-        results.push({ page: PAGE, field, expected, actual, status });
+        const screenshot = status === 'FAIL'
+          ? await this.captureAndMarkFailureScreenshot(PAGE, field, expected, actual)
+          : undefined;
+        results.push({ page: PAGE, field, expected, actual, status, screenshot });
       }
     } catch (err: any) {
       console.warn(`⚠️  PPV Payment page validation error: ${err.message}`);

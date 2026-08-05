@@ -60,7 +60,7 @@ async function firstVisible(driver: WdBrowser, selectors: string[]): Promise<WdE
 }
 
 async function dismissKnownSystemAlert(driver: WdBrowser): Promise<boolean> {
-  const dismissLabels = ["Don't Allow", 'Not Now', 'OK'];
+  const dismissLabels = ["Don't Allow", 'Ask App Not to Track', 'Not Now', 'OK'];
   try {
     if (await driver.isAlertOpen()) {
       const buttons = await driver.execute('mobile: alert', { action: 'getButtons' }) as string[];
@@ -103,6 +103,10 @@ export class IOSMyAccountPage extends IOSBasePage {
         await this.navigateHomeAfterLogin(credentials.navigateToHomeAfterLogin);
         return;
       }
+
+      // Dismiss any system alerts (e.g. ATT tracking) on the landing page
+      // before looking for login controls.
+      await dismissKnownSystemAlert(this.driver);
 
       let emailField = await firstVisible(this.driver, emailFieldSelectors);
       if (!emailField) {

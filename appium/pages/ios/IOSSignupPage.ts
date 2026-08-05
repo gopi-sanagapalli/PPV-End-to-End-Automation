@@ -116,11 +116,16 @@ export class IOSSignupPage extends IOSBasePage {
       const lower = body.toLowerCase();
       const url = await this.driver.getUrl();
       console.log(`Safari account step ${step + 1}: ${url}`);
+      if (!body.trim() && /\/account\//i.test(url)) {
+        console.log('⏳ Safari account page is still rendering; waiting for WebKit content...');
+        await this.driver.pause(3000);
+        continue;
+      }
 
       // DAZN can show this optional marketing prompt immediately after either
       // sign-in or sign-up. Accept the requested option before evaluating the
       // underlying account or payment page.
-      if (await this.acceptKeepMeUpdatedPrompt()) continue;
+      if (/keep me updated/i.test(lower) && await this.acceptKeepMeUpdatedPrompt()) continue;
 
       // ── Payment page (terminal) ──
       if (/payment method|choose how to pay|card number|payment details/.test(lower)) {
@@ -219,9 +224,13 @@ export class IOSSignupPage extends IOSBasePage {
       }
 
       // ── Contextual PPV page (delegated to IOSPPVPage) ──
-      const isContextualPpvPage = ppvPage.isContextualPPVPage(lower);
+      const isContextualPpvPage = await ppvPage.isContextualPPVPage(lower, url);
       if (isContextualPpvPage) {
         await ppvPage.validateAndSelectOption(results, eventName, eventData);
+        // validateAndSelectOption submits the CTA associated with the chosen
+        // PPV/Ultimate option. Do not fall through to the generic Continue
+        // locator below, which prioritises the PPV CTA.
+        continue;
       }
 
       // ── "Choose how to buy" page (active_standard users, delegated to IOSPPVPage) ──
@@ -251,6 +260,11 @@ export class IOSSignupPage extends IOSBasePage {
       // ── Plan selection page (delegated to IOSPlanPage) ──
       if (!isContextualPpvPage && planPage.isPlanPage(lower, url)) {
         await planPage.validateAndSelect(results, eventData);
+        // The plan card has been verified above. Use its tier-specific CTA;
+        // do not let the generic PPV-first Continue list choose a different
+        // purchase path.
+        await planPage.continueWithSelectedPlan();
+        continue;
       }
 
       // ── Click Continue / Next to progress ──

@@ -31,6 +31,26 @@ export class IOSBoxingPage extends IOSBasePage {
   private upcomingPpvCard: any | null = null;
   private upcomingPpvDateParts: IOSPPVDateParts | null = null;
 
+  /**
+   * XCUITest can keep virtualized schedule cells marked as displayed after
+   * they have moved outside the scroll view. Only accept elements whose native
+   * centre point is still inside the device viewport.
+   */
+  private async isInViewport(element: any): Promise<boolean> {
+    if (typeof element?.getLocation !== 'function') return false;
+    const [viewport, location, size] = await Promise.all([
+      this.driver.getWindowRect().catch(() => null),
+      element.getLocation().catch(() => null),
+      typeof element.getSize === 'function'
+        ? element.getSize().catch(() => null)
+        : Promise.resolve(null),
+    ]);
+    if (!viewport || !location) return false;
+    const centreX = location.x + (size?.width || 0) / 2;
+    const centreY = location.y + (size?.height || 0) / 2;
+    return centreX >= 0 && centreX < viewport.width && centreY >= 0 && centreY < viewport.height;
+  }
+
   private async isDateBesideTitle(titleLocation: any, dateParts: IOSPPVDateParts): Promise<boolean> {
     const dateSelectors = [
       `-ios predicate string:name == "${dateParts.day}" OR label == "${dateParts.day}" OR value == "${dateParts.day}"`,
@@ -42,6 +62,7 @@ export class IOSBoxingPage extends IOSBasePage {
       let nearest: any | null = null;
       for (const element of elements) {
         if (!(await element.isDisplayed().catch(() => false))) continue;
+        if (!(await this.isInViewport(element))) continue;
         const location = await element.getLocation().catch(() => null);
         if (location && (!nearest || Math.abs(location.y - titleLocation.y) < Math.abs(nearest.y - titleLocation.y))) {
           nearest = location;
@@ -59,18 +80,90 @@ export class IOSBoxingPage extends IOSBasePage {
   /** Finds only the configured PPV title, then verifies its own date column. */
   private async findUpcomingPpvCard(dateParts: IOSPPVDateParts): Promise<any | null> {
     const escapedName = this.ppvName.replace(/'/g, "\\'");
-    const titleSelector = `-ios predicate string:label CONTAINS[c] '${escapedName}' OR name CONTAINS[c] '${escapedName}'`;
-    const titleElements = await this.driver.$$(titleSelector).catch(() => []);
-    for (const titleElement of titleElements) {
-      if (!(await titleElement.isDisplayed().catch(() => false))) continue;
-      const titleLocation = await titleElement.getLocation().catch(() => null);
-      if (!titleLocation) continue;
-      if (await this.isDateBesideTitle(titleLocation, dateParts)) {
-        console.log(`  Matched PPV card by title and date: "${this.ppvName}" (${dateParts.day} ${dateParts.monthShort})`);
-        return titleElement;
+    // Most current builds expose the event title as its own exact native
+    // label. Query it first; the broad selector remains as compatibility for
+    // older accessibility trees which expose the title in a parent label.
+    const titleSelectors = [
+      `-ios predicate string:label == '${escapedName}' OR name == '${escapedName}'`,
+      `-ios predicate string:label CONTAINS[c] '${escapedName}' OR name CONTAINS[c] '${escapedName}'`,
+    ];
+    for (const titleSelector of titleSelectors) {
+      const titleElements = await this.driver.$$(titleSelector).catch(() => []);
+      for (const titleElement of titleElements) {
+        if (!(await titleElement.isDisplayed().catch(() => false))) continue;
+        if (!(await this.isInViewport(titleElement))) continue;
+        const titleLocation = await titleElement.getLocation().catch(() => null);
+        if (!titleLocation) continue;
+        if (await this.isDateBesideTitle(titleLocation, dateParts)) {
+          console.log(`  Matched PPV card by title and date: "${this.ppvName}" (${dateParts.day} ${dateParts.monthShort})`);
+          return titleElement;
+        }
       }
     }
     return null;
+  }
+
+  /** Fresh exact title query used after a controlled scroll of an already verified card. */
+  private async findVisibleUpcomingPpvTitle(): Promise<any | null> {
+    const escapedName = this.ppvName.replace(/'/g, "\\'");
+    const selector = `-ios predicate string:label == '${escapedName}' OR name == '${escapedName}'`;
+    const titles = await this.driver.$$(selector).catch(() => []);
+    for (const title of titles) {
+      if (await title.isDisplayed().catch(() => false) && await this.isInViewport(title)) return title;
+    }
+    return null;
+  }
+
+  /**
+   * Finds the Buy now control that belongs to the already verified PPV title.
+   * A card can be partially visible: in that case iOS reports the title but
+   * not its off-screen CTA, so callers may first bring this exact card up.
+   */
+  private async findBuyNowBelowTitle(titleLocation: any): Promise<any | null> {
+    const buyButtons = await this.driver.$$(
+      '-ios predicate string:name == "Buy now" OR label == "Buy now" OR name == "Buy Now" OR label == "Buy Now"',
+    );
+    let targetButton: any | null = null;
+    let closestBelow = Number.POSITIVE_INFINITY;
+    for (const buyButton of buyButtons) {
+      if (!(await buyButton.isDisplayed().catch(() => false))) continue;
+      if (!(await this.isInViewport(buyButton))) continue;
+      const location = await buyButton.getLocation().catch(() => null);
+      const verticalDistance = location ? location.y - titleLocation.y : -1;
+      if (verticalDistance >= 0 && verticalDistance <= 800 && verticalDistance < closestBelow) {
+        targetButton = buyButton;
+        closestBelow = verticalDistance;
+      }
+    }
+    return targetButton;
+  }
+
+  /** Moves a partially visible verified PPV card just far enough to expose its CTA. */
+  private async bringUpcomingPpvCtaIntoView(): Promise<void> {
+    const { width, height } = await this.driver.getWindowRect();
+    const x = Math.round(width / 2);
+    await this.driver.performActions([{
+      type: 'pointer', id: 'upcoming-ppv-cta-scroll', parameters: { pointerType: 'touch' },
+      actions: [
+        { type: 'pointerMove', duration: 0, x, y: Math.round(height * 0.70) },
+        { type: 'pointerDown', button: 0 },
+        { type: 'pointerMove', duration: 350, x, y: Math.round(height * 0.55) },
+        { type: 'pointerUp', button: 0 },
+      ],
+    }]);
+    await this.driver.releaseActions();
+
+    // The card/date was verified before the swipe. Re-querying its exact title
+    // is sufficient here and avoids repeatedly walking all date labels while
+    // the native list settles.
+    await this.driver.waitUntil(async () => {
+      const title = await this.findVisibleUpcomingPpvTitle();
+      return Boolean(title && await title.isDisplayed().catch(() => false));
+    }, {
+      timeout: 2000,
+      interval: 250,
+      timeoutMsg: `Verified PPV title "${this.ppvName}" was not available after bringing its CTA into view`,
+    });
   }
 
   /**
@@ -88,7 +181,7 @@ export class IOSBoxingPage extends IOSBasePage {
     console.log(`  Opening All Sports and selecting configured sport "${configuredSport}"...`);
     const homeTab = await this.driver.$('-ios predicate string:(name == "Home" OR label == "Home") AND type == "XCUIElementTypeButton"');
     if (!(await homeTab.isDisplayed().catch(() => false))) {
-      await this.tapByText('Home', 3000).catch(() => {});
+      await this.tapByText('Home', 3000).catch(() => { });
       await this.driver.pause(2500);
     }
 
@@ -160,10 +253,36 @@ export class IOSBoxingPage extends IOSBasePage {
       throw new Error(`Configured sport "${configuredSport}" was not found in the All Sports picker. See test-results/ios_configured_sport_not_found.png`);
     }
 
+    const pickerAndHomeSportIds = new Set<string>([
+      ...homeBoxingElementIds,
+      getElementId(sport),
+    ].filter(Boolean));
+    const pageSportSelector = `-ios predicate string:name CONTAINS[c] "${escapedSport}" OR label CONTAINS[c] "${escapedSport}" OR value CONTAINS[c] "${escapedSport}"`;
+    const isConfiguredSportPageReady = async (): Promise<boolean> => {
+      // Re-query every poll: the element picked in All Sports becomes stale as
+      // the destination hierarchy replaces the picker.
+      const candidates = await this.driver.$$(pageSportSelector).catch(() => []);
+      for (const candidate of candidates) {
+        const candidateId = getElementId(candidate);
+        if (!candidateId || pickerAndHomeSportIds.has(candidateId)) continue;
+        if (!(await candidate.isDisplayed().catch(() => false))) continue;
+        if (await this.isInViewport(candidate)) return true;
+      }
+      return false;
+    };
+
     await sport.click();
-    // Competition page content rails (e.g. Don't Miss) can take time to
-    // render after a sport tap — allow enough settle time.
-    await this.driver.pause(5000);
+    console.log(`  Waiting for the ${configuredSport} destination page to replace the All Sports picker...`);
+    try {
+      await this.driver.waitUntil(isConfiguredSportPageReady, {
+        timeout: 20000,
+        interval: 500,
+        timeoutMsg: `${configuredSport} destination page did not replace the All Sports picker.`,
+      });
+    } catch (error) {
+      await this.driver.saveScreenshot('./test-results/ios_sport_destination_not_ready.png');
+      throw error;
+    }
     await this.driver.saveScreenshot('./test-results/ios_sport_competition_page.png');
     console.log(`  Opened ${configuredSport} competition page via All Sports.`);
   }
@@ -174,54 +293,40 @@ export class IOSBoxingPage extends IOSBasePage {
   }
 
   async clickUpcomingFightsFilter(): Promise<void> {
-    console.log('  Clicking "Upcoming Fights" filter on boxing page...');
-    let clicked = false;
+    console.log('  Waiting for the Boxing page to load its "Upcoming Fights" filter...');
     const selectors = [
       '~Upcoming Fights',
       '-ios predicate string:name CONTAINS "Upcoming Fights" OR label CONTAINS "Upcoming Fights"',
       '-ios predicate string:name CONTAINS "Upcoming" OR label CONTAINS "Upcoming"',
     ];
 
-    const tryClick = async (): Promise<boolean> => {
+    const findUpcomingFilter = async (): Promise<any | null> => {
       for (const selector of selectors) {
         try {
           const el = await this.driver.$(selector);
-          if (await el.isDisplayed()) {
-            await el.click();
-            console.log('  "Upcoming Fights" filter clicked');
-            return true;
-          }
-        } catch {}
+          if (await el.isDisplayed()) return el;
+        } catch { }
       }
-      return false;
+      return null;
     };
 
-    clicked = await tryClick();
-    if (!clicked) {
-      const { width, height } = await this.driver.getWindowRect();
-      const filterY = Math.round(height * 0.22);
-      for (let i = 0; i < 4; i++) {
-        await this.driver.performActions([{
-          type: 'pointer', id: 'pd', parameters: { pointerType: 'touch' },
-          actions: [
-            { type: 'pointerMove', duration: 0, x: Math.round(width * 0.75), y: filterY },
-            { type: 'pointerDown', button: 0 },
-            { type: 'pause', duration: 80 },
-            { type: 'pointerMove', duration: 250, x: Math.round(width * 0.25), y: filterY },
-            { type: 'pointerUp', button: 0 },
-          ]
-        }]);
-        await this.driver.releaseActions();
-        await this.driver.pause(700);
-        clicked = await tryClick();
-        if (clicked) break;
-      }
+    let upcomingFilter: any | null = null;
+    const waitForUpcoming = async (timeout: number): Promise<boolean> => this.driver.waitUntil(async () => {
+      upcomingFilter = await findUpcomingFilter();
+      return Boolean(upcomingFilter);
+    }, { timeout, interval: 300 }).then(() => true).catch(() => false);
+
+    // The destination header appears before its content and tab strip. Wait
+    // for the required tab instead of swiping an unloaded Boxing page.
+    const found = await waitForUpcoming(60000);
+
+    if (!found || !upcomingFilter) {
+      await this.driver.saveScreenshot('./test-results/ios_upcoming_filter_not_found.png');
+      throw new Error('Upcoming Fights filter did not appear on the configured sport page.');
     }
 
-    if (!clicked) {
-      console.log('  "Upcoming Fights" filter not found - continuing without it...');
-      await this.driver.saveScreenshot('./test-results/ios_upcoming_filter_not_found.png');
-    }
+    await upcomingFilter.click();
+    console.log('  "Upcoming Fights" filter clicked; continuing with its scoped PPV list.');
   }
 
   async scrollToUpcomingPPV(dateParts: IOSPPVDateParts, eventConfig?: any): Promise<boolean> {
@@ -293,30 +398,28 @@ export class IOSBoxingPage extends IOSBasePage {
     try {
       console.log(`  Looking for Buy Now button belonging to "${this.ppvName}"...`);
       const dateParts = this.upcomingPpvDateParts;
-      const title = dateParts
-        ? await this.findUpcomingPpvCard(dateParts)
+      // The target was title/date-verified immediately before validation. Its
+      // native title element remains valid unless the collection refreshed, so
+      // reuse it first instead of repeating the slow full date-column scan.
+      let title = this.upcomingPpvCard;
+      let titleLocation = title
+        ? await title.getLocation().catch(() => null)
         : null;
-      if (!title || !(await title.isDisplayed().catch(() => false))) {
+      if (!titleLocation && dateParts) {
+        title = await this.findUpcomingPpvCard(dateParts);
+        titleLocation = title ? await title.getLocation().catch(() => null) : null;
+      }
+      if (!dateParts || !title || !titleLocation || !(await title.isDisplayed().catch(() => false))) {
         console.log('  No verified Upcoming Fights PPV card is available; refusing generic Buy CTA fallback.');
         return false;
       }
-      const titleLocation = await title.getLocation();
-      // Do not use CONTAINS "Buy": iOS can expose the entire CTA row as an
-      // accessibility element, and clicking that row can land on Fight card.
-      // Only an actual button whose own label is exactly Buy now is eligible.
-      const buyButtons = await this.driver.$$(
-        '-ios predicate string:type == "XCUIElementTypeButton" AND (name == "Buy now" OR label == "Buy now" OR name == "Buy Now" OR label == "Buy Now")',
-      );
-      let targetButton: any | null = null;
-      let closestBelow = Number.POSITIVE_INFINITY;
-      for (const buyButton of buyButtons) {
-        if (!(await buyButton.isDisplayed().catch(() => false))) continue;
-        const location = await buyButton.getLocation().catch(() => null);
-        const verticalDistance = location ? location.y - titleLocation.y : -1;
-        if (verticalDistance >= 0 && verticalDistance <= 800 && verticalDistance < closestBelow) {
-          targetButton = buyButton;
-          closestBelow = verticalDistance;
-        }
+      let targetButton = await this.findBuyNowBelowTitle(titleLocation);
+      if (!targetButton) {
+        console.log('  Verified PPV title is visible but its Buy now CTA is below the viewport; scrolling that card into view...');
+        await this.bringUpcomingPpvCtaIntoView();
+        title = await this.findVisibleUpcomingPpvTitle();
+        titleLocation = title ? await title.getLocation().catch(() => null) : null;
+        targetButton = titleLocation ? await this.findBuyNowBelowTitle(titleLocation) : null;
       }
       if (targetButton) {
         const targetLocation = await targetButton.getLocation();
@@ -346,11 +449,11 @@ export class IOSBoxingPage extends IOSBasePage {
     await this.navigateToConfiguredSport(eventConfig);
     await this.driver.saveScreenshot('./test-results/ios_boxing_page.png');
 
-    let found = await this.findPPVBanner(this.ppvName);
-    for (let i = 0; i < 8 && !found; i++) {
-      await this.scrollDown();
-      found = await this.isVisible(this.ppvName, 1500);
-    }
+    const bannerCtas = ['Buy now', 'Buy Now'];
+    const found = await this.findBannerOnCurrentPage(this.ppvName, {
+      ctaTexts: bannerCtas,
+      verticalScrolls: 0,
+    });
 
     if (!found) {
       const shot = hooks.saveScreenshot
@@ -373,25 +476,34 @@ export class IOSBoxingPage extends IOSBasePage {
       return true;
     }
 
-    return this.tapBuyCtaWithFallback();
+    const stillOnPPVBanner = await this.findBannerOnCurrentPage(this.ppvName, {
+      horizontalSwipes: 8,
+      verticalScrolls: 0,
+      ctaTexts: bannerCtas,
+    });
+    if (!stillOnPPVBanner) {
+      await this.driver.saveScreenshot('./test-results/ios_home_boxing_buy_cta_not_found.png');
+      throw new Error(`PPV banner "${this.ppvName}" moved before Buy CTA tap. See test-results/ios_home_boxing_buy_cta_not_found.png`);
+    }
+
+    return Boolean(await this.tapFirstText(bannerCtas, 6000));
   }
 
   async openHomeBoxingUpcomingPaywall(eventConfig?: any, hooks: IOSFlowHooks = {}): Promise<boolean> {
     console.log('Home -> All Sports -> configured sport page -> Upcoming Fights -> smart scroll -> Buy now');
-    
+
     const homeTab = await this.driver.$('-ios predicate string:(name == "Home" OR label == "Home") AND type == "XCUIElementTypeButton"');
     if (!(await homeTab.isDisplayed().catch(() => false))) {
-      await this.tapByText('Home', 3000).catch(() => {});
+      await this.tapByText('Home', 3000).catch(() => { });
       await this.driver.pause(3000);
     }
-    
+
     const dateParts = getPPVDateParts(eventConfig);
     console.log(`  PPV date from config/fallback: ${dateParts.month} ${dateParts.day} (${dateParts.monthShort})`);
 
     await this.navigateToConfiguredSport(eventConfig);
     await this.driver.saveScreenshot('./test-results/ios_boxing_page.png');
     await this.clickUpcomingFightsFilter();
-    await this.driver.pause(2000);
     await this.driver.saveScreenshot('./test-results/ios_upcoming_fights.png');
 
     const found = await this.scrollToUpcomingPPV(dateParts, eventConfig);
@@ -413,10 +525,7 @@ export class IOSBoxingPage extends IOSBasePage {
     // spec reaches Safari with no native-paywall validation recorded.
     const cardBuyTapped = await this.tapBuyNowNearPPV();
     if (!cardBuyTapped) {
-      const shot = hooks.saveScreenshot
-        ? await hooks.saveScreenshot('./test-results/ios_home_boxing_upcoming_buy_not_found.png')
-        : undefined;
-      hooks.recordAvailability?.(false, shot, 'Home of Boxing');
+      await hooks.saveScreenshot?.('./test-results/ios_home_boxing_upcoming_buy_not_found.png');
       await hooks.generateAvailabilityFailureReport?.(`Buy CTA for PPV "${this.ppvName}" not found in Home Boxing Upcoming`);
       return false;
     }

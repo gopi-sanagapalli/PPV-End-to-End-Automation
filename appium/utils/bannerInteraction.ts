@@ -43,12 +43,39 @@ export class BannerInteraction {
     this.driver = driver;
   }
 
+  private async getBannerReference(bannerElement: WdElement): Promise<string> {
+    if (this.driver.isIOS) {
+      return await bannerElement.getAttribute('name').catch(() => '')
+        || await bannerElement.getAttribute('label').catch(() => '')
+        || await bannerElement.getAttribute('value').catch(() => '')
+        || await bannerElement.getText().catch(() => '');
+    }
+    return await bannerElement.getAttribute('content-desc').catch(() => '')
+      || await bannerElement.getText().catch(() => '');
+  }
+
   /**
    * Try to find a visible banner-like element on the current screen.
    * Uses a set of generic XPath selectors — no source/PPV names.
    * Returns null if nothing is found.
    */
   async findCurrentBanner(referenceText = ''): Promise<WdElement | null> {
+    if (this.driver.isIOS && referenceText) {
+      const escapedText = referenceText.replace(/'/g, "\\'");
+      const selector = `-ios predicate string:(type == "XCUIElementTypeStaticText" OR type == "XCUIElementTypeButton") AND (name CONTAINS[c] '${escapedText}' OR label CONTAINS[c] '${escapedText}' OR value CONTAINS[c] '${escapedText}')`;
+      try {
+        const titles = await this.driver.$$(selector);
+        for (const title of titles) {
+          if (await title.isDisplayed()) {
+            console.log(`[BannerLock] Found current iOS PPV banner by title "${referenceText}"`);
+            return title;
+          }
+        }
+      } catch {
+        // Continue with platform-specific fallbacks below.
+      }
+    }
+
     // Compose landing pages expose the carousel container with this resource
     // id. Prefer it because it receives the paging touch even when the title
     // itself is a non-interactive child.
@@ -65,7 +92,7 @@ export class BannerInteraction {
     // Prefer the PPV text that was just detected.  Some carousel
     // implementations do not expose their image as an ImageView, but do
     // expose the banner title. Holding the title area pauses the same card.
-    if (referenceText) {
+    if (!this.driver.isIOS && referenceText) {
       try {
         const title = await this.driver.$(
           `android=new UiSelector().textContains("${referenceText.replace(/"/g, '\\"')}")`,
@@ -135,14 +162,20 @@ export class BannerInteraction {
     try {
       console.log('[BannerLock] Attempting to pause carousel...');
 
-      const rect = await bannerElement.getRect();
+      const rect = typeof bannerElement.getRect === 'function'
+        ? await bannerElement.getRect()
+        : await Promise.all([bannerElement.getLocation(), bannerElement.getSize()])
+          .then(([location, size]: any[]) => ({
+            x: location.x,
+            y: location.y,
+            width: size.width,
+            height: size.height,
+          }));
       const centerX = rect.x + rect.width / 2;
       const centerY = rect.y + rect.height / 2;
 
       // Capture a reference to detect carousel drift
-      this.bannerRef = await bannerElement.getAttribute('content-desc')
-        || await bannerElement.getText()
-        || `${centerX},${centerY}`;
+      this.bannerRef = await this.getBannerReference(bannerElement) || `${centerX},${centerY}`;
 
       this.bannerElement = bannerElement;
 
@@ -188,9 +221,7 @@ export class BannerInteraction {
       // Detect if carousel advanced despite lock
       if (this.bannerElement) {
         try {
-          const currentRef = await this.bannerElement.getAttribute('content-desc')
-            || await this.bannerElement.getText()
-            || '';
+          const currentRef = await this.getBannerReference(this.bannerElement);
           if (currentRef && currentRef !== this.bannerRef) {
             console.log('[BannerLock] Carousel did not pause; application ignored touch.');
           }

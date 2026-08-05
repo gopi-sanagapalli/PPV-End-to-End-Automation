@@ -855,7 +855,7 @@ export async function getActualValue(
         );
         if (upfrontIndex < 0) return 'N/A';
         const cardLines = lines.slice(upfrontIndex, upfrontIndex + 6);
-        return cardLines.find(line => /\bsave\s+(?:[A-Z]{3}\s*)?[\d,.]+/i.test(line)) || 'N/A';
+        return cardLines.find(line => /\bsave\s+(?:[A-Z]{3}\s*)?[£$€¥]?[\d,.]+/i.test(line)) || 'N/A';
       }
 
       case 'annual pay upfront price': {
@@ -5947,7 +5947,7 @@ export async function getActualValue(
           const candidates = [card, ...Array.from(card.querySelectorAll<HTMLElement>('*'))];
           for (const element of candidates) {
             const text = normalise(element.innerText || element.textContent);
-            if (/\bsave\s+(?:[A-Z]{3}\s*)?[\d,.]+/i.test(text) && text.length < 80) {
+            if (/\bsave\s+(?:[A-Z]{3}\s*)?[£$€¥]?[\d,.]+/i.test(text) && text.length < 80) {
               return text;
             }
           }

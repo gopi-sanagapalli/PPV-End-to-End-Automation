@@ -23,6 +23,8 @@ import { spawn, ChildProcess } from 'child_process';
 const MJPEG_PORT = 9100;
 let ffmpegProcess: ChildProcess | null = null;
 let recordingOutputPath: string | null = null;
+let recordingActive = false;
+let lastRecordingPath: string | null = null;
 
 // ─── Simulator: delegate to Appium's built-in recorder ────────────────────────
 
@@ -134,11 +136,13 @@ export async function startIOSRecording(driver: any): Promise<void> {
   const isRealDevice = (process.env.IOS_DEVICE_MODE || 'simulator').toLowerCase() === 'real';
   console.log(`🎥 Starting screen recording on iOS ${isRealDevice ? 'real device (MJPEG)' : 'simulator'}...`);
   try {
+    lastRecordingPath = null;
     if (isRealDevice) {
       await startRealDeviceRecording();
     } else {
       await startSimulatorRecording(driver);
     }
+    recordingActive = true;
     console.log('🎥 Screen recording started successfully.');
   } catch (e: any) {
     console.warn(`⚠️ Failed to start screen recording (non-fatal): ${e.message ?? e}`);
@@ -146,16 +150,19 @@ export async function startIOSRecording(driver: any): Promise<void> {
 }
 
 export async function stopIOSRecording(driver: any): Promise<string | null> {
+  if (!recordingActive) return lastRecordingPath;
   const isRealDevice = (process.env.IOS_DEVICE_MODE || 'simulator').toLowerCase() === 'real';
   console.log('🎥 Stopping screen recording on iOS device...');
   try {
-    if (isRealDevice) {
-      return await stopRealDeviceRecording();
-    } else {
-      return await stopSimulatorRecording(driver);
-    }
+    const outputPath = isRealDevice
+      ? await stopRealDeviceRecording()
+      : await stopSimulatorRecording(driver);
+    lastRecordingPath = outputPath;
+    return outputPath;
   } catch (e: any) {
     console.warn(`⚠️ Failed to stop/save screen recording (non-fatal): ${e.message ?? e}`);
     return null;
+  } finally {
+    recordingActive = false;
   }
 }

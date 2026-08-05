@@ -91,28 +91,61 @@ export class IOSValidationPage extends IOSBasePage {
     expectedValue: string,
     actualValue: string
   ): Promise<string> {
+    let screenshotPath = '';
     try {
       const fs = require('fs');
       const path = require('path');
       const SHOTS_DIR = path.resolve(process.cwd(), 'test-results/failure-shots');
       if (!fs.existsSync(SHOTS_DIR)) fs.mkdirSync(SHOTS_DIR, { recursive: true });
 
-      const screenshotPath = path.resolve(
+      screenshotPath = path.resolve(
         SHOTS_DIR,
         `ios_${String(surface || 'page').replace(/[^a-zA-Z0-9]/g, '_')}_${String(fieldName || 'field').replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}.png`
       );
-      await this.driver.saveScreenshot(screenshotPath);
+      const verifiedBannerScreenshot = surface === 'PPV Banner'
+        ? this.getCurrentBannerValidationScreenshot()
+        : '';
+      if (verifiedBannerScreenshot) {
+        fs.writeFileSync(screenshotPath, Buffer.from(verifiedBannerScreenshot, 'base64'));
+      } else {
+        await this.driver.saveScreenshot(screenshotPath);
+      }
 
-      // Artwork text in the Don't Miss rail is commonly absent from the
-      // XCUITest tree. If a failed title/date cannot be resolved to a native
-      // element, mark the rail itself so the report still shows the exact
-      // visual area that was validated.
+      // Highlight the visible failing native field when XCUITest exposes it.
+      // Artwork text in the Don't Miss rail is commonly absent from the tree;
+      // retain the rail fallback so that case still has focused evidence.
       let bounds: { x: number; y: number; width: number; height: number } | null = null;
-      if (surface === 'PPV Tile') {
+      const getElementBounds = async (element: any): Promise<{ x: number; y: number; width: number; height: number } | null> => {
+        // WDIO's iOS element wrapper does not consistently implement getRect;
+        // location and size are available for both native element variants.
+        if (typeof element?.getLocation !== 'function' || typeof element?.getSize !== 'function') return null;
+        const [location, size] = await Promise.all([
+          element.getLocation().catch(() => null),
+          element.getSize().catch(() => null),
+        ]);
+        return location && size && size.width > 0 && size.height > 0
+          ? { x: location.x, y: location.y, width: size.width, height: size.height }
+          : null;
+      };
+      const candidates = [actualValue, expectedValue]
+        .filter(value => value && value !== 'Not found' && value.length > 2)
+        .map(value => value.replace(/\\/g, '\\\\').replace(/'/g, "\\'"))
+        .map(value => value.slice(0, 120));
+      for (const candidate of candidates) {
+        const selector = `-ios predicate string:label CONTAINS[c] '${candidate}' OR name CONTAINS[c] '${candidate}' OR value CONTAINS[c] '${candidate}'`;
+        const element = await this.driver.$(selector).catch(() => null);
+        if (!element || !await element.isDisplayed().catch(() => false)) continue;
+        const rect = await getElementBounds(element);
+        if (rect) {
+          bounds = rect;
+          break;
+        }
+      }
+      if (!bounds && surface === 'PPV Tile') {
         for (const label of ["Don't Miss", 'Don’t Miss', 'Dont Miss']) {
           const header = await this.driver.$(`~${label}`).catch(() => null);
           if (header && await header.isDisplayed().catch(() => false)) {
-            const rect = await header.getRect().catch(() => null);
+            const rect = await getElementBounds(header);
             const screen = await this.driver.getWindowRect().catch(() => null);
             if (rect && screen) {
               bounds = {
@@ -128,7 +161,11 @@ export class IOSValidationPage extends IOSBasePage {
       }
 
       if (bounds) {
-        const Jimp = require('jimp');
+        // Jimp v1 exports its constructor as `{ Jimp }`; v0 exported the
+        // constructor directly. Support both so diagnostics never fail solely
+        // because the installed Jimp API changed.
+        const jimpModule = require('jimp');
+        const Jimp = jimpModule.Jimp || jimpModule;
         const image = await Jimp.read(screenshotPath);
         const screen = await this.driver.getWindowRect().catch(() => null);
         const scaleX = image.bitmap.width / (screen?.width || image.bitmap.width);
@@ -147,13 +184,19 @@ export class IOSValidationPage extends IOSBasePage {
             image.setPixelColor(0xff1744ff, Math.max(left, right - thickness), y);
           }
         }
-        await image.writeAsync(screenshotPath);
-        console.log(`📸 [Fail Shot] Highlighted Don't Miss rail for "${fieldName}": ${screenshotPath}`);
+        if (typeof image.writeAsync === 'function') {
+          await image.writeAsync(screenshotPath);
+        } else {
+          await image.write(screenshotPath);
+        }
+        console.log(`📸 [Fail Shot] Highlighted iOS field "${fieldName}": ${screenshotPath}`);
       }
       return screenshotPath;
     } catch (e: any) {
       console.warn(`⚠️ Failed to capture failure screenshot:`, e.message);
-      return '';
+      // The base screenshot was saved before optional annotation. Keep it as
+      // report evidence even if the image-marking library is unavailable.
+      return screenshotPath;
     }
   }
 
@@ -230,14 +273,15 @@ export class IOSValidationPage extends IOSBasePage {
   ): Promise<{ texts: string[]; pageSource: string; targetXml: string }> {
     await this.ensureNativeAppContext();
     const textsSet = new Set<string>();
-    let pageSource = '';
+    const bannerSnapshot = surface === 'PPV Banner' ? this.takeCurrentBannerValidationSnapshot() : '';
+    let pageSource = bannerSnapshot;
     let targetXml = '';
 
     try {
-      pageSource = await this.driver.getPageSource();
+      if (!pageSource) pageSource = await this.driver.getPageSource();
       targetXml = pageSource;
 
-      if (usePageSourceSnapshotOnly) {
+      if (usePageSourceSnapshotOnly || bannerSnapshot) {
         const attrRegex = /(?:label|name|value)="([^"]*)"/g;
         for (const match of pageSource.matchAll(attrRegex)) {
           const text = match[1]
@@ -247,7 +291,7 @@ export class IOSValidationPage extends IOSBasePage {
             .trim();
           if (text) textsSet.add(text);
         }
-        console.log(`📋 Used native page-source snapshot for ${surface} validation.`);
+        console.log(`📋 Used ${bannerSnapshot ? 'verified banner' : 'native page-source'} snapshot for ${surface} validation.`);
       } else {
 
         // Locate the main title element
@@ -351,10 +395,26 @@ export class IOSValidationPage extends IOSBasePage {
     // page source also contains the dimmed screen behind the modal (for
     // example, "22 JUN"), which must never become the PPV date actual.
     const expectedDateTokens = expectedNativeDate.match(/^(\d{1,2})\s+([A-Z]{3})/);
-    const mobileDateText = expectedDateTokens
-      ? texts.find(t => new RegExp(`\\b${expectedDateTokens[1]}\\b\\s+${expectedDateTokens[2]}`, 'i').test(t))
-      || paywallSnapshot.mobileDateText
-      : paywallSnapshot.mobileDateText;
+    let mobileDateText = paywallSnapshot.mobileDateText;
+    if (expectedDateTokens) {
+      const datePattern = new RegExp(`\\b${expectedDateTokens[1]}\\b\\s+${expectedDateTokens[2]}`, 'i');
+      const candidates = texts.filter(t => datePattern.test(t));
+      // Prefer the candidate whose time matches the expected — background
+      // elements behind the modal can show a different timezone rendering.
+      const expTimeMatch = expectedNativeDate.match(/(\d{1,2}):(\d{2})/);
+      if (expTimeMatch && candidates.length > 1) {
+        const expH = parseInt(expTimeMatch[1], 10);
+        const expM = expTimeMatch[2];
+        const best = candidates.find(t => {
+          const m = t.match(/(\d{1,2}):(\d{2})/);
+          return m && parseInt(m[1], 10) === expH && m[2] === expM;
+        });
+        if (best) mobileDateText = best;
+        else mobileDateText = candidates[0];
+      } else {
+        mobileDateText = candidates[0] || paywallSnapshot.mobileDateText;
+      }
+    }
 
     const { getMobilePaywallData } = require('../../../utils/excelReader');
     const { resolveExpected: resolveExp } = require('../../../utils/resolveExpected');
@@ -454,7 +514,7 @@ export class IOSValidationPage extends IOSBasePage {
             const cleanT = t.toLowerCase().trim();
             const cleanExp = expectedValue.replace(/[\u200b\u200c\u200d\ufeff]/g, '').trim().toLowerCase();
             return compare(t, expectedValue) ||
-              cleanT.includes(cleanExp) ||
+              cleanT.includes(cleanExp) && cleanT.length <= cleanExp.length * 2 + 30 ||
               (cleanT.length > 10 && cleanExp.includes(cleanT));
           });
           if (matched) {
@@ -502,7 +562,8 @@ export class IOSValidationPage extends IOSBasePage {
     eventData.CURRENT_PAGE = 'mobile';
 
     const titleExpected = eventData.MOBILE_BANNER_TITLE || eventData.PPV_DISPLAY_NAME || eventData.PPV_NAME;
-    const useScheduleSnapshot = source.trim().toLowerCase() === 'schedule' && surface === 'PPV Tile';
+    const normalizedSource = source.trim().toLowerCase();
+    const useScheduleSnapshot = ['schedule', 'home-boxing-upcoming'].includes(normalizedSource) && surface === 'PPV Tile';
     const { texts, pageSource, targetXml } = await this.gatherTextsFromSurface(
       surface,
       titleExpected,
@@ -570,9 +631,19 @@ export class IOSValidationPage extends IOSBasePage {
         const fieldName = (row['Field'] || '').trim();
         if (!fieldName) continue;
 
+        // The native Landing banner hands off through the App Store sheet.
+        // It has no Copy control and its CTA is deliberately not Buy now.
+        if (surface === 'PPV Banner' && source.trim().toLowerCase() === 'landing-page-banner' && fieldName === 'Copy Button') {
+          continue;
+        }
+
         let expectedValue = '';
         try { expectedValue = resolveExp(row, eventData); }
         catch { expectedValue = String(row['Expected'] || ''); }
+
+        if (surface === 'PPV Banner' && source.trim().toLowerCase() === 'landing-page-banner' && fieldName === 'Buy Now CTA') {
+          expectedValue = 'Go to dazn.com/start';
+        }
 
         if (!expectedValue || expectedValue.toUpperCase() === 'N/A') {
           continue;
@@ -599,12 +670,14 @@ export class IOSValidationPage extends IOSBasePage {
           isMatch = Boolean(matchingText);
         } else if (isDontMissTile && fieldName === 'PPV Date') {
           const expectedDateTerms = expectedValue.toLowerCase().match(/jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|\b\d{1,2}\b/g) || [];
-          const matchingText = dontMissOcrTexts.find(text => {
-            const normalized = text.toLowerCase();
-            return expectedDateTerms.length > 0 && expectedDateTerms.every((term: string) => normalized.includes(term.slice(0, 3)) || normalized.includes(term));
-          });
-          actualValue = matchingText || 'Not found';
-          isMatch = Boolean(matchingText);
+          // Vision can expose `AUG` and `29` as separate observations. Search
+          // the complete visible-card OCR corpus, not just one observation.
+          const ocrCorpus = dontMissOcrTexts.join(' ').toLowerCase();
+          const matchesDate = expectedDateTerms.length > 0 && expectedDateTerms.every((term: string) =>
+            ocrCorpus.includes(term.slice(0, 3)) || ocrCorpus.includes(term),
+          );
+          actualValue = matchesDate ? expectedValue : 'Not found';
+          isMatch = matchesDate;
         } else if (isDontMissTile && fieldName === 'PPV Image Present') {
           actualValue = dontMissTileFound ? 'Yes' : 'No';
           isMatch = dontMissTileFound && expectedValue.toLowerCase() === 'yes';
@@ -682,6 +755,19 @@ export class IOSValidationPage extends IOSBasePage {
               isMatch = true;
             }
           }
+        } else if (
+          source.trim().toLowerCase() === 'home-boxing-upcoming' &&
+          fieldName.trim().toLowerCase() === 'ppv time'
+        ) {
+          // Use the WATCH LIVE copy immediately after this PPV's own title.
+          // The page also contains neighbouring fight cards with their own
+          // times, so a global time lookup can validate the wrong card.
+          const titleIndex = texts.findIndex(text => cleanStr(text) === cleanStr(titleExpected));
+          const targetCardTexts = titleIndex >= 0 ? texts.slice(titleIndex + 1, titleIndex + 5) : [];
+          const description = targetCardTexts.find(text => /watch\s+live/i.test(text));
+          const time = description?.match(/\b\d{1,2}:\d{2}\s*(?:a\.?m\.?|p\.?m\.?)?\b/i)?.[0];
+          actualValue = time || 'Not found';
+          isMatch = Boolean(time && compare(actualValue, expectedValue));
         } else if (fieldName === 'Banner - Event Date' || fieldName === 'Banner Date' || fieldName === 'Date and Time') {
           const normalizeDateString = (s: string) => {
             let clean = String(s || '').toLowerCase()
@@ -717,10 +803,20 @@ export class IOSValidationPage extends IOSBasePage {
             if (parsedExpected && texts.some(t => normalizeDateString(t).includes(normalizeDateString(parsedExpected)))) {
               actualValue = parsedExpected;
               isMatch = true;
+            } else {
+              const visibleDate = texts.find(t =>
+                /\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b.*\b\d{1,2}:\d{2}\s*(?:a\.?m\.?|p\.?m\.?)?\b/i.test(t),
+              );
+              if (visibleDate) actualValue = visibleDate;
             }
           }
         } else {
-          const matched = texts.find(t => {
+          const expectedAlternatives = expectedValue.split('|').map(cleanStr);
+          // Prefer a full expected value over a partial match. Upcoming Fights
+          // exposes many cards at once, so a promotion or adjacent event can
+          // contain the same PPV name/date fragment as the target card.
+          const exactMatch = texts.find(t => expectedAlternatives.includes(cleanStr(t)));
+          const matched = exactMatch || texts.find(t => {
             const cleanT = t.toLowerCase().trim();
             const cleanExp = expectedValue.replace(/[\u200b\u200c\u200d\ufeff]/g, '').trim().toLowerCase();
             return compare(t, expectedValue) || cleanT.includes(cleanExp);

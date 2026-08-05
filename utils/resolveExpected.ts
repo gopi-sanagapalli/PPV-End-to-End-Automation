@@ -88,9 +88,13 @@ export function resolveExpected(
   ].includes(currentUserState);
 
   if (field === 'instruction header' && (pageName.includes('paywall') || pageName.includes('mobile'))) {
+    // Mobile native paywall always shows the generic header — no email text.
+    if (pageName === 'mobile paywall') {
+      return 'How to watch this and more?';
+    }
     const isNewUser = !currentUserState || currentUserState === 'new' || currentUserState === 'anonymous';
     const isLoginFirst = String(eventData.LOGIN_FIRST ?? process.env.LOGIN_FIRST ?? '').toLowerCase() === 'true';
-    if (!isNewUser && isLoginFirst) {
+    if (!isNewUser && (isLoginFirst || eventData.USER_EMAIL || process.env.USER_EMAIL)) {
       const email = eventData.USER_EMAIL || process.env.USER_EMAIL || '';
       return `To watch this and more check the email we just sent to ${email}`.trim();
     } else {

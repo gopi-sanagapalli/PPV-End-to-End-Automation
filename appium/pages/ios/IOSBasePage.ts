@@ -20,8 +20,35 @@ export interface IOSFlowHooks {
 
 export class IOSBasePage {
   private static readonly safariCookieConsentHandledDrivers = new WeakSet<object>();
+  private static readonly bannerValidationSnapshots = new WeakMap<object, string>();
+  private static readonly bannerValidationScreenshots = new WeakMap<object, string>();
+  private appStoreRetryAttempted = false;
 
   constructor(protected driver: WdBrowser, protected ppvName = process.env.PPV_NAME || 'Joshua') { }
+
+  private async captureCurrentBannerValidationSnapshot(): Promise<void> {
+    if (!this.driver.isIOS) return;
+    const [source, screenshot] = await Promise.all([
+      this.driver.getPageSource().catch(() => ''),
+      this.driver.takeScreenshot().catch(() => ''),
+    ]);
+    if (source) {
+      IOSBasePage.bannerValidationSnapshots.set(this.driver as object, source);
+      if (screenshot) IOSBasePage.bannerValidationScreenshots.set(this.driver as object, screenshot);
+      console.log('[BannerSnapshot] Captured the verified iOS PPV banner before auto-rotation.');
+    }
+  }
+
+  protected takeCurrentBannerValidationSnapshot(): string {
+    const driverKey = this.driver as object;
+    const source = IOSBasePage.bannerValidationSnapshots.get(driverKey) || '';
+    IOSBasePage.bannerValidationSnapshots.delete(driverKey);
+    return source;
+  }
+
+  protected getCurrentBannerValidationScreenshot(): string {
+    return IOSBasePage.bannerValidationScreenshots.get(this.driver as object) || '';
+  }
 
   protected async browserText(): Promise<string> {
     return this.driver.execute(() => document.body?.innerText || '').catch(() => '');
@@ -105,13 +132,23 @@ export class IOSBasePage {
       console.log('✅ DAZN cookie banner is hidden.');
     };
     const deadline = Date.now() + effectiveTimeout;
+    const noConsentDeadline = Date.now() + (alreadyHandled ? 0 : 2000);
     let consentWasSeen = false;
 
     while (Date.now() < deadline) {
+      const pageText = await this.browserText();
+      const consentIsVisible = consentCopy.test(pageText);
+      const overlayVisible = consentIsVisible || await isConsentOverlayVisible();
+      if (!overlayVisible) {
+        const url = await this.driver.getUrl().catch(() => '');
+        if (Date.now() >= noConsentDeadline && (pageText.trim().length > 0 || /\/account\//i.test(url))) break;
+        await this.driver.pause(250);
+        continue;
+      }
+
+      consentWasSeen = true;
       const accept = await this.browserFirstVisible(acceptSelectors);
-      const consentIsVisible = consentCopy.test(await this.browserText());
       if (accept) {
-        consentWasSeen = true;
         await accept.scrollIntoView().catch(() => {});
         const clickedByUi = await accept.click().then(() => true).catch(() => false);
         if (!clickedByUi) {
@@ -140,8 +177,7 @@ export class IOSBasePage {
       // in the page but is not returned by WebDriver's element query. Only
       // use the DOM fallback while an actual OneTrust overlay is visible, and
       // verify that the overlay closes before letting the journey continue.
-      const overlayVisible = consentIsVisible || await isConsentOverlayVisible();
-      const clickedWelcomeAccept = overlayVisible && await this.driver.execute(() => {
+      const clickedWelcomeAccept = await this.driver.execute(() => {
         const button = document.querySelector<HTMLElement>('#accept-recommended-btn-handler, #onetrust-accept-btn-handler')
           || Array.from(document.querySelectorAll<HTMLElement>('button, [role="button"]'))
             .find(element => ['accept all', 'accept', 'confirm my choices'].includes(
@@ -277,17 +313,24 @@ export class IOSBasePage {
 
   async findBannerOnCurrentPage(
     ppvName = this.ppvName,
-    options: { horizontalSwipes?: number; verticalScrolls?: number } = {},
+    options: { horizontalSwipes?: number; verticalScrolls?: number; ctaTexts?: string[] } = {},
   ): Promise<boolean> {
     const horizontalSwipes = options.horizontalSwipes ?? 8;
     const verticalScrolls = options.verticalScrolls ?? 5;
+    const ctaTexts = options.ctaTexts || ['Go to dazn.com/start', 'dazn.com/start', 'dazn.com'];
 
     const simplifiedName = ppvName.split(/ vs/i)[0].trim().replace(/\./g, '');
+    const titleTerms = ppvName
+      .split(/\s+vs\.?\s+|[^a-z0-9]+/i)
+      .filter(term => term.length >= 3);
 
     const isCurrentBannerPPV = async (timeoutMs: number): Promise<boolean> => {
       const titleVisible = await this.isVisible(simplifiedName, timeoutMs);
       if (!titleVisible) return false;
-      for (const cta of ['Go to dazn.com/start', 'dazn.com/start', 'dazn.com']) {
+      for (const term of titleTerms) {
+        if (!await this.isVisible(term, 200)) return false;
+      }
+      for (const cta of ctaTexts) {
         if (await this.isVisible(cta, 200)) return true;
       }
       return false;
@@ -295,20 +338,31 @@ export class IOSBasePage {
 
     console.log(`  Checking if "${ppvName}" is the active banner...`);
     for (let attempt = 0; attempt < 2; attempt++) {
-      if (await isCurrentBannerPPV(500)) return true;
+      if (await isCurrentBannerPPV(500)) {
+        await this.captureCurrentBannerValidationSnapshot();
+        return true;
+      }
       await this.driver.pause(150);
     }
 
     console.log(`  PPV banner not immediately visible. Swiping left to find "${ppvName}"...`);
     for (let i = 0; i < horizontalSwipes; i++) {
       await this.swipeLeft();
-      if (await isCurrentBannerPPV(150)) return true;
+      if (await isCurrentBannerPPV(150)) {
+        await this.captureCurrentBannerValidationSnapshot();
+        return true;
+      }
     }
 
-    console.log('  Swiping left exhausted. Trying vertical scroll down...');
-    for (let i = 0; i < verticalScrolls; i++) {
-      await this.scrollDown();
-      if (await isCurrentBannerPPV(150)) return true;
+    if (verticalScrolls > 0) {
+      console.log('  Swiping left exhausted. Trying vertical scroll down...');
+      for (let i = 0; i < verticalScrolls; i++) {
+        await this.scrollDown();
+        if (await isCurrentBannerPPV(150)) {
+          await this.captureCurrentBannerValidationSnapshot();
+          return true;
+        }
+      }
     }
 
     return false;
@@ -357,11 +411,19 @@ export class IOSBasePage {
     if (!hooks?.validateSurface) return;
     try {
       if (surface === 'PPV Banner') {
+        // XCUITest synthesizes each W3C touch as a completed event and cannot
+        // keep a finger down across the validation commands. The verified
+        // native snapshot captured during banner discovery is the stable
+        // equivalent for iOS banner validation.
+        if (this.driver.isIOS) {
+          await hooks.validateSurface(surface);
+          return;
+        }
         const bannerInteraction = new BannerInteraction(this.driver);
         await bannerInteraction.withLock(async () => {
           await hooks.validateSurface!(surface);
         }, this.ppvName);
-      } else {
+      } else if (hooks?.validateSurface) {
         await hooks.validateSurface(surface);
       }
     } catch (err: any) {
@@ -416,11 +478,71 @@ export class IOSBasePage {
     }
   }
 
+  private async getAppStoreCannotConnectState(): Promise<{ visible: boolean; retryButton: WdElement | null }> {
+    await this.driver.switchContext('NATIVE_APP').catch(() => { });
+    const source = await this.driver.getPageSource().catch(() => '');
+    let cannotConnect = /cannot connect/i.test(source);
+    let retryVisible = /retry/i.test(source);
+    let retryButton: WdElement | null = null;
+    if (!cannotConnect || !retryVisible) {
+      const [cannotConnectElement, retryElement] = await Promise.all([
+        this.driver.$('-ios predicate string:name CONTAINS[c] "Cannot Connect" OR label CONTAINS[c] "Cannot Connect"')
+          .catch(() => null),
+        this.driver.$('-ios predicate string:name == "Retry" OR label == "Retry"')
+          .catch(() => null),
+      ]);
+      cannotConnect = cannotConnect || Boolean(await cannotConnectElement?.isDisplayed().catch(() => false));
+      retryVisible = retryVisible || Boolean(await retryElement?.isDisplayed().catch(() => false));
+      if (retryElement && await retryElement.isDisplayed().catch(() => false)) retryButton = retryElement;
+    }
+    return { visible: cannotConnect && retryVisible, retryButton };
+  }
+
+  /** Retry a visible App Store connection error once, then fail with evidence. */
+  private async retryOrFailIfAppStoreCannotConnect(): Promise<void> {
+    const { visible, retryButton } = await this.getAppStoreCannotConnectState();
+    if (!visible) return;
+
+    const screenshotPath = './test-results/ios_app_store_cannot_connect.png';
+    if (this.appStoreRetryAttempted) {
+      await this.driver.saveScreenshot(screenshotPath).catch(() => { });
+      throw new Error(`iOS App Store sheet could not connect after Retry. See ${screenshotPath}`);
+    }
+
+    this.appStoreRetryAttempted = true;
+    console.warn('⚠️ [AppStore] Cannot Connect detected; tapping Retry once.');
+    let retried = false;
+    if (retryButton) {
+      retried = await retryButton.click().then(() => true).catch(() => false);
+    }
+    if (!retried) {
+      const { width, height } = await this.driver.getWindowSize();
+      retried = await this.driver.execute('mobile: tap', {
+        x: Math.round(width / 2),
+        y: Math.round(height * 0.70),
+      }).then(() => true).catch(() => false);
+    }
+    if (!retried) {
+      await this.driver.saveScreenshot(screenshotPath).catch(() => { });
+      throw new Error(`iOS App Store sheet could not tap Retry. See ${screenshotPath}`);
+    }
+
+    const recovered = await this.driver.waitUntil(async () => {
+      const currentState = await this.getAppStoreCannotConnectState();
+      return !currentState.visible;
+    }, { timeout: 10000, interval: 500 }).then(() => true).catch(() => false);
+    if (recovered) return;
+
+    await this.driver.saveScreenshot(screenshotPath).catch(() => { });
+    throw new Error(`iOS App Store sheet could not connect after Retry. See ${screenshotPath}`);
+  }
+
   async captureCheckoutUrl(): Promise<string> {
     // The external-website confirmation is a native App Store sheet. A prior
     // Safari WEBVIEW can still be selected after the native paywall click, in
     // which case iOS selectors cannot see its Continue button.
     await this.driver.switchContext('NATIVE_APP').catch(() => { });
+    this.appStoreRetryAttempted = false;
     try {
       const fs = require('fs');
       if (!fs.existsSync('./test-results')) {
@@ -437,6 +559,7 @@ export class IOSBasePage {
     // from both the XCUITest tree and native page source, so source-based
     // presence checks would block forever.
     await this.driver.pause(Number(process.env.IOS_EXTERNAL_SHEET_SETTLE_MS || 3000));
+    await this.retryOrFailIfAppStoreCannotConnect();
 
     // 2. Resolve the system sheet by accessibility label. Looking up six
     // selectors five times made XCUITest wait for idle on each miss (nearly a
@@ -528,6 +651,10 @@ export class IOSBasePage {
       }
     }
 
+    // Do not treat an old DAZN WebView as a successful handoff when the
+    // current App Store presentation has failed with a Retry surface.
+    await this.retryOrFailIfAppStoreCannotConnect();
+
     // Switch automation context to the active browser app to inspect its UI tree.
     // DAZN opens the web flow in SFSafariViewController (an in-app browser), so
     // the foreground app remains com.dazn.theApp — not com.apple.mobilesafari.
@@ -551,6 +678,7 @@ export class IOSBasePage {
     while (Date.now() < webviewDeadline) {
       await this.driver.pause(webviewPollIntervalMs);
       try {
+        await this.retryOrFailIfAppStoreCannotConnect();
         // Do not switch into every listed WebView while Safari is connecting:
         // on real devices that context-switch request can block until the
         // overall Mocha timeout. The XCUITest extension exposes each context's

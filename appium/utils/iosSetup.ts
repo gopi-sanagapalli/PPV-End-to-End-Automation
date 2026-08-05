@@ -1,4 +1,5 @@
 import { execSync } from 'child_process';
+import { ensureLoggedOut } from './iosLogout';
 
 const BUNDLE_ID = process.env.DAZN_BUNDLE_ID || 'com.dazn.enterprise';
 
@@ -543,6 +544,21 @@ export async function waitForHomePage(driver: WdBrowser, timeoutMs = 120000): Pr
         console.log(`  ⏳ Still waiting for iOS app to be ready... (${Math.floor((now - startTime) / 1000)}s elapsed)`);
       }
 
+      // Dismiss any iOS system dialogs (ATT tracking, Face ID, local network)
+      // that can overlay the app and block home-page detection.
+      try {
+        if (await driver.isAlertOpen()) {
+          const btns = await driver.execute('mobile: alert', { action: 'getButtons' }) as string[];
+          const dismiss = ["Don't Allow", 'Ask App Not to Track', 'Not Now', 'OK']
+            .find(l => btns?.some(b => b?.trim() === l));
+          if (dismiss) {
+            await driver.execute('mobile: alert', { action: 'accept', buttonLabel: dismiss });
+            console.log(`  Dismissed iOS system alert with "${dismiss}".`);
+            return false;
+          }
+        }
+      } catch { /* no alert open */ }
+
       if (await acceptCookiesIfPresent(driver)) {
         sawCookiePrompt = true;
         await driver.pause(2000);
@@ -605,6 +621,9 @@ export async function prepareIosApp(driver: WdBrowser, options: PrepareIosAppOpt
   // Dismiss standard iOS alert prompts first (ATT/Local notification)
   await handleStartupDialogs(driver, 12000);
   await ensureAttDialogClosed(driver, 18000);
+
+  // Ensure app starts from a logged-out state for clean test runs.
+  await ensureLoggedOut(driver);
 
   if (options.acceptCookiesOnly) {
     console.log('⏳ Waiting for Landing page to load...');
