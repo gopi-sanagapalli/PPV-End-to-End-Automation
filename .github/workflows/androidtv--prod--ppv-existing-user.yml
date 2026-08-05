@@ -1,6 +1,6 @@
-name: FireTV.Prod.PPV.Existing User
+name: AndroidTV.Prod.PPV.Existing User
 
-run-name: "FireTV.Prod.PPV.Existing User · ${{ inputs.COUNTRY }} · ${{ inputs.PPV_CONFIG }}"
+run-name: "AndroidTV.Prod.PPV.Existing User · ${{ inputs.COUNTRY }} · ${{ inputs.PPV_CONFIG }}"
 
 on:
   workflow_dispatch:
@@ -20,7 +20,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: firetv-prod-ppv-existing-user
+  group: androidtv-prod-ppv-existing-user
   cancel-in-progress: false
 
 env:
@@ -30,16 +30,16 @@ env:
   DAZN_ENV: prod
   DAZN_REGION: ${{ inputs.COUNTRY }}
   SOURCE: schedule
-  TV_TARGET: firetv
-  FIRETV_SERIAL: 172.26.81.184:5555
-  DEVICE_SERIAL: 172.26.81.184:5555
+  TV_TARGET: androidtv
+  ANDROIDTV_SERIAL: 172.26.89.94:5555
+  DEVICE_SERIAL: 172.26.89.94:5555
   APP_PACKAGE: com.dazn
   USER_STATE: active_standard_monthly
   PPV_CONFIG_NAME: ${{ inputs.PPV_CONFIG }}
 
 jobs:
-  firetv-prod-ppv-existing-user:
-    name: FireTV.Prod.PPV.Existing User
+  androidtv-prod-ppv-existing-user:
+    name: AndroidTV.Prod.PPV.Existing User
     runs-on: [self-hosted, macOS, ARM64, sridevi-runners]
     timeout-minutes: 120
 
@@ -55,7 +55,7 @@ jobs:
         shell: bash
         run: npm ci --prefix appium
 
-      - name: Connect FireTV over ADB
+      - name: Connect Android TV over ADB
         shell: bash
         run: |
           set -euo pipefail
@@ -103,7 +103,7 @@ jobs:
           echo "SCENARIO_2_EXIT=$exit_code" >> "$GITHUB_ENV"
           exit 0
 
-      - name: Fail if any FireTV scenario failed
+      - name: Fail if any Android TV scenario failed
         if: ${{ always() }}
         shell: bash
         run: |
@@ -119,7 +119,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: firetv-prod-ppv-existing-user-${{ github.run_attempt }}
+          name: androidtv-prod-ppv-existing-user-${{ github.run_attempt }}
           if-no-files-found: ignore
           retention-days: 14
           path: |
