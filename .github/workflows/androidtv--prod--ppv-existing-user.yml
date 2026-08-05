@@ -40,7 +40,7 @@ env:
 jobs:
   androidtv-prod-ppv-existing-user:
     name: AndroidTV.Prod.PPV.Existing User
-    runs-on: [self-hosted, macOS, ARM64, sridevi-runners]
+    runs-on: [self-hosted, macOS, ARM64, chandrababu-runners]
     timeout-minutes: 120
 
     steps:
