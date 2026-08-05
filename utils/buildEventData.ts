@@ -640,7 +640,9 @@ export function buildEventData(
 
   // Active standard user: CTA must be set AFTER directFields to avoid being clobbered
   if (isActiveStandard) {
-    base.PPV_CTA_TEXT = `Continue with ${base.PPV_NAME} only|Continue with pay-per-view`;
+    base.PPV_CTA_TEXT = base.TIER === 'ultimate'
+      ? base.PLAN_CTA_BUTTON_ULTIMATE
+      : `Continue with ${base.PPV_NAME} only`;
   }
 
   const isUSRegion = (base.BASE_URL || '').includes('/en-US');

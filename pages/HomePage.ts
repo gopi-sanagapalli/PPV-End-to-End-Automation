@@ -25,7 +25,6 @@ export class HomePage extends LandingPage {
     // Check for VPN/network error BEFORE looking for Explore button.
     // assertDaznPageAvailable refreshes once if the DAZN "problem opening" page is shown.
     await assertDaznPageAvailable(this.page, 'welcome page load');
-
     console.log(`✅ [HomePage] Welcome page loaded: ${this.page.url()}`);
     await this.clickExplore();
     await assertDaznPageAvailable(this.page, 'home page navigation');

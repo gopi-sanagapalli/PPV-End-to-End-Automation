@@ -765,6 +765,48 @@ export class IOSSafariValidationPage extends IOSBasePage {
     }
   }
 
+  /** Expand payment methods where necessary and validate Apple Pay in Safari. */
+  private async validateApplePayPaymentMethod(
+    pageName: string,
+    results: IOSValidationResult[],
+  ): Promise<void> {
+    const isApplePayVisible = () => this.driver.execute(() =>
+      Array.from(document.querySelectorAll<HTMLElement>('body *')).some(element => {
+        const text = (element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim();
+        const box = element.getBoundingClientRect();
+        const style = window.getComputedStyle(element);
+        return /^apple pay$/i.test(text) && style.display !== 'none' && style.visibility !== 'hidden' && box.width > 0 && box.height > 0;
+      }),
+    ).catch(() => false);
+
+    if (!await isApplePayVisible()) {
+      const expanded = await this.driver.execute(() => {
+        const control = Array.from(document.querySelectorAll<HTMLElement>('button, [role="button"], summary, a, div'))
+          .find(element => /^more payment methods$/i.test((element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim()));
+        if (!control) return false;
+        control.click();
+        return true;
+      }).catch(() => false);
+      if (expanded) {
+        console.log(`🔽 [${pageName}] Expanded More payment methods.`);
+        await this.driver.waitUntil(isApplePayVisible, {
+          timeout: 8000,
+          interval: 250,
+          timeoutMsg: 'Apple Pay was not exposed after expanding More payment methods.',
+        }).catch(() => { });
+      }
+    }
+
+    const hasApplePay = await isApplePayVisible();
+    const actual = hasApplePay ? 'Yes' : 'No';
+    const status = hasApplePay ? 'PASS' : 'FAIL';
+    console.log(`  ${hasApplePay ? '✅' : '❌'} [Apple Pay] expected="Yes" actual="${actual}"`);
+    const screenshot = hasApplePay
+      ? undefined
+      : await this.captureAndMarkFailureScreenshot(pageName, 'Apple Pay', 'Yes', actual);
+    results.push({ page: pageName, field: 'Apple Pay', expected: 'Yes', actual, status, screenshot });
+  }
+
   // ── Public page validators ────────────────────────────────────
 
   async validatePPVPage(
@@ -982,6 +1024,7 @@ export class IOSSafariValidationPage extends IOSBasePage {
       }
 
       eventData.CURRENT_PAGE = 'payment';
+      await this.validateApplePayPaymentMethod('Payment Page (Safari)', results);
       await this.validateWebPageWithSheet('Payment Page', rows, eventData, results);
     } catch (err: any) {
       console.warn(`⚠️  Payment page validation error: ${err.message}`);
@@ -1120,6 +1163,7 @@ export class IOSSafariValidationPage extends IOSBasePage {
       );
 
       await this.waitForSafariPageContentToSettle(PAGE);
+      await this.validateApplePayPaymentMethod(PAGE, results);
 
       const { getPPVPaymentData } = lazyExcelReader();
       const rows = getPPVPaymentData();
@@ -1210,6 +1254,7 @@ export class IOSSafariValidationPage extends IOSBasePage {
           : undefined;
         results.push({ page: PAGE, field, expected, actual, status, screenshot });
       }
+
     } catch (err: any) {
       console.warn(`⚠️  PPV Payment page validation error: ${err.message}`);
     }

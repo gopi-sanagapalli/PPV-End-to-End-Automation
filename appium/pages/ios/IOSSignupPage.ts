@@ -127,6 +127,21 @@ export class IOSSignupPage extends IOSBasePage {
       // underlying account or payment page.
       if (/keep me updated/i.test(lower) && await this.acceptKeepMeUpdatedPrompt()) continue;
 
+      // ── PPV Payment page (active_standard saved-card checkout) ──
+      // This must be evaluated before the generic payment-page condition:
+      // the saved-card PPV screen also contains the "Payment method" heading.
+      if (/one time payment|pay now/i.test(lower) && /visa|mastercard|amex|\*{4}|saved card/i.test(lower)) {
+        if (eventData) {
+          try {
+            await new IOSSafariValidationPage(this.driver).validatePPVPaymentPage(eventData, results);
+          } catch (err: any) {
+            console.warn(`⚠️ PPV payment page validation error: ${err.message}`);
+          }
+        }
+        results.push({ page: 'iOS Safari', field: 'PPV Payment page reached', expected: 'Yes', actual: 'Yes', status: 'PASS' });
+        return;
+      }
+
       // ── Payment page (terminal) ──
       if (/payment method|choose how to pay|card number|payment details/.test(lower)) {
         if (eventData) {
@@ -137,19 +152,6 @@ export class IOSSignupPage extends IOSBasePage {
           }
         }
         results.push({ page: 'iOS Safari', field: 'Payment page reached', expected: 'Yes', actual: 'Yes', status: 'PASS' });
-        return;
-      }
-
-      // ── PPV Payment page (active_standard saved-card checkout) ──
-      if (/one time payment|pay now/i.test(lower) && /visa|mastercard|amex|\*{4}|saved card/i.test(lower)) {
-        if (eventData) {
-          try {
-            await new IOSSafariValidationPage(this.driver).validatePPVPaymentPage(eventData, results);
-          } catch (err: any) {
-            console.warn(`⚠️ PPV payment page validation error: ${err.message}`);
-          }
-        }
-        results.push({ page: 'iOS Safari', field: 'PPV Payment page reached', expected: 'Yes', actual: 'Yes', status: 'PASS' });
         return;
       }
 

@@ -122,7 +122,7 @@ export function resolveExpected(
     return 'Minimum 12 pay-per-views a year included at no extra cost.';
   }
 
-  if (isActiveStandardUser && pageName === 'choose how to buy') {
+  if (isActiveStandardUser && normalizedPageName === 'choose how to buy') {
     if (field === 'upsell feature 1') {
       // Prefer the event-specific UPSELL_FEATURE_1 (may include PPV name suffix);
       // fall back to the standard "Pay-per-views included" wording used on this page.
