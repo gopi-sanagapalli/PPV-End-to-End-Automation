@@ -22,12 +22,23 @@ const event = loadEventConfig();
 const PPV_NAME = event.PPV_NAME;
 const SOURCE = (process.env.SOURCE || 'home-page-banner').trim().toLowerCase();
 const TV_TARGET = (process.env.TV_TARGET || 'androidtv').trim().toLowerCase();
+const TV_LOGIN_ONLY = process.env.TV_LOGIN_ONLY === 'true';
+const TV_WEB_LOGIN_ONLY = process.env.TV_WEB_LOGIN_ONLY === 'true';
 const APP_PACKAGE = process.env.APP_PACKAGE || 'com.dazn';
-const TV_LOGIN_SETTLE_MS = Number(process.env.TV_LOGIN_SETTLE_MS || 10000);
+const TV_LOGIN_FAILURE_KEEP_BROWSER_OPEN_MS = Number(
+  process.env.TV_LOGIN_FAILURE_KEEP_BROWSER_OPEN_MS || (TV_WEB_LOGIN_ONLY && TV_TARGET === 'androidtv' ? '120000' : '0'),
+);
+const TV_LOGIN_SETTLE_MS = Number(process.env.TV_LOGIN_SETTLE_MS || (TV_TARGET === 'androidtv' ? '15000' : '10000'));
 const BROWSER_LOGIN_COMPLETE_SETTLE_MS = Number(process.env.BROWSER_LOGIN_COMPLETE_SETTLE_MS || 3000);
 const PPV_PURCHASE_BACK_SETTLE_MS = Number(process.env.PPV_PURCHASE_BACK_SETTLE_MS || 5000);
 const FIRETV_POST_LOGIN_BANNER_WAIT_MS = Number(process.env.FIRETV_POST_LOGIN_BANNER_WAIT_MS || 8000);
 const FIRETV_POST_LOGIN_AFTER_BACK_WAIT_MS = Number(process.env.FIRETV_POST_LOGIN_AFTER_BACK_WAIT_MS || 10000);
+const ANDROIDTV_POST_LOGIN_WAIT_MS = Number(process.env.ANDROIDTV_POST_LOGIN_WAIT_MS || 15000);
+const ANDROIDTV_POST_LOGIN_AFTER_BACK_WAIT_MS = Number(process.env.ANDROIDTV_POST_LOGIN_AFTER_BACK_WAIT_MS || 8000);
+const ANDROIDTV_BROWSER_LOGIN_COMPLETE_TIMEOUT_MS = Number(process.env.ANDROIDTV_BROWSER_LOGIN_COMPLETE_TIMEOUT_MS || 8000);
+const ANDROIDTV_BROWSER_LOGIN_RETRY_TIMEOUT_MS = Number(process.env.ANDROIDTV_BROWSER_LOGIN_RETRY_TIMEOUT_MS || 4000);
+const ANDROIDTV_BROWSER_LOGIN_SETTLE_MS = Number(process.env.ANDROIDTV_BROWSER_LOGIN_SETTLE_MS || 500);
+const ANDROIDTV_BROWSER_PLANS_BACK_CHECK_MS = Number(process.env.ANDROIDTV_BROWSER_PLANS_BACK_CHECK_MS || 3000);
 const TV_PPV_REPORT_METADATA = process.env.TV_PPV_REPORT_METADATA || path.resolve(__dirname, '../../../tv_ppv_report_metadata.json');
 const TV_PPV_SPEC_TIMEOUT_MS = Number(process.env.TV_PPV_SPEC_TIMEOUT_MS || 600000);
 const TV_POST_LOGIN_SCREENSHOTS = process.env.TV_POST_LOGIN_SCREENSHOTS === 'true';
@@ -307,6 +318,8 @@ type RegionCredentials = {
   email: string;
   password: string;
 };
+
+type BrowserLoginDestination = 'home' | 'plans' | 'post-login' | 'authenticated' | 'login' | 'unknown';
 
 function resolveRegionCredentials(): RegionCredentials {
   const region = (process.env.DAZN_REGION || 'GB').toUpperCase();
@@ -851,6 +864,111 @@ async function closePostLoginBannerIfPresent(driver: any): Promise<void> {
   console.log('ℹ️ No explicit post-login banner close button found. Continuing without Back press.');
 }
 
+async function isAndroidTvPostLoginBannerVisible(driver: any): Promise<boolean> {
+  const bannerSelectors = [
+    'android=new UiSelector().descriptionContains("Close")',
+    'android=new UiSelector().descriptionContains("Dismiss")',
+    'android=new UiSelector().textMatches("(?i)^(Close|Dismiss|Not now|No thanks|Maybe later|Skip)$")',
+    'android=new UiSelector().textMatches("(?i).*(welcome|profile|personalise|notification|privacy|terms).*")',
+    'android=new UiSelector().resourceIdMatches(".*close.*")',
+  ];
+
+  for (const selector of bannerSelectors) {
+    try {
+      const el = await driver.$(selector);
+      if (await el.isDisplayed({ timeout: 700 }).catch(() => false)) {
+        return true;
+      }
+    } catch {}
+  }
+
+  return false;
+}
+
+async function isAndroidTvPlanPageVisible(driver: any): Promise<boolean> {
+  const planSelectors = [
+    'android=new UiSelector().textMatches("(?i).*(choose|select).*plan.*")',
+    'android=new UiSelector().textMatches("(?i).*plans.*")',
+    'android=new UiSelector().textMatches("(?i).*dazn ultimate.*")',
+    'android=new UiSelector().textMatches("(?i).*pay-per-view.*")',
+    'android=new UiSelector().descriptionMatches("(?i).*(choose|select).*plan.*")',
+    'android=new UiSelector().descriptionMatches("(?i).*plans.*")',
+  ];
+
+  for (const selector of planSelectors) {
+    try {
+      const el = await driver.$(selector);
+      if (await el.isDisplayed({ timeout: 700 }).catch(() => false)) {
+        return true;
+      }
+    } catch {}
+  }
+
+  return false;
+}
+
+async function isAndroidTvHomeOrLeftNavVisible(driver: any): Promise<boolean> {
+  const homeSelectors = [
+    'android=new UiSelector().textMatches("(?i).*\\bHome\\b.*")',
+    'android=new UiSelector().textMatches("(?i).*\\bSearch\\b.*")',
+    'android=new UiSelector().textMatches("(?i).*\\bSchedule\\b.*")',
+    'android=new UiSelector().textMatches("(?i).*All sports.*")',
+    'android=new UiSelector().textMatches("(?i).*Live TV.*")',
+    'android=new UiSelector().textContains("Press ‘back’ to go to main menu")',
+    'android=new UiSelector().descriptionMatches("(?i).*\\bHome\\b.*")',
+    'android=new UiSelector().descriptionMatches("(?i).*\\bSearch\\b.*")',
+    'android=new UiSelector().descriptionMatches("(?i).*\\bSchedule\\b.*")',
+  ];
+
+  for (const selector of homeSelectors) {
+    try {
+      const el = await driver.$(selector);
+      if (await el.isDisplayed({ timeout: 700 }).catch(() => false)) {
+        return true;
+      }
+    } catch {}
+  }
+
+  return false;
+}
+
+async function detectAndroidTvPostLoginScreen(driver: any): Promise<'home' | 'banner' | 'plans' | 'unknown'> {
+  if (await isTvNavigationShellVisible(driver) || await isAndroidTvHomeOrLeftNavVisible(driver)) return 'home';
+  if (await isAndroidTvPlanPageVisible(driver)) return 'plans';
+  if (await isAndroidTvPostLoginBannerVisible(driver)) return 'banner';
+  return 'unknown';
+}
+
+async function assertAndroidTvPostLoginDestination(driver: any): Promise<void> {
+  let screen = await detectAndroidTvPostLoginScreen(driver);
+  if (screen !== 'unknown') {
+    console.log(`✅ Android TV post-login destination displayed: ${screen}`);
+  } else {
+    console.log('↩️ Android TV Home/Post banner/Plans page not detected after login. Pressing Back once.');
+    sendTvKeyevent(TV_KEYCODES.BACK);
+    await driver.pause(ANDROIDTV_POST_LOGIN_AFTER_BACK_WAIT_MS);
+    screen = await detectAndroidTvPostLoginScreen(driver);
+  }
+
+  if (screen === 'plans' || screen === 'banner') {
+    console.log(`↩️ Android TV post-login ${screen} displayed. Pressing Back once to reach Home.`);
+    sendTvKeyevent(TV_KEYCODES.BACK);
+    await driver.pause(ANDROIDTV_POST_LOGIN_AFTER_BACK_WAIT_MS);
+    screen = await detectAndroidTvPostLoginScreen(driver);
+  }
+
+  if (screen !== 'home') {
+    await driver.saveScreenshot('./test-results/androidtv_post_login_destination_failed.png').catch(() => {});
+    try {
+      const pageSource = await driver.getPageSource();
+      require('fs').writeFileSync('./test-results/androidtv_post_login_destination_failed.xml', pageSource);
+    } catch {}
+    throw new Error(`Android TV did not reach Home after login/back handling. Last detected screen: ${screen}.`);
+  }
+
+  console.log('✅ Android TV Home displayed after login/back handling');
+}
+
 async function waitForTvPageLoadAfterLogin(driver: any, timeoutMs = 45000): Promise<void> {
   try {
     await driver.waitUntil(async () => {
@@ -893,23 +1011,87 @@ async function settleTvAppAfterBrowserLogin(driver: any): Promise<void> {
     return;
   }
 
-  await driver.pause(5000);
+  const postLoginWaitMs = TV_TARGET === 'androidtv' ? ANDROIDTV_POST_LOGIN_WAIT_MS : 5000;
+  console.log(`⏳ Waiting ${postLoginWaitMs}ms for ${TV_TARGET} app to finish login sync...`);
+  await driver.pause(postLoginWaitMs);
   await waitForTvPageLoadAfterLogin(driver);
+
+  if (TV_TARGET === 'androidtv') {
+    await assertAndroidTvPostLoginDestination(driver);
+  }
+
   await closePostLoginBannerIfPresent(driver);
   await driver.pause(2000);
 }
 
 // Browser-side QR login: used only after the TV app displays a device sign-in QR.
-async function signInViaQrInBrowser(signInUrl: string, credentials: RegionCredentials): Promise<void> {
+async function signInViaQrInBrowser(signInUrl: string, credentials: RegionCredentials): Promise<() => Promise<void>> {
   const { chromium } = require('@playwright/test');
   const browser = await chromium.launch({
     headless: false,
   });
   const page = await browser.newPage();
+  let browserLoginCompleted = false;
+  let browserLoginDestination: BrowserLoginDestination = 'unknown';
+  const closeBrowser = async (): Promise<void> => {
+    await browser.close().catch(() => {});
+  };
+
+  const acceptWebCookiesIfPresent = async (timeoutMs = 8000): Promise<void> => {
+    const selectors = [
+      '#onetrust-accept-btn-handler',
+      '#accept-recommended-btn-handler',
+      'button:has-text("Accept All")',
+      'button:has-text("Accept all")',
+      'button:has-text("Accept Cookies")',
+      'button:has-text("Accept cookies")',
+      'button:has-text("I Accept")',
+      '[role="button"]:has-text("Accept All")',
+      '[role="button"]:has-text("Accept all")',
+    ];
+
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      for (const selector of selectors) {
+        const acceptButton = page.locator(selector).first();
+        if (!await acceptButton.isVisible({ timeout: 500 }).catch(() => false)) continue;
+
+        await acceptButton.click({ force: true, timeout: 3000 }).catch(async () => {
+          await acceptButton.evaluate((node: HTMLElement) => node.click()).catch(() => {});
+        });
+        await page.locator('#onetrust-banner-sdk, #onetrust-consent-sdk, .onetrust-pc-dark-filter')
+          .waitFor({ state: 'hidden', timeout: 5000 })
+          .catch(() => {});
+        console.log(`🍪 Accepted web cookies before browser login via ${selector}`);
+        await page.waitForTimeout(500);
+        return;
+      }
+
+      await page.waitForTimeout(500);
+    }
+
+    console.log('🍪 Web cookie banner not displayed before browser login.');
+  };
+
+  const goBackOnceAfterAndroidTvBrowserLogin = async (): Promise<void> => {
+    const beforeBackUrl = page.url();
+    console.log('↩️ Android TV browser login completed on plans/purchase page. Using one browser Back before returning to TV app...');
+    await page.goBack({ waitUntil: 'domcontentloaded', timeout: 10000 }).catch(async () => {
+      await page.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowLeft' : 'Alt+ArrowLeft').catch(() => {});
+      await page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => {});
+    });
+
+    if (PPV_PURCHASE_BACK_SETTLE_MS > 0) {
+      console.log(`⏳ Waiting ${PPV_PURCHASE_BACK_SETTLE_MS}ms after Android TV browser Back...`);
+      await page.waitForTimeout(PPV_PURCHASE_BACK_SETTLE_MS);
+    }
+
+    console.log(`✅ Android TV browser Back completed. Before: ${beforeBackUrl} | After: ${page.url()}`);
+  };
 
   // Some DAZN QR logins land on the PPV purchase/plans page. Back out once so
   // the TV session can settle before the native app continues the PPV flow.
-  const clickPlansBackIfPresent = async (): Promise<void> => {
+  const clickPlansBackIfPresent = async (maxWaitMs = 20000): Promise<void> => {
     const waitAfterBackClick = async (): Promise<void> => {
       if (PPV_PURCHASE_BACK_SETTLE_MS <= 0) return;
       console.log(`⏳ Waiting ${PPV_PURCHASE_BACK_SETTLE_MS}ms after PPV purchase Back click...`);
@@ -934,7 +1116,7 @@ async function signInViaQrInBrowser(signInUrl: string, credentials: RegionCreden
     };
 
     const start = Date.now();
-    while (Date.now() - start < 20000) {
+    while (Date.now() - start < maxWaitMs) {
       if (await isPlansPageVisible()) break;
       await page.waitForTimeout(1000);
     }
@@ -987,31 +1169,59 @@ async function signInViaQrInBrowser(signInUrl: string, credentials: RegionCreden
     await waitAfterBackClick();
   };
 
-  const waitForBrowserLoginCompletion = async (): Promise<void> => {
-    const start = Date.now();
-    await page.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch(() => {});
-    await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
-
-    await page.waitForFunction(() => {
+  const detectBrowserLoginDestination = async (): Promise<BrowserLoginDestination> => {
+    return page.evaluate(() => {
       const path = (window.location.pathname || '').toLowerCase();
       const href = (window.location.href || '').toLowerCase();
-      const stillOnAuthRoute = /login|signin|sign-in|auth/.test(path) || /login|signin|sign-in|auth/.test(href);
+      const bodyText = (document.body?.innerText || '').toLowerCase().replace(/\s+/g, ' ');
       const hasAuthFields = !!document.querySelector('input[type="email"], input[name="email"], input[type="password"], input[name="password"]');
-      return !stillOnAuthRoute || !hasAuthFields;
-    }, { timeout: 30000 }).catch(() => {});
+      const stillOnAuthRoute = /login|signin|sign-in|auth/.test(path) || /login|signin|sign-in|auth/.test(href);
+
+      if (hasAuthFields || stillOnAuthRoute) return 'login';
+      if (/plans?|choose your plan|select your plan|choose how to buy|dazn ultimate|pay-per-view|purchase/.test(bodyText) || /plans?|purchase|contextualppvid|plan/.test(href)) return 'plans';
+      if (/welcome|you.re in|you are in|continue watching|personalise|notification|profile/.test(bodyText)) return 'post-login';
+      if (/home|schedule|search|all sports|live tv/.test(bodyText) || /\/home|\/browse|\/schedule/.test(path)) return 'home';
+      return 'authenticated';
+    }).catch(() => 'unknown');
+  };
+
+  const waitForBrowserLoginCompletion = async (timeoutMs = 30000): Promise<boolean> => {
+    const start = Date.now();
+    await page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => {});
+
+    const completed = await page.waitForFunction(() => {
+      const path = (window.location.pathname || '').toLowerCase();
+      const href = (window.location.href || '').toLowerCase();
+      const hasAuthFields = !!document.querySelector('input[type="email"], input[name="email"], input[type="password"], input[name="password"]');
+      const stillOnAuthRoute = /login|signin|sign-in|auth/.test(path) || /login|signin|sign-in|auth/.test(href);
+      return !hasAuthFields && !stillOnAuthRoute;
+    }, { timeout: timeoutMs }).then(() => true).catch(() => false);
 
     const elapsed = Date.now() - start;
-    console.log(`✅ Browser post-continue wait completed (${elapsed}ms)`);
+    const destination = await detectBrowserLoginDestination();
+    browserLoginDestination = destination;
+    if (completed) {
+      console.log(`✅ Browser login completed on web (${destination}, ${elapsed}ms)`);
+    } else {
+      console.log(`⚠️ Browser still appears to be on ${destination} after ${elapsed}ms`);
+    }
+
+    return completed;
   };
 
   try {
     await page.goto(signInUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await acceptWebCookiesIfPresent();
     const emailInput = page.locator('input[type="email"], input[name="email"]').first();
     await emailInput.waitFor({ state: 'visible', timeout: 20000 });
     await emailInput.fill(credentials.email);
 
     const emailContinueSelectors = [
       'button:has-text("Continue")',
+      'button:has-text("CONTINUE")',
+      'button[aria-label*="Continue" i]',
+      '[role="button"]:has-text("Continue")',
+      '[role="button"]:has-text("CONTINUE")',
       'button[type="submit"]',
       'input[type="submit"]',
     ];
@@ -1020,51 +1230,299 @@ async function signInViaQrInBrowser(signInUrl: string, credentials: RegionCreden
       'button:has-text("Log in")',
       'button:has-text("Login")',
       'button:has-text("Sign in")',
+      'button:has-text("Continue")',
+      'button[aria-label*="Log in" i]',
+      'button[aria-label*="Login" i]',
+      'button[aria-label*="Sign in" i]',
+      '[role="button"]:has-text("Log in")',
+      '[role="button"]:has-text("Login")',
+      '[role="button"]:has-text("Sign in")',
       'button[type="submit"]',
       'input[type="submit"]',
     ];
 
     const clickCta = async (selectors: string[], stepLabel: string): Promise<boolean> => {
+      const clickCandidate = async (el: any, label: string): Promise<boolean> => {
+        if (!await el.isVisible({ timeout: 1000 }).catch(() => false)) return false;
+        const isEnabled = await el.isEnabled({ timeout: 5000 }).catch(() => true);
+        if (!isEnabled) return false;
+        await el.scrollIntoViewIfNeeded().catch(() => {});
+
+        try {
+          await el.click({ timeout: 5000 });
+        } catch {
+          try {
+            await el.click({ force: true, timeout: 5000 });
+          } catch {
+            const box = await el.boundingBox().catch(() => null);
+            if (box) {
+              await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+            } else {
+              await el.evaluate((node: HTMLElement) => node.click()).catch(() => {});
+            }
+          }
+        }
+
+        console.log(`✅ ${stepLabel} via ${label}`);
+        return true;
+      };
+
+      const roleButtonName = stepLabel.toLowerCase().includes('email')
+        ? /^continue$/i
+        : /^(log in|login|sign in|continue)$/i;
+      const roleButtons = page.getByRole('button', { name: roleButtonName });
+      const roleButtonCount = await roleButtons.count().catch(() => 0);
+      for (let index = 0; index < Math.min(roleButtonCount, 10); index++) {
+        if (await clickCandidate(roleButtons.nth(index), `role=button [${index + 1}/${roleButtonCount}]`)) return true;
+      }
+
       for (const selector of selectors) {
-        const el = page.locator(selector).first();
-        if (await el.isVisible({ timeout: 3000 }).catch(() => false)) {
-          await el.click({ force: true });
-          console.log(`✅ ${stepLabel} via ${selector}`);
-          return true;
+        const locator = page.locator(selector);
+        const count = await locator.count().catch(() => 0);
+        for (let index = 0; index < Math.min(count || 1, 10); index++) {
+          const el = locator.nth(index);
+          if (await clickCandidate(el, `${selector}${count > 1 ? ` [${index + 1}/${count}]` : ''}`)) return true;
         }
       }
 
       return false;
     };
 
-    const passwordInput = page.locator('input[type="password"], input[name="password"]').first();
+    const passwordInput = page.locator('input[type="password"], input[name="password"], input[autocomplete="current-password"]').first();
     const passwordVisibleAfterEmail = await passwordInput.isVisible({ timeout: 3000 }).catch(() => false);
 
-    if (!passwordVisibleAfterEmail) {
-      const emailContinueClicked = await clickCta(emailContinueSelectors, 'Email Continue CTA clicked');
-      if (!emailContinueClicked) {
-        throw new Error('Email Continue CTA not found on browser login page.');
+    const waitForPasswordInput = async (timeoutMs = 12000): Promise<boolean> => {
+      return passwordInput.waitFor({ state: 'visible', timeout: timeoutMs }).then(() => true).catch(() => false);
+    };
+
+    const submitAndroidTvPasswordStep = async (): Promise<void> => {
+      const clickPasswordLoginByDom = async (): Promise<boolean> => {
+        const result = await page.evaluate(() => {
+          const password = document.querySelector('input[type="password"], input[name="password"], input[autocomplete="current-password"]') as HTMLInputElement | null;
+          const passwordBox = password?.getBoundingClientRect();
+          const isVisible = (element: Element): boolean => {
+            const style = window.getComputedStyle(element);
+            const box = element.getBoundingClientRect();
+            return style.visibility !== 'hidden' && style.display !== 'none' && box.width > 0 && box.height > 0;
+          };
+          const isDisabled = (element: Element): boolean => {
+            const disabledAttr = element.getAttribute('disabled');
+            const ariaDisabled = element.getAttribute('aria-disabled');
+            return disabledAttr !== null || ariaDisabled === 'true';
+          };
+          const getLabel = (element: Element): string => [
+            element.textContent || '',
+            element.getAttribute('aria-label') || '',
+            element.getAttribute('value') || '',
+            element.getAttribute('data-testid') || '',
+            element.getAttribute('data-test-id') || '',
+            element.getAttribute('name') || '',
+            element.getAttribute('type') || '',
+          ].join(' ').replace(/\s+/g, ' ').trim();
+          const distanceFromPassword = (element: Element): number => {
+            if (!passwordBox) return 0;
+            const box = element.getBoundingClientRect();
+            const verticalDistance = Math.max(0, box.top - passwordBox.bottom);
+            const horizontalDistance = Math.abs((box.left + box.width / 2) - (passwordBox.left + passwordBox.width / 2));
+            return verticalDistance + horizontalDistance / 4;
+          };
+
+          const candidates = Array.from(document.querySelectorAll('button, [role="button"], input[type="submit"], input[type="button"]'))
+            .filter(element => isVisible(element) && !isDisabled(element))
+            .map(element => ({ element, label: getLabel(element), distance: distanceFromPassword(element) }))
+            .filter(candidate => /(log in|login|sign in|continue|submit)/i.test(candidate.label))
+            .sort((left, right) => left.distance - right.distance);
+
+          const target = candidates[0];
+          if (!target) {
+            return { clicked: false, label: '', reason: 'no visible enabled login candidate' };
+          }
+
+          (target.element as HTMLElement).focus();
+          (target.element as HTMLElement).click();
+          return { clicked: true, label: target.label || 'unlabelled login candidate', reason: 'dom click' };
+        }).catch((error: any) => ({ clicked: false, label: '', reason: error?.message || 'dom click failed' }));
+
+        if (result.clicked) {
+          console.log(`✅ Password Log in CTA clicked by DOM fallback: ${result.label}`);
+          return true;
+        }
+
+        console.log(`ℹ️ DOM password Login click skipped: ${result.reason}`);
+        return false;
+      };
+
+      const clickPasswordFormSubmit = async (): Promise<boolean> => {
+        const formButtons = passwordInput.locator('xpath=ancestor::form[1]//*[self::button or @role="button" or self::input[@type="submit"]]');
+        const count = await formButtons.count().catch(() => 0);
+        for (let index = 0; index < Math.min(count, 8); index++) {
+          const button = formButtons.nth(index);
+          const label = normalizeReportText([
+            await button.textContent().catch(() => ''),
+            await button.getAttribute('aria-label').catch(() => ''),
+            await button.getAttribute('value').catch(() => ''),
+          ].join(' '));
+          if (!/(log in|login|sign in|continue)/i.test(label)) continue;
+          if (!await button.isVisible({ timeout: 1000 }).catch(() => false)) continue;
+          if (!await button.isEnabled({ timeout: 5000 }).catch(() => true)) continue;
+          await button.scrollIntoViewIfNeeded().catch(() => {});
+
+          try {
+            await button.click({ timeout: 5000 });
+          } catch {
+            try {
+              await button.click({ force: true, timeout: 5000 });
+            } catch {
+              const box = await button.boundingBox().catch(() => null);
+              if (box) {
+                await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+              } else {
+                await button.evaluate((node: HTMLElement) => node.click()).catch(() => {});
+              }
+            }
+          }
+
+          console.log(`✅ Password Log in CTA clicked from password form: ${label || 'unlabelled submit'}`);
+          return true;
+        }
+
+        return false;
+      };
+
+      const submitPasswordForm = async (): Promise<void> => {
+        await passwordInput.evaluate((input: HTMLInputElement) => {
+          const form = input.form;
+          if (form?.requestSubmit) {
+            form.requestSubmit();
+            return;
+          }
+          form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+        }).catch(() => {});
+      };
+
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        console.log(`🔐 Submitting Android TV password step (attempt ${attempt})...`);
+        await passwordInput.click().catch(() => {});
+
+        const clicked = await clickCta(passwordLoginSelectors, `Password Log in CTA clicked (attempt ${attempt})`) ||
+          await clickPasswordFormSubmit() ||
+          await clickPasswordLoginByDom();
+        if (!clicked) {
+          console.log(`↩️ Password Log in CTA not found on attempt ${attempt}. Pressing Enter from password field.`);
+          await passwordInput.press('Enter').catch(() => {});
+        }
+
+        if (await waitForBrowserLoginCompletion(ANDROIDTV_BROWSER_LOGIN_COMPLETE_TIMEOUT_MS)) {
+          console.log('✅ Browser login completed after Android TV password submit');
+          return;
+        }
+
+        console.log(`ℹ️ Browser still on login after Android TV password submit attempt ${attempt}. Trying Enter/form submit fallback...`);
+        await passwordInput.press('Enter').catch(() => {});
+        if (await waitForBrowserLoginCompletion(ANDROIDTV_BROWSER_LOGIN_RETRY_TIMEOUT_MS)) {
+          console.log('✅ Browser login completed after password Enter fallback');
+          return;
+        }
+
+        await submitPasswordForm();
+        if (await waitForBrowserLoginCompletion(ANDROIDTV_BROWSER_LOGIN_RETRY_TIMEOUT_MS)) {
+          console.log('✅ Browser login completed after password form submit fallback');
+          return;
+        }
       }
-      await passwordInput.waitFor({ state: 'visible', timeout: 20000 });
+
+      await page.screenshot({ path: './test-results/android_tv_browser_login_not_completed.png', fullPage: true }).catch(() => {});
+      await fs.promises.writeFile('./test-results/android_tv_browser_login_not_completed.html', await page.content()).catch(() => {});
+      throw new Error('Browser login did not complete after Android TV password submit. Screenshot: ./test-results/android_tv_browser_login_not_completed.png');
+    };
+
+    const submitEmailStep = async (): Promise<void> => {
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        const emailContinueClicked = await clickCta(emailContinueSelectors, `Email Continue CTA clicked (attempt ${attempt})`);
+        if (emailContinueClicked && await waitForPasswordInput()) {
+          console.log('✅ Password field displayed after email Continue');
+          return;
+        }
+
+        console.log(`ℹ️ Password page not visible after email Continue attempt ${attempt}. Retrying email submit...`);
+        await emailInput.press('Enter').catch(() => {});
+        if (await waitForPasswordInput(8000)) {
+          console.log('✅ Email Continue submitted via Enter fallback');
+          return;
+        }
+      }
+
+      await page.screenshot({ path: './test-results/android_tv_email_continue_not_completed.png', fullPage: true }).catch(() => {});
+      throw new Error('Email Continue did not open the password page. Screenshot: ./test-results/android_tv_email_continue_not_completed.png');
+    };
+
+    if (TV_TARGET === 'androidtv' || !passwordVisibleAfterEmail) {
+      await submitEmailStep();
     }
 
     await passwordInput.waitFor({ state: 'visible', timeout: 20000 });
     await passwordInput.fill(credentials.password);
+    await page.waitForTimeout(500);
 
-    const passwordLoginClicked = await clickCta(passwordLoginSelectors, 'Password Log in CTA clicked');
-    if (!passwordLoginClicked) {
-      throw new Error('Password Log in CTA not found on browser login page.');
+    if (TV_TARGET === 'androidtv') {
+      await submitAndroidTvPasswordStep();
+    } else {
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        const passwordLoginClicked = await clickCta(passwordLoginSelectors, `Password Log in CTA clicked (attempt ${attempt})`);
+        if (!passwordLoginClicked) {
+          console.log(`↩️ Password Log in CTA not found on attempt ${attempt}. Pressing Enter from password field.`);
+          await passwordInput.press('Enter');
+        }
+
+        if (await waitForBrowserLoginCompletion(10000)) {
+          console.log('✅ Browser login completed after password submit');
+          break;
+        }
+
+        if (attempt < 3) {
+          console.log(`ℹ️ Browser still on login after password submit attempt ${attempt}. Retrying...`);
+          await passwordInput.press('Enter').catch(() => {});
+        }
+      }
+
+      if (!await waitForBrowserLoginCompletion(3000)) {
+        await page.screenshot({ path: './test-results/android_tv_browser_login_not_completed.png', fullPage: true }).catch(() => {});
+        await fs.promises.writeFile('./test-results/android_tv_browser_login_not_completed.html', await page.content()).catch(() => {});
+        throw new Error('Browser login did not complete after password submit. Screenshot: ./test-results/android_tv_browser_login_not_completed.png');
+      }
     }
 
-    await waitForBrowserLoginCompletion();
-    if (BROWSER_LOGIN_COMPLETE_SETTLE_MS > 0) {
-      console.log(`⏳ Waiting ${BROWSER_LOGIN_COMPLETE_SETTLE_MS}ms after completing browser login before PPV purchase Back check...`);
-      await page.waitForTimeout(BROWSER_LOGIN_COMPLETE_SETTLE_MS);
+    browserLoginCompleted = true;
+
+    const browserLoginSettleMs = TV_TARGET === 'androidtv'
+      ? ANDROIDTV_BROWSER_LOGIN_SETTLE_MS
+      : BROWSER_LOGIN_COMPLETE_SETTLE_MS;
+    if (browserLoginSettleMs > 0) {
+      console.log(`⏳ Waiting ${browserLoginSettleMs}ms after completing browser login before PPV purchase Back check...`);
+      await page.waitForTimeout(browserLoginSettleMs);
     }
-    console.log('✅ Browser login process completed. Checking for PPV purchase Back icon...');
-    await clickPlansBackIfPresent();
+    const destinationAfterLogin = await detectBrowserLoginDestination();
+    browserLoginDestination = destinationAfterLogin;
+    if (destinationAfterLogin === 'plans') {
+      if (TV_TARGET === 'androidtv') {
+        console.log('✅ Android TV browser login process completed on plans page. Using browser Back once...');
+        await goBackOnceAfterAndroidTvBrowserLogin();
+      } else {
+        console.log('✅ Browser login process completed on plans page. Checking for PPV purchase Back icon...');
+        await clickPlansBackIfPresent(20000);
+      }
+    } else {
+      console.log(`✅ Browser login process completed on ${destinationAfterLogin}; skipping PPV purchase Back check.`);
+    }
+    return closeBrowser;
   } finally {
-    await browser.close().catch(() => {});
+    if (!browserLoginCompleted && TV_TARGET === 'androidtv' && TV_LOGIN_FAILURE_KEEP_BROWSER_OPEN_MS > 0) {
+      console.log(`⚠️ Browser login did not complete. Keeping browser open for ${TV_LOGIN_FAILURE_KEEP_BROWSER_OPEN_MS}ms for debugging.`);
+      await page.waitForTimeout(TV_LOGIN_FAILURE_KEEP_BROWSER_OPEN_MS).catch(() => {});
+    }
+    if (!browserLoginCompleted || TV_TARGET !== 'androidtv') {
+      await closeBrowser();
+    }
   }
 }
 
@@ -1096,16 +1554,23 @@ async function runBrowserLoginAndSwitchBack(driver: any, options: { allowHandoff
   }
 
   const credentials = resolveRegionCredentials();
-  await signInViaQrInBrowser(qrUrl, credentials);
+  const closeBrowser = await signInViaQrInBrowser(qrUrl, credentials);
 
-  if (TV_LOGIN_SETTLE_MS > 0) {
-    console.log(`⏳ Waiting ${TV_LOGIN_SETTLE_MS}ms for TV login handoff to settle before switching back to app...`);
-    await driver.pause(TV_LOGIN_SETTLE_MS);
+  try {
+    if (TV_LOGIN_SETTLE_MS > 0) {
+      console.log(`⏳ Waiting ${TV_LOGIN_SETTLE_MS}ms for TV login handoff to settle before switching back to app...`);
+      await driver.pause(TV_LOGIN_SETTLE_MS);
+    }
+
+    await driver.activateApp(APP_PACKAGE).catch(() => {});
+    await settleTvAppAfterBrowserLogin(driver);
+    console.log('✅ Browser login completed and DAZN app reactivated');
+  } finally {
+    if (TV_TARGET === 'androidtv') {
+      console.log('🧹 Closing browser after Android TV login validation.');
+      await closeBrowser();
+    }
   }
-
-  await driver.activateApp(APP_PACKAGE).catch(() => {});
-  await settleTvAppAfterBrowserLogin(driver);
-  console.log('✅ Browser login completed and DAZN app reactivated');
 }
 
 // Routes only this TV PPV spec to the configured in-app source.
@@ -1234,12 +1699,20 @@ describe('DAZN TV PPV Android Handoff', function () {
 
     const isFireTv = TV_TARGET === 'firetv';
 
-    await prepareAndroidApp(browser, {
-      clearAppData: true,
-      waitForHome: TV_TARGET === 'firetv' ? false : true,
-      acceptCookiesOnly: isFireTv,
-    });
-    recordTvPpvReportStep('DAZN app launched Successfully.', 'DAZN app launched Successfully.', 'DAZN app launched Successfully.');
+    if (TV_WEB_LOGIN_ONLY && TV_TARGET !== 'androidtv') {
+      throw new Error('TV_WEB_LOGIN_ONLY=true is supported only for TV_TARGET=androidtv. Fire TV flow is unchanged.');
+    }
+
+    if (!TV_WEB_LOGIN_ONLY) {
+      await prepareAndroidApp(browser, {
+        clearAppData: true,
+        waitForHome: TV_TARGET === 'firetv' ? false : true,
+        acceptCookiesOnly: isFireTv,
+      });
+      recordTvPpvReportStep('DAZN app launched Successfully.', 'DAZN app launched Successfully.', 'DAZN app launched Successfully.');
+    } else {
+      console.log('ℹ️ TV_WEB_LOGIN_ONLY=true: using the QR page already open on Android TV. Skipping app reset/launch.');
+    }
 
     if (TV_TARGET === 'androidtv') {
       // Step 2: Android TV prod can start on QR login after data clear.
@@ -1250,6 +1723,8 @@ describe('DAZN TV PPV Android Handoff', function () {
         const credentials = resolveRegionCredentials();
         recordTvPpvReportStep('Login Completed with entered Email.', credentials.email, credentials.email);
         await primeAndroidTvFocus(browser);
+      } else if (TV_WEB_LOGIN_ONLY) {
+        throw new Error('TV_WEB_LOGIN_ONLY=true requires the Android TV QR login page to already be visible.');
       }
     }
 
@@ -1297,6 +1772,11 @@ describe('DAZN TV PPV Android Handoff', function () {
   it('navigates to PPV and captures checkout URL for web handoff', async () => {
     const driver = browser;
 
+    if (TV_LOGIN_ONLY || TV_WEB_LOGIN_ONLY) {
+      console.log('✅ TV login debug completed. Skipping PPV navigation and handoff capture.');
+      return;
+    }
+
     if (TV_TARGET === 'firetv') {
       // Fire TV schedule flow:
       // Explore/Get started -> QR browser login -> return to app -> Schedule -> PPV tile.
@@ -1331,11 +1811,19 @@ describe('DAZN TV PPV Android Handoff', function () {
     }
 
     // Step 3: Android TV flow opens the configured PPV entry point in the app.
-    const opened = await openTvPpvFlow(driver);
+    const credentials = resolveRegionCredentials();
+    const opened = await openTvPpvFlow(driver, {
+      validateSurface: async () => {
+        await recordTvScheduleAndTileAssertions(driver);
+      },
+      validatePaywall: async () => {
+        recordTvPpvReportStep('TV PPV paywall opened', 'Schedule PPV tile opens paywall', PPV_NAME);
+        await recordTvPaywallAssertions(driver, credentials.email);
+      },
+    });
     if (!opened) {
       throw new Error(`TV PPV flow did not reach paywall for SOURCE=${SOURCE}`);
     }
-    recordTvPpvReportStep('TV PPV paywall opened', 'Configured PPV source opens paywall', PPV_NAME);
 
     await captureTvPpvHandoffUrl(driver);
   });

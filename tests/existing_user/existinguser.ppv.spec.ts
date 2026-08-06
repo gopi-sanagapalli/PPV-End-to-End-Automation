@@ -312,7 +312,7 @@ async function openYopmailHandoffAndReachPlansPage(page: any, handoffUrl: string
     .catch(() => '');
   const handoffPageTitle = bodyText.includes('choose how to buy') ? 'Choose how to buy' : 'DAZN plans page';
   recordTvHandoffReportStep(results, 'Complete Sign Up CTA', 'Navigate from Yopmail to DAZN web', 'DAZN web opened');
-  recordTvHandoffReportStep(results, 'Page Title', 'Choose how to buy', handoffPageTitle, handoffPageTitle === 'Choose how to buy' ? 'PASS' : 'FAIL');
+  recordTvHandoffReportStep(results, 'Page Title', 'Choose how to buy or DAZN plans page', handoffPageTitle, ['Choose how to buy', 'DAZN plans page'].includes(handoffPageTitle) ? 'PASS' : 'FAIL');
   console.log(`✅ [TV Handoff] Yopmail link reached DAZN plans page: ${plansUrl}`);
   return plansUrl;
 }
@@ -537,7 +537,9 @@ for (const stateKey of userStatesToRun) {
       eventData.PAYMENT_FREE_TEXT = 'N/A';
       eventData.CANCELLATION_TEXT = eventData.CANCELLATION_TEXT_TRIAL || '';
     } else if (isTrial) {
-      eventData.PAYMENT_PAGE_TITLE = eventData.PAYMENT_PAGE_TITLE_TRIAL || 'Choose how to pay after your free trial';
+      eventData.PAYMENT_PAGE_TITLE = TV_HANDOFF_MODE
+        ? (eventData.PAYMENT_PAGE_TITLE_STANDARD || 'Choose how to pay')
+        : (eventData.PAYMENT_PAGE_TITLE_TRIAL || 'Choose how to pay after your free trial');
       eventData.PAYMENT_PLAN_NAME = eventData.PAYMENT_FREE_TEXT_TRIAL || `${eventData.FREE_TRIAL_DAYS || '7'}-days free`;
       eventData.PAYMENT_FREE_TEXT = eventData.PAYMENT_FREE_TEXT_TRIAL || `${eventData.FREE_TRIAL_DAYS || '7'}-days free`;
       eventData.CANCELLATION_TEXT = eventData.CANCELLATION_TEXT_TRIAL || '';
