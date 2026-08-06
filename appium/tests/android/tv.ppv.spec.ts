@@ -1037,24 +1037,35 @@ async function signInViaQrInBrowser(signInUrl: string, credentials: RegionCreden
     await browser.close().catch(() => {});
   };
 
-  const acceptWebCookiesIfPresent = async (timeoutMs = 8000): Promise<void> => {
+  const acceptWebCookiesIfPresent = async (timeoutMs = 20000): Promise<void> => {
     const selectors = [
       '#onetrust-accept-btn-handler',
       '#accept-recommended-btn-handler',
+      'button:has-text("Accept")',
+      'button:has-text("ACCEPT")',
       'button:has-text("Accept All")',
       'button:has-text("Accept all")',
       'button:has-text("Accept Cookies")',
       'button:has-text("Accept cookies")',
       'button:has-text("I Accept")',
+      '[role="button"]:has-text("Accept")',
+      '[role="button"]:has-text("ACCEPT")',
       '[role="button"]:has-text("Accept All")',
       '[role="button"]:has-text("Accept all")',
     ];
+
+    console.log(`🍪 Waiting up to ${timeoutMs}ms for web cookie Accept before entering email...`);
+    await page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => {});
+    await page.locator('#onetrust-banner-sdk, #onetrust-consent-sdk, .onetrust-pc-dark-filter, #onetrust-accept-btn-handler')
+      .first()
+      .waitFor({ state: 'visible', timeout: Math.min(timeoutMs, 12000) })
+      .catch(() => {});
 
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       for (const selector of selectors) {
         const acceptButton = page.locator(selector).first();
-        if (!await acceptButton.isVisible({ timeout: 500 }).catch(() => false)) continue;
+        if (!await acceptButton.isVisible({ timeout: 1000 }).catch(() => false)) continue;
 
         await acceptButton.click({ force: true, timeout: 3000 }).catch(async () => {
           await acceptButton.evaluate((node: HTMLElement) => node.click()).catch(() => {});
@@ -1075,11 +1086,47 @@ async function signInViaQrInBrowser(signInUrl: string, credentials: RegionCreden
 
   const goBackOnceAfterAndroidTvBrowserLogin = async (): Promise<void> => {
     const beforeBackUrl = page.url();
-    console.log('↩️ Android TV browser login completed on plans/purchase page. Using one browser Back before returning to TV app...');
-    await page.goBack({ waitUntil: 'domcontentloaded', timeout: 10000 }).catch(async () => {
+    console.log('↩️ Android TV browser login completed. Using one browser Back before returning to TV app...');
+    const clickVisibleBackControl = async (): Promise<boolean> => {
+      const controls = await page.locator('button, a, [role="button"]').all();
+      for (const control of controls) {
+        const box = await control.boundingBox().catch(() => null);
+        if (!box || box.x > 120 || box.y > 120) continue;
+        await control.click({ force: true }).catch(() => undefined);
+        await page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => {});
+        console.log('✅ Android TV browser Back clicked via visible top-left control');
+        return true;
+      }
+
+      const backSelectors = [
+        '[data-testid*="back" i]',
+        '[data-test-id*="back" i]',
+        'button[aria-label*="back" i]',
+        'a[aria-label*="back" i]',
+        '[role="button"][aria-label*="back" i]',
+      ];
+
+      for (const selector of backSelectors) {
+        const back = page.locator(selector).first();
+        if (!await back.isVisible({ timeout: 500 }).catch(() => false)) continue;
+        await back.click({ force: true });
+        await page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => {});
+        console.log(`✅ Android TV browser Back clicked via ${selector}`);
+        return true;
+      }
+
+      return false;
+    };
+
+    const historyBackWorked = await page.goBack({ waitUntil: 'domcontentloaded', timeout: 10000 }).then(response => !!response).catch(async () => {
       await page.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowLeft' : 'Alt+ArrowLeft').catch(() => {});
       await page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => {});
+      return page.url() !== beforeBackUrl;
     });
+
+    if (!historyBackWorked && page.url() === beforeBackUrl) {
+      await clickVisibleBackControl();
+    }
 
     if (PPV_PURCHASE_BACK_SETTLE_MS > 0) {
       console.log(`⏳ Waiting ${PPV_PURCHASE_BACK_SETTLE_MS}ms after Android TV browser Back...`);
@@ -1503,14 +1550,12 @@ async function signInViaQrInBrowser(signInUrl: string, credentials: RegionCreden
     }
     const destinationAfterLogin = await detectBrowserLoginDestination();
     browserLoginDestination = destinationAfterLogin;
-    if (destinationAfterLogin === 'plans') {
-      if (TV_TARGET === 'androidtv') {
-        console.log('✅ Android TV browser login process completed on plans page. Using browser Back once...');
-        await goBackOnceAfterAndroidTvBrowserLogin();
-      } else {
+    if (TV_TARGET === 'androidtv') {
+      console.log(`✅ Android TV browser login process completed on ${destinationAfterLogin}. Using browser Back once...`);
+      await goBackOnceAfterAndroidTvBrowserLogin();
+    } else if (destinationAfterLogin === 'plans') {
         console.log('✅ Browser login process completed on plans page. Checking for PPV purchase Back icon...');
         await clickPlansBackIfPresent(20000);
-      }
     } else {
       console.log(`✅ Browser login process completed on ${destinationAfterLogin}; skipping PPV purchase Back check.`);
     }
