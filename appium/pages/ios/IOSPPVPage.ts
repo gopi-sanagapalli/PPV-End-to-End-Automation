@@ -25,6 +25,20 @@ export class IOSPPVPage extends IOSBasePage {
     return null;
   }
 
+  private async validateSelectedCta(
+    cta: any,
+    eventData: Record<string, any> | undefined,
+    results: IOSValidationResult[],
+    page: string,
+  ): Promise<void> {
+    const expected = String(eventData?.PPV_CTA_TEXT || 'Continue with DAZN Ultimate');
+    const actual = (await cta.getText().catch(() => '')).replace(/\s+/g, ' ').trim() || 'Not found';
+    const { compare } = require('../../../utils/compare');
+    const status = compare(actual, expected) ? 'PASS' : 'FAIL';
+    console.log(`  ${status === 'PASS' ? '✅' : '❌'} [CTA Button] expected="${expected}" actual="${actual}"`);
+    results.push({ page, field: 'CTA Button', expected, actual, status });
+  }
+
   /**
    * Returns true for the PPV tier-choice surface, which can transiently use
    * the PlanDetails route before DAZN appends `upsellTierSelected`.
@@ -157,6 +171,7 @@ export class IOSPPVPage extends IOSBasePage {
     if (!optionCta) {
       throw new Error(`Requested contextual ${wantsUltimate ? 'Ultimate' : 'PPV'} option did not expose its Continue CTA.`);
     }
+    if (wantsUltimate) await this.validateSelectedCta(optionCta, eventData, results, 'PPV Page (Safari)');
     await optionCta.scrollIntoView().catch(() => { });
     await optionCta.click();
     console.log(`✅ Continued with contextual ${wantsUltimate ? 'DAZN Ultimate' : 'pay-per-view'} option.`);
@@ -199,40 +214,112 @@ export class IOSPPVPage extends IOSBasePage {
     if (wantsUltimate) {
       // ── Ultimate path ─────────────────────────────────────────────
       console.log('💎 [Choose How To Buy] Selecting DAZN Ultimate...');
-      const ultimateOption = await this.firstVisible([
-        '//*[self::label or self::button or @role="radio" or @role="button"][contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "ultimate")]',
-        '//*[contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "dazn ultimate")]',
-      ]);
-      if (!ultimateOption) {
+      const selectedUltimate = await this.driver.execute(() => {
+        const visible = (element: HTMLElement) => {
+          const style = window.getComputedStyle(element);
+          const box = element.getBoundingClientRect();
+          return style.display !== 'none' && style.visibility !== 'hidden' && box.width > 0 && box.height > 0;
+        };
+        for (const radio of Array.from(document.querySelectorAll<HTMLInputElement>('input[type="radio"]'))) {
+          let card: HTMLElement | null = radio;
+          for (let depth = 0; card && card !== document.body && depth < 8; depth++, card = card.parentElement) {
+            if (card.querySelectorAll('input[type="radio"]').length > 1) continue;
+            if (visible(card) && /dazn\s+ultimate/i.test(card.innerText || card.textContent || '')) {
+              card.scrollIntoView({ block: 'center' });
+              radio.click();
+              radio.dispatchEvent(new Event('input', { bubbles: true }));
+              radio.dispatchEvent(new Event('change', { bubbles: true }));
+              card.click();
+              return true;
+            }
+          }
+        }
+        for (const option of Array.from(document.querySelectorAll<HTMLElement>('label, [role="radio"], [role="option"]'))) {
+          if (option.querySelectorAll('input[type="radio"]').length > 1) continue;
+          if (visible(option) && /dazn\s+ultimate/i.test(option.innerText || option.textContent || '')) {
+            option.click();
+            return true;
+          }
+        }
+        return false;
+      }).catch(() => false);
+      if (!selectedUltimate) {
         throw new Error('DAZN Ultimate option was not found on the "Choose how to buy" page.');
       }
-      await ultimateOption.click();
-      await this.driver.pause(800);
+
+      await this.driver.execute(() => window.scrollBy(0, Math.round(window.innerHeight * 0.65))).catch(() => { });
+      console.log('↕️ [Choose How To Buy] Scrolled once to reveal the DAZN Ultimate CTA.');
 
       // Click "Continue with DAZN Ultimate" CTA
-      const ultimateCta = await this.firstVisible([
+      let ultimateCta = await this.firstVisible([
         '//button[contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "continue with dazn ultimate")]',
         '//button[contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "continue with ultimate")]',
       ]);
       if (!ultimateCta) {
+        await this.driver.waitUntil(async () => {
+          ultimateCta = await this.firstVisible([
+            '//button[contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "continue with dazn ultimate")]',
+            '//button[contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "continue with ultimate")]',
+          ]);
+          return Boolean(ultimateCta);
+        }, {
+          timeout: 8000,
+          interval: 250,
+          timeoutMsg: 'DAZN Ultimate selection did not expose its Continue CTA.',
+        }).catch(() => { });
+      }
+      if (!ultimateCta) {
         throw new Error('"Continue with DAZN Ultimate" CTA not found on "Choose how to buy" page.');
       }
+      await this.validateSelectedCta(ultimateCta, eventData, results, 'Choose How To Buy (Safari)');
       await ultimateCta.click();
-      await this.driver.pause(1500);
+      await this.driver.waitUntil(async () => {
+        const text = await this.browserText();
+        return !/choose how to buy/i.test(text) && /choose (?:your|the right) plan|annual|pay monthly|pay upfront/i.test(text);
+      }, {
+        timeout: 15000,
+        interval: 250,
+        timeoutMsg: 'DAZN Ultimate selection did not transition to the plan page.',
+      });
       console.log('✅ Clicked "Continue with DAZN Ultimate" on "Choose how to buy" page.');
     } else {
       // ── PPV only path ─────────────────────────────────────────────
       console.log('🥊 [Choose How To Buy] Selecting PPV only...');
 
+      const ppvName = String(eventData?.PPV_NAME || '').toLowerCase();
+      const selectedPpv = await this.driver.execute((name: string) => {
+        const visible = (element: HTMLElement) => {
+          const style = window.getComputedStyle(element);
+          const box = element.getBoundingClientRect();
+          return style.display !== 'none' && style.visibility !== 'hidden' && box.width > 0 && box.height > 0;
+        };
+        const nameTerms = name.split(/\s+/).filter(term => term.length > 2);
+        for (const radio of Array.from(document.querySelectorAll<HTMLInputElement>('input[type="radio"]'))) {
+          let card: HTMLElement | null = radio;
+          for (let depth = 0; card && card !== document.body && depth < 8; depth++, card = card.parentElement) {
+            const text = (card.innerText || card.textContent || '').toLowerCase();
+            if (visible(card) && !text.includes('dazn ultimate') && nameTerms.some(term => text.includes(term))) {
+              radio.click();
+              return true;
+            }
+          }
+        }
+        return false;
+      }, ppvName).catch(() => false);
+      if (!selectedPpv) throw new Error('PPV option was not found on the "Choose how to buy" page.');
+
       // Click the PPV "Buy now" / "Continue" CTA to advance to PPV Payment
       const buyNow = await this.firstVisible([
-        '//button[contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "buy now")]',
-        '//button[contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "continue")]',
-        '[role="button"]',
+        'button*=Continue with',
+        '[role="button"]*=Continue with',
       ]);
       if (!buyNow) throw new Error('"Buy now" CTA not found on "Choose how to buy" page.');
       await buyNow.click();
-      await this.driver.pause(1500);
+      await this.driver.waitUntil(async () => /one time payment|pay now|payment method/i.test(await this.browserText()), {
+        timeout: 15000,
+        interval: 250,
+        timeoutMsg: 'PPV selection did not transition to the saved-card payment page.',
+      });
       console.log('✅ Clicked "Buy now" on "Choose how to buy" page.');
     }
   }

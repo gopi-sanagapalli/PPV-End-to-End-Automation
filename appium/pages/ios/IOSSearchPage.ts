@@ -155,6 +155,7 @@ export class IOSSearchPage extends IOSBasePage {
 
     try {
       await this.driver.switchContext('NATIVE_APP');
+      const nativeContext = await this.driver.getContext().catch(() => '');
       const returnKeySelectors = [
         '~Return', '~return', '~Enter', '~enter',
         '-ios predicate string:(type == "XCUIElementTypeKey" OR type == "XCUIElementTypeButton") AND (name == "Return" OR label == "Return" OR value == "Return" OR name == "return" OR label == "return" OR value == "return" OR name == "Enter" OR label == "Enter" OR value == "Enter" OR name == "enter" OR label == "enter" OR value == "enter")',
@@ -163,7 +164,9 @@ export class IOSSearchPage extends IOSBasePage {
       let keyboardShown = false;
       await this.driver.waitUntil(async () => {
         keyboardShown = await this.driver.isKeyboardShown().catch(() => false);
-        returnKey = await this.browserFirstVisible(returnKeySelectors);
+        returnKey = nativeContext === 'NATIVE_APP'
+          ? await this.browserFirstVisible(returnKeySelectors)
+          : null;
         return Boolean(returnKey) || keyboardShown;
       }, {
         timeout: 5000,
@@ -228,7 +231,7 @@ export class IOSSearchPage extends IOSBasePage {
 
     const hasDevIndicator = async () => {
       if (await this.browserFirstVisible([
-        'div[class*="dev-mode__circle" i]', '[class*="dev-mode" i]',
+        'div[class*="dev-mode__circle" i]',
       ])) return true;
 
       // Mobile Safari sometimes exposes the dot in the DOM but does not
@@ -237,7 +240,7 @@ export class IOSSearchPage extends IOSBasePage {
       // before checkout leaves this page.
       return await this.driver.execute(() =>
         Array.from(document.querySelectorAll<HTMLElement>(
-          '[class*="dev-mode__circle"], [class*="dev-mode"]',
+          '[class*="dev-mode__circle"]',
         )).some(element => {
           const style = window.getComputedStyle(element);
           const box = element.getBoundingClientRect();
@@ -279,9 +282,12 @@ export class IOSSearchPage extends IOSBasePage {
     let focusedNatively = false;
     try {
       await this.driver.switchContext('NATIVE_APP');
-      const nativeInput = await this.browserFirstVisible([
-        '-ios predicate string:(type == "XCUIElementTypeSearchField" OR type == "XCUIElementTypeTextField") AND (name CONTAINS[c] "Search" OR label CONTAINS[c] "Search" OR value CONTAINS[c] "Search")',
-      ]);
+      const nativeContext = await this.driver.getContext().catch(() => '');
+      const nativeInput = nativeContext === 'NATIVE_APP'
+        ? await this.browserFirstVisible([
+          '-ios predicate string:(type == "XCUIElementTypeSearchField" OR type == "XCUIElementTypeTextField") AND (name CONTAINS[c] "Search" OR label CONTAINS[c] "Search" OR value CONTAINS[c] "Search")',
+        ])
+        : null;
       if (nativeInput) {
         await nativeInput.click();
         focusedNatively = true;
@@ -296,6 +302,10 @@ export class IOSSearchPage extends IOSBasePage {
     if (!focusedNatively) await input.click();
     await input.clearValue().catch(() => {});
     await input.addValue('[dev_mode_on]');
+    // Safari can drop focus after WebKit enters text into a field that was
+    // initially focused through the native tree. Refocus the entered field
+    // so the visible keyboard Return action can submit the command.
+    await input.click();
     await this.submitSafariSearch();
     await this.driver.pause(1000);
 
