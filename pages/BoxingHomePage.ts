@@ -376,10 +376,10 @@ export class BoxingHomePage extends HomePage {
             const ppvTitle = (eventData?.PPV_NAME || eventData?.PPV_CARD_TITLE || '').trim();
             const ppvEntitlementId = (eventData?.PPV_ENTITLEMENT_ID || '').trim();
             const directTile = ppvTitle
-              ? page.locator(`a[href*="${ppvEntitlementId}"], [data-entitlement*="${ppvEntitlementId}"]`).first()
+              ? this.page.locator(`a[href*="${ppvEntitlementId}"], [data-entitlement*="${ppvEntitlementId}"]`).first()
               : null;
             const directTileByText = ppvTitle
-              ? page.getByText(ppvTitle.split(':')[0].trim(), { exact: false }).first()
+              ? this.page.getByText(ppvTitle.split(':')[0].trim(), { exact: false }).first()
               : null;
             const directVisible =
               (directTile && await directTile.isVisible({ timeout: 3000 }).catch(() => false)) ||
