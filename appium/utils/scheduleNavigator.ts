@@ -81,6 +81,8 @@ export interface ScheduleNavOptions {
   targetMonthIndex: number;
   /** Target day-of-month parsed from PPV_DATE. */
   targetDay: number;
+  /** TV-visible schedule date label, e.g. "Sat 29 Aug". */
+  targetDateLabel?: string;
   /** Maximum gentle swipes during tile-search phase (default 20). */
   maxTileSearchSwipes?: number;
 }
@@ -257,6 +259,29 @@ export function parseMonthFromText(text: string): number {
   return -1;
 }
 
+function isDateLikeMonthText(text: string): boolean {
+  const normalized = text.replace(/\s+/g, ' ').trim().toLowerCase();
+  if (!normalized) return false;
+  if (/^today$|^tomorrow$|^previous$/.test(normalized)) return false;
+
+  const monthPattern = `(?:${MONTH_FULL.join('|')}|${MONTH_SHORT.join('|')})`;
+  const ordinalDay = '\\d{1,2}(?:st|nd|rd|th)?';
+  const weekday = '(?:mon|monday|tue|tues|tuesday|wed|wednesday|thu|thur|thurs|thursday|fri|friday|sat|saturday|sun|sunday)';
+
+  return new RegExp(`^${monthPattern}(?:\\s+${ordinalDay})?(?:\\s+\\d{4})?$`, 'i').test(normalized) ||
+    new RegExp(`^${ordinalDay}\\s+${monthPattern}(?:\\s+\\d{4})?$`, 'i').test(normalized) ||
+    new RegExp(`^${monthPattern}\\s+${ordinalDay}\\s+\\d{4}\\s+${weekday}\\s+date$`, 'i').test(normalized) ||
+    new RegExp(`^${weekday}\\s+${ordinalDay}\\s+${monthPattern}(?:\\s+at\\s+\\d{1,2}:\\d{2})?$`, 'i').test(normalized) ||
+    new RegExp(`^${monthPattern}\\s+${ordinalDay}\\s+${weekday}$`, 'i').test(normalized);
+}
+
+async function getElementDateText(el: WdElement): Promise<string> {
+  const text = String(await el.getText().catch(() => '')).trim();
+  if (text) return text;
+  return String(await el.getAttribute('contentDescription').catch(() => '') ||
+    await el.getAttribute('content-desc').catch(() => '') || '').trim();
+}
+
 /**
  * Phase 1 — Scan all visible TextViews for a standalone month header.
  *
@@ -273,7 +298,7 @@ export async function detectVisibleMonth(driver: WdBrowser): Promise<number> {
 
     // First pass: prefer standalone headers
     for (const el of els) {
-      const text: string = await el.getText().catch(() => '');
+      const text = await getElementDateText(el);
       if (!text) continue;
       if (isStandaloneMonthHeader(text)) {
         const idx = parseMonthFromText(text);
@@ -284,10 +309,12 @@ export async function detectVisibleMonth(driver: WdBrowser): Promise<number> {
       }
     }
 
-    // Second pass: any text containing a month name (embedded dates, etc.)
+    // Second pass: date-like labels containing a month name. Avoid arbitrary
+    // event titles such as "Polymarket predictions" matching "mar".
     for (const el of els) {
-      const text: string = await el.getText().catch(() => '');
+      const text = await getElementDateText(el);
       if (!text) continue;
+      if (!isDateLikeMonthText(text)) continue;
       const idx = parseMonthFromText(text);
       if (idx !== -1) {
         console.log(`📅 Phase 1: Month in text → "${text.trim()}" (${MONTH_FULL[idx]})`);
@@ -498,12 +525,15 @@ export async function navigateToTargetDay(
   targetDay: number,
   ppvName: string,
   targetMonthIndex: number,
+  targetDateLabel = '',
   maxSwipes = 12,
 ): Promise<void> {
   if (!targetDay) return;
 
-  console.log(`\n📅 Phase 2.5: Navigating to ${MONTH_FULL[targetMonthIndex]} ${targetDay} before selecting PPV tile…`);
+  const displayTarget = targetDateLabel || `${MONTH_FULL[targetMonthIndex]} ${targetDay}`;
+  console.log(`\n📅 Phase 2.5: Navigating to ${displayTarget} before selecting PPV tile…`);
   const dayPattern = new RegExp(`^${targetDay}(st|nd|rd|th)?$`, 'i');
+  const normalizedTargetDateLabel = normalizeTileText(targetDateLabel);
 
   for (let i = 0; i < maxSwipes; i++) {
     const textEls: WdElement[] =
@@ -518,7 +548,13 @@ export async function navigateToTargetDay(
         return;
       }
 
-      if (dayPattern.test(text) || text.toLowerCase().includes(`${MONTH_SHORT[targetMonthIndex].toLowerCase()} ${targetDay}`)) {
+      const normalizedText = normalizeTileText(text);
+      if (
+        (normalizedTargetDateLabel && normalizedText.includes(normalizedTargetDateLabel)) ||
+        dayPattern.test(text) ||
+        normalizedText.includes(`${MONTH_SHORT[targetMonthIndex].toLowerCase()} ${targetDay}`) ||
+        normalizedText.includes(`${targetDay} ${MONTH_SHORT[targetMonthIndex].toLowerCase()}`)
+      ) {
         console.log(`✅ Phase 2.5: Target date visible: "${text}"`);
         return;
       }
@@ -699,19 +735,19 @@ export async function navigateScheduleToPPVTile(
   options: ScheduleNavOptions,
   hooks: AndroidFlowHooks = {},
 ): Promise<void> {
-  const { ppvName, targetMonthIndex, targetDay, maxTileSearchSwipes = 20 } = options;
+  const { ppvName, targetMonthIndex, targetDay, targetDateLabel = '', maxTileSearchSwipes = 20 } = options;
 
   const hr = '═'.repeat(56);
   console.log(`\n${hr}`);
   console.log(`📅 Schedule Navigator`);
   console.log(`   PPV    : ${ppvName}`);
-  console.log(`   Target : ${MONTH_FULL[targetMonthIndex]} ${targetDay}`);
+  console.log(`   Target : ${targetDateLabel || `${MONTH_FULL[targetMonthIndex]} ${targetDay}`}`);
   console.log(`${hr}\n`);
 
   const dims = await getScreenDimensions(driver);
 
   await navigateToMonth(driver, dims, targetMonthIndex);
-  await navigateToTargetDay(driver, dims, targetDay, ppvName, targetMonthIndex);
+  await navigateToTargetDay(driver, dims, targetDay, ppvName, targetMonthIndex, targetDateLabel);
 
   const rawTile = await findPPVTileInMonth(
     driver, dims, ppvName, targetMonthIndex, maxTileSearchSwipes,

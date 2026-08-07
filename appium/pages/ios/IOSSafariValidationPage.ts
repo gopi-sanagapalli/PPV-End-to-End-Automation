@@ -868,6 +868,58 @@ export class IOSSafariValidationPage extends IOSBasePage {
     }
   }
 
+  /** Expand payment methods where necessary and validate Apple Pay in Safari. */
+  private async validateApplePayPaymentMethod(
+    pageName: string,
+    results: IOSValidationResult[],
+  ): Promise<void> {
+    const visiblePaymentMethods = () => this.driver.execute(() => {
+      const visibleTexts = Array.from(document.querySelectorAll<HTMLElement>('body *'))
+        .filter(element => {
+          const box = element.getBoundingClientRect();
+          const style = window.getComputedStyle(element);
+          return style.display !== 'none' && style.visibility !== 'hidden' && box.width > 0 && box.height > 0;
+        })
+        .map(element => (element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim());
+      return ['google pay', 'credit & debit card', 'apple pay', 'paypal']
+        .every(method => visibleTexts.some(text => text.toLowerCase() === method));
+    }).catch(() => false);
+
+    if (!await visiblePaymentMethods()) {
+      const expanded = await this.driver.execute(() => {
+        const control = Array.from(document.querySelectorAll<HTMLElement>('button, [role="button"], summary, a, div'))
+          .find(element => /^more payment methods$/i.test((element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim()));
+        if (!control) return false;
+        control.click();
+        return true;
+      }).catch(() => false);
+      if (expanded) {
+        console.log(`🔽 [${pageName}] Expanded More payment methods.`);
+        await this.driver.waitUntil(visiblePaymentMethods, {
+          timeout: 8000,
+          interval: 250,
+          timeoutMsg: 'Payment methods were not exposed after expanding More payment methods.',
+        }).catch(() => { });
+      }
+    }
+
+    const hasApplePay = await this.driver.execute(() =>
+      Array.from(document.querySelectorAll<HTMLElement>('body *')).some(element => {
+        const text = (element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim();
+        const box = element.getBoundingClientRect();
+        const style = window.getComputedStyle(element);
+        return /^apple pay$/i.test(text) && style.display !== 'none' && style.visibility !== 'hidden' && box.width > 0 && box.height > 0;
+      }),
+    ).catch(() => false);
+    const actual = hasApplePay ? 'Yes' : 'No';
+    const status = hasApplePay ? 'PASS' : 'FAIL';
+    console.log(`  ${hasApplePay ? '✅' : '❌'} [Apple Pay] expected="Yes" actual="${actual}"`);
+    const screenshot = hasApplePay
+      ? undefined
+      : await this.captureAndMarkFailureScreenshot(pageName, 'Apple Pay', 'Yes', actual);
+    results.push({ page: pageName, field: 'Apple Pay', expected: 'Yes', actual, status, screenshot });
+  }
+
   // ── Public page validators ────────────────────────────────────
 
   async validatePPVPage(

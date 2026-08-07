@@ -79,6 +79,14 @@ export TV_HANDOFF_MODE="${TV_HANDOFF_MODE:-true}"
 export ANDROID_HOME="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
 export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
 
+if [ -z "${DEVICE_SERIAL:-}" ]; then
+  if [ "$TV_TARGET" = "firetv" ]; then
+    export DEVICE_SERIAL="${FIRETV_SERIAL:-172.26.81.184:5555}"
+  elif [ "$TV_TARGET" = "androidtv" ]; then
+    export DEVICE_SERIAL="${ANDROIDTV_SERIAL:-172.26.89.94:5555}"
+  fi
+fi
+
 echo "╔════════════════════════════════════════════════════╗"
 echo "║  TV PPV -> Web End-to-End Handoff                 ║"
 echo "╚════════════════════════════════════════════════════╝"
@@ -97,6 +105,13 @@ echo "USER_STATE         : $USER_STATE"
 echo "LOGIN_FIRST        : $LOGIN_FIRST"
 echo "TV_HANDOFF_MODE    : $TV_HANDOFF_MODE"
 echo ""
+
+if [ -n "${DEVICE_SERIAL:-}" ]; then
+  FAILED_STEP="ADB device authorization"
+  echo "🔌 Checking ADB connection and authorization..."
+  bash "$ROOT_DIR/scripts/connect-adb-device.sh" "$DEVICE_SERIAL"
+  echo ""
+fi
 
 FAILED_STEP="reset Android app"
 echo "🧹 Step 1: Clearing and force-stopping DAZN app..."

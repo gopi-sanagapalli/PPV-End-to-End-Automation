@@ -855,7 +855,7 @@ export async function getActualValue(
         );
         if (upfrontIndex < 0) return 'N/A';
         const cardLines = lines.slice(upfrontIndex, upfrontIndex + 6);
-        return cardLines.find(line => /\bsave\s+(?:[A-Z]{3}\s*)?[£$€¥]?[\d,.]+/i.test(line)) || 'N/A';
+        return cardLines.find(line => /\bsave\s+(?:[A-Z]{3}\s*)?[\d,.]+/i.test(line)) || 'N/A';
       }
 
       case 'annual pay upfront price': {
@@ -2735,7 +2735,7 @@ export async function getActualValue(
         if (t.includes('vs') || t.includes('watch live') || t.includes('buy now') || t.includes('fight card') || t.includes('dazn')) return false;
         if (/^\d{1,2}$|^\w{3}$/.test(t.trim())) return false; // skip date badge
         if (/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/i.test(t)) return false;
-        return (t.includes('promotions') || t.includes('boxing') || t.includes('matchroom') || t.includes('queensberry') || t.includes('project') || t.includes('series'));
+        return (t.includes('promotions') || t.includes('boxing') || t.includes('matchroom') || t.includes('queensberry') || t.includes('project'));
       });
       if (fromSnapGeneric !== 'N/A') return fromSnapGeneric;
 
@@ -5947,7 +5947,7 @@ export async function getActualValue(
           const candidates = [card, ...Array.from(card.querySelectorAll<HTMLElement>('*'))];
           for (const element of candidates) {
             const text = normalise(element.innerText || element.textContent);
-            if (/\bsave\s+(?:[A-Z]{3}\s*)?[£$€¥]?[\d,.]+/i.test(text) && text.length < 80) {
+            if (/\bsave\s+(?:[A-Z]{3}\s*)?[\d,.]+/i.test(text) && text.length < 80) {
               return text;
             }
           }
@@ -7099,9 +7099,14 @@ export async function getActualValue(
         if (exact !== 'N/A') return exact;
       }
 
+      // CA shows different titles depending on the plan type (DAZN vs DAZN+) and tier:
+      //   Standard + DAZN     → "DAZN"
+      //   Standard + DAZN+    → "DAZN+ Standard"
+      //   Ultimate + DAZN     → "DAZN Ultimate"
+      //   Ultimate + DAZN+    → "DAZN+ Ultimate"
       return snapFind(n =>
         n.childCount === 0 &&
-        /^DAZN (Free|Standard|Ultimate|VIP)$/i.test(n.text) &&
+        /^(DAZN\+? ?(Free|Standard|Ultimate|VIP)?|DAZN\+ (Standard|Ultimate))$/i.test(n.text.trim()) &&
         n.text.length < 30
       );
     }
