@@ -39,6 +39,8 @@ export interface IOSValidationResult {
  */
 export class IOSValidationPage extends IOSBasePage {
 
+  private lastBannerValidationSource = '';
+
   private static readonly IOS_ONLY_UNSUPPORTED_PAYWALL_FIELDS = new Set([
     'instruction text',
     'copy button',
@@ -127,11 +129,32 @@ export class IOSValidationPage extends IOSBasePage {
           ? { x: location.x, y: location.y, width: size.width, height: size.height }
           : null;
       };
-      const candidates = [actualValue, expectedValue]
+      const rawCandidates = [actualValue, expectedValue]
         .filter(value => value && value !== 'Not found' && value.length > 2)
+        .map(value => value.trim().toLowerCase());
+      const candidates = rawCandidates
         .map(value => value.replace(/\\/g, '\\\\').replace(/'/g, "\\'"))
         .map(value => value.slice(0, 120));
+      const snapshotNodes = surface === 'PPV Banner'
+        ? [
+          ...(this.lastBannerValidationSource.match(/<XCUIElementType(?:StaticText|Button|Link)\b[^>]*>/g) || []),
+          ...(this.lastBannerValidationSource.match(/<XCUIElementTypeOther\b[^>]*>/g) || []),
+        ]
+        : [];
+      for (const candidate of rawCandidates) {
+        const node = snapshotNodes.find(value => value
+          .replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&')
+          .toLowerCase().includes(candidate));
+        if (!node) continue;
+        const readNumber = (attribute: string) => Number(node.match(new RegExp(`\\b${attribute}="([^"]+)"`))?.[1]);
+        const [x, y, width, height] = ['x', 'y', 'width', 'height'].map(readNumber);
+        if ([x, y, width, height].every(Number.isFinite) && width > 0 && height > 0) {
+          bounds = { x, y, width, height };
+          break;
+        }
+      }
       for (const candidate of candidates) {
+        if (bounds) break;
         const selector = `-ios predicate string:label CONTAINS[c] '${candidate}' OR name CONTAINS[c] '${candidate}' OR value CONTAINS[c] '${candidate}'`;
         const element = await this.driver.$(selector).catch(() => null);
         if (!element || !await element.isDisplayed().catch(() => false)) continue;
@@ -509,6 +532,15 @@ export class IOSValidationPage extends IOSBasePage {
             // not. The previous regex marked every date-shaped value as PASS.
             isMatch = normaliseNativeDate(actualValue) === normaliseNativeDate(expectedValue);
           }
+        } else if (fieldName.toLowerCase() === 'event name') {
+          const matched = texts.find(text => {
+            const cleaned = text.replace(/-List:[^\s]+$/i, '').trim();
+            return compare(cleaned, expectedValue) || cleaned.toLowerCase() === expectedValue.toLowerCase();
+          });
+          if (matched) {
+            actualValue = matched.replace(/-List:[^\s]+$/i, '').trim();
+            isMatch = compare(actualValue, expectedValue);
+          }
         } else {
           let matched = texts.find(t => {
             const cleanT = t.toLowerCase().trim();
@@ -569,6 +601,7 @@ export class IOSValidationPage extends IOSBasePage {
       titleExpected,
       useScheduleSnapshot,
     );
+    if (surface === 'PPV Banner') this.lastBannerValidationSource = pageSource;
 
     const cleanStr = (s: string) =>
       (s || '').replace(/[\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]/g, ' ')
@@ -656,6 +689,10 @@ export class IOSValidationPage extends IOSBasePage {
           const sectionPresent = texts.some(t => cleanStr(t).includes("don't miss") || cleanStr(t).includes('dont miss'));
           actualValue = sectionPresent ? 'Present' : 'Not found';
           isMatch = sectionPresent && expectedValue.toLowerCase() === 'present';
+        } else if (source.trim().toLowerCase() === 'home-boxing-banner' && fieldName === 'Best of Boxing Section') {
+          const sectionPresent = texts.some(t => cleanStr(t).includes('best of boxing'));
+          actualValue = sectionPresent ? 'Present' : 'Not found';
+          isMatch = sectionPresent && expectedValue.toLowerCase() === 'present';
         } else if (isDontMissTile && fieldName === 'PPV Tile Present') {
           actualValue = dontMissTileFound ? 'Yes' : 'No';
           isMatch = dontMissTileFound && expectedValue.toLowerCase() === 'yes';
@@ -726,12 +763,11 @@ export class IOSValidationPage extends IOSBasePage {
           // Upcoming Fights shows both CTAs on the same card. Validate each
           // one by its own copy; accepting the first CTA caused "Fight card"
           // to be reported as a successful Buy now check.
-          const isHomeBoxingUpcoming = source.trim().toLowerCase() === 'home-boxing-upcoming';
           const requiredCta = fieldName.toLowerCase().includes('buy now')
-            ? 'buy now'
+            ? cleanStr(expectedValue).split('|')[0]
             : (fieldName.toLowerCase().includes('fight card') ? 'fight card' : '');
-          if (isHomeBoxingUpcoming && requiredCta) {
-            const exactCta = texts.find(text => text.toLowerCase().includes(requiredCta));
+          if (requiredCta) {
+            const exactCta = texts.find(text => cleanStr(text).includes(requiredCta));
             actualValue = exactCta || 'Not found';
             isMatch = Boolean(exactCta);
           } else {
@@ -793,21 +829,40 @@ export class IOSValidationPage extends IOSBasePage {
 
           const directMatch = texts.find(t => {
             const tc = normalizeDateString(t);
-            return tc === expClean || tc.includes(expClean) || expClean.includes(tc);
+            return tc.length >= 6 && (tc === expClean || tc.includes(expClean) || expClean.includes(tc));
           });
           if (directMatch) {
             actualValue = directMatch;
             isMatch = true;
           } else {
-            const parsedExpected = getDynamicDateTimeBadge ? getDynamicDateTimeBadge(expectedValue, eventData.region) : '';
-            if (parsedExpected && texts.some(t => normalizeDateString(t).includes(normalizeDateString(parsedExpected)))) {
-              actualValue = parsedExpected;
+            const visibleDate = texts.find(t =>
+              /\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b.*\b\d{1,2}:\d{2}\s*(?:a\.?m\.?|p\.?m\.)?\b/i.test(t),
+            );
+            const parseDateTime = (value: string) => {
+              const normalized = normalizeDateString(value);
+              const date = normalized.match(/\b(\d{1,2})\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/);
+              const time = normalized.match(/\b(\d{1,2}):(\d{2})\s*(am|pm)?\b/);
+              if (!date || !time) return null;
+              let hour = Number(time[1]);
+              if (time[3] === 'pm' && hour < 12) hour += 12;
+              if (time[3] === 'am' && hour === 12) hour = 0;
+              return { day: Number(date[1]), month: date[2], minutes: hour * 60 + Number(time[2]) };
+            };
+            const expectedDate = parseDateTime(expectedValue);
+            const actualDate = visibleDate ? parseDateTime(visibleDate) : null;
+            if (visibleDate && expectedDate && actualDate &&
+              expectedDate.day === actualDate.day && expectedDate.month === actualDate.month &&
+              expectedDate.minutes === actualDate.minutes) {
+              actualValue = visibleDate;
               isMatch = true;
             } else {
-              const visibleDate = texts.find(t =>
-                /\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b.*\b\d{1,2}:\d{2}\s*(?:a\.?m\.?|p\.?m\.?)?\b/i.test(t),
-              );
-              if (visibleDate) actualValue = visibleDate;
+              const parsedExpected = getDynamicDateTimeBadge ? getDynamicDateTimeBadge(expectedValue, eventData.region) : '';
+              if (parsedExpected && texts.some(t => normalizeDateString(t).includes(normalizeDateString(parsedExpected)))) {
+                actualValue = parsedExpected;
+                isMatch = true;
+              } else if (visibleDate) {
+                actualValue = visibleDate;
+              }
             }
           }
         } else {

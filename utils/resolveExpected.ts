@@ -924,6 +924,10 @@ export function resolveExpected(
     'event date and time',
   ];
   if (dateTimeFields.includes(field)) {
+    // The Choose How To Buy cards use the device-local Safari time. Preserve
+    // the configured value as one deterministic expectation; the iOS Safari
+    // validator compares the date separately when the device timezone differs.
+    if (normalizedPageName === 'choose how to buy') return template;
     return hasExplicitDateAndTime(template) ? getDynamicDateTimeBadge(template) : template;
   }
 
@@ -960,6 +964,7 @@ export function resolveExpected(
     field === 'banner - event date' ||
     field === 'ppv date and time text';
   if (relativeDateSource && hasExplicitDateAndTime(template)) {
+    if (normalizedPageName === 'choose how to buy') return template;
     return getDynamicDateTimeBadge(template);
   }
 

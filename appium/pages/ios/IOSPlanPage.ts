@@ -57,6 +57,7 @@ export class IOSPlanPage extends IOSBasePage {
         // Stop before the page root: its text contains every plan and would
         // make the already-selected default card look like Pay Upfront.
         for (let depth = 0; node && node !== document.body && depth < 7; depth++, node = node.parentElement) {
+          if (node.querySelectorAll('input[type="radio"], [role="radio"]').length > 1) continue;
           const text = (node.textContent || '').toLowerCase();
           if (requestedTerms.every(term => text.includes(term))) return true;
         }
@@ -162,6 +163,8 @@ export class IOSPlanPage extends IOSBasePage {
         'button*=Continue with DAZN Ultimate',
         'button*=Continue with Ultimate',
         '[role="button"]*=Continue with DAZN Ultimate',
+        'button*=Continue',
+        '[role="button"]*=Continue',
       ]
       : [
         'button*=Continue with DAZN Standard',

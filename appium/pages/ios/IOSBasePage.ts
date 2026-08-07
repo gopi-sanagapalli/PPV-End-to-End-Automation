@@ -1,4 +1,8 @@
 import { BannerInteraction } from '../../utils/bannerInteraction';
+import { execFileSync } from 'child_process';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 
 export type WdBrowser = any;
 export type WdElement = any;
@@ -25,6 +29,57 @@ export class IOSBasePage {
   private appStoreRetryAttempted = false;
 
   constructor(protected driver: WdBrowser, protected ppvName = process.env.PPV_NAME || 'Joshua') { }
+
+  /** Finds the rendered Continue label when the App Store sheet has no XCUITest node. */
+  private async findRenderedAppStoreContinue(): Promise<{ x: number; y: number } | null> {
+    let screenshotPath = '';
+    try {
+      const screenshot = await this.driver.takeScreenshot();
+      screenshotPath = path.join(os.tmpdir(), `dazn-app-store-continue-${process.pid}-${Date.now()}.png`);
+      fs.writeFileSync(screenshotPath, Buffer.from(screenshot, 'base64'));
+
+      const swiftVisionScript = `
+        import AppKit
+        import Vision
+
+        guard CommandLine.arguments.count > 1,
+              let image = NSImage(contentsOfFile: CommandLine.arguments[1]),
+              let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+          exit(1)
+        }
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.usesLanguageCorrection = false
+        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+        try handler.perform([request])
+        let values = (request.results ?? []).compactMap { observation -> [String: Any]? in
+          guard let text = observation.topCandidates(1).first?.string else { return nil }
+          let box = observation.boundingBox
+          return ["text": text, "xPercent": box.midX, "yPercent": 1 - box.midY]
+        }
+        let data = try JSONSerialization.data(withJSONObject: values)
+        print(String(data: data, encoding: .utf8)!)
+      `;
+      const output = execFileSync('/usr/bin/swift', ['-e', swiftVisionScript, screenshotPath], {
+        encoding: 'utf8',
+        timeout: 30000,
+      });
+      const observations = JSON.parse(output) as Array<{ text: string; xPercent: number; yPercent: number }>;
+      const continueText = observations.find(observation => /^continue$/i.test(observation.text.trim()));
+      if (!continueText) return null;
+
+      const { width, height } = await this.driver.getWindowSize();
+      return {
+        x: Math.round(width * continueText.xPercent),
+        y: Math.round(height * continueText.yPercent),
+      };
+    } catch (error: any) {
+      console.warn(`⚠️ Could not locate App Store Continue text on screen: ${error.message}`);
+      return null;
+    } finally {
+      if (screenshotPath && fs.existsSync(screenshotPath)) fs.unlinkSync(screenshotPath);
+    }
+  }
 
   private async captureCurrentBannerValidationSnapshot(): Promise<void> {
     if (!this.driver.isIOS) return;
@@ -89,11 +144,6 @@ export class IOSBasePage {
     const driverKey = this.driver as object;
     const alreadyHandled = IOSBasePage.safariCookieConsentHandledDrivers.has(driverKey);
     const effectiveTimeout = alreadyHandled ? Math.min(timeoutMs, 2000) : timeoutMs;
-    // OneTrust cookie consent loads asynchronously after document ready;
-    // on first check, allow extra time for the banner to render.
-    if (!alreadyHandled) {
-      await this.driver.pause(5000);
-    }
     const acceptSelectors = [
       // OneTrust expanded preference centre. Prefer the explicit "Accept
       // All" control; it is different from the first-layer banner button.
@@ -132,7 +182,10 @@ export class IOSBasePage {
       console.log('✅ DAZN cookie banner is hidden.');
     };
     const deadline = Date.now() + effectiveTimeout;
-    const noConsentDeadline = Date.now() + (alreadyHandled ? 0 : 2000);
+    // A new private Safari tab can render OneTrust after the welcome page has
+    // settled. Keep polling for the requested timeout instead of treating an
+    // initially empty consent state as a final absence.
+    const noConsentDeadline = alreadyHandled ? Date.now() : deadline;
     let consentWasSeen = false;
 
     while (Date.now() < deadline) {
@@ -149,7 +202,7 @@ export class IOSBasePage {
       consentWasSeen = true;
       const accept = await this.browserFirstVisible(acceptSelectors);
       if (accept) {
-        await accept.scrollIntoView().catch(() => {});
+        await accept.scrollIntoView().catch(() => { });
         const clickedByUi = await accept.click().then(() => true).catch(() => false);
         if (!clickedByUi) {
           const clickedByDom = await this.driver.execute(() => {
@@ -198,7 +251,7 @@ export class IOSBasePage {
     }
 
     if (consentWasSeen) {
-      await this.driver.saveScreenshot('./test-results/ios_safari_cookie_consent_not_actionable.png').catch(() => {});
+      await this.driver.saveScreenshot('./test-results/ios_safari_cookie_consent_not_actionable.png').catch(() => { });
       throw new Error('DAZN cookie consent was displayed but its Accept button was not actionable.');
     }
     console.log('ℹ️ No DAZN cookie consent was shown in Safari.');
@@ -225,8 +278,20 @@ export class IOSBasePage {
 
   // iOS-specific find helper using predicate string or class chain if prefix matches, or fallback
   async findByText(text: string, timeoutMs = 10000): Promise<WdElement> {
-    const sel = `-ios predicate string:label CONTAINS[c] '${text}' OR name CONTAINS[c] '${text}'`;
-    return await this.findEl(sel, timeoutMs);
+    const escapedText = text.replace(/'/g, "\\'");
+    const sel = `-ios predicate string:label CONTAINS[c] '${escapedText}' OR name CONTAINS[c] '${escapedText}'`;
+    let visibleElement: WdElement | null = null;
+    await this.driver.waitUntil(async () => {
+      const elements = await this.driver.$$(sel).catch(() => []);
+      for (const element of elements) {
+        if (await element.isDisplayed().catch(() => false)) {
+          visibleElement = element;
+          return true;
+        }
+      }
+      return false;
+    }, { timeout: timeoutMs, interval: 200 }).catch(() => { });
+    return visibleElement as WdElement;
   }
 
   async tapByText(text: string, timeoutMs = 10000): Promise<boolean> {
@@ -247,14 +312,7 @@ export class IOSBasePage {
   }
 
   async isVisible(text: string, timeoutMs = 3000): Promise<boolean> {
-    try {
-      const sel = `-ios predicate string:label CONTAINS[c] '${text}' OR name CONTAINS[c] '${text}'`;
-      const el = await this.driver.$(sel);
-      await el.waitForDisplayed({ timeout: timeoutMs });
-      return true;
-    } catch {
-      return false;
-    }
+    return Boolean(await this.findByText(text, timeoutMs));
   }
 
   async scrollToText(text: string): Promise<boolean> {
@@ -470,14 +528,6 @@ export class IOSBasePage {
     }
   }
 
-  private isLocalizedWelcomeUrl(url: string): boolean {
-    try {
-      return /^\/[a-z]{2,3}(?:-[a-z0-9]{2,8})*\/welcome\/?$/i.test(new URL(url).pathname);
-    } catch {
-      return false;
-    }
-  }
-
   private async getAppStoreCannotConnectState(): Promise<{ visible: boolean; retryButton: WdElement | null }> {
     await this.driver.switchContext('NATIVE_APP').catch(() => { });
     const source = await this.driver.getPageSource().catch(() => '');
@@ -626,28 +676,29 @@ export class IOSBasePage {
           // The native alert endpoint handled the sheet; do not send a second
           // coordinate tap into the newly opened browser.
         } else {
-          const { width, height } = await this.driver.getWindowSize();
-          const x = Math.round(width / 2);
-          // Leave-app sheets place Continue above Cancel at roughly 83% of the
-          // screen height on the iOS devices used here. The old bottom offsets
-          // were in/under the Cancel region, so the handoff never began.
-          const y = Math.round(height * 0.83);
-          const tapped = await this.driver.execute('mobile: tap', { x, y })
-            .then(() => true)
-            .catch(() => false);
-          if (!tapped) {
-            await this.driver.action('pointer')
-              .move({ x, y })
-              .down()
-              .pause(100)
-              .up()
-              .perform();
+          const continuePosition = await this.findRenderedAppStoreContinue();
+          if (!continuePosition) {
+            await this.driver.saveScreenshot('./test-results/ios_app_store_continue_not_found.png').catch(() => { });
+            throw new Error('App Store Continue text was not exposed to XCUITest or found in the rendered sheet.');
           }
+          const { x, y } = continuePosition;
+          await this.driver.performActions([{
+            type: 'pointer', id: 'app-store-continue', parameters: { pointerType: 'touch' },
+            actions: [
+              { type: 'pointerMove', duration: 0, x, y },
+              { type: 'pointerDown', button: 0 },
+              { type: 'pause', duration: 100 },
+              { type: 'pointerUp', button: 0 },
+            ],
+          }]);
+          await this.driver.releaseActions();
+          console.log('✅ Tapped App Store sheet Continue using its rendered text location.');
           alertHandled = true;
           await this.driver.pause(2500);
         }
       } catch (e: any) {
-        console.warn('⚠️ Coordinate fallback failed:', e.message);
+        console.warn('⚠️ App Store Continue fallback failed:', e.message);
+        throw e;
       }
     }
 
@@ -706,13 +757,6 @@ export class IOSBasePage {
           const url = String(webContext.url || '');
           console.log(`🌐 Checking web context ${webCtx}: ${url || '(no URL yet)'}`);
           if (this.isSafariHandoffLandingUrl(url)) {
-            // When two contexts exist, a localized /welcome can be an old
-            // background Safari view while the newer view is still loading.
-            // Give the newer context a short opportunity to resolve first.
-            if (this.isLocalizedWelcomeUrl(url) && webContexts.length > 1 && contextIndex > 0 &&
-              Date.now() < webviewDeadline - 5000) {
-              continue;
-            }
             console.log(`✅ Captured new DAZN handoff URL from WEBVIEW context ${webCtx}: ${url}`);
             activatedBrowser = 'WEBVIEW';
             return url;
@@ -819,7 +863,7 @@ export class IOSBasePage {
           const name = await el.getAttribute('name').catch(() => '');
           for (const s of [val, label, name]) {
             if (!s) continue;
-            const trimmed = s.trim();
+            const trimmed = s.replace(/[\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g, '').trim();
             // Accept bare 'dazn.com' (collapsed address bar) or any dazn.com URL
             const isDaznDomain = trimmed === 'dazn.com' || trimmed.includes('dazn.com');
             if (!isDaznDomain) continue;
@@ -967,7 +1011,7 @@ export class IOSBasePage {
    */
   async navigateToWelcomePage(baseUrl = 'https://www.dazn.com'): Promise<void> {
     console.log('🌐 Navigating to DAZN welcome page...');
-    await this.driver.url(baseUrl).catch(() => {});
+    await this.driver.url(baseUrl).catch(() => { });
     await this.driver.waitUntil(async () => (await this.browserText()).trim().length > 0, {
       timeout: 20000,
       timeoutMsg: 'DAZN welcome page did not render a document body.',
@@ -988,97 +1032,166 @@ export class IOSBasePage {
    * maxCarouselScrolls times to find a tile that is off-screen to the right.
    */
   async findWelcomePagePPVTile(eventName: string, maxCarouselScrolls = 8): Promise<void> {
-    const simplified = eventName.split(/ vs/i)[0].trim().replace(/\./g, '').toLowerCase();
+    const normalise = (value: string): string => value
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+    const eventTerms = normalise(eventName)
+      .split(/\s+vs\s+|\s+/)
+      .filter(term => term.length >= 3 && term !== 'vs');
     console.log(`🔍 Looking for PPV tile "${eventName}" in Don't miss section...`);
 
-    // ── Step 1: Scroll the page down until "Don't miss" is visible ───────────
-    const isDontMissVisible = async (): Promise<boolean> =>
-      this.driver.execute(() =>
-        Array.from(document.querySelectorAll<HTMLElement>('*'))
-          .some(el => el.offsetParent !== null &&
-            /don.?t miss/i.test(el.innerText || el.textContent || ''))
+    // ── Step 0: Wait for the page to be in a ready/rendered state ────────────
+    // The WebView context switches before the React SPA has finished mounting.
+    // Poll until document.readyState is 'complete' AND there are visible DOM
+    // nodes, so the subsequent scroll and tile search operate on a loaded page.
+    await this.driver.waitUntil(async () => {
+      const ready = await this.driver.execute(() =>
+        document.readyState === 'complete' &&
+        document.querySelectorAll('div, section, article').length > 10
       ).catch(() => false);
+      return ready;
+    }, {
+      timeout: 30000,
+      interval: 500,
+      timeoutMsg: 'Safari welcome page did not reach ready state within 30 seconds.',
+    }).catch(() => {
+      console.log('⚠️ Safari page-ready wait timed out; proceeding anyway.');
+    });
 
+    // ── Step 1: Scroll the page down until "Don't miss" is visible ───────────
+    const findVisibleDontMissRail = async (): Promise<any | null> => this.driver.execute(() => {
+      const headings = Array.from(document.querySelectorAll<HTMLElement>('*')).filter(el => {
+        const text = (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
+        const rect = el.getBoundingClientRect();
+        return el.offsetParent !== null && rect.bottom > 0 && rect.top < window.innerHeight &&
+          /^don.?t miss(?: live on dazn)?$/i.test(text);
+      });
+
+      for (const heading of headings) {
+        let scope: HTMLElement | null = heading;
+        for (let depth = 0; scope && depth < 6; depth++, scope = scope.parentElement) {
+          const rail = [scope, ...Array.from(scope.querySelectorAll<HTMLElement>('*'))]
+            .find(el => el.scrollWidth > el.clientWidth + 5 && el.offsetParent !== null);
+          if (rail) return rail;
+        }
+      }
+      return null;
+    }).catch(() => null);
+
+    let dontMissRail: any | null = null;
     for (let scroll = 0; scroll < 15; scroll++) {
-      if (await isDontMissVisible()) break;
+      dontMissRail = await findVisibleDontMissRail();
+      if (dontMissRail) break;
       await this.driver.execute(() => window.scrollBy(0, 350));
       await this.driver.pause(400);
     }
-    console.log('📜 "Don\'t miss" section reached (or max scroll hit); scanning for PPV tile...');
+    if (!dontMissRail) {
+      await this.driver.saveScreenshot('./test-results/ios_safari_dont_miss_not_found.png').catch(() => { });
+      throw new Error('Safari welcome page: "Don\'t miss" rail was not found. See test-results/ios_safari_dont_miss_not_found.png');
+    }
+    // The heading can first appear at the bottom of the viewport while all
+    // cards and their Buy now CTA remain below it. Position it above the
+    // rail without scrolling past the section.
+    for (let adjustment = 0; adjustment < 3; adjustment++) {
+      const headingPosition = await this.driver.execute(() => {
+        const heading = Array.from(document.querySelectorAll<HTMLElement>('*')).find(el =>
+          /^don.?t miss(?: live on dazn)?$/i.test((el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim()),
+        );
+        return heading ? { top: heading.getBoundingClientRect().top, targetTop: window.innerHeight * 0.28 } : null;
+      }).catch(() => null) as { top: number; targetTop: number } | null;
+      if (!headingPosition || headingPosition.top < 0 || headingPosition.top <= headingPosition.targetTop) break;
+      await this.driver.execute(
+        (distance: number) => window.scrollBy(0, distance),
+        Math.min(350, headingPosition.top - headingPosition.targetTop),
+      );
+      await this.driver.pause(400);
+    }
+    console.log('📜 "Don\'t miss" rail positioned; scanning only its visible PPV tiles...');
 
-    // ── Step 2: Find the PPV tile by event name ───────────────────────────────
-    const findMatchingTile = async (): Promise<any | null> => {
-      const candidates = await this.driver.$$(
-        '[class*="tile" i], [class*="card" i], [class*="event" i], ' +
-        '[class*="rail" i] li, [class*="dont-miss" i] li, ' +
-        'article, [role="listitem"]'
-      ).catch(() => []);
+    // ── Step 2: Check and click only a visible tile in this rail ──────────────
+    const clickVisibleMatchingTile = async (): Promise<string> => this.driver.execute((terms: string[]) => {
+      const heading = Array.from(document.querySelectorAll<HTMLElement>('*')).find(el =>
+        /^don.?t miss(?: live on dazn)?$/i.test((el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim()),
+      );
+      if (!heading) return '';
+
+      let rail: HTMLElement | undefined;
+      let scope: HTMLElement | null = heading;
+      for (let depth = 0; scope && depth < 6 && !rail; depth++, scope = scope.parentElement) {
+        rail = [scope, ...Array.from(scope.querySelectorAll<HTMLElement>('*'))]
+          .find(el => el.scrollWidth > el.clientWidth + 5 && el.offsetParent !== null);
+      }
+      if (!rail) return '';
+
+      const railRect = rail.getBoundingClientRect();
+      const candidates = Array.from(rail.querySelectorAll<HTMLElement>(
+        '[class*="tile" i], [class*="card" i], [class*="event" i], li, article, [role="listitem"], a',
+      ));
       for (const candidate of candidates) {
-        try {
-          const text = (await candidate.getText().catch(() => ''))
-            .replace(/\s+/g, ' ').toLowerCase();
-          if (!text.includes(simplified)) continue;
-          if (/press conference|weigh.?in|prelims?|highlights?|interview/i.test(text)) continue;
-          if (await candidate.isDisplayed().catch(() => false)) return candidate;
-        } catch { }
-      }
-      return null;
-    };
+        const rect = candidate.getBoundingClientRect();
+        const text = `${candidate.innerText || candidate.textContent || ''} ${Array.from(candidate.querySelectorAll('img'))
+          .map((image: HTMLImageElement) => image.alt || '')
+          .join(' ')}`.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ');
+        const isVisibleInRail = rect.width > 50 && rect.height > 50 &&
+          rect.right > railRect.left && rect.left < railRect.right &&
+          rect.bottom > railRect.top && rect.top < railRect.bottom;
+        if (!isVisibleInRail || !terms.every(term => text.includes(term))) continue;
+        if (/press conference|weigh.?in|prelims?|highlights?|interview/i.test(text)) continue;
 
-    // ── Step 3: Click "Buy now" inside the matched tile ───────────────────────
-    const clickBuyInTile = async (tile: any): Promise<boolean> => {
-      const buyCtas = [
-        'a*=Buy now', 'button*=Buy now', 'a*=Buy Now', 'button*=Buy Now',
-        'a*=Get PPV', 'button*=Get PPV', 'a*=Purchase', 'button*=Purchase',
-      ];
-      for (const selector of buyCtas) {
-        try {
-          const btn = await tile.$(selector);
-          if (btn && await btn.isDisplayed().catch(() => false)) {
-            await btn.scrollIntoView().catch(() => {});
-            await btn.click();
-            console.log(`✅ Clicked "Buy now" on PPV tile for "${eventName}"`);
-            return true;
-          }
-        } catch { }
+        const buyCta = Array.from(candidate.querySelectorAll<HTMLElement>('a, button')).find(el =>
+          /buy now|get ppv|purchase/i.test(el.innerText || el.textContent || ''),
+        );
+        (buyCta || candidate).click();
+        return buyCta ? 'Buy now' : 'tile card';
       }
-      // Fallback: click the tile card itself (it is often an <a> link)
-      try {
-        await tile.scrollIntoView().catch(() => {});
-        await tile.click();
-        console.log(`✅ Clicked PPV tile card directly for "${eventName}"`);
-        return true;
-      } catch { }
-      return false;
-    };
+      return '';
+    }, eventTerms).catch(() => '');
 
-    // ── First pass: no carousel scroll needed ─────────────────────────────────
-    let tile = await findMatchingTile();
-    if (tile) {
-      const clicked = await clickBuyInTile(tile);
-      if (clicked) { await this.driver.pause(1500); return; }
+    let clicked = await clickVisibleMatchingTile();
+    if (clicked) {
+      console.log(`✅ Clicked ${clicked} for PPV tile "${eventName}" in "Don't miss".`);
+      await this.driver.pause(1500);
+      return;
     }
 
     // ── Carousel scroll passes: scroll the rail left to reveal hidden tiles ───
     for (let i = 0; i < maxCarouselScrolls; i++) {
-      await this.driver.execute(() => {
-        const rail = Array.from(document.querySelectorAll<HTMLElement>(
-          '[class*="rail" i], [class*="carousel" i], [class*="dont-miss" i], ' +
-          '[class*="slider" i], [class*="scroll" i]'
-        )).find(el => el.scrollWidth > el.clientWidth && el.offsetParent !== null);
-        if (rail) rail.scrollLeft += rail.clientWidth * 0.8;
-      }).catch(() => {});
+      const moved = await this.driver.execute(() => {
+        const heading = Array.from(document.querySelectorAll<HTMLElement>('*')).find(el =>
+          /^don.?t miss(?: live on dazn)?$/i.test((el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim()),
+        );
+        if (!heading) return false;
+        let rail: HTMLElement | undefined;
+        let scope: HTMLElement | null = heading;
+        for (let depth = 0; scope && depth < 6 && !rail; depth++, scope = scope.parentElement) {
+          rail = [scope, ...Array.from(scope.querySelectorAll<HTMLElement>('*'))]
+            .find(el => el.scrollWidth > el.clientWidth + 5 && el.offsetParent !== null);
+        }
+        if (!rail) return false;
+        const before = rail.scrollLeft;
+        rail.scrollLeft += rail.clientWidth * 0.8;
+        return rail.scrollLeft > before;
+      }).catch(() => false);
+      if (!moved) {
+        console.log('📜 Reached the end of the "Don\'t miss" rail.');
+        break;
+      }
+      console.log(`↔️ Scrolled "Don\'t miss" rail horizontally (${i + 1}/${maxCarouselScrolls}).`);
       await this.driver.pause(600);
 
-      tile = await findMatchingTile();
-      if (tile) {
-        const clicked = await clickBuyInTile(tile);
-        if (clicked) { await this.driver.pause(1500); return; }
+      clicked = await clickVisibleMatchingTile();
+      if (clicked) {
+        console.log(`✅ Clicked ${clicked} for PPV tile "${eventName}" in "Don't miss".`);
+        await this.driver.pause(1500);
+        return;
       }
     }
 
     // ── Failure: screenshot + descriptive error ───────────────────────────────
-    await this.driver.saveScreenshot('./test-results/ios_safari_ppv_tile_not_found.png').catch(() => {});
+    await this.driver.saveScreenshot('./test-results/ios_safari_ppv_tile_not_found.png').catch(() => { });
     const pageText = (await this.browserText()).slice(0, 600);
     throw new Error(
       `Safari welcome page: PPV tile not found for "${eventName}" after ${maxCarouselScrolls} carousel scrolls.\n` +
