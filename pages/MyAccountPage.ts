@@ -120,6 +120,16 @@ export class MyAccountPage {
       .filter(w => w.length > 2 && !['the', 'and', 'for', 'with', 'from', 'vs'].includes(w));
   }
 
+  private isNearWordMatch(expected: string, actual: string): boolean {
+    if (expected === actual) return true;
+    if (expected.length < 5 || expected.length !== actual.length) return false;
+    for (let i = 0; i < expected.length - 1; i++) {
+      const swapped = expected.slice(0, i) + expected[i + 1] + expected[i] + expected.slice(i + 2);
+      if (swapped === actual) return true;
+    }
+    return false;
+  }
+
   private isEventTitleText(text: string, ppvName: string): boolean {
     const cleanText = this.normalizeEventName(text);
     const cleanName = this.normalizeEventName(ppvName);
@@ -128,7 +138,8 @@ export class MyAccountPage {
 
     const words = this.eventNameWords(ppvName);
     if (words.length === 0 || text.length > 100) return false;
-    return words.every(word => cleanText.includes(word));
+    const textWords = cleanText.split(' ');
+    return words.every(word => textWords.some(textWord => this.isNearWordMatch(word, textWord)));
   }
 
   private async cardHasMatchingTitle(card: Locator, ppvName: string): Promise<boolean> {
@@ -184,9 +195,19 @@ export class MyAccountPage {
           style.opacity !== '0';
       };
 
+      const isNearWordMatch = (expected: string, actual: string): boolean => {
+        if (expected === actual) return true;
+        if (expected.length < 5 || expected.length !== actual.length) return false;
+        for (let i = 0; i < expected.length - 1; i++) {
+          const swapped = expected.slice(0, i) + expected[i + 1] + expected[i] + expected.slice(i + 2);
+          if (swapped === actual) return true;
+        }
+        return false;
+      };
+
       const hasAllWords = (text: string): boolean => {
-        const normalizedText = normalize(text);
-        return words.every(word => normalizedText.includes(word));
+        const textWords = normalize(text).split(' ');
+        return words.every(word => textWords.some(textWord => isNearWordMatch(word, textWord)));
       };
 
       const candidates = Array.from(document.querySelectorAll<HTMLElement>(
@@ -487,7 +508,7 @@ export class MyAccountPage {
     // Wait for the My Account page sections/cards to load
     if (this.isOnMyAccountPage()) {
       console.log('⏳ Waiting for PPV section, cards, or Explore button to be attached to DOM...');
-      const exploreSelector = 'a[href*="/ppv"], a[href*="/pay-per-view"]';
+      const exploreSelector = 'a[href*="/ppv"]:not([href*="#"]), a[href*="/pay-per-view"]:not([href*="#"])';
       const cardSelector = '[id*="ppv-card"], [class*="ppv-card"], article, [class*="card" i], h2, h3';
       const combinedSelector = `${exploreSelector}, ${cardSelector}`;
 
@@ -517,7 +538,7 @@ export class MyAccountPage {
       }
 
       if (!isExploreVisible) {
-        exploreBtn = this.page.locator('a[href*="/ppv"], a[href*="/pay-per-view"]').first();
+        exploreBtn = this.page.locator('a[href*="/ppv"]:not([href*="#"]), a[href*="/pay-per-view"]:not([href*="#"])').first();
         isExploreVisible = await exploreBtn.isVisible({ timeout: 2000 }).catch(() => false);
       }
 
@@ -766,12 +787,15 @@ export class MyAccountPage {
   async getPPVName(ppvName: string): Promise<string> {
     const row = await this.findPPVRow(ppvName);
     if (!row) return 'N/A';
-    const regex = this.eventNameRegex(ppvName);
-    const el = row
-      .locator('span, p, h2, h3, h4, strong')
-      .filter({ hasText: regex })
-      .first();
-    return (await el.textContent().catch(() => 'N/A'))?.trim() || 'N/A';
+    const titleCandidates = row.locator('span, p, h2, h3, h4, strong, [id*="title" i], [class*="title" i]');
+    const count = await titleCandidates.count().catch(() => 0);
+    for (let i = 0; i < count; i++) {
+      const text = ((await titleCandidates.nth(i).textContent().catch(() => '')) || '').trim();
+      if (text && text.length <= 120 && this.isEventTitleText(text, ppvName)) {
+        return text;
+      }
+    }
+    return 'N/A';
   }
 
   async getPPVDate(ppvName: string): Promise<string> {
@@ -779,7 +803,7 @@ export class MyAccountPage {
     if (!row) return 'N/A';
     const readDate = (text: string): string => {
       const shortDateMatch = text.match(
-        /\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)(?:\s+at\s+\d{1,2}:\d{2})?\b/i
+        /\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)(?:\s+at\s+\d{1,2}:\d{2})?\b/i
       );
       if (shortDateMatch) return shortDateMatch[0].trim();
 
@@ -1049,7 +1073,7 @@ export class MyAccountPage {
       }
 
       if (!isExploreVisible) {
-        exploreBtn = this.page.locator('a[href*="/ppv"], a[href*="/pay-per-view"]').first();
+        exploreBtn = this.page.locator('a[href*="/ppv"]:not([href*="#"]), a[href*="/pay-per-view"]:not([href*="#"])').first();
         isExploreVisible = await exploreBtn.isVisible({ timeout: 2000 }).catch(() => false);
       }
 

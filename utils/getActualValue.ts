@@ -4816,7 +4816,7 @@ export async function getActualValue(
       const activeStandardChooseBuyFeatures: Record<string, string> = {
         UPSELL_FEATURE_1: 'Pay-per-views included at no extra cost. Minimum of 12 events per year.',
         UPSELL_FEATURE_2: 'HDR and Dolby 5.1 surround sound on select events.',
-        UPSELL_FEATURE_3: "185+ fights a year from the world's best promotors",
+        UPSELL_FEATURE_3: "185+ fights a year from the world's best promoters.",
         UPSELL_FEATURE_4: 'Every match from Lega Serie A, and highlights from LALIGA, Bundesliga and the Saudi Pro League.',
       };
       const expectedFeature = (

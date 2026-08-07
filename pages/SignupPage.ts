@@ -138,8 +138,9 @@ export class SignupPage extends BasePage {
 
     if (await phoneInput.isVisible({ timeout: 2000 }).catch(() => false)) {
       const isAU = this.page.url().includes('-AU');
-      const targetCountry = isAU ? 'Australia' : 'United Kingdom';
-      const targetDial = isAU ? '+61' : '+44';
+      const isIE = this.page.url().includes('-IE');
+      const targetCountry = isAU ? 'Australia' : isIE ? 'Ireland' : 'United Kingdom';
+      const targetDial = isAU ? '+61' : isIE ? '+353' : '+44';
 
       console.log(`🔍 Inspecting phone country code/flag status...`);
       const countrySelector = this.page.locator(
@@ -205,13 +206,17 @@ export class SignupPage extends BasePage {
           // 04 followed by 8 random digits
           const randomDigits = Math.floor(10000000 + Math.random() * 90000000);
           defaultPhone = `04${randomDigits}`;
+        } else if (isIE) {
+          // 08 followed by 8 random digits (Irish mobile)
+          const randomDigits = Math.floor(10000000 + Math.random() * 90000000);
+          defaultPhone = `08${randomDigits}`;
         } else {
           // 07 followed by 9 random digits
           const randomDigits = Math.floor(100000000 + Math.random() * 900000000);
           defaultPhone = `07${randomDigits}`;
         }
       } else {
-        defaultPhone = isAU ? '0412345678' : '07480748354';
+        defaultPhone = isAU ? '0412345678' : isIE ? '0851234567' : '07480748354';
       }
       const phoneNumber = user.phone || defaultPhone;
       await phoneInput.click({ force: true });

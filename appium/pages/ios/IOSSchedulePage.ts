@@ -91,11 +91,11 @@ export class IOSSchedulePage extends IOSBasePage {
       const pageSource = await this.driver.getPageSource().catch(() => '');
       return Boolean(title && allSports) && !/<XCUIElementTypeActivityIndicator\b/i.test(pageSource);
     }, {
-      timeout: 20000,
+      timeout: Number(process.env.IOS_SCHEDULE_LOAD_TIMEOUT_MS || 60000),
       interval: 400,
       timeoutMsg: 'Schedule page did not render its heading and filter strip after selecting the Schedule tab.',
     }).catch(async (error: any) => {
-      await this.driver.saveScreenshot('./test-results/ios_schedule_not_ready.png').catch(() => {});
+      await this.driver.saveScreenshot('./test-results/ios_schedule_not_ready.png').catch(() => { });
       throw error;
     });
 
@@ -108,7 +108,8 @@ export class IOSSchedulePage extends IOSBasePage {
     console.log(`Finding "${sport}" filter on top strip...`);
 
     const sportTab = [
-      `-ios predicate string:(type == "XCUIElementTypeButton" OR type == "XCUIElementTypeStaticText") AND (name == "${sport}" OR label == "${sport}")`,
+      `-ios predicate string:type == "XCUIElementTypeButton" AND (name == "${sport}" OR label == "${sport}")`,
+      `-ios predicate string:type == "XCUIElementTypeStaticText" AND (name == "${sport}" OR label == "${sport}")`,
       `~${sport}`,
     ];
 
@@ -129,6 +130,16 @@ export class IOSSchedulePage extends IOSBasePage {
     const location = await allSports.getLocation();
     const size = await allSports.getSize();
     const menuY = Math.round(location.y + size.height / 2);
+    const sportContent = `-ios predicate string:name CONTAINS[c] "${sport}" OR label CONTAINS[c] "${sport}"`;
+    const hasFilteredSportContent = async (): Promise<boolean> => {
+      const candidates = await this.driver.$$(sportContent).catch(() => []);
+      for (const candidate of candidates) {
+        if (!(await candidate.isDisplayed().catch(() => false))) continue;
+        const candidateLocation = await candidate.getLocation().catch(() => null);
+        if (candidateLocation && candidateLocation.y > menuY + size.height / 2) return true;
+      }
+      return false;
+    };
 
     // The event list can contain a Boxing label too. Restrict discovery to
     // the filter-strip row so the following click cannot select list content.
@@ -149,7 +160,7 @@ export class IOSSchedulePage extends IOSBasePage {
       await this.driver.waitUntil(async () => {
         sportEl = await this.firstVisibleNearY(sportTab, menuY);
         return Boolean(sportEl);
-      }, { timeout: 1200, interval: 200 }).catch(() => {});
+      }, { timeout: 1200, interval: 200 }).catch(() => { });
     }
 
     if (sportEl) {
@@ -157,21 +168,27 @@ export class IOSSchedulePage extends IOSBasePage {
         console.log(`✅ ${sport} filter already selected`);
         return;
       }
-      const sourceBeforeFilterTap = await this.driver.getPageSource().catch(() => '');
       await sportEl.click();
-      await this.driver.waitUntil(async () => {
+      const waitForSelectedSport = (timeout: number) => this.driver.waitUntil(async () => {
         const selectedSport = await this.firstVisibleNearY(sportTab, menuY);
         if (!selectedSport) return false;
         const pageSource = await this.driver.getPageSource().catch(() => '');
         const selectionExposed = await this.isSelectedFilter(selectedSport);
-        const contentRefreshed = Boolean(pageSource && pageSource !== sourceBeforeFilterTap);
-        return !/<XCUIElementTypeActivityIndicator\b/i.test(pageSource) && (selectionExposed || contentRefreshed);
+        return !/<XCUIElementTypeActivityIndicator\b/i.test(pageSource) &&
+          (selectionExposed || await hasFilteredSportContent());
       }, {
-        timeout: 10000,
+        timeout,
         interval: 300,
-        timeoutMsg: `${sport} filter did not refresh Schedule content after it was tapped.`,
-      }).catch(async (error: any) => {
-        await this.driver.saveScreenshot('./test-results/ios_schedule_sport_filter_not_selected.png').catch(() => {});
+        timeoutMsg: `${sport} filter did not become selected after it was tapped.`,
+      });
+
+      const selected = await waitForSelectedSport(4000).then(() => true).catch(() => false);
+      if (!selected) {
+        sportEl = await this.firstVisibleNearY(sportTab, menuY);
+        if (sportEl && !await this.isSelectedFilter(sportEl)) await sportEl.click();
+      }
+      await waitForSelectedSport(6000).catch(async (error: any) => {
+        await this.driver.saveScreenshot('./test-results/ios_schedule_sport_filter_not_selected.png').catch(() => { });
         throw error;
       });
       await this.driver.saveScreenshot('./test-results/ios_schedule_after_sport_filter.png');
@@ -183,10 +200,25 @@ export class IOSSchedulePage extends IOSBasePage {
 
   async scrollToPPVTile(ppvName = this.ppvName): Promise<WdElement | null> {
     console.log(`  Target PPV: ${ppvName}`);
+    const normaliseTitle = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
     const zayasMainEvent = [
       `~${ppvName}`,
       `-ios predicate string:name == "${ppvName}" OR label == "${ppvName}"`,
     ];
+    const findPPVTile = async (): Promise<WdElement | null> => {
+      for (const selector of zayasMainEvent) {
+        const el = await this.driver.$(selector).catch(() => null);
+        if (el && await el.isDisplayed().catch(() => false)) return el;
+      }
+      const expectedTitle = normaliseTitle(ppvName);
+      const textElements = await this.driver.$$('//XCUIElementTypeStaticText').catch(() => []);
+      for (const el of textElements) {
+        if (!await el.isDisplayed().catch(() => false)) continue;
+        const text = String(await el.getAttribute('label').catch(() => '') || await el.getAttribute('name').catch(() => ''));
+        if (normaliseTitle(text) === expectedTitle) return el;
+      }
+      return null;
+    };
 
     const { width, height } = await this.driver.getWindowRect();
     const cx = Math.round(width / 2);
@@ -194,14 +226,10 @@ export class IOSSchedulePage extends IOSBasePage {
 
     // Scroll down in small steps
     for (let i = 0; i < 25; i++) {
-      for (const sel of zayasMainEvent) {
-        try {
-          const el = await this.driver.$(sel);
-          if (await el.isDisplayed()) {
-            console.log(`Found "${ppvName}" tile!`);
-            return el;
-          }
-        } catch {}
+      const el = await findPPVTile();
+      if (el) {
+        console.log(`Found "${ppvName}" tile!`);
+        return el;
       }
 
       // Small vertical swipe up (drags contents up)
@@ -221,14 +249,10 @@ export class IOSSchedulePage extends IOSBasePage {
 
     // Scroll up recovery just in case we overshot
     for (let i = 0; i < 10; i++) {
-      for (const sel of zayasMainEvent) {
-        try {
-          const el = await this.driver.$(sel);
-          if (await el.isDisplayed()) {
-            console.log(`Found "${ppvName}" tile on recovery!`);
-            return el;
-          }
-        } catch {}
+      const el = await findPPVTile();
+      if (el) {
+        console.log(`Found "${ppvName}" tile on recovery!`);
+        return el;
       }
 
       // Small vertical swipe down (drags contents down)

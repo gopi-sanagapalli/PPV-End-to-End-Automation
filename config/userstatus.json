@@ -15,6 +15,18 @@
           }
         }
       },
+      "IE": {
+        "environments": {
+          "stag": {
+            "USER_EMAIL": "TODO_ADD_IE_ACCOUNT",
+            "USER_PASSWORD": "TODO_ADD_PASSWORD"
+          },
+          "prod": {
+            "USER_EMAIL": "iefreemium@yopmail.com",
+            "USER_PASSWORD": "Dazn@123"
+          }
+        }
+      },
       "US": {
         "environments": {
           "stag": {
@@ -85,6 +97,18 @@
           }
         }
       },
+      "IE": {
+        "environments": {
+          "stag": {
+            "USER_EMAIL": "TODO_ADD_IE_ACCOUNT",
+            "USER_PASSWORD": "TODO_ADD_PASSWORD"
+          },
+          "prod": {
+            "USER_EMAIL": "nkiea@yopmail.com",
+            "USER_PASSWORD": "Dazn@1"
+          }
+        }
+      },
       "US": {
         "environments": {
           "stag": {
@@ -150,8 +174,20 @@
             "USER_PASSWORD": "TODO_ADD_PASSWORD"
           },
           "prod": {
-            "USER_EMAIL": "ukprod.and@yopmail.com",
-            "USER_PASSWORD": "Dazn@1"
+            "USER_EMAIL": "sri004ie@yopmail.com",
+            "USER_PASSWORD": "Dazn@123"
+          }
+        }
+      },
+      "IE": {
+        "environments": {
+          "stag": {
+            "USER_EMAIL": "TODO_ADD_IE_ACCOUNT",
+            "USER_PASSWORD": "TODO_ADD_PASSWORD"
+          },
+          "prod": {
+            "USER_EMAIL": "sri001ie@yopmail.com",
+            "USER_PASSWORD": "Dazn@123"
           }
         }
       },
@@ -225,6 +261,18 @@
           }
         }
       },
+      "IE": {
+        "environments": {
+          "stag": {
+            "USER_EMAIL": "TODO_ADD_IE_ACCOUNT",
+            "USER_PASSWORD": "TODO_ADD_PASSWORD"
+          },
+          "prod": {
+            "USER_EMAIL": "sri001ie@yopmail.com",
+            "USER_PASSWORD": "Dazn@123"
+          }
+        }
+      },
       "US": {
         "environments": {
           "stag": {
@@ -287,6 +335,18 @@
           }
         }
       },
+      "IE": {
+        "environments": {
+          "stag": {
+            "USER_EMAIL": "TODO_ADD_IE_ACCOUNT",
+            "USER_PASSWORD": "TODO_ADD_PASSWORD"
+          },
+          "prod": {
+            "USER_EMAIL": "TODO_ADD_IE_ACCOUNT",
+            "USER_PASSWORD": "TODO_ADD_PASSWORD"
+          }
+        }
+      },
       "US": {
         "environments": {
           "stag": {
@@ -342,6 +402,18 @@
           "prod": {
             "USER_EMAIL": "Gbultimateupfront@yopmail.com",
             "USER_PASSWORD": "Dazn@123"
+          }
+        }
+      },
+      "IE": {
+        "environments": {
+          "stag": {
+            "USER_EMAIL": "TODO_ADD_IE_ACCOUNT",
+            "USER_PASSWORD": "TODO_ADD_PASSWORD"
+          },
+          "prod": {
+            "USER_EMAIL": "ieksi2@testing.dazn.com",
+            "USER_PASSWORD": "55555eE"
           }
         }
       },

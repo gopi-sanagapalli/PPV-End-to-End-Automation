@@ -106,12 +106,19 @@ export class IOSSafariValidationPage extends IOSBasePage {
         `ios_safari_${pageName.replace(/[^a-zA-Z0-9]/g, '_')}_${field.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}.png`,
       );
       const markerId = `ios-safari-failure-${Date.now()}`;
-      const marked = await this.driver.execute((values: string[], id: string) => {
+      const marked = await this.driver.execute((values: string[], id: string, fieldName: string) => {
         const normalise = (value: string) => value.replace(/\s+/g, ' ').trim().toLowerCase();
         const candidates = values.map(normalise).filter(value => value && value !== 'not found');
         let target: HTMLElement | null = null;
         let smallestText = Number.POSITIVE_INFINITY;
+        if (fieldName.toLowerCase() === 'page title' && candidates[0]) {
+          target = Array.from(document.querySelectorAll<HTMLElement>('h1, [role="heading"]')).find(element => {
+            const box = element.getBoundingClientRect();
+            return box.width > 0 && box.height > 0 && normalise(element.innerText || element.textContent || '') === candidates[0];
+          }) || null;
+        }
         for (const element of Array.from(document.querySelectorAll<HTMLElement>('body *'))) {
+          if (target) break;
           const text = normalise(element.innerText || element.textContent || '');
           if (!text || !candidates.some(value => text === value || text.includes(value))) continue;
           const box = element.getBoundingClientRect();
@@ -132,7 +139,8 @@ export class IOSSafariValidationPage extends IOSBasePage {
         });
         document.body.appendChild(marker);
         return true;
-      }, [actual, expected], markerId).catch(() => false);
+      }, [actual, expected], markerId, field).catch(() => false);
+      if (marked) await this.driver.pause(100);
       await this.driver.saveScreenshot(screenshot);
       await this.driver.execute((id: string) => document.getElementById(id)?.remove(), markerId).catch(() => {});
       console.log(`📸 [Fail Shot] ${marked ? 'Highlighted' : 'Captured'} Safari field "${field}": ${screenshot}`);
@@ -368,7 +376,8 @@ export class IOSSafariValidationPage extends IOSBasePage {
 
     if (fieldLower === 'rate plan price') {
       // Use the rate plan passed from eventData so the correct plan card
-      // heading is found — upfront shows £249.99/year; monthly shows /month.
+      // heading is found. The confirmation workbook validates the price and
+      // billing period as separate fields.
       const isUpfront = extras.ratePlan.includes('upfront');
       const planRegex = isUpfront
         ? /annual\s*[-–]?\s*pay\s*upfront/i
@@ -378,8 +387,18 @@ export class IOSSafariValidationPage extends IOSBasePage {
       const price = planIndex >= 0
         ? texts.slice(planIndex + 1, planIndex + 5).map(text => text.match(pricePattern)?.[0]).find(Boolean)
         : undefined;
-      const suffix = isUpfront ? '/year' : '/month';
-      const actual = price ? `${price.trim()}${suffix}` : 'Not found';
+      const actual = price ? price.trim() : 'Not found';
+      return { actual, isMatch: compareFn(actual, expected) };
+    }
+
+    if (fieldLower === 'rate plan period') {
+      const period = fullText.match(/\/\s*(?:month|year)\b/i);
+      const periodText = period?.[0].replace(/\s+/g, ' ').trim();
+      const periodTail = period?.index === undefined ? '' : fullText.slice(period.index, period.index + 80);
+      const hasTwelveMonthTerm = /\/\s*month\b[\s\S]{0,30}\bfor\s+12\b[\s\S]{0,30}\bmonths?\b/i.test(periodTail);
+      const actual = periodText === '/month' && hasTwelveMonthTerm
+        ? '/month for 12 months'
+        : (periodText || 'Not found');
       return { actual, isMatch: compareFn(actual, expected) };
     }
 
@@ -778,7 +797,74 @@ export class IOSSafariValidationPage extends IOSBasePage {
       const screenshot = status === 'FAIL'
         ? await this.captureAndMarkFailureScreenshot(pageName, field, expected, actual)
         : undefined;
-      results.push({ page: `${pageName} (Safari)`, field, expected, actual, status, screenshot });
+      const resultPage = /\(safari\)$/i.test(pageName) ? pageName : `${pageName} (Safari)`;
+      results.push({ page: resultPage, field, expected, actual, status, screenshot });
+    }
+  }
+
+  /** Expand payment methods where necessary and validate them in Safari. */
+  private async validateApplePayPaymentMethod(
+    pageName: string,
+    results: IOSValidationResult[],
+    validateAllMethods = false,
+  ): Promise<void> {
+    const visiblePaymentMethods = () => this.driver.execute(() => {
+      const visibleTexts = Array.from(document.querySelectorAll<HTMLElement>('body *'))
+        .filter(element => {
+          const box = element.getBoundingClientRect();
+          const style = window.getComputedStyle(element);
+          return style.display !== 'none' && style.visibility !== 'hidden' && box.width > 0 && box.height > 0;
+        })
+        .map(element => (element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim());
+      return ['google pay', 'credit & debit card', 'apple pay', 'paypal']
+        .every(method => visibleTexts.some(text => text.toLowerCase() === method));
+    }).catch(() => false);
+
+    const expanded = await this.driver.execute(() => {
+        const control = Array.from(document.querySelectorAll<HTMLElement>('button, [role="button"], summary, a, div'))
+          .find(element => /^more payment methods$/i.test((element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim()));
+        if (!control) return false;
+        // Safari retains collapsed payment methods in the DOM. The
+        // disclosure must be opened before validating those methods.
+        if (control.getAttribute('aria-expanded') === 'true') return false;
+        control.scrollIntoView({ block: 'center' });
+        control.click();
+        return true;
+    }).catch(() => false);
+    if (expanded) {
+      console.log(`🔽 [${pageName}] Expanded More payment methods.`);
+      await this.driver.waitUntil(visiblePaymentMethods, {
+        timeout: 8000,
+        interval: 250,
+        timeoutMsg: 'Payment methods were not exposed after expanding More payment methods.',
+      }).catch(() => { });
+    }
+
+    const methods = validateAllMethods
+      ? ['Google Pay', 'Credit & Debit Card', 'Apple Pay', 'PayPal']
+      : ['Apple Pay'];
+    const visibleMethods = await this.driver.execute((expectedMethods: string[]) => {
+      const visibleTexts = Array.from(document.querySelectorAll<HTMLElement>('body *'))
+        .filter(element => {
+          const box = element.getBoundingClientRect();
+          const style = window.getComputedStyle(element);
+          return style.display !== 'none' && style.visibility !== 'hidden' && box.width > 0 && box.height > 0;
+        })
+        .map(element => (element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase());
+      return expectedMethods.reduce<Record<string, boolean>>((found, method) => {
+        found[method] = visibleTexts.some(text => text === method.toLowerCase());
+        return found;
+      }, {});
+    }, methods).catch(() => ({} as Record<string, boolean>));
+
+    for (const method of methods) {
+      const present = Boolean(visibleMethods[method]);
+      const actual = present ? 'Yes' : 'No';
+      console.log(`  ${present ? '✅' : '❌'} [${method}] expected="Yes" actual="${actual}"`);
+      const screenshot = present
+        ? undefined
+        : await this.captureAndMarkFailureScreenshot(pageName, method, 'Yes', actual);
+      results.push({ page: pageName, field: method, expected: 'Yes', actual, status: present ? 'PASS' : 'FAIL', screenshot });
     }
   }
 
@@ -883,7 +969,9 @@ export class IOSSafariValidationPage extends IOSBasePage {
           eventData.PLAN_CTA_BUTTON = 'Continue';
         } else {
           // APM / annual pay monthly
-          eventData.PLAN_CTA_BUTTON = eventData.PLAN_CTA_BUTTON_STANDARD || 'Continue';
+          eventData.PLAN_CTA_BUTTON = String(eventData.OFFER_TYPE || '').toLowerCase() === '1_month_free'
+            ? 'Continue with 1st Month Free'
+            : (eventData.PLAN_CTA_BUTTON_STANDARD || 'Continue');
         }
         console.log(`📋 [Plan] Computed PLAN_CTA_BUTTON fallback: "${eventData.PLAN_CTA_BUTTON}"`);
       }
@@ -1153,7 +1241,9 @@ export class IOSSafariValidationPage extends IOSBasePage {
 
       const { getUpgradeConfirmationData } = require('../../../utils/excelReader');
       const ratePlan = String(eventData.RATE_PLAN || process.env.RATE_PLAN || 'monthly').toLowerCase();
-      const rows = getUpgradeConfirmationData(ratePlan);
+      const rows = getUpgradeConfirmationData(ratePlan).filter((row: any) =>
+        String(row.Field || '').trim().toLowerCase() !== 'next payment date',
+      );
 
       // Temporarily set TIER to ratePlan so the Tier column filter matches the sheet
       const savedTier = eventData.TIER;
@@ -1161,6 +1251,14 @@ export class IOSSafariValidationPage extends IOSBasePage {
       eventData.CURRENT_PAGE = 'upgrade-confirmation';
 
       await this.validateWebPageWithSheet(PAGE, rows, eventData, results);
+
+      const tierExpected = 'DAZN Ultimate';
+      const tierActual = /dazn\s+ultimate/i.test(await this.browserText()) ? tierExpected : 'Not found';
+      const tierStatus: 'PASS' | 'FAIL' = tierActual === tierExpected ? 'PASS' : 'FAIL';
+      const screenshot = tierStatus === 'FAIL'
+        ? await this.captureAndMarkFailureScreenshot(PAGE, 'DAZN Tier', tierExpected, tierActual)
+        : undefined;
+      results.push({ page: PAGE, field: 'DAZN Tier', expected: tierExpected, actual: tierActual, status: tierStatus, screenshot });
 
       // Restore
       eventData.TIER = savedTier;
@@ -1197,7 +1295,7 @@ export class IOSSafariValidationPage extends IOSBasePage {
       );
 
       await this.waitForSafariPageContentToSettle(PAGE);
-      await this.validateApplePayPaymentMethod(PAGE, results);
+      await this.validateApplePayPaymentMethod(PAGE, results, true);
 
       const { getPPVPaymentData } = lazyExcelReader();
       const rows = getPPVPaymentData();
@@ -1285,7 +1383,7 @@ export class IOSSafariValidationPage extends IOSBasePage {
         } else if (key === 'pay now button') {
           const payNow: boolean = await this.driver.execute(() => {
             const btns = Array.from(document.querySelectorAll('button'));
-            return btns.some(b => /pay now|pay £|pay \$/i.test((b as HTMLButtonElement).innerText || ''));
+            return btns.some(b => /pay now|pay £|pay \$|pay €/i.test((b as HTMLButtonElement).innerText || ''));
           }).catch(() => false);
           actual = payNow ? 'Yes' : 'No';
 
