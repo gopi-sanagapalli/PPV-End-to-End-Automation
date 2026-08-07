@@ -588,11 +588,12 @@ export class IOSSearchPage extends IOSBasePage {
     for (const word of words) {
       if (!word) continue;
       const cleanWord = word.toLowerCase().replace(/[:\-–\.]/g, ' ');
-      if (cleanWord.includes('vs')) {
-        const parts = cleanWord.split(/\bvs\b/).map(p => p.trim());
+      const normalisedCleanWord = cleanWord.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      if (normalisedCleanWord.includes('vs')) {
+        const parts = normalisedCleanWord.split(/\bvs\b/).map(p => p.trim());
         candidates.push(...parts);
       } else {
-        candidates.push(...cleanWord.split(/\s+/).map(p => p.trim()));
+        candidates.push(...normalisedCleanWord.split(/\s+/).map(p => p.trim()));
       }
     }
 
@@ -618,7 +619,7 @@ export class IOSSearchPage extends IOSBasePage {
         const text = await el.getAttribute('label').catch(() => '');
         if (!text) continue;
 
-        const textLower = text.toLowerCase();
+        const textLower = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
         const matchesQuery = keywords.every(kw => textLower.includes(kw));
         const isAncillary = [
           'press', 'weigh', 'workout', 'replay', 'highlights',
@@ -678,7 +679,7 @@ export class IOSSearchPage extends IOSBasePage {
       // being treated as a real SOURCE=search result.
       let entered = String(await searchInput.getValue().catch(() => ''));
       if (!entered) entered = String(await searchInput.getAttribute('value').catch(() => ''));
-      const normalise = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+      const normalise = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
       if (!normalise(entered).includes(normalise(searchQuery))) {
         throw new Error(`Search query was not entered. Expected="${searchQuery}" actual="${entered || 'empty'}"`);
       }

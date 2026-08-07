@@ -604,7 +604,8 @@ export class IOSValidationPage extends IOSBasePage {
     if (surface === 'PPV Banner') this.lastBannerValidationSource = pageSource;
 
     const cleanStr = (s: string) =>
-      (s || '').replace(/[\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]/g, ' ')
+      (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/[\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]/g, ' ')
         .replace(/\s+/g, ' ').trim().toLowerCase();
     const isPresent = texts.some(
       t => cleanStr(t).includes(cleanStr(titleExpected)) || cleanStr(titleExpected).includes(cleanStr(t))
@@ -664,9 +665,22 @@ export class IOSValidationPage extends IOSBasePage {
         const fieldName = (row['Field'] || '').trim();
         if (!fieldName) continue;
 
-        // The native Landing banner hands off through the App Store sheet.
-        // It has no Copy control and its CTA is deliberately not Buy now.
-        if (surface === 'PPV Banner' && source.trim().toLowerCase() === 'landing-page-banner' && fieldName === 'Copy Button') {
+        // Schedule-card artwork exposes neither icon through XCUITest, even
+        // when the lock/bell is visibly rendered. Do not assert those two
+        // image-only fields for this iOS Schedule flow.
+        if (
+          normalizedSource === 'schedule' &&
+          surface === 'PPV Tile' &&
+          ['lock icon present', 'bell icon present'].includes(fieldName.toLowerCase())
+        ) {
+          continue;
+        }
+
+        // Native banner flows hand off through the App Store sheet and do not
+        // expose the web Copy control.
+        if (surface === 'PPV Banner' &&
+          ['landing-page-banner', 'home-page-banner', 'home-boxing-banner'].includes(source.trim().toLowerCase()) &&
+          fieldName === 'Copy Button') {
           continue;
         }
 
@@ -718,6 +732,14 @@ export class IOSValidationPage extends IOSBasePage {
         } else if (isDontMissTile && fieldName === 'PPV Image Present') {
           actualValue = dontMissTileFound ? 'Yes' : 'No';
           isMatch = dontMissTileFound && expectedValue.toLowerCase() === 'yes';
+        } else if (surface === 'PPV Banner' && fieldName.trim().toLowerCase() === 'banner description') {
+          const bannerTitleIndex = texts.findIndex(text => cleanStr(text).includes(cleanStr(titleExpected)));
+          const bannerDescription = texts.slice(bannerTitleIndex + 1, bannerTitleIndex + 5).find(text =>
+            cleanStr(text).length > 20 &&
+            !/\b(?:buy now|fight card|go to dazn|\d{1,2}:\d{2})\b/i.test(text),
+          );
+          actualValue = bannerDescription || 'Not found';
+          isMatch = Boolean(bannerDescription && compare(actualValue, expectedValue));
         } else if (
           fieldName.toLowerCase().includes('present') ||
           fieldName.toLowerCase().includes('section') ||

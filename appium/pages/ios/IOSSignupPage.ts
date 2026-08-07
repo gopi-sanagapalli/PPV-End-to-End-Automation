@@ -115,10 +115,27 @@ export class IOSSignupPage extends IOSBasePage {
       const body = await this.text();
       const lower = body.toLowerCase();
       const url = await this.driver.getUrl();
+      const isActiveStandardAddonPage = userState.startsWith('active_standard') &&
+        /\/account\/addon\/purchase/i.test(url) &&
+        /isupselltieronppv=true/i.test(url);
       console.log(`Safari account step ${step + 1}: ${url}`);
       if (!body.trim() && /\/account\//i.test(url)) {
-        console.log('⏳ Safari account page is still rendering; waiting for WebKit content...');
-        await this.driver.pause(3000);
+        console.log('⏳ Safari account page is still rendering; waiting for WebKit content or the next redirect...');
+        const pageAdvanced = await this.driver.waitUntil(async () => {
+          const nextUrl = await this.driver.getUrl().catch(() => '');
+          const nextText = await this.text();
+          if (isActiveStandardAddonPage) {
+            return /choose how to buy|one time payment|pay now/.test(nextText.toLowerCase());
+          }
+          return nextUrl !== url || Boolean(nextText.trim());
+        }, {
+          timeout: Number(process.env.IOS_SAFARI_SETTLE_TIMEOUT_MS || 35000),
+          interval: Number(process.env.IOS_SAFARI_SETTLE_POLL_MS || 2000),
+          timeoutMsg: `Safari account checkout did not render after loading ${url}`,
+        }).then(() => true).catch(() => false);
+        if (!pageAdvanced) {
+          throw new Error(`Safari account checkout did not render after loading ${url}`);
+        }
         continue;
       }
 
@@ -294,6 +311,18 @@ export class IOSSignupPage extends IOSBasePage {
         // seconds to render their interactive content after the URL resolves.
         // Wait and retry so the next iteration can match the page text.
         if (/\/account\//i.test(url)) {
+          if (isActiveStandardAddonPage) {
+            console.log('⏳ Waiting for the active-standard add-on page to resolve...');
+            await this.driver.waitUntil(async () => {
+              const nextText = (await this.text()).toLowerCase();
+              return /choose how to buy|one time payment|pay now/.test(nextText);
+            }, {
+              timeout: 15000,
+              interval: 250,
+              timeoutMsg: 'Active-standard add-on page did not resolve to Choose How To Buy or PPV payment.',
+            }).catch(() => { });
+            continue;
+          }
           console.log(`⏳ Account page still rendering (${url.split('?')[0].split('/').pop()}); waiting...`);
           await this.driver.pause(3000);
           continue;
