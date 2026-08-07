@@ -14,7 +14,7 @@ on:
         required: true
         type: choice
         default: GB
-        options: [GB, US, AU, BR, AE, SA]
+        options: [GB, IE, US, AU, BR, AE, SA]
 
 permissions:
   contents: read
@@ -59,7 +59,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          bash scripts/connect-adb-device.sh "$DEVICE_SERIAL"
+          adb_path="${ANDROID_HOME:-$HOME/Library/Android/sdk}/platform-tools/adb"
+          "$adb_path" start-server
+          "$adb_path" connect "$DEVICE_SERIAL"
+          "$adb_path" -s "$DEVICE_SERIAL" get-state | grep -qx device
+          "$adb_path" devices
 
       - name: Scenario 1 · Standard Monthly
         env:
@@ -79,7 +83,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          bash scripts/connect-adb-device.sh "$DEVICE_SERIAL"
+          adb_path="${ANDROID_HOME:-$HOME/Library/Android/sdk}/platform-tools/adb"
+          "$adb_path" start-server
+          "$adb_path" connect "$DEVICE_SERIAL"
+          "$adb_path" -s "$DEVICE_SERIAL" get-state | grep -qx device
           npm --prefix appium run reset:android-app
 
       - name: Scenario 2 · Ultimate APM
