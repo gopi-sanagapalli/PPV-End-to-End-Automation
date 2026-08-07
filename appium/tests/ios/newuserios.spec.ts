@@ -113,6 +113,9 @@ function iosAvailabilityCheckName(source = SOURCE): string {
 }
 
 function recordIOSPPVAvailability(available: boolean, screenshot?: string, page?: string): void {
+  // Surface validation already records successful source checks from the
+  // source worksheet. Keep this availability row only for failure reports.
+  if (available) return;
   const pageName = page || iosAvailabilityPageName();
   const field = iosAvailabilityCheckName();
   const existingIndex = iosAvailabilityResults.findIndex(

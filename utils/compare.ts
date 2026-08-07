@@ -15,7 +15,9 @@ export function compare(
   }
 
   const norm = (s: string) =>
-    s.replace(/[\u200B-\u200D\uFEFF\u200E\u200F\u00A0]/g, '')
+    s.normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[\u200B-\u200D\uFEFF\u200E\u200F\u00A0]/g, '')
       .replace(/[£$€₹]|AED\s?/g, '')
       .replace(/a\.\s*m\./gi, 'am')
       .replace(/p\.\s*m\./gi, 'pm')

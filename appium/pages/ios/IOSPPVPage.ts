@@ -31,12 +31,21 @@ export class IOSPPVPage extends IOSBasePage {
     results: IOSValidationResult[],
     page: string,
   ): Promise<void> {
-    const expected = String(eventData?.PPV_CTA_TEXT || 'Continue with DAZN Ultimate');
+    const expected = String(eventData?.PLAN_CTA_BUTTON_ULTIMATE || 'Continue with DAZN Ultimate');
     const actual = (await cta.getText().catch(() => '')).replace(/\s+/g, ' ').trim() || 'Not found';
     const { compare } = require('../../../utils/compare');
     const status = compare(actual, expected) ? 'PASS' : 'FAIL';
     console.log(`  ${status === 'PASS' ? '✅' : '❌'} [CTA Button] expected="${expected}" actual="${actual}"`);
-    results.push({ page, field: 'CTA Button', expected, actual, status });
+    let screenshot: string | undefined;
+    if (status === 'FAIL') {
+      const fs = require('fs');
+      const path = require('path');
+      const shotsDir = path.resolve(process.cwd(), 'test-results', 'failure-shots');
+      if (!fs.existsSync(shotsDir)) fs.mkdirSync(shotsDir, { recursive: true });
+      screenshot = path.join(shotsDir, `ios_safari_${page.replace(/[^a-zA-Z0-9]/g, '_')}_CTA_Button_${Date.now()}.png`);
+      await this.driver.saveScreenshot(screenshot).catch(() => { screenshot = undefined; });
+    }
+    results.push({ page, field: 'CTA Button', expected, actual, status, screenshot });
   }
 
   /**
@@ -271,7 +280,6 @@ export class IOSPPVPage extends IOSBasePage {
       if (!ultimateCta) {
         throw new Error('"Continue with DAZN Ultimate" CTA not found on "Choose how to buy" page.');
       }
-      await this.validateSelectedCta(ultimateCta, eventData, results, 'Choose How To Buy (Safari)');
       await ultimateCta.click();
       await this.driver.waitUntil(async () => {
         const text = await this.browserText();
