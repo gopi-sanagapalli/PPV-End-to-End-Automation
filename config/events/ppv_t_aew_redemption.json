@@ -56,6 +56,26 @@
       "PPV1_UPSELL_TILE_DATE": "",
       "offers": []
     },
+    "IE": {
+      "OFFER_TYPE": "7_day_trial",
+      "LANDING_PAGE_PPV_DATE": "27 July",
+      "PPV_DATE": "Mon 27th Jul at 01:00",
+      "PPV_PAGE_DATE": "Mon 27th Jul at 01:00",
+      "PPV_TIME": "01:00",
+      "LANDING_BANNER_DATE": "MON 27TH JUL AT 01:00",
+      "HOME_POPUP_DATE": "MON 27TH JUL AT 01:00",
+      "PPV_POPUP_DATE": "27 JUL 1:00AM",
+      "SEARCH_PPV_DATE_TIME": "27 JUL 1:00AM",
+      "SCHEDULE_PPV_TIME": "1:00AM",
+      "HOME_BOXING_UPCOMING_TIME": "1:00AM",
+      "PPV_PRICE": "€14.99",
+      "TODAY_YOU_PAY_PRICE": "€14.99",
+      "UPSELL_PRICE": "",
+      "UPSELL_CROSSED_PRICE": "",
+      "UPSELL_PRICE_LENGTH": "/month for 12 months",
+      "PPV1_UPSELL_TILE_DATE": "",
+      "offers": []
+    },
     "US": {
       "OFFER_TYPE": "7_day_trial",
       "LANDING_PAGE_PPV_DATE": "26 July",

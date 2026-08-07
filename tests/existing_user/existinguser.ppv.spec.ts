@@ -64,7 +64,7 @@ import { AuthenticationManager } from '../../auth/AuthenticationManager';
 
 
 const REGION = process.env.DAZN_REGION || 'GB';
-const EVENT_CONFIG = process.env.PPV_CONFIG || 'ppv_t_joshua_prenga.json';
+const EVENT_CONFIG = process.env.PPV_CONFIG || process.env.PPV_EVENT || 'ppv_t_joshua_prenga.json';
 const SOURCE = process.env.SOURCE || 'my-account';
 const TV_HANDOFF_MODE = (process.env.TV_HANDOFF_MODE || '').toLowerCase() === 'true';
 

@@ -52,6 +52,25 @@
       "PPV1_UPSELL_TILE_DATE": "",
       "offers": []
     },
+    "IE": {
+      "LANDING_PAGE_PPV_DATE": "29 Aug",
+      "PPV_DATE": "Sat 29th Aug at 17:00",
+      "PPV_PAGE_DATE": "Sat 29th Aug at 17:00",
+      "PPV_TIME": "17:00",
+      "LANDING_BANNER_DATE": "SAT 29TH AUG AT 17:00",
+      "HOME_POPUP_DATE": "SAT 29TH AUG AT 17:00",
+      "PPV_POPUP_DATE": "29 AUG 5:00PMPM",
+      "SEARCH_PPV_DATE_TIME": "29 AUG 5:00PMPM",
+      "SCHEDULE_PPV_TIME": "5:00PMPM",
+      "HOME_BOXING_UPCOMING_TIME": "5:00PMPM",
+      "PPV_PRICE": "€24.99",
+      "TODAY_YOU_PAY_PRICE": "€24.99",
+      "UPSELL_PRICE": "",
+      "UPSELL_CROSSED_PRICE": "",
+      "UPSELL_PRICE_LENGTH": "/month for 12 months",
+      "PPV1_UPSELL_TILE_DATE": "",
+      "offers": []
+    },
     "US": {
       "LANDING_PAGE_PPV_DATE": "29 August",
       "PPV_DATE": "Sat 29th Aug at 12:00",

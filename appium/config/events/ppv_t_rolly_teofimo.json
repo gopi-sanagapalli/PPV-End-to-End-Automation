@@ -40,6 +40,22 @@
       "MOBILE_SCHEDULE_TIME": "11:30PM",
       "PPV_NAME": "Rolly vs. Teófimo"
     },
+    "IE": {
+      "MOBILE_PPV_DATE": "22 AUG 11:30 PM",
+      "MOBILE_BANNER_TITLE": "Rolly vs. Teófimo",
+      "MOBILE_BANNER_DATE_TIME": "Sat 22nd Aug at 23:30",
+      "MOBILE_BANNER_DAY": "Sat",
+      "MOBILE_BANNER_DATE": "22nd",
+      "MOBILE_BANNER_MONTH": "August",
+      "MOBILE_BANNER_TIME": "11:30pm",
+      "MOBILE_BANNER_DESCRIPTION": "PUT UP OR SHUT UP! Two of boxing's biggest names collide for the WBA Welterweight World Championship.",
+      "MOBILE_SEARCH_PPV_DATE": "Sat 22nd August at 11:30 PM",
+      "MOBILE_SCHEDULE_DAY": "SAT",
+      "MOBILE_SCHEDULE_MONTH": "AUG",
+      "MOBILE_SCHEDULE_DATE": "22",
+      "MOBILE_SCHEDULE_TIME": "11:30PM",
+      "PPV_NAME": "Rolly vs. Teófimo"
+    },
     "US": {
       "MOBILE_PPV_DATE": "22 AUG 5:00 PM",
       "MOBILE_BANNER_TITLE": "Rolly vs. Teófimo",

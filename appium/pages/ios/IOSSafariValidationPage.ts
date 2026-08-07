@@ -1331,7 +1331,7 @@ export class IOSSafariValidationPage extends IOSBasePage {
         } else if (key === 'pay now button') {
           const payNow: boolean = await this.driver.execute(() => {
             const btns = Array.from(document.querySelectorAll('button'));
-            return btns.some(b => /pay now|pay £|pay \$/i.test((b as HTMLButtonElement).innerText || ''));
+            return btns.some(b => /pay now|pay £|pay \$|pay €/i.test((b as HTMLButtonElement).innerText || ''));
           }).catch(() => false);
           actual = payNow ? 'Yes' : 'No';
 

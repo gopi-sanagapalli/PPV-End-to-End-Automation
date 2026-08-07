@@ -164,6 +164,8 @@ export function buildEventData(
     // Backward-compat: if region is GB but config only has UK
     if (region === 'GB') {
       eventRegional = json.regions?.UK;
+    } else if (region === 'IE') {
+      eventRegional = json.regions?.GB || json.regions?.UK;
     }
   }
 
@@ -261,6 +263,7 @@ export function buildEventData(
     // Maps ISO 3166-1 alpha-2 region codes to DAZN locale path segments.
     const regionLocaleMap: Record<string, string> = {
       GB: 'en-GB', UK: 'en-GB',
+      IE: 'en-IE',
       US: 'en-US',
       AU: 'en-AU',
       AE: 'en-AE',
@@ -534,6 +537,8 @@ export function buildEventData(
       // Backward-compat: if region is GB but config only has UK
       if (region === 'GB') {
         userStateRegional = userStateConfig.regions?.UK;
+      } else if (region === 'IE') {
+        userStateRegional = userStateConfig.regions?.GB || userStateConfig.regions?.UK;
       }
     }
     if (userStateRegional) {

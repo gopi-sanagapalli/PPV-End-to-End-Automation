@@ -23,6 +23,7 @@ export function getNowForRegion(region?: string): Date {
   const tzMap: Record<string, string> = {
     GB: 'Europe/London',
     UK: 'Europe/London',
+    IE: 'Europe/Dublin',
     US: 'America/New_York',
     AE: 'Asia/Dubai',
     UAE: 'Asia/Dubai',
@@ -496,7 +497,7 @@ export function calculateDynamicPpvBannerDate(
 
   // Convert raw UTC event date into wall-clock Date object in target region timezone
   const tzMap: Record<string, string> = {
-    GB: 'Europe/London', UK: 'Europe/London', US: 'America/New_York',
+    GB: 'Europe/London', UK: 'Europe/London', IE: 'Europe/Dublin', US: 'America/New_York',
     DE: 'Europe/Berlin', IT: 'Europe/Rome', ES: 'Europe/Madrid',
     FR: 'Europe/Paris', CA: 'America/Toronto', JP: 'Asia/Tokyo', AE: 'Asia/Dubai',
   };
