@@ -50,7 +50,6 @@ import {
 import { IOSMyAccountPage, openMyAccountPPVPaywall, preLoginFlow as sharedPreLoginFlow } from '../../pages/ios/IOSMyAccountPage';
 import { openHomeBannerPaywall, openGenericPPVPaywall, openHomePageDontMissPaywall } from '../../pages/ios/IOSHomePage';
 import { openLandingBannerPaywall } from '../../pages/ios/IOSLandingPage';
-import { copyImmediateCheckoutUrl } from '../../pages/ios/IOSPaywallPage';
 import {
   IOSFlowHooks,
   captureCheckoutUrl as sharedCaptureCheckoutUrl,
@@ -287,8 +286,6 @@ describe('DAZN iOS PPV — Existing User Flow', () => {
     console.log('✅ Startup handled by prepareIosApp; beginning existing-user PPV navigation');
 
     let buyTapped = false;
-    let bannerUrlCaptured = false;
-    let bannerCheckoutUrl = "";
     let paywallValidated = false;
     const paywallValidatedRef = { value: false };
 
@@ -448,15 +445,6 @@ describe('DAZN iOS PPV — Existing User Flow', () => {
     // ── home-page-banner ──────────────────────────────────────────────────
     else if (SOURCE === 'home-page-banner') {
       buyTapped = await openHomeBannerPaywall(driver, PPV_NAME, iosFlowHooks);
-      if (iosFlowHooks.validatePaywall) {
-        await iosFlowHooks.validatePaywall();
-      }
-      const copyResult = await copyImmediateCheckoutUrl(driver, 'home-page-banner', {
-        screenshotPrefix: 'home',
-      });
-      bannerCheckoutUrl = copyResult.url;
-      bannerUrlCaptured = copyResult.captured;
-      buyTapped = true;
     }
     // ── home-page-dont-miss ───────────────────────────────────────────────
     else if (SOURCE === 'home-page-dont-miss') {
@@ -482,10 +470,7 @@ describe('DAZN iOS PPV — Existing User Flow', () => {
       console.warn('⚠️ Native paywall validation was not run before the external handoff; skipping it now because Apple/Safari is on screen.');
     }
 
-    let checkoutUrl = bannerUrlCaptured ? bannerCheckoutUrl : "";
-    if (!checkoutUrl) {
-      checkoutUrl = await captureCheckoutUrl(driver);
-    }
+    const checkoutUrl = await captureCheckoutUrl(driver);
 
     if (checkoutUrl && (checkoutUrl.includes("dazn.com") || checkoutUrl.includes("amazonaws.com"))) {
       console.log("✅ Checkout URL captured successfully");

@@ -41,7 +41,7 @@ export class IOSHomePage extends IOSLandingPage {
     await this.ensureOnHome();
     await this.driver.pause(2000);
 
-    return this.openBannerPaywall({
+    const bannerCtaTapped = await this.openBannerPaywall({
       label: 'Home Page',
       pageName: 'Home page',
       missingScreenshot: './test-results/ios_home_ppv_banner_not_found.png',
@@ -53,6 +53,28 @@ export class IOSHomePage extends IOSLandingPage {
       recordPage: 'Home Page',
       ensureBannerStillVisibleBeforeBuy: true,
     }, hooks);
+    if (!bannerCtaTapped) return false;
+
+    const isUltimateUser = ['active_ultimate_apm', 'active_ultimate_upfront'].includes(
+      String(process.env.USER_STATE || '').toLowerCase().trim(),
+    );
+    const isLoginFirst = String(process.env.LOGIN_FIRST || '').toLowerCase() === 'true';
+    if (isUltimateUser && isLoginFirst) return true;
+
+    console.log('Validating native Home Page paywall before external handoff...');
+    await this.driver.saveScreenshot('./test-results/ios_home_native_paywall.png');
+    await this.runPaywallValidation(hooks);
+
+    return this.tapBuyCtaWithFallback([
+      'Go to dazn.com/start',
+      'Go to DAZN.com/start',
+      'dazn.com/start',
+      'Buy now',
+      'Buy Now',
+      'Buy',
+      'Get PPV',
+      'Purchase',
+    ]);
   }
 
   async openGenericPPVPaywall(hooks: IOSFlowHooks = {}): Promise<boolean> {

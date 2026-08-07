@@ -222,7 +222,7 @@ export class IOSSafariValidationPage extends IOSBasePage {
     texts: string[],
     fullText: string,
     compareFn: (actual: string, expected: string) => boolean,
-    extras: { h1Text: string; buttonTexts: string[]; hasImage: boolean; selectedRadioText: string; eventName: string; ratePlan: string },
+    extras: { h1Text: string; buttonTexts: string[]; hasImage: boolean; selectedRadioText: string; hasTermsLink: boolean; eventName: string; ratePlan: string },
   ): { actual: string; isMatch: boolean } {
     const fieldLower = field.toLowerCase().replace(/\s+/g, ' ').trim();
 
@@ -271,11 +271,14 @@ export class IOSSafariValidationPage extends IOSBasePage {
     // ── Upsell Features 1–4 ────────────────────────────────────────
     // These are literal text strings — just look for them in the body text.
     if (/^upsell feature [1-4]$/.test(fieldLower)) {
-      const expectedLower = expected.toLowerCase().replace(/[|]/g, '').trim();
-      if (!expectedLower || expectedLower === 'n/a') {
+      const alternatives = expected.split('|').map(value => value.trim()).filter(Boolean);
+      if (alternatives.length === 0 || alternatives.every(value => value.toLowerCase() === 'n/a')) {
         return { actual: 'N/A', isMatch: true };
       }
-      const found = texts.find(t => t.toLowerCase().includes(expectedLower.substring(0, 40)));
+      const found = texts.find(text => alternatives.some(expectedValue => {
+        const expectedLower = expectedValue.toLowerCase();
+        return text.toLowerCase().includes(expectedLower.substring(0, 40));
+      }));
       const actual = found ? found.trim() : 'Not found';
       return { actual, isMatch: compareFn(actual, expected) };
     }
@@ -286,7 +289,10 @@ export class IOSSafariValidationPage extends IOSBasePage {
       if (expected && expected.toUpperCase() !== 'N/A') {
         const expLower = expected.toLowerCase();
         const found = texts.find(t => t.toLowerCase().includes(expLower.substring(0, 10)));
-        if (found) return { actual: found.trim(), isMatch: compareFn(found.trim(), expected) };
+        if (found) {
+          const actual = found.trim();
+          return { actual, isMatch: compareFn(actual, expected) };
+        }
       }
       // Generic ordinal date pattern fallback: "Sat 29th Aug at 17:00"
       const dateMatch = texts.find(t => /\d+(st|nd|rd|th)\s+\w+\s+at\s+\d+:/i.test(t));
@@ -518,6 +524,11 @@ export class IOSSafariValidationPage extends IOSBasePage {
       return { actual: partial?.trim() || 'Not found', isMatch: !!partial && compareFn(partial, expected) };
     }
 
+    if (fieldLower === 'terms link present') {
+      const actual = extras.hasTermsLink ? 'Yes' : 'No';
+      return { actual, isMatch: compareFn(actual, expected) };
+    }
+
     // ── Plan Subtitle (e.g. "Billed monthly. 12-month contract.") ──
     if (fieldLower === 'plan subtitle') {
       const found = texts.find(t => compareFn(t, expected));
@@ -624,7 +635,7 @@ export class IOSSafariValidationPage extends IOSBasePage {
     const fullText = texts.join(' ');
     const h1Text = await this.getH1Text();
     const buttonTexts = await this.getButtonTexts();
-    const [hasImage, selectedRadioText] = await Promise.all([
+    const [hasImage, selectedRadioText, hasTermsLink] = await Promise.all([
       this.driver.execute(() => document.querySelectorAll('img').length > 0).catch(() => false),
       this.driver.execute(() => {
         // DAZN has used native radios, ARIA radios, and CSS-selected cards in
@@ -640,6 +651,12 @@ export class IOSSafariValidationPage extends IOSBasePage {
         if (!selected) return '';
         return (selected.closest<HTMLElement>('label, [role="radio"], [role="button"], div')?.innerText || '').trim();
       }).catch(() => ''),
+      this.driver.execute(() => Array.from(document.querySelectorAll<HTMLAnchorElement>('a')).some(link => {
+        const text = (link.innerText || link.textContent || '').replace(/\s+/g, ' ').trim();
+        const style = window.getComputedStyle(link);
+        const box = link.getBoundingClientRect();
+        return /terms/i.test(text) && style.display !== 'none' && style.visibility !== 'hidden' && box.width > 0 && box.height > 0;
+      })).catch(() => false),
     ]);
 
     console.log(
@@ -745,7 +762,7 @@ export class IOSSafariValidationPage extends IOSBasePage {
       const { actual, isMatch } = this.findActualValue(
         field, expected, texts, fullText, compare,
         {
-          h1Text, buttonTexts, hasImage, selectedRadioText,
+          h1Text, buttonTexts, hasImage, selectedRadioText, hasTermsLink,
           eventName: String(eventData.PPV_NAME || ''),
           ratePlan: String(eventData.RATE_PLAN || process.env.RATE_PLAN || 'monthly').toLowerCase(),
         },
@@ -763,6 +780,58 @@ export class IOSSafariValidationPage extends IOSBasePage {
         : undefined;
       results.push({ page: `${pageName} (Safari)`, field, expected, actual, status, screenshot });
     }
+  }
+
+  /** Expand payment methods where necessary and validate Apple Pay in Safari. */
+  private async validateApplePayPaymentMethod(
+    pageName: string,
+    results: IOSValidationResult[],
+  ): Promise<void> {
+    const visiblePaymentMethods = () => this.driver.execute(() => {
+      const visibleTexts = Array.from(document.querySelectorAll<HTMLElement>('body *'))
+        .filter(element => {
+          const box = element.getBoundingClientRect();
+          const style = window.getComputedStyle(element);
+          return style.display !== 'none' && style.visibility !== 'hidden' && box.width > 0 && box.height > 0;
+        })
+        .map(element => (element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim());
+      return ['google pay', 'credit & debit card', 'apple pay', 'paypal']
+        .every(method => visibleTexts.some(text => text.toLowerCase() === method));
+    }).catch(() => false);
+
+    if (!await visiblePaymentMethods()) {
+      const expanded = await this.driver.execute(() => {
+        const control = Array.from(document.querySelectorAll<HTMLElement>('button, [role="button"], summary, a, div'))
+          .find(element => /^more payment methods$/i.test((element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim()));
+        if (!control) return false;
+        control.click();
+        return true;
+      }).catch(() => false);
+      if (expanded) {
+        console.log(`🔽 [${pageName}] Expanded More payment methods.`);
+        await this.driver.waitUntil(visiblePaymentMethods, {
+          timeout: 8000,
+          interval: 250,
+          timeoutMsg: 'Payment methods were not exposed after expanding More payment methods.',
+        }).catch(() => { });
+      }
+    }
+
+    const hasApplePay = await this.driver.execute(() =>
+      Array.from(document.querySelectorAll<HTMLElement>('body *')).some(element => {
+        const text = (element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim();
+        const box = element.getBoundingClientRect();
+        const style = window.getComputedStyle(element);
+        return /^apple pay$/i.test(text) && style.display !== 'none' && style.visibility !== 'hidden' && box.width > 0 && box.height > 0;
+      }),
+    ).catch(() => false);
+    const actual = hasApplePay ? 'Yes' : 'No';
+    const status = hasApplePay ? 'PASS' : 'FAIL';
+    console.log(`  ${hasApplePay ? '✅' : '❌'} [Apple Pay] expected="Yes" actual="${actual}"`);
+    const screenshot = hasApplePay
+      ? undefined
+      : await this.captureAndMarkFailureScreenshot(pageName, 'Apple Pay', 'Yes', actual);
+    results.push({ page: pageName, field: 'Apple Pay', expected: 'Yes', actual, status, screenshot });
   }
 
   // ── Public page validators ────────────────────────────────────
@@ -783,7 +852,10 @@ export class IOSSafariValidationPage extends IOSBasePage {
         }
       }
       eventData.CURRENT_PAGE = 'PPV';
-      await this.validateWebPageWithSheet('PPV Page', rows, eventData, results);
+      const rowsBeforeTierSelection = String(eventData.TIER || '').toLowerCase() === 'ultimate'
+        ? rows.filter(row => String(row.Field || '').trim().toLowerCase() !== 'cta button')
+        : rows;
+      await this.validateWebPageWithSheet('PPV Page', rowsBeforeTierSelection, eventData, results);
     } catch (err: any) {
       console.warn(`⚠️  PPV page validation error: ${err.message}`);
     }
@@ -804,7 +876,7 @@ export class IOSSafariValidationPage extends IOSBasePage {
       if (!eventData.PLAN_CTA_BUTTON) {
         const trialDays = eventData.TRIAL_DAYS || eventData.FREE_TRIAL_DAYS || '8';
         if (tier === 'ultimate') {
-          eventData.PLAN_CTA_BUTTON = 'Continue with DAZN Ultimate';
+          eventData.PLAN_CTA_BUTTON = 'Continue with DAZN Ultimate|Continue';
         } else if (ratePlan.includes('flex') || (!ratePlan.includes('annual') && !ratePlan.includes('upfront') && !ratePlan.includes('apm') && !ratePlan.includes('apu'))) {
           eventData.PLAN_CTA_BUTTON = `Continue with ${trialDays}-day Free Trial`;
         } else if (ratePlan.includes('upfront') || ratePlan.includes('apu')) {
@@ -982,6 +1054,7 @@ export class IOSSafariValidationPage extends IOSBasePage {
       }
 
       eventData.CURRENT_PAGE = 'payment';
+      await this.validateApplePayPaymentMethod('Payment Page (Safari)', results);
       await this.validateWebPageWithSheet('Payment Page', rows, eventData, results);
     } catch (err: any) {
       console.warn(`⚠️  Payment page validation error: ${err.message}`);
@@ -1016,7 +1089,10 @@ export class IOSSafariValidationPage extends IOSBasePage {
       const { getChooseHowToBuyData } = lazyExcelReader();
       const rows = getChooseHowToBuyData();
       eventData.CURRENT_PAGE = 'choose-how-to-buy';
-      await this.validateWebPageWithSheet(PAGE, rows, eventData, results);
+      const rowsBeforeTierSelection = String(eventData.TIER || '').toLowerCase() === 'ultimate'
+        ? rows.filter(row => String(row.Field || '').trim().toLowerCase() !== 'cta button')
+        : rows;
+      await this.validateWebPageWithSheet(PAGE, rowsBeforeTierSelection, eventData, results);
     } catch (err: any) {
       console.warn(`⚠️  Choose How To Buy page validation error: ${err.message}`);
     }
@@ -1094,11 +1170,11 @@ export class IOSSafariValidationPage extends IOSBasePage {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // PPV PAYMENT PAGE  (active_standard_* users — saved card checkout)
+  // PPV PAYMENT PAGE  (active_standard_* users)
   // ─────────────────────────────────────────────────────────────────────────
 
   /**
-   * Validate the PPV Payment (saved-card) page in Safari WebView.
+   * Validate the PPV Payment page in Safari WebView.
    * Reads rows from the Excel sheet "PPV Payment page" and evaluates each
    * field directly from body text — mirrors PPVUpsellPaymentPage.ts (web).
    */
@@ -1114,12 +1190,14 @@ export class IOSSafariValidationPage extends IOSBasePage {
         async () => {
           const t: string = await this.driver.execute(() => document.body?.innerText || '').catch(() => '');
           const lower = t.toLowerCase();
-          return /one time payment|pay now|\*{4}|saved card/i.test(lower);
+          return /one time payment|pay now/i.test(lower) &&
+            /payment method|visa|mastercard|amex|\*{4}|saved card/i.test(lower);
         },
         { timeout: 20000, timeoutMsg: 'PPV Payment page did not appear within 20s.' },
       );
 
       await this.waitForSafariPageContentToSettle(PAGE);
+      await this.validateApplePayPaymentMethod(PAGE, results);
 
       const { getPPVPaymentData } = lazyExcelReader();
       const rows = getPPVPaymentData();
@@ -1127,6 +1205,10 @@ export class IOSSafariValidationPage extends IOSBasePage {
 
       const fullText: string = await this.driver.execute(() => document.body?.innerText || '').catch(() => '');
       const bodyLower = fullText.toLowerCase();
+      const lines = fullText.split('\n').map(line => line.replace(/\s+/g, ' ').trim()).filter(Boolean);
+      const ppvWords = String(eventData.PPV_NAME || '').toLowerCase()
+        .split(/[\s:\-–—,]+/).filter((word: string) => word.length > 2 && !/^(the|and|for|with|from|ppv)$/.test(word));
+      const hasSavedCard = /\*{4}\s*\d{2,4}|saved card|(?:visa|mastercard|amex).{0,50}\bexp(?:iry)?\b/i.test(fullText);
 
       for (const row of rows) {
         const field: string = (row['Field'] || '').trim();
@@ -1150,32 +1232,55 @@ export class IOSSafariValidationPage extends IOSBasePage {
         let actual = 'N/A';
         const key = field.toLowerCase().replace(/\s+/g, ' ').trim();
 
-        if (key === 'ppv name' || key === 'page title') {
+        if (!hasSavedCard && ['pay now button', 'secure checkout', 'legal text present'].includes(key)) {
+          console.log(`  ⏭️  Skipping [${field}] — not shown on the cardless PPV payment-options page.`);
+          continue;
+        }
+
+        if (key === 'skip cta') {
+          actual = /\bskip\b/i.test(fullText) ? 'Yes' : 'No';
+
+        } else if (key === 'ppv name' || key === 'page title') {
           // Find a heading that contains PPV name words
           const headings: string[] = await this.driver.execute(() =>
             Array.from(document.querySelectorAll('h1,h2,h3,h4'))
               .map(el => (el as HTMLElement).innerText?.trim() || '')
               .filter(t => t.length > 0)
           ).catch(() => []);
-          const ppvWords = (eventData?.PPV_NAME || '').toLowerCase()
-            .split(/[\s:\-–—,]+/).filter((w: string) => w.length > 2 && !/^(the|and|for|with|from|ppv)$/.test(w));
           actual = headings.find((h: string) => {
             const lh = h.toLowerCase();
             if (lh.includes('dazn')) return false;
             return ppvWords.length > 0 ? ppvWords.some((w: string) => lh.includes(w)) : lh.includes('vs');
           })?.trim() || headings[0]?.trim() || 'N/A';
 
+        } else if (key === 'ppv description') {
+          const expectedWords = expected.toLowerCase().split(/\s+/).filter((word: string) => word.length > 3);
+          actual = lines.find(line => expectedWords.length > 0 && expectedWords.every(word => line.toLowerCase().includes(word))) || 'N/A';
+
+        } else if (key === 'ppv date and time') {
+          actual = lines.find(line => /\b(?:today|tomorrow|tonight)\s+at\s+\d{1,2}:\d{2}\b|\b(?:mon|tue|wed|thu|fri|sat|sun)\w*\s+\d{1,2}(?:st|nd|rd|th)?\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\s+at\s+\d{1,2}:\d{2}\b/i.test(line)) || 'N/A';
+
+        } else if (key === 'order summary ppv name') {
+          actual = lines.find(line => ppvWords.length > 0 && ppvWords.every(word => line.toLowerCase().includes(word))) || 'N/A';
+
+        } else if (key === 'order summary ppv price') {
+          actual = lines.find(line => /(?:AED\s?|[£$€])\s*\d+(?:[.,]\d{2})?/i.test(line)) || 'N/A';
+
+        } else if (key === 'today you pay text') {
+          actual = bodyLower.includes('today you pay') ? 'Today you pay' : 'N/A';
+
         } else if (key === 'payment type' || key.includes('payment type')) {
           actual = bodyLower.includes('one time payment') ? 'One time payment' : 'N/A';
 
-        } else if (key === 'ppv price' || key === 'event price' || key === 'today you pay price' || key.includes('today you pay')) {
+        } else if (key === 'ppv price' || key === 'event price' || key === 'today you pay price') {
           const todayMatch = fullText.match(/today you pay[^£$€AED\d]*(?:AED\s?|[£$€])\d+\.\d{2}/i);
           const priceMatch = fullText.match(/(?:AED\s?|[£$€])\d+(?:[.,]\d{2})?/);
           actual = (todayMatch ? todayMatch[0].match(/(?:AED\s?|[£$€])\d+\.\d{2}/)?.[0] : null)
             ?? priceMatch?.[0] ?? 'N/A';
 
         } else if (key === 'payment method present') {
-          actual = /visa|mastercard|amex|\*{4}|saved card/i.test(bodyLower) ? 'Yes' : 'No';
+          actual = ['google pay', 'credit & debit card', 'apple pay', 'paypal']
+            .every(method => bodyLower.includes(method)) ? 'Yes' : 'No';
 
         } else if (key === 'pay now button') {
           const payNow: boolean = await this.driver.execute(() => {
@@ -1192,6 +1297,31 @@ export class IOSSafariValidationPage extends IOSBasePage {
 
         } else if (key === 'legal text present') {
           actual = /by completing|by purchasing|you agree|terms of use|non-refundable/i.test(bodyLower) ? 'Yes' : 'No';
+
+        } else if (key === 'terms link present' || key === 'privacy policy link present') {
+          const linkPattern = key === 'terms link present' ? /terms/i : /privacy/i;
+          const hasLink: boolean = await this.driver.execute((pattern: string) => {
+            const regex = new RegExp(pattern, 'i');
+            return Array.from(document.querySelectorAll<HTMLAnchorElement>('a')).some(link => {
+              const text = (link.innerText || link.textContent || '').replace(/\s+/g, ' ').trim();
+              const style = window.getComputedStyle(link);
+              const box = link.getBoundingClientRect();
+              return regex.test(text) && style.display !== 'none' && style.visibility !== 'hidden' && box.width > 0 && box.height > 0;
+            });
+          }, linkPattern.source).catch(() => false);
+          actual = hasLink ? 'Yes' : 'No';
+
+        } else if (key === 'more payment methods') {
+          actual = bodyLower.includes('more payment methods') ? 'Yes' : 'No';
+
+        } else if (key === 'secure checkout') {
+          actual = /secure checkout|secure payment|ssl/i.test(bodyLower) ? 'Yes' : 'No';
+
+        } else if (key === 'payment instruction text') {
+          actual = lines.find(line => /please choose from the payment options/i.test(line)) || 'N/A';
+
+        } else if (key === 'excluding tax text' || key === 'excluding tax') {
+          actual = fullText.match(/\(?excluding tax\)?/i)?.[0] || 'N/A';
 
         } else if (key.includes('ppv image present') || key.includes('image present')) {
           const hasImg: boolean = await this.driver.execute(() =>
@@ -1210,6 +1340,7 @@ export class IOSSafariValidationPage extends IOSBasePage {
           : undefined;
         results.push({ page: PAGE, field, expected, actual, status, screenshot });
       }
+
     } catch (err: any) {
       console.warn(`⚠️  PPV Payment page validation error: ${err.message}`);
     }
