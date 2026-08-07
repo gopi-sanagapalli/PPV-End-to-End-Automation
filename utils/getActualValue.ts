@@ -742,6 +742,31 @@ export async function getActualValue(
       if (candidates.length === 0) return '';
       return findLine(line => candidates.includes(normaliseComparable(line)));
     };
+    const isNearWordMatch = (expected: string, actual: string): boolean => {
+      if (expected === actual) return true;
+      if (expected.length < 5 || expected.length !== actual.length) return false;
+      for (let i = 0; i < expected.length - 1; i++) {
+        const swapped = expected.slice(0, i) + expected[i + 1] + expected[i] + expected.slice(i + 2);
+        if (swapped === actual) return true;
+      }
+      return false;
+    };
+    const findPpvTitle = (...values: string[]) => {
+      const titleWords = values
+        .map(normaliseComparable)
+        .filter(Boolean)
+        .flatMap(value => value.split(/\s+/))
+        .filter((word, index, all) => word.length > 2 && !['the', 'and', 'for', 'with', 'from', 'ppv'].includes(word) && all.indexOf(word) === index);
+      if (titleWords.length === 0) return '';
+      return findLine(line => {
+        const textWords = normaliseComparable(line).split(/\s+/);
+        return line.length < 120 &&
+          /\bvs?\b\.?/i.test(line) &&
+          !/\d{1,2}:\d{2}/.test(line) &&
+          !line.toLowerCase().includes('buy ') &&
+          titleWords.every(word => textWords.some(textWord => isNearWordMatch(word, textWord)));
+      });
+    };
     const extractCurrency = (line: string) =>
       (line.match(/(?:[A-Z]{3}\s*|[£$€₹]\s?)\d+(?:[,.]\d{2,3})*/i)?.[0] || '').trim();
 
@@ -855,7 +880,9 @@ export async function getActualValue(
         );
         if (upfrontIndex < 0) return 'N/A';
         const cardLines = lines.slice(upfrontIndex, upfrontIndex + 6);
-        return cardLines.find(line => /\bsave\s+(?:[A-Z]{3}\s*)?[\d,.]+/i.test(line)) || 'N/A';
+        const saveLine = cardLines.find(line => /\bsave\s+(?:[A-Z]{3}\s*)?[£$€₹]?[\d,.]+/i.test(line));
+        const saveMatch = saveLine?.match(/\bsave\s+(?:[A-Z]{3}\s*)?[£$€₹]?[\d,.]+/i);
+        return saveMatch?.[0].trim() || 'N/A';
       }
 
       case 'annual pay upfront price': {
@@ -904,7 +931,9 @@ export async function getActualValue(
       case 'event name on top':
       case 'ppv name':
       case 'ppv card title':
-        return findExactish(ppvDisplayName, eventData?.PPV_CARD_TITLE || '', eventData?.PPV_NAME || '') || 'N/A';
+        return findExactish(ppvDisplayName, eventData?.PPV_CARD_TITLE || '', eventData?.PPV_NAME || '') ||
+          findPpvTitle(ppvDisplayName, eventData?.PPV_CARD_TITLE || '', eventData?.PPV_NAME || '') ||
+          'N/A';
 
       case 'ppv price':
         if (ppvPrice) {
