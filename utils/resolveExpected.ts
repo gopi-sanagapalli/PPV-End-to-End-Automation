@@ -59,6 +59,12 @@ export function resolveExpected(
   rule: any,
   eventData: Record<string, string>
 ): string {
+  if (typeof rule === 'string') {
+    return replacePlaceholders(rule, eventData);
+  }
+  if (!rule || typeof rule !== 'object') {
+    return String(rule || '');
+  }
   const rawField = rule.Field || rule.field || '';
   const field = rawField.trim().toLowerCase();
   const rawTier = rule.Tier || rule.tier || '';
@@ -88,13 +94,9 @@ export function resolveExpected(
   ].includes(currentUserState);
 
   if (field === 'instruction header' && (pageName.includes('paywall') || pageName.includes('mobile'))) {
-    // Mobile native paywall always shows the generic header — no email text.
-    if (pageName === 'mobile paywall') {
-      return 'How to watch this and more?';
-    }
     const isNewUser = !currentUserState || currentUserState === 'new' || currentUserState === 'anonymous';
     const isLoginFirst = String(eventData.LOGIN_FIRST ?? process.env.LOGIN_FIRST ?? '').toLowerCase() === 'true';
-    if (!isNewUser && (isLoginFirst || eventData.USER_EMAIL || process.env.USER_EMAIL)) {
+    if (!isNewUser && isLoginFirst) {
       const email = eventData.USER_EMAIL || process.env.USER_EMAIL || '';
       return `To watch this and more check the email we just sent to ${email}`.trim();
     } else {
