@@ -52,6 +52,8 @@ import {
   stabilisePage,
   handleCookies,
   dismissMarketingPopup,
+  expandMorePaymentMethods,
+  shouldSkipCardEntryChecks,
 } from '../../utils/helpers';
 import {
   loadEventConfig,
@@ -75,6 +77,19 @@ const TV_HANDOFF_MODE = (process.env.TV_HANDOFF_MODE || '').toLowerCase() === 't
 // ── Flow constant — used for flow-restricted Excel rows ──────────────
 // Enables Welcome Back, Saved Card, Signed In As, Log Out validations
 const FLOW = 'myaccount';
+const addPPVPaymentMethodRows = (data: any[]) => {
+  const paymentMethodRows = [
+    { Field: 'Credit & Debit Card Option', Expected: 'Yes' },
+    { Field: 'Google Pay Option', Expected: 'Yes' },
+    { Field: 'PayPal Option', Expected: 'Yes' },
+  ];
+  return [
+    ...data,
+    ...paymentMethodRows.filter(row => !data.some((existing: any) =>
+      String(existing.Field || '').trim().toLowerCase() === row.Field.toLowerCase()
+    )),
+  ];
+};
 const SWITCH_TO_ULTIMATE = (process.env.SWITCH || '').toLowerCase() === 'true';
 const LOGIN_FIRST = (process.env.LOGIN || process.env.LOGIN_FIRST || '').toLowerCase() === 'true';
 const HOME_SPORT_DROPDOWN_SOURCES = new Set([
@@ -2165,22 +2180,8 @@ for (const stateKey of userStatesToRun) {
           page, 'myaccount', overviewData, results, eventData, 'My Account'
         );
 
-        if (shouldValidatePPVRows) {
-          // The overview intentionally surfaces only a few featured PPVs. Move
-          // to the full /myaccount/ppv listing before reading event-specific
-          // fields, otherwise those checks are scoped to unrelated featured
-          // cards or return N/A.
-          const ppvReady = hasPPV || await myAccountPage.preparePPVValidation(eventData.PPV_NAME);
-          if (!ppvReady) {
-            console.warn(`⚠️ Configured PPV "${eventData.PPV_NAME}" was not found in the My Account PPV listing. PPV rows will correctly report N/A.`);
-          }
-          await validateVariant(
-            page, 'myaccount', ppvData, results, eventData, 'My Account'
-          );
-        }
-
-        // Verify user state matches the expected state. If not, fail early with clear logging.
-        // For Canada, subscription title is plan-type dependent. Resolve once here.
+        // Verify user state before PPV validations/actions. If it does not match,
+        // fail immediately with clear logging.
         const caStandardSub = isCanadaDaznPlus ? 'DAZN+ Standard' : (isCanadaRegion ? 'DAZN' : 'DAZN Standard');
         const caUltimateSub = isCanadaDaznPlus ? 'DAZN+ Ultimate' : 'DAZN Ultimate';
 
@@ -2219,6 +2220,20 @@ for (const stateKey of userStatesToRun) {
             console.log(`          actual   : ${actualStatus}\n`);
             throw new Error(`❌ User is not ${expectedConfig.label} (Current Subscription: ${actualSub}, Status: ${actualStatus})`);
           }
+        }
+
+        if (shouldValidatePPVRows) {
+          // The overview intentionally surfaces only a few featured PPVs. Move
+          // to the full /myaccount/ppv listing before reading event-specific
+          // fields, otherwise those checks are scoped to unrelated featured
+          // cards or return N/A.
+          const ppvReady = hasPPV || await myAccountPage.preparePPVValidation(eventData.PPV_NAME);
+          if (!ppvReady) {
+            console.warn(`⚠️ Configured PPV "${eventData.PPV_NAME}" was not found in the My Account PPV listing. PPV rows will correctly report N/A.`);
+          }
+          await validateVariant(
+            page, 'myaccount', ppvData, results, eventData, 'My Account'
+          );
         }
 
         // Restore original DAZN_TIER
@@ -3468,12 +3483,24 @@ for (const stateKey of userStatesToRun) {
 
             const savedCardPage = new PPVUpsellPaymentPage(page);
 
-            // Validate the addon purchase page
-            try {
-              const ppvPaymentData = getPPVPaymentData();
-              await savedCardPage.validateSavedCardPayment(ppvPaymentData, results, eventData, 'PPV Payment (Saved Card)');
-            } catch (err: any) {
-              console.warn(`⚠️ Saved Card PPV Payment validation error: ${err.message}`);
+            if (await shouldSkipCardEntryChecks(page)) {
+              console.log('ℹ️ No saved card is shown — validating the PPV payment-options page.');
+              await expandMorePaymentMethods(page, 'PPV Payment');
+              const ppvPaymentData = addPPVPaymentMethodRows(getPPVPaymentData())
+                .filter((row: any) => !['pay now button', 'secure checkout'].includes(
+                  String(row.Field || '').trim().toLowerCase()
+                ));
+              await validateVariant(
+                page, 'ppvpayment', ppvPaymentData, results, eventData, 'PPV Payment', FLOW
+              );
+            } else {
+              // Validate the addon purchase page only when a saved card is present.
+              try {
+                const ppvPaymentData = getPPVPaymentData();
+                await savedCardPage.validateSavedCardPayment(ppvPaymentData, results, eventData, 'PPV Payment (Saved Card)');
+              } catch (err: any) {
+                console.warn(`⚠️ Saved Card PPV Payment validation error: ${err.message}`);
+              }
             }
 
             reachedEndPage = true;
@@ -4554,23 +4581,34 @@ for (const stateKey of userStatesToRun) {
             { timeout: 15000 }
           ).catch(() => { });
 
-          // Wait for payment form to fully load (Pay Now button appears after Zuora/Adyen loads)
-          const payNowLoaded = await page.locator(
-            'button:has-text("Pay Now"), button:has-text("Pay now"), ' +
-            'a:has-text("Pay Now"), a:has-text("Pay now"), ' +
-            'button:has-text("Complete"), button:has-text("Confirm")'
-          ).first().waitFor({ state: 'visible', timeout: 20000 })
-            .then(() => true).catch(() => false);
-          if (payNowLoaded) {
-            console.log('✅ Pay Now button visible — payment form loaded');
+          await expandMorePaymentMethods(page, 'PPV Payment');
+          const skipCardEntryChecks = await shouldSkipCardEntryChecks(page);
+          if (!skipCardEntryChecks) {
+            const payNowLoaded = await page.locator(
+              'button:has-text("Pay Now"), button:has-text("Pay now"), ' +
+              'a:has-text("Pay Now"), a:has-text("Pay now"), ' +
+              'button:has-text("Complete"), button:has-text("Confirm")'
+            ).first().waitFor({ state: 'visible', timeout: 20000 })
+              .then(() => true).catch(() => false);
+            if (payNowLoaded) {
+              console.log('✅ Pay Now button visible — payment form loaded');
+            } else {
+              console.log('⚠️  Pay Now button not visible after 20s — proceeding with validation anyway');
+            }
           } else {
-            console.log('⚠️  Pay Now button not visible after 20s — proceeding with validation anyway');
+            console.log('⏭️  Skipping card-entry checks on PPV Payment — no card checkout form is shown');
           }
 
-          const ppvPaymentData = getPPVPaymentData();
-          console.log(`📊 PPV Payment rows: ${ppvPaymentData.length}`);
+          const ppvPaymentData = addPPVPaymentMethodRows(getPPVPaymentData());
+          const effectivePpvPaymentData = skipCardEntryChecks
+            ? ppvPaymentData.filter((row: any) => {
+              const field = String(row.Field || '').trim().toLowerCase();
+              return field !== 'pay now button' && field !== 'secure checkout';
+            })
+            : ppvPaymentData;
+          console.log(`📊 PPV Payment rows: ${effectivePpvPaymentData.length}`);
           await validateVariant(
-            page, 'ppvpayment', ppvPaymentData, results, eventData, 'PPV Payment', FLOW
+            page, 'ppvpayment', effectivePpvPaymentData, results, eventData, 'PPV Payment', FLOW
           );
           reachedEndPage = true;
         }

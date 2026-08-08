@@ -3,6 +3,7 @@ import { BasePage } from './BasePage';
 import { resolveExpected } from '../utils/resolveExpected';
 import { compare } from '../utils/compare';
 import { captureFailures } from '../utils/failureCapture';
+import { expandMorePaymentMethods, shouldSkipCardEntryChecks } from '../utils/helpers';
 
 const CARD_NUMBER_FRAME = 'Secure card number input frame';
 const EXPIRY_DATE_FRAME = 'Secure card expiration date input frame';
@@ -98,6 +99,9 @@ export class PaymentPage extends BasePage {
       console.log('⚠️ Warning: payment options text did not appear within 10s');
     });
 
+    await expandMorePaymentMethods(this.page, 'Payment Page');
+    const skipCardEntryChecks = await shouldSkipCardEntryChecks(this.page);
+
     // Dynamically extract name from page — fast targeted selector
     let signedInText = '';
     try {
@@ -145,6 +149,10 @@ export class PaymentPage extends BasePage {
       }
       if (fieldLower === 'ultimate upsell price') {
         console.log(`  ⏭️  Skipping [${field}] in standard loop — should not be validated before switching`);
+        continue;
+      }
+      if (skipCardEntryChecks && (fieldLower === 'pay now button' || fieldLower === 'secure checkout')) {
+        console.log(`  ⏭️  Skipping [${field}] — no card entry checkout form is shown for this payment method`);
         continue;
       }
 

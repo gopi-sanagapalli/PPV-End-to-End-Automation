@@ -876,7 +876,8 @@ export class MyAccountPage {
       return (await purchased.textContent().catch(() => 'Purchased'))?.trim() || 'Purchased';
     }
 
-    return 'N/A';
+    const pageStatus = await this.isPPVPurchased(ppvName);
+    return pageStatus && pageStatus !== 'N/A' ? pageStatus : 'N/A';
   }
 
   async hasPPVImage(ppvName: string): Promise<boolean> {
@@ -910,32 +911,44 @@ export class MyAccountPage {
     // The PPV section has individual cards with id="purchased-ppv-card"
     // Each card has a name span and a status tag
     const result = await this.page.evaluate((name: string) => {
-      // Find all PPV cards
-      const cards = document.querySelectorAll('[id*="ppv-card"], [id*="ppv-list"] > div > div');
-      for (const card of cards) {
-        const cardText = (card as HTMLElement).innerText || '';
-        // Check if this card contains the PPV name
-        const nameParts = name.toLowerCase().split(/\s+/);
-        const hasName = nameParts.every(part => cardText.toLowerCase().includes(part));
-        if (!hasName) continue;
+      const normalize = (value: string) =>
+        value.toLowerCase()
+          .replace(/\bv(?:s)?\.?\b/g, ' vs ')
+          .replace(/[^a-z0-9]+/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+      const isNearWordMatch = (expected: string, actual: string): boolean => {
+        if (expected === actual) return true;
+        if (expected.length < 5 || expected.length !== actual.length) return false;
+        for (let i = 0; i < expected.length - 1; i++) {
+          const swapped = expected.slice(0, i) + expected[i + 1] + expected[i] + expected.slice(i + 2);
+          if (swapped === actual) return true;
+        }
+        return false;
+      };
+      const nameParts = normalize(name)
+        .split(/\s+/)
+        .filter(part => part.length > 2 && !['the', 'and', 'for', 'with', 'from', 'vs'].includes(part));
+      const hasName = (text: string): boolean => {
+        const textWords = normalize(text).split(/\s+/);
+        return nameParts.length > 0 &&
+          nameParts.every(part => textWords.some(word => isNearWordMatch(part, word)));
+      };
+      const isVisible = (el: HTMLElement): boolean => {
+        const rect = el.getBoundingClientRect();
+        const style = window.getComputedStyle(el);
+        return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+      };
 
-        // Check card length — individual card should be < 150 chars
-        if (cardText.length > 300) continue;
+      const candidates = Array.from(document.querySelectorAll<HTMLElement>(
+        '[id*="ppv-card"], [id*="ppv-list"] > div > div, article, li, section, div'
+      ))
+        .filter(el => isVisible(el))
+        .map(el => ({ text: (el.innerText || '').replace(/\s+/g, ' ').trim() }))
+        .filter(({ text }) => text.length >= 10 && text.length <= 500 && hasName(text))
+        .sort((a, b) => a.text.length - b.text.length);
 
-        // Look for status
-        if (/purchased/i.test(cardText)) return 'Purchased';
-        if (/included/i.test(cardText)) return 'Included';
-        if (/buy now/i.test(cardText)) return 'Buy now';
-      }
-
-      // Fallback: look for any element containing PPV name + Purchased
-      const allEls = document.querySelectorAll('div, li, span');
-      for (const el of allEls) {
-        const text = (el as HTMLElement).innerText || '';
-        if (text.length > 200 || text.length < 10) continue;
-        const nameParts = name.toLowerCase().split(/\s+/);
-        const hasName = nameParts.every(p => text.toLowerCase().includes(p));
-        if (!hasName) continue;
+      for (const { text } of candidates) {
         if (/purchased/i.test(text)) return 'Purchased';
         if (/included/i.test(text)) return 'Included';
         if (/buy now/i.test(text)) return 'Buy now';

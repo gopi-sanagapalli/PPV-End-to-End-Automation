@@ -103,8 +103,11 @@ async function dismissOneStartupDialog(driver: WdBrowser): Promise<boolean> {
     'android=new UiSelector().resourceId("com.android.permissioncontroller:id/permission_allow_button")',
     'android=new UiSelector().resourceId("com.android.permissioncontroller:id/permission_allow_foreground_only_button")',
     'android=new UiSelector().resourceId("android:id/button1")',
+    'android=new UiSelector().resourceIdMatches("(?i).*close.*")',
+    'android=new UiSelector().resourceIdMatches("(?i).*dismiss.*")',
     'android=new UiSelector().descriptionContains("Close")',
     'android=new UiSelector().descriptionContains("Dismiss")',
+    'android=new UiSelector().textMatches("(?i)^(Close|Dismiss)$")',
     'android=new UiSelector().textMatches("(?i)^(Continue|Start watching|Done|OK|Allow)$")',
     'android=new UiSelector().textMatches("(?i)^(Not now|No thanks|Maybe later|Skip|Cancel|Remind me later)$")',
   ], 'Startup dialog dismissed');

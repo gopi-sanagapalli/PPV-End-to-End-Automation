@@ -280,8 +280,13 @@ export async function handleStartupDialogs(driver: WdBrowser, timeoutMs = 20000)
     'Allow Tracking',
     'Allow',
     'Continue',
+    'Close',
+    'Dismiss',
     'Skip',
     'Not Now',
+    'No Thanks',
+    'Maybe Later',
+    'Remind Me Later',
     'OK',
     'Open',
   ];
@@ -562,6 +567,12 @@ export async function waitForHomePage(driver: WdBrowser, timeoutMs = 120000): Pr
       if (await acceptCookiesIfPresent(driver)) {
         sawCookiePrompt = true;
         await driver.pause(2000);
+        return false;
+      }
+
+      if (await tapDialogButton(driver, ['Close', 'Dismiss', 'Not Now', 'No Thanks', 'Maybe Later', 'Remind Me Later', 'Skip'], 'Startup')) {
+        sawStartupDialog = true;
+        await driver.pause(1000);
         return false;
       }
 
