@@ -172,6 +172,11 @@ function collectPlaywrightFailureRows(): ReportStep[] {
             .map((error: any) => error.message || error.stack || String(error))
             .filter(Boolean)
             .join(' | ');
+          const screenshot = (result.attachments || [])
+            .find((attachment: any) =>
+              attachment?.path &&
+              (attachment.name === 'screenshot' || String(attachment.contentType || '').startsWith('image/'))
+            )?.path;
 
           rows.push({
             page: 'Web Continuation',
@@ -179,6 +184,7 @@ function collectPlaywrightFailureRows(): ReportStep[] {
             expected: 'Existing web script continues to the expected end page',
             actual: errorText || `Playwright status: ${result.status}`,
             status: 'FAIL',
+            screenshot: resolveScreenshotPath(screenshot),
           });
         }
       }
@@ -228,19 +234,39 @@ function buildResults(eventConfig: any): ReportStep[] {
   return orderResults(steps);
 }
 
+function getReportPlanMeta(): { tier: string; ratePlan: string } {
+  const plan = String(process.env.PLAN || '').trim().toLowerCase();
+  if (plan.startsWith('ultimate_')) {
+    return {
+      tier: 'ultimate',
+      ratePlan: plan === 'ultimate_upfront' ? 'annual pay upfront' : 'annual pay monthly',
+    };
+  }
+
+  if (plan.startsWith('standard_')) {
+    return {
+      tier: 'standard',
+      ratePlan: plan === 'standard_annual' || plan === 'standard_apm' ? 'annual pay monthly' : 'monthly',
+    };
+  }
+
+  return { tier: 'standard', ratePlan: 'monthly' };
+}
+
 async function main(): Promise<void> {
   const eventConfig = loadEventConfig();
   const metadataPath = process.env.TV_PPV_REPORT_METADATA || path.resolve(process.cwd(), 'tv_ppv_report_metadata.json');
   const metadata = readJson(metadataPath) || {};
   const results = buildResults(eventConfig);
+  const planMeta = getReportPlanMeta();
   const { excelPath, videoPath } = await writeResults(results);
 
   const report = await generateReports(results, {
     event: eventConfig.PPV_DISPLAY_NAME || eventConfig.PPV_NAME || 'TV PPV',
     region: process.env.DAZN_REGION || 'GB',
     source: process.env.SOURCE || 'schedule',
-    ratePlan: 'monthly',
-    tier: 'standard',
+    ratePlan: planMeta.ratePlan,
+    tier: planMeta.tier,
     env: process.env.DAZN_ENV || 'prod',
     flowName: `${process.env.SOURCE || 'schedule'} -> TV/Web handoff`,
     startTime: metadata.startTime ? new Date(metadata.startTime) : undefined,

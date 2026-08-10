@@ -86,6 +86,7 @@ jobs:
         if: ${{ always() }}
         env:
           PLAN: ultimate_apm
+          DEV_MODE_ON: 'on'
           PPV_CONFIG: ${{ env.PPV_CONFIG_NAME }}
           WEB_PPV_CONFIG: ${{ env.PPV_CONFIG_NAME }}
         shell: bash
