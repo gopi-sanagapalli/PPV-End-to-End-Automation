@@ -114,14 +114,14 @@ const realDeviceCaps: Record<string, unknown> = {
   ...(USE_PREBUILT_WDA ? { 'appium:webDriverAgentUrl': REAL_WDA_URL } : {}),
   // Enable MJPEG server for reliable real-device screen recording via ffmpeg
   // (no iOS screen-recording permission needed on the device)
-  'appium:mjpegServerPort': 9100,
+  'appium:mjpegServerPort': Number(process.env.IOS_MJPEG_PORT || 9100),
 };
 
 export const config = {
   runner: 'local',
   tsConfigPath: './tsconfig.json',
   hostname: '127.0.0.1',
-  port: 4723,
+  port: Number(process.env.APPIUM_PORT || 4723),
 
   specs: ['./tests/ios/*.spec.ts'],
   exclude: [],

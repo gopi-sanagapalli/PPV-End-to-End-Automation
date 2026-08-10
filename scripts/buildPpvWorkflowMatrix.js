@@ -80,6 +80,14 @@ const androidDevices = [
 ];
 const assignAndroidDevices = (entries) => entries.map((entry, index) => ({ ...entry, ...androidDevices[index % androidDevices.length] }));
 
+const iosDevices = [
+  { iosUdid: '00008110-001A255A2688201E', iosPlatformVersion: '16.5', appiumPort: 4723, wdaUrl: 'http://127.0.0.1:8100', mjpegServerPort: 9100 },
+];
+const assignIosDevices = (entries) => entries.map((entry, index) => ({ ...entry, ...iosDevices[index % iosDevices.length] }));
+let iosNewSources = [...androidNewSources];
+let iosExistingSources = [...androidExistingSources];
+const iosProfiles = regularProfiles;
+
 const filterBanners = (sources) => {
   if (process.env.BANNERS_CONFIGURED === 'false') {
     return sources.filter(source => !source.toLowerCase().includes('banner'));
@@ -92,6 +100,8 @@ const filterBanners = (sources) => {
 
 androidNewSources = filterBanners(androidNewSources);
 androidExistingSources = filterBanners(androidExistingSources);
+iosNewSources = filterBanners(iosNewSources);
+iosExistingSources = filterBanners(iosExistingSources);
 
 const applicable = (sources, allowDefaultSignup = hasDefaultSignup) => {
   const filtered = sources.filter((source) => {
@@ -140,12 +150,42 @@ switch (mode) {
     matrix = sources.flatMap((source) => regularProfiles.filter((profile) => !ultimateOnly.has(source) || validUltimateProfiles.has(profile)).map((profile) => ({ source, profile })));
     break;
   }
+  case 'web-sanity-new': {
+    const sources = applicable(liveSources.new, false);
+    matrix = sources.map((source, index) => {
+      const plans = standardPlans.filter((plan) => !ultimateOnly.has(source) || plan.startsWith('ultimate_'));
+      return { source, plan: plans[index % plans.length] };
+    });
+    break;
+  }
+  case 'web-sanity-signin': {
+    const sources = applicable(liveSources.existing, false);
+    matrix = sources.map((source, index) => {
+      const profiles = regularProfiles.filter((profile) => !ultimateOnly.has(source) || validUltimateProfiles.has(profile));
+      return { source, profile: profiles[index % profiles.length] };
+    });
+    break;
+  }
+  case 'web-sanity-signed': {
+    const sources = applicable(liveSources.signed, false);
+    matrix = sources.map((source, index) => {
+      const profiles = regularProfiles.filter((profile) => !ultimateOnly.has(source) || validUltimateProfiles.has(profile));
+      return { source, profile: profiles[index % profiles.length] };
+    });
+    break;
+  }
   case 'android-full-new': matrix = assignAndroidDevices(androidNewSources.flatMap(source => standardPlans.map(plan => ({ source, plan })))); break;
   case 'android-full-signin': matrix = assignAndroidDevices(androidNewSources.flatMap(source => androidProfiles.map(profile => ({ source, profile })))); break;
   case 'android-full-signed': matrix = assignAndroidDevices(androidExistingSources.flatMap(source => androidProfiles.map(profile => ({ source, profile })))); break;
   case 'android-sanity-new': matrix = assignAndroidDevices(androidNewSources.map((source, index) => ({ source, plan: standardPlans[index % standardPlans.length] }))); break;
   case 'android-sanity-signin': matrix = assignAndroidDevices(androidNewSources.map((source, index) => ({ source, profile: androidProfiles[index] }))); break;
   case 'android-sanity-signed': matrix = assignAndroidDevices(androidExistingSources.map((source, index) => ({ source, profile: androidProfiles[index + androidNewSources.length] }))); break;
+  case 'ios-full-new': matrix = assignIosDevices(iosNewSources.flatMap(source => standardPlans.map(plan => ({ source, plan })))); break;
+  case 'ios-full-signin': matrix = assignIosDevices(iosNewSources.flatMap(source => iosProfiles.map(profile => ({ source, profile })))); break;
+  case 'ios-full-signed': matrix = assignIosDevices(iosExistingSources.flatMap(source => iosProfiles.map(profile => ({ source, profile })))); break;
+  case 'ios-sanity-new': matrix = assignIosDevices(iosNewSources.map((source, index) => ({ source, plan: standardPlans[index % standardPlans.length] }))); break;
+  case 'ios-sanity-signin': matrix = assignIosDevices(iosNewSources.map((source, index) => ({ source, profile: iosProfiles[index] }))); break;
+  case 'ios-sanity-signed': matrix = assignIosDevices(iosExistingSources.map((source, index) => ({ source, profile: iosProfiles[index + iosNewSources.length] }))); break;
   case 'default-new':
     matrix = ['boxing-standard-subscription', 'home-page-get-started', 'home-page-dazntile'].flatMap((source) => standardPlans.map((plan) => ({ source, plan })));
     matrix.push({ source: 'subscribe-without-pay-per-view', plan: 'standard_monthly' });
@@ -188,10 +228,16 @@ if (country === 'SA') {
   const existingModes = [
     'live-existing',
     'live-signed',
+    'web-sanity-signin',
+    'web-sanity-signed',
     'android-full-signin',
     'android-full-signed',
     'android-sanity-signin',
-    'android-sanity-signed'
+    'android-sanity-signed',
+    'ios-full-signin',
+    'ios-full-signed',
+    'ios-sanity-signin',
+    'ios-sanity-signed'
   ];
   if (existingModes.includes(mode)) {
     matrix = [];

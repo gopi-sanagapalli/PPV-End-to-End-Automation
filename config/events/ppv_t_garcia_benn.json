@@ -10,11 +10,11 @@
   "HAS_DEFAULT_SIGNUP_PPV": true,
   "global": {
     "FREE_TRIAL_DAYS": 8,
-    "PPV_PROMOTER": "",
+    "PPV_PROMOTER": "Ring Magazine",
     "PPV_ENTITLEMENT_ID": "ppv_t_garcia_benn",
     "PPV_DESCRIPTION": "Two of boxing's biggest personalities in a must-see clash as King Ry puts his WBC world title on the line in Las Vegas",
     "PPV_UTC_DATE": "2026-09-13T00:00:00Z",
-    "PPV_LOCATION": "",
+    "PPV_LOCATION": "T-Mobile Arena, Las Vegas",
     "PPV_DATE": "Sun 13th Sep at 01:00",
     "PPV_POPUP_DATE": "13 SEP 1:00AM",
     "SEARCH_PPV_DATE_TIME": "13 SEP 1:00AM",

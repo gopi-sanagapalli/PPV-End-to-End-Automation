@@ -232,6 +232,115 @@ async function findPpvTitleTarget(page: any, field: string, candidates: string[]
   return target;
 }
 
+async function findHomeBoxingUpcomingCtaTarget(
+  page: any,
+  field: string,
+  candidates: string[],
+  context?: Record<string, any>
+): Promise<any | null> {
+  const source = String(context?.SOURCE || context?.source || '').toLowerCase();
+  if (source !== 'home-boxing-upcoming') return null;
+
+  const fieldKey = String(field || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!/(fight card|buy now|cta|button)/i.test(fieldKey)) return null;
+
+  const ppvName = String(context?.PPV_NAME || context?.PPV_DISPLAY_NAME || '').trim();
+  if (!ppvName) return null;
+
+  const marked = await page.evaluate(({ marker, ppvName, candidates }: {
+    marker: string;
+    ppvName: string;
+    candidates: string[];
+  }) => {
+    const clean = (value: string | null | undefined) =>
+      String(value ?? '').replace(/\s+/g, ' ').trim();
+    const normalise = (value: string) =>
+      clean(value).toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+    const words = normalise(ppvName)
+      .replace(/\bppv\b/g, '')
+      .split(/\s+/)
+      .filter(word => word.length > 2);
+    const nameParts = ppvName
+      .split(/[:\-–]/)
+      .map(part => normalise(part).split(/\s+/).filter(word => word.length > 2))
+      .filter(partWords => partWords.length > 0);
+    const buttonTexts = candidates
+      .map(normalise)
+      .filter(value => value && !['yes', 'no', 'n a', 'na'].includes(value));
+
+    if (!words.length && !nameParts.length) return false;
+    document.querySelectorAll(`[${marker}]`).forEach(node => node.removeAttribute(marker));
+
+    const isVisible = (el: HTMLElement) => {
+      const rect = el.getBoundingClientRect();
+      const style = window.getComputedStyle(el);
+      return rect.width > 0 &&
+        rect.height > 0 &&
+        style.display !== 'none' &&
+        style.visibility !== 'hidden' &&
+        style.opacity !== '0';
+    };
+    const matchesName = (text: string) => {
+      const normalisedText = normalise(text);
+      return nameParts.some(partWords => partWords.every(word => normalisedText.includes(word))) ||
+        words.every(word => normalisedText.includes(word));
+    };
+    const matchesButton = (text: string) => {
+      const normalisedText = normalise(text);
+      return buttonTexts.some(candidate => normalisedText.includes(candidate)) ||
+        /fight card|buy now/.test(normalisedText);
+    };
+
+    const roots = Array.from(document.querySelectorAll<HTMLElement>(
+      'article, li, [class*="card" i], [class*="tile" i], [class*="event" i], main div'
+    ));
+
+    let bestRoot: HTMLElement | null = null;
+    let bestScore = -Infinity;
+    for (const root of roots) {
+      if (!isVisible(root)) continue;
+      const rect = root.getBoundingClientRect();
+      if (rect.width < 80 || rect.height < 50 || rect.width > 1800 || rect.height > 900) continue;
+
+      const text = clean(root.innerText || root.textContent);
+      if (!matchesName(text)) continue;
+
+      const actions = Array.from(root.querySelectorAll<HTMLElement>('button, a, [role="button"]'))
+        .filter(action => isVisible(action) && matchesButton(clean(action.innerText || action.textContent)));
+      if (!actions.length) continue;
+
+      const normalisedText = normalise(text);
+      const nameScore = words.filter(word => normalisedText.includes(word)).length * 20;
+      const score = nameScore + actions.length * 10 - (rect.width * rect.height) / 100000;
+      if (score > bestScore) {
+        bestRoot = root;
+        bestScore = score;
+      }
+    }
+
+    if (!bestRoot) return false;
+
+    const target = Array.from(bestRoot.querySelectorAll<HTMLElement>('button, a, [role="button"]'))
+      .filter(action => isVisible(action) && matchesButton(clean(action.innerText || action.textContent)))
+      .sort((a, b) => {
+        const aText = normalise(clean(a.innerText || a.textContent));
+        const bText = normalise(clean(b.innerText || b.textContent));
+        const aExact = buttonTexts.some(candidate => aText === candidate) ? 1 : 0;
+        const bExact = buttonTexts.some(candidate => bText === candidate) ? 1 : 0;
+        return bExact - aExact;
+      })[0];
+
+    if (!target) return false;
+    target.setAttribute(marker, 'true');
+    return true;
+  }, { marker: FAILURE_FIELD_MARKER, ppvName, candidates }).catch(() => false);
+
+  if (!marked) return null;
+  const target = page.locator(`[${FAILURE_FIELD_MARKER}="true"]`).first();
+  await target.waitFor({ state: 'visible', timeout: 1000 }).catch(() => { });
+  return target;
+}
+
 /**
  * Banner carousels may rotate after validation but before a failure screenshot
  * is taken. Re-select the PPV slide and mark it so evidence is scoped to the
@@ -410,13 +519,18 @@ export async function captureFailures(
         ? await activatePpvBannerForEvidence(page, ppvName)
         : null;
       const normalizedField = String(field).toLowerCase().replace(/\s+/g, ' ').trim();
+      const isHomeBoxingUpcomingCtaField =
+        source === 'home-boxing-upcoming' &&
+        /(fight card|buy now|cta|button)/i.test(normalizedField);
       // Tile fields were captured before the click. Once a tile popup is open,
       // do not hunt for those fields in the dimmed page: the same event can be
       // present in the hero banner and scrollIntoView would replace the tile
       // evidence with an unrelated banner screenshot.
       const target = tilePopupOpen && !isPopupField
         ? null
-        : (normalizedField === 'today you pay price'
+        : isHomeBoxingUpcomingCtaField
+          ? await findHomeBoxingUpcomingCtaTarget(page, field, candidates, context)
+          : (normalizedField === 'today you pay price'
           ? await findTodayYouPayPriceTarget(page)
           : null) ||
           (isPopupField ? await findPopupTarget(page, candidates) : null) ||
