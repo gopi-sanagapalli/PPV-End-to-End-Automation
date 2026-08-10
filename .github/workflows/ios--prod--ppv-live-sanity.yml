@@ -28,6 +28,7 @@ jobs:
   prepare:
     name: Validate PPV and build sanity matrix
     runs-on: [self-hosted, macOS, ARM64, sridevi-runners]
+    timeout-minutes: 10
     outputs:
       new_matrix: ${{ steps.matrix.outputs.new_matrix }}
       signin_matrix: ${{ steps.matrix.outputs.signin_matrix }}
