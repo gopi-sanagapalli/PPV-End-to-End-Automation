@@ -201,11 +201,14 @@ export class BoxingHomePage extends HomePage {
     const base = baseMatch?.[1] || this.getFallbackBaseUrl();
 
     let sportId = 'Sport:2x2oqzx60orpoeugkd754ga17'; // default Boxing
-    if (sportName.toLowerCase() === 'kickboxing') {
+    const lowerSport = sportName.toLowerCase();
+    if (lowerSport === 'kickboxing') {
       sportId = 'Sport:5rocwbb1fbfub9yh4yrff8khj';
-    } else if (sportName.toLowerCase() === 'wrestling') {
+    } else if (lowerSport === 'wrestling') {
       sportId = 'Sport:50dsk39gxuwwbkss8k2e24mca';
-    } else if (sportName.toLowerCase().includes('misfits')) {
+    } else if (lowerSport.includes('mma') || lowerSport.includes('ufc')) {
+      sportId = 'Sport:53wethrd3bk01jif9w7xvong6'; // MMA / UFC ID
+    } else if (lowerSport.includes('misfits')) {
       sportId = 'Sport:2x2oqzx60orpoeugkd754ga17';
     }
 
