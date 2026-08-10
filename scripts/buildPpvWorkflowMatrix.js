@@ -117,21 +117,21 @@ const validUltimateProfiles = new Set(['active_standard_monthly/ultimate_apm', '
 const liveSources = {
   new: isBoxing
     ? ['boxing-banner-ultimate', 'boxing-join-the-club', 'boxing-page-banner', 'boxing-page-bundle', 'boxing-standard-subscription', 'boxing-upcoming-fights', 'boxing-ultimate-subscription', 'home-biggest-fights', 'home-boxing-banner', 'home-boxing-tile', 'home-boxing-upcoming', 'home-kickboxing-tile', 'home-page-banner', 'home-page-dazntile', 'home-page-dont-miss', 'home-page-get-started', 'landing-page-banner', 'landing-page-dont-miss-live', 'schedule', 'search']
-    : ['home-boxing-tile', 'home-page-dont-miss', 'schedule', 'search'],
+    : ['landing-page-banner', 'home-page-banner', 'home-boxing-banner', 'home-boxing-tile', 'home-page-dont-miss', 'schedule', 'search'],
   existing: isBoxing
     ? ['landing-page-banner', 'home-page-banner', 'home-page-dont-miss', 'home-biggest-fights', 'home-page-dazntile', 'home-boxing-banner', 'home-boxing-tile', 'home-boxing-upcoming', 'home-kickboxing-tile', 'boxing-page-banner', 'boxing-page-bundle', 'boxing-upcoming-fights', 'boxing-banner-ultimate', 'boxing-ultimate-subscription', 'boxing-standard-subscription', 'boxing-join-the-club', 'search', 'schedule', 'myaccount']
-    : ['home-boxing-tile', 'home-page-dont-miss', 'schedule', 'search', 'myaccount'],
+    : ['landing-page-banner', 'home-page-banner', 'home-boxing-banner', 'home-boxing-tile', 'home-page-dont-miss', 'schedule', 'search', 'myaccount'],
   signed: isBoxing
     ? ['home-page-banner', 'home-page-dont-miss', 'home-biggest-fights', 'home-page-dazntile', 'home-boxing-banner', 'home-boxing-tile', 'home-boxing-upcoming', 'home-kickboxing-tile', 'boxing-page-banner', 'boxing-page-bundle', 'boxing-upcoming-fights', 'boxing-banner-ultimate', 'boxing-ultimate-subscription', 'boxing-standard-subscription', 'boxing-join-the-club', 'search', 'schedule', 'myaccount']
-    : ['home-boxing-tile', 'home-page-dont-miss', 'schedule', 'search', 'myaccount'],
+    : ['home-page-banner', 'home-boxing-banner', 'home-boxing-tile', 'home-page-dont-miss', 'schedule', 'search', 'myaccount'],
 };
 
-// Canada (CA): PPV tile is only surfaced via search, schedule, and the sport/UFC page tile.
+// Canada (CA): PPV is surfaced via search, schedule, sport/UFC page tile, and banners.
 // home-page-dont-miss is not applicable for CA.
 if (country === 'CA') {
-  liveSources.new      = ['home-boxing-tile', 'schedule', 'search'];
-  liveSources.existing = ['home-boxing-tile', 'schedule', 'search', 'myaccount'];
-  liveSources.signed   = ['home-boxing-tile', 'schedule', 'search', 'myaccount'];
+  liveSources.new      = ['landing-page-banner', 'home-page-banner', 'home-boxing-banner', 'home-boxing-tile', 'schedule', 'search'];
+  liveSources.existing = ['landing-page-banner', 'home-page-banner', 'home-boxing-banner', 'home-boxing-tile', 'schedule', 'search', 'myaccount'];
+  liveSources.signed   = ['home-page-banner', 'home-boxing-banner', 'home-boxing-tile', 'schedule', 'search', 'myaccount'];
 }
 let androidNewSources = ['landing-page-banner', 'home-page-banner', 'home-page-dont-miss', 'home-boxing-banner', 'home-boxing-upcoming', 'home-boxing-tile', 'schedule', 'search'];
 let androidExistingSources = androidNewSources.filter(source => source !== 'landing-page-banner');
