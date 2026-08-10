@@ -36,12 +36,11 @@ jobs:
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v4
       - id: matrix
         run: node scripts/buildPpvWorkflowMatrix.js dev-account '${{ inputs.PPV_CONFIG }}' 'CA'
   my-account:
     needs: prepare
-    environment: prod
     name: Existing user · Dev mode My Account | ${{ matrix.profile }}
     runs-on: [self-hosted, macOS, ARM64]
     strategy:
@@ -62,7 +61,7 @@ jobs:
       DEV_MODE_ON: 'on'
       SWITCH: 'false'
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v4
       - uses: ./.github/actions/ppv-generic-runner
         with: { journey: dev-mode-my-account }
   workflow-summary:
@@ -73,7 +72,7 @@ jobs:
     env:
       ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v4
       - uses: ./.github/actions/ppv-workflow-summary
         with:
           title: Web UFC PPV dev-mode workflow report · CA
