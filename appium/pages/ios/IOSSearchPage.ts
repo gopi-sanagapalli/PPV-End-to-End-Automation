@@ -514,8 +514,13 @@ export class IOSSearchPage extends IOSBasePage {
     // returns to /search, not to the welcome page where the PPV tile lives.
     const tier = String(options.eventData?.TIER || process.env.TIER || '').toLowerCase();
     const region = String(options.eventData?.DAZN_REGION || process.env.DAZN_REGION || '').toUpperCase();
-    const devModeForced = String(process.env.DEV_MODE_ON || '').toLowerCase() === 'on';
-    if (devModeForced || (tier === 'ultimate' && (region === 'GB' || region === 'US'))) {
+    const userState = String(options.eventData?.USER_STATE || process.env.USER_STATE || '').toLowerCase().trim();
+    const isUSorGB = region === 'GB' || region === 'US';
+    const isUltimateUser = userState.startsWith('active_ultimate');
+    const isLoginFirst = String(process.env.LOGIN_FIRST || process.env.LOGIN || '').toLowerCase() === 'true';
+    const ppvDevMode = String(options.eventData?.PPV_DEV_MODE || process.env.PPV_DEV_MODE || '').toLowerCase() === 'true';
+    const devModeForced = String(process.env.DEV_MODE_ON || '').toLowerCase() === 'on' || ppvDevMode;
+    if (devModeForced || (tier === 'ultimate' && isUSorGB) || (isUltimateUser && isLoginFirst)) {
       await this.waitForSafariLandingNavigation();
       await this.enableSafariDevMode();
       // Always navigate explicitly to welcome — dev mode ends on /search.
@@ -613,6 +618,12 @@ export class IOSSearchPage extends IOSBasePage {
 
   async findCorrectPPVTile(keywords: string[]): Promise<WdElement | null> {
     console.log(`Scanning XCUIElementTypeStaticText elements for keywords: ${JSON.stringify(keywords)}`);
+    const expectedPpvName = this.ppvName
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
     try {
       const elements = await this.driver.$$('//XCUIElementTypeStaticText');
       for (const el of elements) {
@@ -620,7 +631,10 @@ export class IOSSearchPage extends IOSBasePage {
         if (!text) continue;
 
         const textLower = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-        const matchesQuery = keywords.every(kw => textLower.includes(kw));
+        const normalisedText = textLower.replace(/[^a-z0-9]+/g, ' ').trim();
+        const matchesQuery = expectedPpvName
+          ? normalisedText === expectedPpvName
+          : keywords.every(kw => textLower.includes(kw));
         const isAncillary = [
           'press', 'weigh', 'workout', 'replay', 'highlights',
           'preview', 'promo', 'interview', 'behind the', 'episode',
@@ -723,7 +737,7 @@ export class IOSSearchPage extends IOSBasePage {
     }
 
     if (!ppvTile) {
-      const retryQuery = `${searchQuery} upcoming`;
+      const retryQuery = `${this.ppvName || searchQuery} upcoming`;
       console.log(`PPV tile not found for "${searchQuery}". Retrying search with "${retryQuery}"...`);
       // Stay on the current Search screen. Re-running navigate() can hit the
       // header/back control and leave Search, which violates SOURCE=search.

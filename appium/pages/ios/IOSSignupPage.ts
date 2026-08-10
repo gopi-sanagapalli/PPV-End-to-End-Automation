@@ -4,6 +4,7 @@ import { IOSSafariValidationPage } from './IOSSafariValidationPage';
 import { IOSPPVPage } from './IOSPPVPage';
 import { IOSPlanPage } from './IOSPlanPage';
 import { IOSMyAccountPage } from './IOSMyAccountPage';
+import { IOSPaymentPage } from './IOSPaymentPage';
 
 /**
  * DAZN account creation / sign-in in Safari. This page object handles only
@@ -150,14 +151,7 @@ export class IOSSignupPage extends IOSBasePage {
       // "Payment method" heading.
       if (/one time payment|pay now/i.test(lower) &&
         (/payment method|visa|mastercard|amex|\*{4}|saved card/i.test(lower))) {
-        if (eventData) {
-          try {
-            await new IOSSafariValidationPage(this.driver).validatePPVPaymentPage(eventData, results);
-          } catch (err: any) {
-            console.warn(`⚠️ PPV payment page validation error: ${err.message}`);
-          }
-        }
-        results.push({ page: 'iOS Safari', field: 'PPV Payment page reached', expected: 'Yes', actual: 'Yes', status: 'PASS' });
+        await new IOSPaymentPage(this.driver).completePPVPayment(results, eventData);
         return;
       }
 
@@ -268,14 +262,7 @@ export class IOSSignupPage extends IOSBasePage {
       // ── Payment page (terminal) ──
       if (!userState.startsWith('active_standard') &&
         /payment method|choose how to pay|card number|payment details/.test(lower)) {
-        if (eventData) {
-          try {
-            await new IOSSafariValidationPage(this.driver).validatePaymentPage(eventData, results);
-          } catch (err: any) {
-            console.warn(`⚠️ Payment page validation error: ${err.message}`);
-          }
-        }
-        results.push({ page: 'iOS Safari', field: 'Payment page reached', expected: 'Yes', actual: 'Yes', status: 'PASS' });
+        await new IOSPaymentPage(this.driver).completePayment(results, eventData);
         return;
       }
 

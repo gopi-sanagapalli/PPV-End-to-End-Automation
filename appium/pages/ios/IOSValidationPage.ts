@@ -607,6 +607,20 @@ export class IOSValidationPage extends IOSBasePage {
       (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
         .replace(/[\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]/g, ' ')
         .replace(/\s+/g, ' ').trim().toLowerCase();
+    const userState = String(process.env.USER_STATE || eventData.USER_STATE || '').toLowerCase().trim().replace('-', '_');
+    const isUltimateUser = userState.startsWith('active_ultimate');
+    const isLoginFirst = String(process.env.LOGIN_FIRST || process.env.LOGIN || '').toLowerCase() === 'true';
+    const isNativeUltimateEntitlement = isUltimateUser && isLoginFirst;
+    const scopedSource = targetXml || pageSource;
+    const pushSurfaceResult = async (fieldName: string, expected: string, actual: string, isMatch: boolean) => {
+      if (results.some(r => r.page === surface && r.field === fieldName)) return;
+      const status: 'PASS' | 'FAIL' = isMatch ? 'PASS' : 'FAIL';
+      console.log(`  ${status === 'PASS' ? '✅' : '❌'} [${fieldName}] expected="${expected}" actual="${actual}"`);
+      const screenshot = status === 'FAIL'
+        ? await this.captureAndMarkFailureScreenshot(surface, fieldName, expected, actual)
+        : undefined;
+      results.push({ page: surface, field: fieldName, expected, actual, status, screenshot });
+    };
     const isPresent = texts.some(
       t => cleanStr(t).includes(cleanStr(titleExpected)) || cleanStr(titleExpected).includes(cleanStr(t))
     );
@@ -653,6 +667,21 @@ export class IOSValidationPage extends IOSBasePage {
       }
     }
 
+    if (isNativeUltimateEntitlement && surface === 'PPV Banner') {
+      const corpus = `${texts.join(' ')} ${scopedSource}`.toLowerCase();
+      const hasSetReminder = /\bset reminder\b|\breminder\b/i.test(corpus);
+      const hasPurchased = /\bpurchased\b|\bincluded\b/i.test(corpus);
+      const hasBuyNow = /\bbuy now\b|\bbuy\b/i.test(corpus);
+      await pushSurfaceResult('Set Reminder Button', 'Set Reminder', hasSetReminder ? 'Set Reminder' : 'Not found', hasSetReminder);
+      await pushSurfaceResult('Purchased Text', 'Purchased', hasPurchased ? 'Purchased' : 'Not found', hasPurchased);
+      await pushSurfaceResult('Buy Now Button (Absent)', 'Absent', hasBuyNow ? 'Present' : 'Absent', !hasBuyNow);
+    }
+
+    if (isNativeUltimateEntitlement && surface === 'PPV Tile') {
+      const hasLock = /lock|content_lock/i.test(scopedSource);
+      await pushSurfaceResult('Lock Icon', 'No', hasLock ? 'Yes' : 'No', !hasLock);
+    }
+
     if (rows.length > 0) {
       let dontMissOcrTexts: string[] = [];
       try {
@@ -664,6 +693,16 @@ export class IOSValidationPage extends IOSBasePage {
       for (const row of rows) {
         const fieldName = (row['Field'] || '').trim();
         if (!fieldName) continue;
+        const fieldLower = fieldName.toLowerCase();
+
+        if (isNativeUltimateEntitlement && surface === 'PPV Banner' &&
+          (fieldLower.includes('buy now') || fieldLower === 'buy now cta')) {
+          continue;
+        }
+
+        if (isNativeUltimateEntitlement && surface === 'PPV Tile' && fieldLower.includes('lock icon')) {
+          continue;
+        }
 
         // Schedule-card artwork exposes neither icon through XCUITest, even
         // when the lock/bell is visibly rendered. Do not assert those two
@@ -671,7 +710,7 @@ export class IOSValidationPage extends IOSBasePage {
         if (
           normalizedSource === 'schedule' &&
           surface === 'PPV Tile' &&
-          ['lock icon present', 'bell icon present'].includes(fieldName.toLowerCase())
+          ['lock icon present', 'bell icon present'].includes(fieldLower)
         ) {
           continue;
         }

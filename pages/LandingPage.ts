@@ -1288,13 +1288,18 @@ export class LandingPage extends BasePage {
         // The container might BE the Buy Now link (e.g., <a> with "Buy now" text)
         if (/buy now/i.test(containerText)) {
           buyNowBtn = targetContainer;
+        } else {
+          buyNowBtn = null;
         }
       }
     }
 
     if (!buyNowBtn) {
       const typeLabel = src.includes('banner') ? 'Banner' : (src.includes('welcome-rail') ? 'Welcome Rail' : 'Tile');
-      throw new Error(`❌ [${typeLabel}] "Buy Now" button not found or stale inside PPV container.`);
+      throw new Error(
+        `❌ [${typeLabel}] "Buy Now" button not found inside the matched PPV container. ` +
+        'Will NOT click a different PPV as a fallback.'
+      );
     }
 
     // Wait for Buy Now to be visible

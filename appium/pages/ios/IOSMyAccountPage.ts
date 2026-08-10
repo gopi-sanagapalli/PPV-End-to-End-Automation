@@ -442,9 +442,11 @@ export class IOSMyAccountPage extends IOSBasePage {
    */
   isSafariPurchasedPPVPage(bodyTextLower: string, url: string): boolean {
     const isAccountUrl = /\/account|\/my-account|\/myaccount/i.test(url);
+    const isAccountPpvUrl = /\/(?:myaccount|my-account|account)\/ppv/i.test(url);
+    const isUltimateUser = String(process.env.USER_STATE || '').toLowerCase().trim().startsWith('active_ultimate');
     const hasPurchasedText =
       /purchased|your dazn pass|already purchased|you already own/i.test(bodyTextLower);
-    return isAccountUrl && hasPurchasedText;
+    return (isUltimateUser && isAccountPpvUrl) || (isAccountUrl && hasPurchasedText);
   }
 
   /**
@@ -455,18 +457,40 @@ export class IOSMyAccountPage extends IOSBasePage {
     results: { page: string; field: string; expected: string; actual: string; status: string }[],
     ppvName: string,
   ): Promise<void> {
-    console.log('✅ [My Account Safari] PPV already purchased — recording result.');
+    console.log('✅ [My Account Safari] Active Ultimate user landed on My Account PPV page — validating purchased status.');
+    const url = await this.driver.getUrl().catch(() => '');
     results.push({
       page: 'My Account (Safari)',
-      field: 'PPV Purchased',
-      expected: 'Yes',
-      actual: 'Yes',
-      status: 'PASS',
+      field: 'Ultimate User Navigation Target',
+      expected: 'My Account PPV Page',
+      actual: /\/(?:myaccount|my-account|account)\/ppv/i.test(url) ? `Navigated to: ${url}` : `Unexpected URL: ${url || 'Not found'}`,
+      status: /\/(?:myaccount|my-account|account)\/ppv/i.test(url) ? 'PASS' : 'FAIL',
+    });
+
+    await this.driver.waitUntil(async () => {
+      const bodyText: string = await this.driver.execute(() => document.body?.innerText || '').catch(() => '');
+      const lower = bodyText.toLowerCase();
+      return /purchased|included|your dazn pass|already purchased|you already own/i.test(lower) ||
+        (ppvName ? lower.includes(ppvName.split(/[\s:]+/)[0].toLowerCase()) : false);
+    }, {
+      timeout: 20000,
+      interval: 1000,
+      timeoutMsg: 'My Account PPV status did not render in Safari.',
+    }).catch(() => { });
+
+    const bodyText: string = await this.driver.execute(() => document.body?.innerText || '').catch(() => '');
+    const statusText = /included/i.test(bodyText) ? 'Included' :
+      /purchased|your dazn pass|already purchased|you already own/i.test(bodyText) ? 'Purchased' : 'Not found';
+    results.push({
+      page: 'My Account (Safari)',
+      field: 'PPV Status',
+      expected: 'Purchased|Included',
+      actual: statusText,
+      status: statusText === 'Purchased' || statusText === 'Included' ? 'PASS' : 'FAIL',
     });
 
     // Best-effort: also check the PPV name is visible on the page
     try {
-      const bodyText: string = await this.driver.execute(() => document.body?.innerText || '').catch(() => '');
       const nameMatch = ppvName
         ? bodyText.toLowerCase().includes(ppvName.split(/[\s:]+/)[0].toLowerCase())
         : true;

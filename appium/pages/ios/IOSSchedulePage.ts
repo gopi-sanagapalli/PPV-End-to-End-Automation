@@ -201,31 +201,38 @@ export class IOSSchedulePage extends IOSBasePage {
   async scrollToPPVTile(ppvName = this.ppvName): Promise<WdElement | null> {
     console.log(`  Target PPV: ${ppvName}`);
     const normaliseTitle = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+    const predicateValue = (value: string) => value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    const titleTerms = normaliseTitle(ppvName)
+      .split(/[^a-z0-9]+/)
+      .filter(term => term.length > 2 && !['the', 'and', 'vs'].includes(term))
+      .slice(0, 2);
     const zayasMainEvent = [
       `~${ppvName}`,
       `-ios predicate string:name == "${ppvName}" OR label == "${ppvName}"`,
+      titleTerms.length
+        ? `-ios predicate string:type == "XCUIElementTypeStaticText" AND ${titleTerms
+          .map(term => `(name CONTAINS[c] "${predicateValue(term)}" OR label CONTAINS[c] "${predicateValue(term)}")`)
+          .join(' AND ')}`
+        : '',
     ];
     const findPPVTile = async (): Promise<WdElement | null> => {
-      for (const selector of zayasMainEvent) {
+      for (const selector of zayasMainEvent.filter(Boolean)) {
         const el = await this.driver.$(selector).catch(() => null);
         if (el && await el.isDisplayed().catch(() => false)) return el;
-      }
-      const expectedTitle = normaliseTitle(ppvName);
-      const textElements = await this.driver.$$('//XCUIElementTypeStaticText').catch(() => []);
-      for (const el of textElements) {
-        if (!await el.isDisplayed().catch(() => false)) continue;
-        const text = String(await el.getAttribute('label').catch(() => '') || await el.getAttribute('name').catch(() => ''));
-        if (normaliseTitle(text) === expectedTitle) return el;
       }
       return null;
     };
 
     const { width, height } = await this.driver.getWindowRect();
     const cx = Math.round(width / 2);
-    const midY = Math.round(height * 0.55);
+    const downStartY = Math.round(height * 0.78);
+    const downEndY = Math.round(height * 0.33);
+    const upStartY = Math.round(height * 0.34);
+    const upEndY = Math.round(height * 0.68);
 
-    // Scroll down in small steps
-    for (let i = 0; i < 25; i++) {
+    // Scroll down in larger steps. Targeted predicate lookup avoids scanning
+    // the entire native text tree on every swipe.
+    for (let i = 0; i < 14; i++) {
       const el = await findPPVTile();
       if (el) {
         console.log(`Found "${ppvName}" tile!`);
@@ -236,19 +243,19 @@ export class IOSSchedulePage extends IOSBasePage {
       await this.driver.performActions([{
         type: 'pointer', id: 'pd', parameters: { pointerType: 'touch' },
         actions: [
-          { type: 'pointerMove', duration: 0, x: cx, y: midY + 55 },
+          { type: 'pointerMove', duration: 0, x: cx, y: downStartY },
           { type: 'pointerDown', button: 0 },
-          { type: 'pause', duration: 80 },
-          { type: 'pointerMove', duration: 200, x: cx, y: midY - 55 },
+          { type: 'pause', duration: 50 },
+          { type: 'pointerMove', duration: 160, x: cx, y: downEndY },
           { type: 'pointerUp', button: 0 },
         ],
       }]);
       await this.driver.releaseActions();
-      await this.driver.pause(500);
+      await this.driver.pause(150);
     }
 
     // Scroll up recovery just in case we overshot
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 4; i++) {
       const el = await findPPVTile();
       if (el) {
         console.log(`Found "${ppvName}" tile on recovery!`);
@@ -259,15 +266,15 @@ export class IOSSchedulePage extends IOSBasePage {
       await this.driver.performActions([{
         type: 'pointer', id: 'pd', parameters: { pointerType: 'touch' },
         actions: [
-          { type: 'pointerMove', duration: 0, x: cx, y: midY - 45 },
+          { type: 'pointerMove', duration: 0, x: cx, y: upStartY },
           { type: 'pointerDown', button: 0 },
-          { type: 'pause', duration: 80 },
-          { type: 'pointerMove', duration: 200, x: cx, y: midY + 45 },
+          { type: 'pause', duration: 50 },
+          { type: 'pointerMove', duration: 160, x: cx, y: upEndY },
           { type: 'pointerUp', button: 0 },
         ],
       }]);
       await this.driver.releaseActions();
-      await this.driver.pause(500);
+      await this.driver.pause(150);
     }
 
     return null;

@@ -992,6 +992,16 @@ export class IOSSafariValidationPage extends IOSBasePage {
         { timeout: 10000, timeoutMsg: 'Payment page plan/price did not render.' },
       ).catch(() => { });
 
+      await this.driver.waitUntil(
+        async () => Boolean(await this.driver.execute(() => {
+          const text = (document.body?.innerText || '').replace(/\s+/g, ' ').toLowerCase();
+          return /apple pay|google pay|paypal|credit.*debit.*card|credit.*card|debit.*card|card number/.test(text);
+        }).catch(() => false)),
+        { timeout: 20000, interval: 500, timeoutMsg: 'Payment methods did not render.' },
+      ).catch(() => {
+        console.log('⚠️  Payment methods did not render before Safari payment validation.');
+      });
+
       // Match the web PaymentPage behaviour: the annual legal text is
       // collapsed behind "... More" by default. Expand it before collecting
       // the Safari text snapshot, otherwise the cancellation assertion only

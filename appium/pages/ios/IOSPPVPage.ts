@@ -78,10 +78,15 @@ export class IOSPPVPage extends IOSBasePage {
    */
   getRequestedPlan(): { plan: string; tier: string; ratePlan: string; label: string; terms: string[] } {
     const plan = (process.env.PLAN || 'standard_monthly').toLowerCase().replace(/[\s-]+/g, '_');
-    const tier = (process.env.TIER || process.env.PLAN_TIER ||
+    let tier = (process.env.TIER || process.env.PLAN_TIER ||
       (plan.includes('ultimate') ? 'ultimate' : 'standard')).toLowerCase();
     const ratePlan = (process.env.RATE_PLAN ||
       (plan.includes('upfront') ? 'annual pay upfront' : plan.includes('apm') || plan.includes('annual') ? 'annual pay monthly' : 'monthly')).toLowerCase();
+    const forceUltimateSwitch = String(process.env.SWITCH_TO_ULTIMATE || process.env.SWITCH || '').toLowerCase() === 'true';
+    if (forceUltimateSwitch && tier === 'standard') {
+      console.log('🔄 [SWITCH_TO_ULTIMATE] Forcing Ultimate tier selection mid-flow.');
+      tier = 'ultimate';
+    }
 
     if (tier === 'ultimate') {
       if (ratePlan.includes('upfront')) return { plan, tier, ratePlan, label: 'DAZN Ultimate – Annual Pay Upfront', terms: ['annual', 'upfront'] };
@@ -219,6 +224,11 @@ export class IOSPPVPage extends IOSBasePage {
     // Determine if the user wants Ultimate upgrade or PPV-only
     const requested = this.getRequestedPlan();
     const wantsUltimate = requested.tier === 'ultimate';
+    if (eventData && wantsUltimate) {
+      eventData.TIER = 'ultimate';
+      eventData.DAZN_TIER = 'DAZN Ultimate';
+      eventData.RATE_PLAN = requested.ratePlan;
+    }
 
     if (wantsUltimate) {
       // ── Ultimate path ─────────────────────────────────────────────
