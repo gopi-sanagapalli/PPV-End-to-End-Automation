@@ -221,14 +221,11 @@ export class IOSSchedulePage extends IOSBasePage {
 
     const { width, height } = await this.driver.getWindowRect();
     const cx = Math.round(width / 2);
-    const downStartY = Math.round(height * 0.78);
-    const downEndY = Math.round(height * 0.33);
-    const upStartY = Math.round(height * 0.34);
-    const upEndY = Math.round(height * 0.68);
+    const midY = Math.round(height * 0.55);
 
-    // Scroll down in larger steps. Targeted predicate lookup avoids scanning
-    // the entire native text tree on every swipe.
-    for (let i = 0; i < 14; i++) {
+    // Use short swipes so the native hierarchy has a chance to expose the
+    // target before the next movement carries it past the viewport.
+    for (let i = 0; i < 25; i++) {
       const el = await findPPVTile();
       if (el) {
         console.log(`Found "${ppvName}" tile!`);
@@ -239,19 +236,19 @@ export class IOSSchedulePage extends IOSBasePage {
       await this.driver.performActions([{
         type: 'pointer', id: 'pd', parameters: { pointerType: 'touch' },
         actions: [
-          { type: 'pointerMove', duration: 0, x: cx, y: downStartY },
+          { type: 'pointerMove', duration: 0, x: cx, y: midY + 55 },
           { type: 'pointerDown', button: 0 },
-          { type: 'pause', duration: 50 },
-          { type: 'pointerMove', duration: 160, x: cx, y: downEndY },
+          { type: 'pause', duration: 80 },
+          { type: 'pointerMove', duration: 200, x: cx, y: midY - 55 },
           { type: 'pointerUp', button: 0 },
         ],
       }]);
       await this.driver.releaseActions();
-      await this.driver.pause(150);
+      await this.driver.pause(300);
     }
 
     // Scroll up recovery just in case we overshot
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 10; i++) {
       const el = await findPPVTile();
       if (el) {
         console.log(`Found "${ppvName}" tile on recovery!`);
@@ -262,15 +259,15 @@ export class IOSSchedulePage extends IOSBasePage {
       await this.driver.performActions([{
         type: 'pointer', id: 'pd', parameters: { pointerType: 'touch' },
         actions: [
-          { type: 'pointerMove', duration: 0, x: cx, y: upStartY },
+          { type: 'pointerMove', duration: 0, x: cx, y: midY - 45 },
           { type: 'pointerDown', button: 0 },
-          { type: 'pause', duration: 50 },
-          { type: 'pointerMove', duration: 160, x: cx, y: upEndY },
+          { type: 'pause', duration: 80 },
+          { type: 'pointerMove', duration: 200, x: cx, y: midY + 45 },
           { type: 'pointerUp', button: 0 },
         ],
       }]);
       await this.driver.releaseActions();
-      await this.driver.pause(150);
+      await this.driver.pause(300);
     }
 
     return null;
