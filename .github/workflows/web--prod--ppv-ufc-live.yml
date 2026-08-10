@@ -59,6 +59,7 @@ jobs:
     needs: prepare
     name: New user | ${{ matrix.source }} | ${{ matrix.plan }}
     runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       max-parallel: 10
@@ -84,6 +85,7 @@ jobs:
     needs: prepare
     name: Existing user · Sign in during flow | ${{ matrix.source }} | ${{ matrix.profile }}
     runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       max-parallel: 10
@@ -109,6 +111,7 @@ jobs:
     needs: prepare
     name: Existing user · Already signed in | ${{ matrix.source }} | ${{ matrix.profile }}
     runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       max-parallel: 10
@@ -135,6 +138,7 @@ jobs:
     if: ${{ always() }}
     name: Consolidated workflow report · CA
     runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 10
     env:
       ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
     steps:

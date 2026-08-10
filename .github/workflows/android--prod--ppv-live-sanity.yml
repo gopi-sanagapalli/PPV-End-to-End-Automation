@@ -132,6 +132,7 @@ jobs:
     if: ${{ always() }}
     name: Consolidated workflow report · ${{ inputs.COUNTRY }}
     runs-on: [self-hosted, macOS, ARM64, sridevi-runners]
+    timeout-minutes: 10
     env:
       ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
     steps:

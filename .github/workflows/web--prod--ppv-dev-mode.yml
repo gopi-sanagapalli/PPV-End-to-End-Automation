@@ -51,6 +51,7 @@ jobs:
     environment: prod
     name: Existing user · Dev mode My Account | ${{ matrix.profile }}
     runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       max-parallel: 10
@@ -77,6 +78,7 @@ jobs:
     if: ${{ always() }}
     name: Consolidated workflow report · ${{ inputs.COUNTRY }}
     runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 10
     env:
       ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
     steps:
