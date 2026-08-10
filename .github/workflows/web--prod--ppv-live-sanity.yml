@@ -55,13 +55,13 @@ jobs:
           BANNERS_CONFIGURED: ${{ inputs.BANNERS_CONFIGURED }}
         run: |
           set -euo pipefail
-          for mode in live-new live-existing live-signed; do
+          for mode in web-sanity-new web-sanity-signin web-sanity-signed; do
             output_file="$(mktemp)"
             GITHUB_OUTPUT="$output_file" node scripts/buildPpvWorkflowMatrix.js "$mode" '${{ inputs.PPV_CONFIG }}' '${{ inputs.COUNTRY }}'
             case "$mode" in
-              live-new) key=new_matrix ;;
-              live-existing) key=signin_matrix ;;
-              live-signed) key=signed_matrix ;;
+              web-sanity-new) key=new_matrix ;;
+              web-sanity-signin) key=signin_matrix ;;
+              web-sanity-signed) key=signed_matrix ;;
             esac
             sed "s/^matrix=/$key=/" "$output_file" >> "$GITHUB_OUTPUT"
             rm "$output_file"
@@ -148,52 +148,8 @@ jobs:
       - uses: ./.github/actions/ppv-generic-runner
         with: { journey: already-signed-in }
 
-  ultimate-sign-in-during-flow:
-    needs: prepare
-    environment: prod
-    name: Ultimate · Sign in during flow | landing-page
-    runs-on: [self-hosted, macOS, ARM64]
-    timeout-minutes: 30
-    env:
-      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
-      CI: 'true'
-      HEADLESS: 'true'
-      DAZN_ENV: prod
-      DAZN_REGION: ${{ inputs.COUNTRY }}
-      PPV_CONFIG: ${{ inputs.PPV_CONFIG }}
-      SOURCE: landing-page
-      USER_STATE: active_ultimate
-      LOGIN_FIRST: 'false'
-      DEV_MODE_ON: 'off'
-    steps:
-      - uses: actions/checkout@v5
-      - uses: ./.github/actions/ppv-generic-runner
-        with: { journey: sign-in-during-flow }
-
-  ultimate-already-signed-in:
-    needs: prepare
-    environment: prod
-    name: Ultimate · Already signed in | landing-page
-    runs-on: [self-hosted, macOS, ARM64]
-    timeout-minutes: 30
-    env:
-      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
-      CI: 'true'
-      HEADLESS: 'true'
-      DAZN_ENV: prod
-      DAZN_REGION: ${{ inputs.COUNTRY }}
-      PPV_CONFIG: ${{ inputs.PPV_CONFIG }}
-      SOURCE: landing-page
-      USER_STATE: active_ultimate
-      LOGIN_FIRST: 'true'
-      DEV_MODE_ON: 'off'
-    steps:
-      - uses: actions/checkout@v5
-      - uses: ./.github/actions/ppv-generic-runner
-        with: { journey: already-signed-in }
-
   workflow-summary:
-    needs: [prepare, new-user, sign-in-during-flow, already-signed-in, ultimate-sign-in-during-flow, ultimate-already-signed-in]
+    needs: [prepare, new-user, sign-in-during-flow, already-signed-in]
     if: ${{ always() }}
     name: Consolidated workflow report · ${{ inputs.COUNTRY }}
     runs-on: [self-hosted, macOS, ARM64]
