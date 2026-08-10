@@ -66,10 +66,38 @@ const canadaPlans = country === 'CA' ? [
   'ultimate-dazn+-annual-pay now',
 ] : null;
 
-// For existing/signed-in CA jobs: freemium + frozen user states with all 12 plans.
+// For existing/signed-in CA jobs:
+// - freemium + frozen × all 12 plans (new/returning subscribers)
+// - active Standard users (can upgrade tier/subscription or add PPV addon)
+// - active Ultimate users (add PPV addon on their current plan)
 const canadaProfiles = canadaPlans ? [
+  // Freemium (no subscription) — all 12 plan combinations
   ...canadaPlans.map((plan) => `freemium/${plan}`),
+  // Frozen (lapsed subscription) — all 12 plan combinations
   ...canadaPlans.map((plan) => `frozen/${plan}`),
+  // Active Standard DAZN users — stay on same plan or upgrade
+  'active_standard_dazn_monthly/standard-dazn-monthly',
+  'active_standard_dazn_monthly/ultimate-dazn-annual-pay over time',
+  'active_standard_dazn_monthly/ultimate-dazn+-annual-pay over time',
+  'active_standard_dazn_apo/standard-dazn-annual-pay over time',
+  'active_standard_dazn_apo/ultimate-dazn-annual-pay over time',
+  'active_standard_dazn_apn/standard-dazn-annual-pay now',
+  'active_standard_dazn_apn/ultimate-dazn-annual-pay now',
+  // Active Standard DAZN+ users — stay on same plan or upgrade to ultimate
+  'active_standard_dazn+_monthly/standard-dazn+-monthly',
+  'active_standard_dazn+_monthly/ultimate-dazn+-annual-pay over time',
+  'active_standard_dazn+_apo/standard-dazn+-annual-pay over time',
+  'active_standard_dazn+_apo/ultimate-dazn+-annual-pay over time',
+  'active_standard_dazn+_apn/standard-dazn+-annual-pay now',
+  'active_standard_dazn+_apn/ultimate-dazn+-annual-pay now',
+  // Active Ultimate DAZN users — PPV addon on current plan
+  'active_ultimate_dazn_monthly/ultimate-dazn-monthly',
+  'active_ultimate_dazn_apo/ultimate-dazn-annual-pay over time',
+  'active_ultimate_dazn_apn/ultimate-dazn-annual-pay now',
+  // Active Ultimate DAZN+ users — PPV addon on current plan
+  'active_ultimate_dazn+_monthly/ultimate-dazn+-monthly',
+  'active_ultimate_dazn+_apo/ultimate-dazn+-annual-pay over time',
+  'active_ultimate_dazn+_apn/ultimate-dazn+-annual-pay now',
 ] : null;
 
 const regularProfiles = [
