@@ -46,6 +46,32 @@ const standardPlans = requestedPlans.filter((plan) => planConfig[plan]?.regions?
 if (standardPlans.length === 0) {
   throw new Error(`No supported plans are configured for ${country} in DaznPlan.json.`);
 }
+
+// Canada uses a completely different plan format: <tier>-<subscription>-<plan>
+// e.g. "standard-dazn-annual-pay over time".
+// Canada has 2 tiers × 2 subscriptions × 3 billing options = 12 combinations.
+// These are built directly rather than mapped from DaznPlan.json keys.
+const canadaPlans = country === 'CA' ? [
+  'standard-dazn-monthly',
+  'standard-dazn-annual-pay over time',
+  'standard-dazn-annual-pay now',
+  'standard-dazn+-monthly',
+  'standard-dazn+-annual-pay over time',
+  'standard-dazn+-annual-pay now',
+  'ultimate-dazn-monthly',
+  'ultimate-dazn-annual-pay over time',
+  'ultimate-dazn-annual-pay now',
+  'ultimate-dazn+-monthly',
+  'ultimate-dazn+-annual-pay over time',
+  'ultimate-dazn+-annual-pay now',
+] : null;
+
+// For existing/signed-in CA jobs: freemium + frozen user states with all 12 plans.
+const canadaProfiles = canadaPlans ? [
+  ...canadaPlans.map((plan) => `freemium/${plan}`),
+  ...canadaPlans.map((plan) => `frozen/${plan}`),
+] : null;
+
 const regularProfiles = [
   'freemium/standard_monthly', 'freemium/standard_apm', 'freemium/ultimate_apm', 'freemium/ultimate_upfront',
   'frozen/standard_monthly', 'frozen/standard_apm', 'frozen/ultimate_apm', 'frozen/ultimate_upfront',
@@ -71,6 +97,14 @@ const liveSources = {
     ? ['home-page-banner', 'home-page-dont-miss', 'home-biggest-fights', 'home-page-dazntile', 'home-boxing-banner', 'home-boxing-tile', 'home-boxing-upcoming', 'home-kickboxing-tile', 'boxing-page-banner', 'boxing-page-bundle', 'boxing-upcoming-fights', 'boxing-banner-ultimate', 'boxing-ultimate-subscription', 'boxing-standard-subscription', 'boxing-join-the-club', 'search', 'schedule', 'myaccount']
     : ['home-boxing-tile', 'home-page-dont-miss', 'schedule', 'search', 'myaccount'],
 };
+
+// Canada (CA): PPV tile is only surfaced via search, schedule, and the sport/UFC page tile.
+// home-page-dont-miss is not applicable for CA.
+if (country === 'CA') {
+  liveSources.new      = ['home-boxing-tile', 'schedule', 'search'];
+  liveSources.existing = ['home-boxing-tile', 'schedule', 'search', 'myaccount'];
+  liveSources.signed   = ['home-boxing-tile', 'schedule', 'search', 'myaccount'];
+}
 let androidNewSources = ['landing-page-banner', 'home-page-banner', 'home-page-dont-miss', 'home-boxing-banner', 'home-boxing-upcoming', 'home-boxing-tile', 'schedule', 'search'];
 let androidExistingSources = androidNewSources.filter(source => source !== 'landing-page-banner');
 const androidProfiles = regularProfiles;
@@ -103,6 +137,27 @@ const applicable = (sources, allowDefaultSignup = hasDefaultSignup) => {
 };
 const withOutput = (name, value) => fs.appendFileSync(process.env.GITHUB_OUTPUT, `${name}=${JSON.stringify(value)}\n`);
 
+/**
+ * Applies Canada plan remapping to matrix entries.
+ * Adds a `canada_plan` field for CA and rewrites the `plan` field in `profile`
+ * so the PLAN env var received by each job contains the right format.
+ */
+const applyCanadaPlans = (entries) => {
+  if (country !== 'CA') return entries;
+  return entries.map((entry) => {
+    const out = { ...entry };
+    if (out.plan) {
+      out.plan = resolvePlan(out.plan);
+    } else if (out.profile) {
+      const parts = out.profile.split('/');
+      const planKey = parts[parts.length - 1];
+      parts[parts.length - 1] = resolvePlan(planKey);
+      out.profile = parts.join('/');
+    }
+    return out;
+  });
+};
+
 let matrix;
 switch (mode) {
   case 'dev-account':
@@ -121,23 +176,38 @@ switch (mode) {
     break;
   case 'live-new': {
     const sources = applicable(liveSources.new, false);
-    matrix = sources.flatMap((source) => standardPlans.filter((plan) => !ultimateOnly.has(source) || plan.startsWith('ultimate_')).map((plan) => ({ source, plan })));
-    if (isBoxing) {
-      matrix.push({ source: 'landing-page-dont-miss-live-switch', plan: 'standard_monthly', switch: 'true' }, { source: 'landing-page-dont-miss-live-switch', plan: 'standard_apm', switch: 'true' });
+    if (canadaPlans) {
+      // CA: all 12 tier×subscription×billing combinations per source
+      matrix = sources.flatMap((source) => canadaPlans.map((plan) => ({ source, plan })));
+    } else {
+      matrix = sources.flatMap((source) => standardPlans.filter((plan) => !ultimateOnly.has(source) || plan.startsWith('ultimate_')).map((plan) => ({ source, plan })));
+      if (isBoxing) {
+        matrix.push({ source: 'landing-page-dont-miss-live-switch', plan: 'standard_monthly', switch: 'true' }, { source: 'landing-page-dont-miss-live-switch', plan: 'standard_apm', switch: 'true' });
+      }
     }
     break;
   }
   case 'live-existing': {
     const sources = applicable(liveSources.existing, false);
-    matrix = sources.flatMap((source) => regularProfiles.filter((profile) => !ultimateOnly.has(source) || validUltimateProfiles.has(profile)).map((profile) => ({ source, profile })));
-    if (isBoxing) {
-      matrix.push({ source: 'landing-page-dont-miss-live-switch', profile: 'freemium/standard_monthly', switch: 'true' }, { source: 'landing-page-dont-miss-live-switch', profile: 'freemium/standard_apm', switch: 'true' });
+    if (canadaProfiles) {
+      // CA: freemium + frozen user states × all 12 plan combinations per source
+      matrix = sources.flatMap((source) => canadaProfiles.map((profile) => ({ source, profile })));
+    } else {
+      matrix = sources.flatMap((source) => regularProfiles.filter((profile) => !ultimateOnly.has(source) || validUltimateProfiles.has(profile)).map((profile) => ({ source, profile })));
+      if (isBoxing) {
+        matrix.push({ source: 'landing-page-dont-miss-live-switch', profile: 'freemium/standard_monthly', switch: 'true' }, { source: 'landing-page-dont-miss-live-switch', profile: 'freemium/standard_apm', switch: 'true' });
+      }
     }
     break;
   }
   case 'live-signed': {
     const sources = applicable(liveSources.signed, false);
-    matrix = sources.flatMap((source) => regularProfiles.filter((profile) => !ultimateOnly.has(source) || validUltimateProfiles.has(profile)).map((profile) => ({ source, profile })));
+    if (canadaProfiles) {
+      // CA: freemium + frozen user states × all 12 plan combinations per source
+      matrix = sources.flatMap((source) => canadaProfiles.map((profile) => ({ source, profile })));
+    } else {
+      matrix = sources.flatMap((source) => regularProfiles.filter((profile) => !ultimateOnly.has(source) || validUltimateProfiles.has(profile)).map((profile) => ({ source, profile })));
+    }
     break;
   }
   case 'android-full-new': matrix = assignAndroidDevices(androidNewSources.flatMap(source => standardPlans.map(plan => ({ source, plan })))); break;
@@ -179,8 +249,10 @@ switch (mode) {
 // Keep every matrix mode consistent, including explicitly-added switch jobs.
 // New-user jobs use `plan`; authenticated jobs encode the destination plan in
 // the last segment of `profile` (for example, freemium/standard_apm).
+// For CA, canadaPlans are already in the correct format and are validated directly.
 matrix = matrix.filter((entry) => {
   const plan = entry.plan || entry.profile?.split('/').pop();
+  if (country === 'CA' && canadaPlans) return canadaPlans.includes(plan);
   return standardPlans.includes(plan);
 });
 
