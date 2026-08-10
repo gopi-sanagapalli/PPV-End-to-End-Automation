@@ -742,6 +742,31 @@ export async function getActualValue(
       if (candidates.length === 0) return '';
       return findLine(line => candidates.includes(normaliseComparable(line)));
     };
+    const isNearWordMatch = (expected: string, actual: string): boolean => {
+      if (expected === actual) return true;
+      if (expected.length < 5 || expected.length !== actual.length) return false;
+      for (let i = 0; i < expected.length - 1; i++) {
+        const swapped = expected.slice(0, i) + expected[i + 1] + expected[i] + expected.slice(i + 2);
+        if (swapped === actual) return true;
+      }
+      return false;
+    };
+    const findPpvTitle = (...values: string[]) => {
+      const titleWords = values
+        .map(normaliseComparable)
+        .filter(Boolean)
+        .flatMap(value => value.split(/\s+/))
+        .filter((word, index, all) => word.length > 2 && !['the', 'and', 'for', 'with', 'from', 'ppv'].includes(word) && all.indexOf(word) === index);
+      if (titleWords.length === 0) return '';
+      return findLine(line => {
+        const textWords = normaliseComparable(line).split(/\s+/);
+        return line.length < 120 &&
+          /\bvs?\b\.?/i.test(line) &&
+          !/\d{1,2}:\d{2}/.test(line) &&
+          !line.toLowerCase().includes('buy ') &&
+          titleWords.every(word => textWords.some(textWord => isNearWordMatch(word, textWord)));
+      });
+    };
     const extractCurrency = (line: string) =>
       (line.match(/(?:[A-Z]{3}\s*|[£$€₹]\s?)\d+(?:[,.]\d{2,3})*/i)?.[0] || '').trim();
 
@@ -855,7 +880,9 @@ export async function getActualValue(
         );
         if (upfrontIndex < 0) return 'N/A';
         const cardLines = lines.slice(upfrontIndex, upfrontIndex + 6);
-        return cardLines.find(line => /\bsave\s+(?:[A-Z]{3}\s*)?[£$€¥]?[\d,.]+/i.test(line)) || 'N/A';
+        const saveLine = cardLines.find(line => /\bsave\s+(?:[A-Z]{3}\s*)?[£$€₹]?[\d,.]+/i.test(line));
+        const saveMatch = saveLine?.match(/\bsave\s+(?:[A-Z]{3}\s*)?[£$€₹]?[\d,.]+/i);
+        return saveMatch?.[0].trim() || 'N/A';
       }
 
       case 'annual pay upfront price': {
@@ -904,7 +931,9 @@ export async function getActualValue(
       case 'event name on top':
       case 'ppv name':
       case 'ppv card title':
-        return findExactish(ppvDisplayName, eventData?.PPV_CARD_TITLE || '', eventData?.PPV_NAME || '') || 'N/A';
+        return findExactish(ppvDisplayName, eventData?.PPV_CARD_TITLE || '', eventData?.PPV_NAME || '') ||
+          findPpvTitle(ppvDisplayName, eventData?.PPV_CARD_TITLE || '', eventData?.PPV_NAME || '') ||
+          'N/A';
 
       case 'ppv price':
         if (ppvPrice) {
@@ -2735,7 +2764,7 @@ export async function getActualValue(
         if (t.includes('vs') || t.includes('watch live') || t.includes('buy now') || t.includes('fight card') || t.includes('dazn')) return false;
         if (/^\d{1,2}$|^\w{3}$/.test(t.trim())) return false; // skip date badge
         if (/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/i.test(t)) return false;
-        return (t.includes('promotions') || t.includes('boxing') || t.includes('matchroom') || t.includes('queensberry') || t.includes('project') || t.includes('series'));
+        return (t.includes('promotions') || t.includes('boxing') || t.includes('matchroom') || t.includes('queensberry') || t.includes('project'));
       });
       if (fromSnapGeneric !== 'N/A') return fromSnapGeneric;
 
@@ -4816,7 +4845,7 @@ export async function getActualValue(
       const activeStandardChooseBuyFeatures: Record<string, string> = {
         UPSELL_FEATURE_1: 'Pay-per-views included at no extra cost. Minimum of 12 events per year.',
         UPSELL_FEATURE_2: 'HDR and Dolby 5.1 surround sound on select events.',
-        UPSELL_FEATURE_3: "185+ fights a year from the world's best promotors",
+        UPSELL_FEATURE_3: "185+ fights a year from the world's best promoters.",
         UPSELL_FEATURE_4: 'Every match from Lega Serie A, and highlights from LALIGA, Bundesliga and the Saudi Pro League.',
       };
       const expectedFeature = (
@@ -5938,7 +5967,7 @@ export async function getActualValue(
       // The badge belongs to the APU card only. Do not search the whole page:
       // doing so can associate text from the selected APM card with this field.
       const upfrontCard = page.locator(
-        'label:has-text("Annual - Pay Upfront"), [role="radio"]:has-text("Annual - Pay Upfront"), [class*="card" i]:has-text("Annual - Pay Upfront")'
+        'label:has-text("Pay Upfront"), [role="radio"]:has-text("Pay Upfront"), [class*="card" i]:has-text("Pay Upfront")'
       ).first();
       if (await upfrontCard.isVisible({ timeout: 1000 }).catch(() => false)) {
         const badgeText = await upfrontCard.evaluate((card: HTMLElement) => {
@@ -5947,7 +5976,7 @@ export async function getActualValue(
           const candidates = [card, ...Array.from(card.querySelectorAll<HTMLElement>('*'))];
           for (const element of candidates) {
             const text = normalise(element.innerText || element.textContent);
-            if (/\bsave\s+(?:[A-Z]{3}\s*)?[£$€¥]?[\d,.]+/i.test(text) && text.length < 80) {
+            if (/\bsave\s+(?:[A-Z]{3}\s*)?[\d,.]+/i.test(text) && text.length < 80) {
               return text;
             }
           }
@@ -7099,9 +7128,14 @@ export async function getActualValue(
         if (exact !== 'N/A') return exact;
       }
 
+      // CA shows different titles depending on the plan type (DAZN vs DAZN+) and tier:
+      //   Standard + DAZN     → "DAZN"
+      //   Standard + DAZN+    → "DAZN+ Standard"
+      //   Ultimate + DAZN     → "DAZN Ultimate"
+      //   Ultimate + DAZN+    → "DAZN+ Ultimate"
       return snapFind(n =>
         n.childCount === 0 &&
-        /^DAZN (Free|Standard|Ultimate|VIP)$/i.test(n.text) &&
+        /^(DAZN\+? ?(Free|Standard|Ultimate|VIP)?|DAZN\+ (Standard|Ultimate))$/i.test(n.text.trim()) &&
         n.text.length < 30
       );
     }

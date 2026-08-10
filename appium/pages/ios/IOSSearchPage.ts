@@ -155,6 +155,7 @@ export class IOSSearchPage extends IOSBasePage {
 
     try {
       await this.driver.switchContext('NATIVE_APP');
+      const nativeContext = await this.driver.getContext().catch(() => '');
       const returnKeySelectors = [
         '~Return', '~return', '~Enter', '~enter',
         '-ios predicate string:(type == "XCUIElementTypeKey" OR type == "XCUIElementTypeButton") AND (name == "Return" OR label == "Return" OR value == "Return" OR name == "return" OR label == "return" OR value == "return" OR name == "Enter" OR label == "Enter" OR value == "Enter" OR name == "enter" OR label == "enter" OR value == "enter")',
@@ -163,7 +164,9 @@ export class IOSSearchPage extends IOSBasePage {
       let keyboardShown = false;
       await this.driver.waitUntil(async () => {
         keyboardShown = await this.driver.isKeyboardShown().catch(() => false);
-        returnKey = await this.browserFirstVisible(returnKeySelectors);
+        returnKey = nativeContext === 'NATIVE_APP'
+          ? await this.browserFirstVisible(returnKeySelectors)
+          : null;
         return Boolean(returnKey) || keyboardShown;
       }, {
         timeout: 5000,
@@ -228,7 +231,7 @@ export class IOSSearchPage extends IOSBasePage {
 
     const hasDevIndicator = async () => {
       if (await this.browserFirstVisible([
-        'div[class*="dev-mode__circle" i]', '[class*="dev-mode" i]',
+        'div[class*="dev-mode__circle" i]',
       ])) return true;
 
       // Mobile Safari sometimes exposes the dot in the DOM but does not
@@ -237,7 +240,7 @@ export class IOSSearchPage extends IOSBasePage {
       // before checkout leaves this page.
       return await this.driver.execute(() =>
         Array.from(document.querySelectorAll<HTMLElement>(
-          '[class*="dev-mode__circle"], [class*="dev-mode"]',
+          '[class*="dev-mode__circle"]',
         )).some(element => {
           const style = window.getComputedStyle(element);
           const box = element.getBoundingClientRect();
@@ -279,9 +282,12 @@ export class IOSSearchPage extends IOSBasePage {
     let focusedNatively = false;
     try {
       await this.driver.switchContext('NATIVE_APP');
-      const nativeInput = await this.browserFirstVisible([
-        '-ios predicate string:(type == "XCUIElementTypeSearchField" OR type == "XCUIElementTypeTextField") AND (name CONTAINS[c] "Search" OR label CONTAINS[c] "Search" OR value CONTAINS[c] "Search")',
-      ]);
+      const nativeContext = await this.driver.getContext().catch(() => '');
+      const nativeInput = nativeContext === 'NATIVE_APP'
+        ? await this.browserFirstVisible([
+          '-ios predicate string:(type == "XCUIElementTypeSearchField" OR type == "XCUIElementTypeTextField") AND (name CONTAINS[c] "Search" OR label CONTAINS[c] "Search" OR value CONTAINS[c] "Search")',
+        ])
+        : null;
       if (nativeInput) {
         await nativeInput.click();
         focusedNatively = true;
@@ -296,6 +302,10 @@ export class IOSSearchPage extends IOSBasePage {
     if (!focusedNatively) await input.click();
     await input.clearValue().catch(() => {});
     await input.addValue('[dev_mode_on]');
+    // Safari can drop focus after WebKit enters text into a field that was
+    // initially focused through the native tree. Refocus the entered field
+    // so the visible keyboard Return action can submit the command.
+    await input.click();
     await this.submitSafariSearch();
     await this.driver.pause(1000);
 
@@ -504,8 +514,13 @@ export class IOSSearchPage extends IOSBasePage {
     // returns to /search, not to the welcome page where the PPV tile lives.
     const tier = String(options.eventData?.TIER || process.env.TIER || '').toLowerCase();
     const region = String(options.eventData?.DAZN_REGION || process.env.DAZN_REGION || '').toUpperCase();
-    const devModeForced = String(process.env.DEV_MODE_ON || '').toLowerCase() === 'on';
-    if (devModeForced || (tier === 'ultimate' && (region === 'GB' || region === 'US'))) {
+    const userState = String(options.eventData?.USER_STATE || process.env.USER_STATE || '').toLowerCase().trim();
+    const isUSorGB = region === 'GB' || region === 'US';
+    const isUltimateUser = userState.startsWith('active_ultimate');
+    const isLoginFirst = String(process.env.LOGIN_FIRST || process.env.LOGIN || '').toLowerCase() === 'true';
+    const ppvDevMode = String(options.eventData?.PPV_DEV_MODE || process.env.PPV_DEV_MODE || '').toLowerCase() === 'true';
+    const devModeForced = String(process.env.DEV_MODE_ON || '').toLowerCase() === 'on' || ppvDevMode;
+    if (devModeForced || (tier === 'ultimate' && isUSorGB) || (isUltimateUser && isLoginFirst)) {
       await this.waitForSafariLandingNavigation();
       await this.enableSafariDevMode();
       // Always navigate explicitly to welcome — dev mode ends on /search.
@@ -578,11 +593,12 @@ export class IOSSearchPage extends IOSBasePage {
     for (const word of words) {
       if (!word) continue;
       const cleanWord = word.toLowerCase().replace(/[:\-–\.]/g, ' ');
-      if (cleanWord.includes('vs')) {
-        const parts = cleanWord.split(/\bvs\b/).map(p => p.trim());
+      const normalisedCleanWord = cleanWord.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      if (normalisedCleanWord.includes('vs')) {
+        const parts = normalisedCleanWord.split(/\bvs\b/).map(p => p.trim());
         candidates.push(...parts);
       } else {
-        candidates.push(...cleanWord.split(/\s+/).map(p => p.trim()));
+        candidates.push(...normalisedCleanWord.split(/\s+/).map(p => p.trim()));
       }
     }
 
@@ -602,14 +618,23 @@ export class IOSSearchPage extends IOSBasePage {
 
   async findCorrectPPVTile(keywords: string[]): Promise<WdElement | null> {
     console.log(`Scanning XCUIElementTypeStaticText elements for keywords: ${JSON.stringify(keywords)}`);
+    const expectedPpvName = this.ppvName
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
     try {
       const elements = await this.driver.$$('//XCUIElementTypeStaticText');
       for (const el of elements) {
         const text = await el.getAttribute('label').catch(() => '');
         if (!text) continue;
 
-        const textLower = text.toLowerCase();
-        const matchesQuery = keywords.every(kw => textLower.includes(kw));
+        const textLower = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+        const normalisedText = textLower.replace(/[^a-z0-9]+/g, ' ').trim();
+        const matchesQuery = expectedPpvName
+          ? normalisedText === expectedPpvName
+          : keywords.every(kw => textLower.includes(kw));
         const isAncillary = [
           'press', 'weigh', 'workout', 'replay', 'highlights',
           'preview', 'promo', 'interview', 'behind the', 'episode',
@@ -668,7 +693,7 @@ export class IOSSearchPage extends IOSBasePage {
       // being treated as a real SOURCE=search result.
       let entered = String(await searchInput.getValue().catch(() => ''));
       if (!entered) entered = String(await searchInput.getAttribute('value').catch(() => ''));
-      const normalise = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+      const normalise = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
       if (!normalise(entered).includes(normalise(searchQuery))) {
         throw new Error(`Search query was not entered. Expected="${searchQuery}" actual="${entered || 'empty'}"`);
       }
@@ -712,7 +737,7 @@ export class IOSSearchPage extends IOSBasePage {
     }
 
     if (!ppvTile) {
-      const retryQuery = `${searchQuery} upcoming`;
+      const retryQuery = `${this.ppvName || searchQuery} upcoming`;
       console.log(`PPV tile not found for "${searchQuery}". Retrying search with "${retryQuery}"...`);
       // Stay on the current Search screen. Re-running navigate() can hit the
       // header/back control and leave Search, which violates SOURCE=search.

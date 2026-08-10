@@ -215,6 +215,56 @@ export async function dismissMarketingPopup(
 ): Promise<void> {
   if (page.isClosed()) return;
   try {
+    const paymentUpdateClosePoint = await page.evaluate(() => {
+      const textMatches = (text: string) =>
+        /update your payment method|latest payment.*didn.?t go through/i.test(text);
+      const isVisible = (el: Element) => {
+        const rect = (el as HTMLElement).getBoundingClientRect();
+        const style = window.getComputedStyle(el);
+        return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+      };
+      const dialogs = Array.from(document.querySelectorAll<HTMLElement>(
+        '[role="dialog"], [aria-modal="true"], [class*="modal" i], [class*="popup" i]'
+      ));
+      const dialog = dialogs
+        .filter(el => isVisible(el) && textMatches(el.innerText || el.textContent || ''))
+        .sort((a, b) => {
+          const aRect = a.getBoundingClientRect();
+          const bRect = b.getBoundingClientRect();
+          return (aRect.width * aRect.height) - (bRect.width * bRect.height);
+        })[0];
+      if (!dialog) return null;
+
+      const buttons = Array.from(dialog.querySelectorAll<HTMLElement>(
+        'button, [role="button"], [aria-label], [data-testid], [onclick]'
+      ))
+        .filter(isVisible)
+        .filter(el => !/update now/i.test((el.innerText || el.textContent || '').trim()));
+      const close = buttons.find(el =>
+        /close|dismiss/i.test(`${el.getAttribute('aria-label') || ''} ${el.getAttribute('data-testid') || ''} ${el.innerText || ''}`)
+      );
+      const dialogRect = dialog.getBoundingClientRect();
+      const closeTarget = close || buttons
+        .map(el => ({ el, rect: el.getBoundingClientRect() }))
+        .filter(({ rect }) => rect.left > dialogRect.left + dialogRect.width * 0.55)
+        .sort((a, b) => b.rect.left - a.rect.left || a.rect.top - b.rect.top)[0]?.el;
+      const rect = closeTarget?.getBoundingClientRect();
+      return rect
+        ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
+        : null;
+    }).catch((): { x: number; y: number } | null => null);
+
+    if (paymentUpdateClosePoint) {
+      await page.mouse.click(paymentUpdateClosePoint.x, paymentUpdateClosePoint.y);
+      const paymentUpdateStillVisible = await page.getByText(/update your payment method/i)
+        .first().isVisible({ timeout: 1500 }).catch(() => false);
+      if (!paymentUpdateStillVisible) {
+        console.log('✅ Dismissed payment update popup');
+        return;
+      }
+      console.warn('⚠️ Payment update popup is still visible after clicking its close control');
+    }
+
     const dismissSelectors = [
       'button:has-text("Keep me updated")',
       'button:has-text("Keep Me Updated")',
@@ -278,6 +328,48 @@ export async function dismissMarketingPopup(
   } catch (e) {
     console.warn('⚠️ Error in dismissMarketingPopup:', e);
   }
+}
+
+export async function expandMorePaymentMethods(page: Page, pageName = 'Payment Page'): Promise<boolean> {
+  if (page.isClosed()) return false;
+
+  const disclosure = await page.evaluate(() => {
+    const control = Array.from(document.querySelectorAll<HTMLElement>('button, [role="button"], summary, a, div'))
+      .find(element => /^more payment methods$/i.test((element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim()));
+    if (!control) return null;
+    control.scrollIntoView({ block: 'center' });
+    const rect = control.getBoundingClientRect();
+    return {
+      expanded: control.getAttribute('aria-expanded') === 'true',
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2,
+    };
+  }).catch((): { expanded: boolean; x: number; y: number } | null => null);
+
+  if (disclosure && !disclosure.expanded) {
+    console.log(`👇 [${pageName}] Clicking "More payment methods" to expand payment options...`);
+    await page.mouse.click(disclosure.x, disclosure.y);
+    await page.waitForFunction(() => {
+      return Array.from(document.querySelectorAll<HTMLElement>('button, [role="button"], summary, a, div'))
+        .some(element =>
+          /^more payment methods$/i.test((element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim()) &&
+          element.getAttribute('aria-expanded') === 'true'
+        );
+    }, { timeout: 8000 }).catch(() => {
+      console.warn(`⚠️ [${pageName}] "More payment methods" did not report as expanded after clicking it.`);
+    });
+    return true;
+  }
+
+  return false;
+}
+
+export async function shouldSkipCardEntryChecks(page: Page): Promise<boolean> {
+  if (page.isClosed()) return true;
+
+  const pageText = await page.locator('body').innerText({ timeout: 2000 }).catch(() => '');
+  const hasSavedCard = /\*{4}\s*\d{2,4}|saved card|(?:visa|mastercard|amex).{0,50}(?:\bending in\b|\bexp(?:iry)?\b)/i.test(pageText);
+  return !hasSavedCard;
 }
 
 // ─────────────────────────────────────────────────────────────────

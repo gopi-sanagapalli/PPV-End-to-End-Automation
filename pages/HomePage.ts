@@ -806,12 +806,18 @@ export class HomePage extends LandingPage {
       await this.page.waitForTimeout(150);
 
       const beforeUrl = this.page.url();
+      const clickTarget = found.locator(
+        'xpath=ancestor-or-self::*[self::a or self::button or @role="button"][1]'
+      ).first();
+      const target = await clickTarget.isVisible({ timeout: 500 }).catch(() => false)
+        ? clickTarget
+        : found;
       try {
-        await found.click({ force: true, timeout: 10000 });
+        await target.click({ force: true, timeout: 10000 });
         console.log(`✅ [HomePage Tile] Clicked PPV tile`);
       } catch (e: any) {
         console.log('⚠️ Standard click failed → trying JS click');
-        const handle = await found.elementHandle();
+        const handle = await target.elementHandle();
         if (handle) {
           await this.page.evaluate((el: any) => el.click(), handle);
           console.log(`✅ [HomePage Tile] JS click executed on PPV tile`);
@@ -821,7 +827,7 @@ export class HomePage extends LandingPage {
       }
 
       let modal: any = null;
-      for (let attempt = 0; attempt < 15; attempt++) {
+      for (let attempt = 0; attempt < 30; attempt++) {
         if (this.page.url() !== beforeUrl) {
           console.log(`✅ [HomePage Tile] Tile click navigated to: ${this.page.url()}`);
           return this.page.locator('body');
@@ -830,7 +836,7 @@ export class HomePage extends LandingPage {
         if (modal) {
           break;
         }
-        await this.page.waitForTimeout(150);
+        await this.page.waitForTimeout(200);
       }
 
       if (!modal) {

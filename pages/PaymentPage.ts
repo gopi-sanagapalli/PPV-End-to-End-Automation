@@ -3,6 +3,7 @@ import { BasePage } from './BasePage';
 import { resolveExpected } from '../utils/resolveExpected';
 import { compare } from '../utils/compare';
 import { captureFailures } from '../utils/failureCapture';
+import { expandMorePaymentMethods, shouldSkipCardEntryChecks } from '../utils/helpers';
 
 const CARD_NUMBER_FRAME = 'Secure card number input frame';
 const EXPIRY_DATE_FRAME = 'Secure card expiration date input frame';
@@ -98,6 +99,9 @@ export class PaymentPage extends BasePage {
       console.log('⚠️ Warning: payment options text did not appear within 10s');
     });
 
+    await expandMorePaymentMethods(this.page, 'Payment Page');
+    const skipCardEntryChecks = await shouldSkipCardEntryChecks(this.page);
+
     // Dynamically extract name from page — fast targeted selector
     let signedInText = '';
     try {
@@ -145,6 +149,10 @@ export class PaymentPage extends BasePage {
       }
       if (fieldLower === 'ultimate upsell price') {
         console.log(`  ⏭️  Skipping [${field}] in standard loop — should not be validated before switching`);
+        continue;
+      }
+      if (skipCardEntryChecks && (fieldLower === 'pay now button' || fieldLower === 'secure checkout')) {
+        console.log(`  ⏭️  Skipping [${field}] — no card entry checkout form is shown for this payment method`);
         continue;
       }
 
@@ -883,17 +891,40 @@ export class PaymentPage extends BasePage {
         .replace(/[^a-z0-9]+/g, ' ')
         .split(/\s+/)
         .filter(w => w.length > 2 && !['the', 'and', 'for', 'with', 'from', 'ppv'].includes(w));
+      const isNearWordMatch = (expected: string, actual: string): boolean => {
+        if (expected === actual) return true;
+        if (expected.length < 5 || expected.length !== actual.length) return false;
+        for (let i = 0; i < expected.length - 1; i++) {
+          const swapped = expected.slice(0, i) + expected[i + 1] + expected[i] + expected.slice(i + 2);
+          if (swapped === actual) return true;
+        }
+        return false;
+      };
+      const titleMatches = (text: string): boolean => {
+        const textWords = text
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, ' ')
+          .split(/\s+/)
+          .filter(Boolean);
+        return titleWords.length > 0 &&
+          titleWords.every(word => textWords.some(textWord => isNearWordMatch(word, textWord)));
+      };
       if (titleWords.length > 0) {
         for (const line of lines) {
           const lowerLine = line.toLowerCase();
           if (
             line.length < 100 &&
-            titleWords.every(w => lowerLine.includes(w)) &&
+            titleMatches(line) &&
             !/(flex|annual|monthly|subscribe|payment|pay|change|dazn standard|dazn ultimate)/i.test(line)
           ) {
             return line.trim();
           }
         }
+        const titleFragments = bodyText.match(/\b[A-Za-z][A-Za-z.'’]*(?:\s+[A-Za-z][A-Za-z.'’]*){0,3}\s+(?:vs?\.?|–|-)\s+[A-Za-z][A-Za-z.'’]*(?:\s+[A-Za-z][A-Za-z.'’]*){0,3}/gi) || [];
+        const titleFragment = titleFragments
+          .map(fragment => fragment.replace(/^(?:buy|year|month|fight)\s+/i, '').trim())
+          .find(fragment => fragment.length < 100 && titleMatches(fragment));
+        if (titleFragment) return titleFragment;
       }
 
       // Fallback: match by fighter names (handles "v" vs "vs." mismatch)
@@ -907,7 +938,7 @@ export class PaymentPage extends BasePage {
         const last = nameParts[nameParts.length - 1].toLowerCase();
         for (const line of lines) {
           const lowerLine = line.toLowerCase();
-          if (lowerLine.includes(first) && lowerLine.includes(last) && /\bvs?\b\.?/i.test(line) && line.length < 100) {
+          if (titleMatches(line) && /\bvs?\b\.?/i.test(line) && line.length < 100) {
             return line;
           }
         }
@@ -937,8 +968,8 @@ export class PaymentPage extends BasePage {
         if (lowerLine.includes('flex') || lowerLine.includes('annual') || lowerLine.includes('monthly') || lowerLine.includes('subscribe') || lowerLine.includes('payment') || lowerLine.includes('pay') || lowerLine.includes('change')) {
           continue;
         }
-        const vsM = line.match(/([A-Za-z\s.]+\s+(?:vs?\.?|–|-)\s+[A-Za-z\s.]+?)/i);
-        if (vsM) return vsM[0].trim();
+        const vsM = line.match(/\b[A-Za-z][A-Za-z.'’]*(?:\s+[A-Za-z][A-Za-z.'’]*){0,3}\s+(?:vs?\.?|–|-)\s+[A-Za-z][A-Za-z.'’]*(?:\s+[A-Za-z][A-Za-z.'’]*){0,3}/i);
+        if (vsM) return vsM[0].replace(/^(?:buy|year|month|fight)\s+/i, '').trim();
       }
 
       return 'N/A';

@@ -59,6 +59,12 @@ export function resolveExpected(
   rule: any,
   eventData: Record<string, string>
 ): string {
+  if (typeof rule === 'string') {
+    return replacePlaceholders(rule, eventData);
+  }
+  if (!rule || typeof rule !== 'object') {
+    return String(rule || '');
+  }
   const rawField = rule.Field || rule.field || '';
   const field = rawField.trim().toLowerCase();
   const rawTier = rule.Tier || rule.tier || '';
@@ -88,13 +94,9 @@ export function resolveExpected(
   ].includes(currentUserState);
 
   if (field === 'instruction header' && (pageName.includes('paywall') || pageName.includes('mobile'))) {
-    // Mobile native paywall always shows the generic header — no email text.
-    if (pageName === 'mobile paywall') {
-      return 'How to watch this and more?';
-    }
     const isNewUser = !currentUserState || currentUserState === 'new' || currentUserState === 'anonymous';
     const isLoginFirst = String(eventData.LOGIN_FIRST ?? process.env.LOGIN_FIRST ?? '').toLowerCase() === 'true';
-    if (!isNewUser && (isLoginFirst || eventData.USER_EMAIL || process.env.USER_EMAIL)) {
+    if (!isNewUser && isLoginFirst) {
       const email = eventData.USER_EMAIL || process.env.USER_EMAIL || '';
       return `To watch this and more check the email we just sent to ${email}`.trim();
     } else {
@@ -122,10 +124,10 @@ export function resolveExpected(
     return 'Minimum 12 pay-per-views a year included at no extra cost.';
   }
 
-  if (isActiveStandardUser && pageName === 'choose how to buy') {
+  if (isActiveStandardUser && normalizedPageName === 'choose how to buy') {
     if (field === 'upsell feature 1') {
       // Prefer the event-specific UPSELL_FEATURE_1 (may include PPV name suffix);
-      // fall back to the standard "Pay-per-views included" wording used on this page.
+      // fall back to the standard wording used on this page.
       const dynamicVal = eventData.UPSELL_FEATURE_1;
       const standardVal = 'Pay-per-views included at no extra cost. Minimum of 12 events per year.';
       return dynamicVal ? `${dynamicVal}|${standardVal}` : standardVal;
@@ -140,9 +142,10 @@ export function resolveExpected(
     }
     if (field === 'upsell feature 3') {
       // UPSELL_FEATURE_2 holds "185+ fights" in GLOBAL_DEFAULTS; it appears 3rd on this page.
-      // Support both "promoters" and "promotors" spellings.
       const baseExpected = eventData.UPSELL_FEATURE_2 || "185+ fights a year from the world's best promoters.";
-      return `${baseExpected}|${baseExpected.replace('promoters', 'promotors')}|185+ fights a year from the world's best promotors`;
+      return baseExpected.includes('promoters')
+        ? `${baseExpected}|${baseExpected.replace(/promoters/g, 'promotors')}`
+        : baseExpected;
     }
     if (field === 'upsell feature 4') {
       if (eventData.UPSELL_FEATURE_4) return eventData.UPSELL_FEATURE_4;
@@ -158,15 +161,14 @@ export function resolveExpected(
   if (field === 'cta after ultimate selection') {
     return eventData.PLAN_CTA_BUTTON || 'Continue with DAZN Ultimate';
   }
-
   if (isPaymentPage) {
     const isMobileWebHandoff = String(eventData.MOBILE_WEB_HANDOFF || eventData.mobile_web_handoff || '').toLowerCase() === 'true';
 
-    // Mobile checkout does not render these desktop payment-section headings.
+    // Mobile checkout does not render the desktop purchase-summary heading.
     // Returning N/A lets validateVariant skip them via its existing not-required path.
     if (
       isMobileWebHandoff &&
-      (field === 'payment method heading' || field === 'purchase summary heading')
+      field === 'purchase summary heading'
     ) {
       return 'N/A';
     }
@@ -292,6 +294,10 @@ export function resolveExpected(
 
   if (field === 'banner - event description' && eventData.BANNER_DESCRIPTION) {
     return String(eventData.BANNER_DESCRIPTION);
+  }
+
+  if (field === 'banner description' && ['ppv banner', 'mobile'].includes(normalizedPageName) && eventData.MOBILE_BANNER_DESCRIPTION) {
+    return String(eventData.MOBILE_BANNER_DESCRIPTION);
   }
 
   // home-page-dazntile opens the first eligible DAZN entitlement tile.
@@ -922,6 +928,10 @@ export function resolveExpected(
     'event date and time',
   ];
   if (dateTimeFields.includes(field)) {
+    // The Choose How To Buy cards use the device-local Safari time. Preserve
+    // the configured value as one deterministic expectation; the iOS Safari
+    // validator compares the date separately when the device timezone differs.
+    if (normalizedPageName === 'choose how to buy') return template;
     return hasExplicitDateAndTime(template) ? getDynamicDateTimeBadge(template) : template;
   }
 
@@ -958,7 +968,12 @@ export function resolveExpected(
     field === 'banner - event date' ||
     field === 'ppv date and time text';
   if (relativeDateSource && hasExplicitDateAndTime(template)) {
+    if (normalizedPageName === 'choose how to buy') return template;
     return getDynamicDateTimeBadge(template);
+  }
+
+  if (/^upsell feature [1-4]$/.test(field) && template.includes('185+ fights') && template.includes('promoters')) {
+    template = `${template}|${template.replace(/promoters/g, 'promotors')}`;
   }
 
   return template;

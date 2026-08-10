@@ -896,6 +896,8 @@ export class AndroidSchedulePage extends AndroidBasePage {
 
   async scrollToPPVTile(ppvName = this.ppvName): Promise<WdElement | null> {
     console.log(`  Target PPV: ${ppvName}`);
+    const normaliseTitle = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+    const expectedTitle = normaliseTitle(ppvName);
     console.log('  Step 1: Fast scroll to July...');
 
     for (let i = 0; i < 20; i++) {
@@ -924,7 +926,7 @@ export class AndroidSchedulePage extends AndroidBasePage {
         // Try exact match first
         for (const el of textViews) {
           const txt = await el.getText().catch(() => '');
-          if (txt.toLowerCase().trim() === ppvName.toLowerCase().trim()) {
+          if (normaliseTitle(txt) === expectedTitle) {
             ppvEl = el;
             break;
           }
@@ -934,9 +936,9 @@ export class AndroidSchedulePage extends AndroidBasePage {
         if (!ppvEl) {
           for (const el of textViews) {
             const txt = await el.getText().catch(() => '');
-            const lower = txt.toLowerCase();
+            const lower = normaliseTitle(txt);
             if (
-              lower.includes(ppvName.toLowerCase()) &&
+              lower.includes(expectedTitle) &&
               !lower.includes('weigh') &&
               !lower.includes('press') &&
               !lower.includes('media') &&
@@ -978,7 +980,7 @@ export class AndroidSchedulePage extends AndroidBasePage {
             const updatedViews = await this.driver.$$('android=new UiSelector().className("android.widget.TextView")').catch(() => []);
             for (const el of updatedViews) {
               const txt = await el.getText().catch(() => '');
-              if (txt.toLowerCase().trim() === ppvName.toLowerCase().trim()) {
+              if (normaliseTitle(txt) === expectedTitle) {
                 centeredEl = el;
                 break;
               }
@@ -986,9 +988,9 @@ export class AndroidSchedulePage extends AndroidBasePage {
             if (!centeredEl) {
               for (const el of updatedViews) {
                 const txt = await el.getText().catch(() => '');
-                const lower = txt.toLowerCase();
+                const lower = normaliseTitle(txt);
                 if (
-                  lower.includes(ppvName.toLowerCase()) &&
+                  lower.includes(expectedTitle) &&
                   !lower.includes('weigh') &&
                   !lower.includes('press') &&
                   !lower.includes('media') &&

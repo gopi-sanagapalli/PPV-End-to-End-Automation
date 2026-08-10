@@ -1,19 +1,13 @@
-name: "Web · Prod · PPV enabled · Dev mode"
-run-name: "Web · Prod · PPV enabled · Dev mode · ${{ inputs.COUNTRY }} · ${{ inputs.PPV_CONFIG }}"
+name: "Web · Prod · UFC PPV enabled · Dev mode · Canada"
+run-name: "Web · Prod · UFC PPV enabled · Dev mode · CA · ${{ inputs.PPV_CONFIG }}"
 
 on:
   workflow_dispatch:
     inputs:
       PPV_CONFIG:
-        description: "PPV JSON filename (for example: ppv_t_joshua_prenga.json)"
+        description: "UFC PPV JSON filename (for example: ppv_t_ufc_330.json)"
         required: true
         type: string
-      COUNTRY:
-        description: "Country"
-        required: true
-        type: choice
-        default: GB
-        options: [GB, IE, US, AU, BR, AE]
       PPV_DEV_MODE:
         description: "Enable PPV_DEV_MODE validation"
         required: true
@@ -23,7 +17,7 @@ on:
 permissions: { contents: read }
 env:
   PPV_DEV_MODE: ${{ inputs.PPV_DEV_MODE }}
-  JIRA_REGION: ${{ inputs.COUNTRY }}
+  JIRA_REGION: CA
   JIRA_REGION_FIELD_NAME: Region
   JIRA_DAZN_ENVIRONMENT_FIELD_NAME: DAZN Environment
   JIRA_PLATFORM_FIELD_NAME: Platform - required
@@ -36,7 +30,7 @@ env:
   JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
 jobs:
   prepare:
-    runs-on: [self-hosted, macOS, ARM64]
+    runs-on: [self-hosted, macOS, ARM64, sridevi-runners]
     timeout-minutes: 30
     env:
       ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
@@ -45,12 +39,12 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - id: matrix
-        run: node scripts/buildPpvWorkflowMatrix.js dev-account '${{ inputs.PPV_CONFIG }}' '${{ inputs.COUNTRY }}'
+        run: node scripts/buildPpvWorkflowMatrix.js dev-account '${{ inputs.PPV_CONFIG }}' 'CA'
   my-account:
     needs: prepare
     environment: prod
     name: Existing user · Dev mode My Account | ${{ matrix.profile }}
-    runs-on: [self-hosted, macOS, ARM64]
+    runs-on: [self-hosted, macOS, ARM64, sridevi-runners]
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -62,7 +56,7 @@ jobs:
       CI: 'true'
       HEADLESS: 'true'
       DAZN_ENV: prod
-      DAZN_REGION: ${{ inputs.COUNTRY }}
+      DAZN_REGION: CA
       PPV_CONFIG: ${{ inputs.PPV_CONFIG }}
       SOURCE: ${{ matrix.source }}
       PROFILE: ${{ matrix.profile }}
@@ -76,8 +70,8 @@ jobs:
   workflow-summary:
     needs: [prepare, my-account]
     if: ${{ always() }}
-    name: Consolidated workflow report · ${{ inputs.COUNTRY }}
-    runs-on: [self-hosted, macOS, ARM64]
+    name: Consolidated workflow report · CA
+    runs-on: [self-hosted, macOS, ARM64, sridevi-runners]
     timeout-minutes: 30
     env:
       ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
@@ -85,11 +79,11 @@ jobs:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/ppv-workflow-summary
         with:
-          title: Web PPV dev-mode workflow report · ${{ inputs.COUNTRY }}
+          title: Web UFC PPV dev-mode workflow report · CA
           ppv_config: ${{ inputs.PPV_CONFIG }}
-          country: ${{ inputs.COUNTRY }}
+          country: CA
           artifact_pattern: ppv-web-*
-          artifact_name: ppv-web-${{ inputs.COUNTRY }}-workflow-summary-${{ github.run_attempt }}
+          artifact_name: ppv-web-CA-ufc-devmode-workflow-summary-${{ github.run_attempt }}
           new_user_status: not applicable
           sign_in_status: not applicable
           signed_in_status: ${{ needs.my-account.result }}

@@ -62,7 +62,6 @@ export class IOSBoxingPage extends IOSBasePage {
       let nearest: any | null = null;
       for (const element of elements) {
         if (!(await element.isDisplayed().catch(() => false))) continue;
-        if (!(await this.isInViewport(element))) continue;
         const location = await element.getLocation().catch(() => null);
         if (location && (!nearest || Math.abs(location.y - titleLocation.y) < Math.abs(nearest.y - titleLocation.y))) {
           nearest = location;
@@ -80,24 +79,15 @@ export class IOSBoxingPage extends IOSBasePage {
   /** Finds only the configured PPV title, then verifies its own date column. */
   private async findUpcomingPpvCard(dateParts: IOSPPVDateParts): Promise<any | null> {
     const escapedName = this.ppvName.replace(/'/g, "\\'");
-    // Most current builds expose the event title as its own exact native
-    // label. Query it first; the broad selector remains as compatibility for
-    // older accessibility trees which expose the title in a parent label.
-    const titleSelectors = [
-      `-ios predicate string:label == '${escapedName}' OR name == '${escapedName}'`,
-      `-ios predicate string:label CONTAINS[c] '${escapedName}' OR name CONTAINS[c] '${escapedName}'`,
-    ];
-    for (const titleSelector of titleSelectors) {
-      const titleElements = await this.driver.$$(titleSelector).catch(() => []);
-      for (const titleElement of titleElements) {
-        if (!(await titleElement.isDisplayed().catch(() => false))) continue;
-        if (!(await this.isInViewport(titleElement))) continue;
-        const titleLocation = await titleElement.getLocation().catch(() => null);
-        if (!titleLocation) continue;
-        if (await this.isDateBesideTitle(titleLocation, dateParts)) {
-          console.log(`  Matched PPV card by title and date: "${this.ppvName}" (${dateParts.day} ${dateParts.monthShort})`);
-          return titleElement;
-        }
+    const titleSelector = `-ios predicate string:label CONTAINS[c] '${escapedName}' OR name CONTAINS[c] '${escapedName}'`;
+    const titleElements = await this.driver.$$(titleSelector).catch(() => []);
+    for (const titleElement of titleElements) {
+      if (!(await titleElement.isDisplayed().catch(() => false))) continue;
+      const titleLocation = await titleElement.getLocation().catch(() => null);
+      if (!titleLocation) continue;
+      if (await this.isDateBesideTitle(titleLocation, dateParts)) {
+        console.log(`  Matched PPV card by title and date: "${this.ppvName}" (${dateParts.day} ${dateParts.monthShort})`);
+        return titleElement;
       }
     }
     return null;
@@ -336,13 +326,10 @@ export class IOSBoxingPage extends IOSBasePage {
     this.upcomingPpvDateParts = dateParts;
     this.upcomingPpvCard = null;
 
-    // The tab replaces its list once. Check the current viewport a few times
-    // before moving it, so a transient stale response cannot skip an already
-    // visible PPV card (as in the supplied Moses vs. Hrgovic screen).
-    for (let i = 0; i < 5 && !this.upcomingPpvCard; i++) {
-      this.upcomingPpvCard = await this.findUpcomingPpvCard(dateParts);
-      if (!this.upcomingPpvCard) await this.driver.pause(300);
-    }
+    // The scoped list can rebuild immediately after its tab is selected.
+    // Check the initial viewport once, then start scrolling; repeated checks
+    // only re-query stale virtualized cells and delay the first swipe.
+    this.upcomingPpvCard = await this.findUpcomingPpvCard(dateParts);
 
     for (let i = 0; i < 24 && !this.upcomingPpvCard; i++) {
       // Short, overlapping swipes preserve every schedule card between
@@ -486,7 +473,28 @@ export class IOSBoxingPage extends IOSBasePage {
       throw new Error(`PPV banner "${this.ppvName}" moved before Buy CTA tap. See test-results/ios_home_boxing_buy_cta_not_found.png`);
     }
 
-    return Boolean(await this.tapFirstText(bannerCtas, 6000));
+    return this.tapVerifiedBannerCta(bannerCtas);
+  }
+
+  /** Re-query the verified banner CTA when its carousel node is replaced. */
+  private async tapVerifiedBannerCta(ctas: string[]): Promise<boolean> {
+    for (const cta of ctas) {
+      const escapedCta = cta.replace(/'/g, "\\'");
+      const selector = `-ios predicate string:label CONTAINS[c] '${escapedCta}' OR name CONTAINS[c] '${escapedCta}'`;
+      const tapped = await this.driver.waitUntil(async () => {
+        const candidates = await this.driver.$$(selector).catch(() => []);
+        for (const candidate of candidates) {
+          if (!await candidate.isDisplayed().catch(() => false)) continue;
+          if (await candidate.click().then(() => true).catch(() => false)) return true;
+        }
+        return false;
+      }, { timeout: 6000, interval: 200 }).catch(() => false);
+      if (tapped) {
+        console.log(`Tapped verified banner CTA "${cta}"`);
+        return true;
+      }
+    }
+    return false;
   }
 
   async openHomeBoxingUpcomingPaywall(eventConfig?: any, hooks: IOSFlowHooks = {}): Promise<boolean> {

@@ -1,5 +1,5 @@
-name: Android · Prod · PPV live
-run-name: "Android · Prod · PPV live · ${{ inputs.COUNTRY }} · ${{ inputs.PPV_CONFIG }}"
+name: iOS · Prod · PPV live
+run-name: "iOS · Prod · PPV live · ${{ inputs.COUNTRY }} · ${{ inputs.PPV_CONFIG }}"
 
 on:
   workflow_dispatch:
@@ -28,7 +28,7 @@ jobs:
   prepare:
     name: Validate PPV and build matrix
     runs-on: [self-hosted, macOS, ARM64, sridevi-runners]
-    timeout-minutes: 30
+    timeout-minutes: 10
     outputs:
       new_matrix: ${{ steps.matrix.outputs.new_matrix }}
       signin_matrix: ${{ steps.matrix.outputs.signin_matrix }}
@@ -41,13 +41,13 @@ jobs:
           BANNERS_CONFIGURED: ${{ inputs.BANNERS_CONFIGURED }}
         run: |
           set -euo pipefail
-          for mode in android-full-new android-full-signin android-full-signed; do
+          for mode in ios-full-new ios-full-signin ios-full-signed; do
             output_file="$(mktemp)"
             GITHUB_OUTPUT="$output_file" node scripts/buildPpvWorkflowMatrix.js "$mode" '${{ inputs.PPV_CONFIG }}' '${{ inputs.COUNTRY }}'
             case "$mode" in
-              android-full-new) key=new_matrix ;;
-              android-full-signin) key=signin_matrix ;;
-              android-full-signed) key=signed_matrix ;;
+              ios-full-new) key=new_matrix ;;
+              ios-full-signin) key=signin_matrix ;;
+              ios-full-signed) key=signed_matrix ;;
             esac
             sed "s/^matrix=/$key=/" "$output_file" >> "$GITHUB_OUTPUT"
             rm "$output_file"
@@ -60,7 +60,7 @@ jobs:
     timeout-minutes: 30
     strategy:
       fail-fast: false
-      max-parallel: 2
+      max-parallel: 1
       matrix:
         include: ${{ fromJSON(needs.prepare.outputs.new_matrix) }}
     env:
@@ -70,13 +70,14 @@ jobs:
       PPV_CONFIG: ${{ inputs.PPV_CONFIG }}
       SOURCE: ${{ matrix.source }}
       PLAN: ${{ matrix.plan }}
-      DEVICE_SERIAL: ${{ matrix.deviceSerial }}
+      IOS_UDID: ${{ matrix.iosUdid }}
+      IOS_PLATFORM_VER: ${{ matrix.iosPlatformVersion }}
       APPIUM_PORT: ${{ matrix.appiumPort }}
-      APPIUM_SYSTEM_PORT: ${{ matrix.appiumSystemPort }}
-      CHROMEDRIVER_PORT: ${{ matrix.chromedriverPort }}
+      IOS_WDA_URL: ${{ matrix.wdaUrl }}
+      IOS_MJPEG_PORT: ${{ matrix.mjpegServerPort }}
     steps:
       - uses: actions/checkout@v5
-      - uses: ./.github/actions/android-ppv-runner
+      - uses: ./.github/actions/ios-ppv-runner
         with:
           journey: new-user
 
@@ -87,7 +88,7 @@ jobs:
     timeout-minutes: 30
     strategy:
       fail-fast: false
-      max-parallel: 2
+      max-parallel: 1
       matrix:
         include: ${{ fromJSON(needs.prepare.outputs.signin_matrix) }}
     env:
@@ -98,13 +99,14 @@ jobs:
       SOURCE: ${{ matrix.source }}
       PROFILE: ${{ matrix.profile }}
       LOGIN_FIRST: 'false'
-      DEVICE_SERIAL: ${{ matrix.deviceSerial }}
+      IOS_UDID: ${{ matrix.iosUdid }}
+      IOS_PLATFORM_VER: ${{ matrix.iosPlatformVersion }}
       APPIUM_PORT: ${{ matrix.appiumPort }}
-      APPIUM_SYSTEM_PORT: ${{ matrix.appiumSystemPort }}
-      CHROMEDRIVER_PORT: ${{ matrix.chromedriverPort }}
+      IOS_WDA_URL: ${{ matrix.wdaUrl }}
+      IOS_MJPEG_PORT: ${{ matrix.mjpegServerPort }}
     steps:
       - uses: actions/checkout@v5
-      - uses: ./.github/actions/android-ppv-runner
+      - uses: ./.github/actions/ios-ppv-runner
         with:
           journey: sign-in-during-flow
 
@@ -115,7 +117,7 @@ jobs:
     timeout-minutes: 30
     strategy:
       fail-fast: false
-      max-parallel: 2
+      max-parallel: 1
       matrix:
         include: ${{ fromJSON(needs.prepare.outputs.signed_matrix) }}
     env:
@@ -126,13 +128,14 @@ jobs:
       SOURCE: ${{ matrix.source }}
       PROFILE: ${{ matrix.profile }}
       LOGIN_FIRST: 'true'
-      DEVICE_SERIAL: ${{ matrix.deviceSerial }}
+      IOS_UDID: ${{ matrix.iosUdid }}
+      IOS_PLATFORM_VER: ${{ matrix.iosPlatformVersion }}
       APPIUM_PORT: ${{ matrix.appiumPort }}
-      APPIUM_SYSTEM_PORT: ${{ matrix.appiumSystemPort }}
-      CHROMEDRIVER_PORT: ${{ matrix.chromedriverPort }}
+      IOS_WDA_URL: ${{ matrix.wdaUrl }}
+      IOS_MJPEG_PORT: ${{ matrix.mjpegServerPort }}
     steps:
       - uses: actions/checkout@v5
-      - uses: ./.github/actions/android-ppv-runner
+      - uses: ./.github/actions/ios-ppv-runner
         with:
           journey: already-signed-in
   workflow-summary:
@@ -140,18 +143,18 @@ jobs:
     if: ${{ always() }}
     name: Consolidated workflow report · ${{ inputs.COUNTRY }}
     runs-on: [self-hosted, macOS, ARM64, sridevi-runners]
-    timeout-minutes: 30
+    timeout-minutes: 10
     env:
       ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/ppv-workflow-summary
         with:
-          title: Android PPV live workflow report · ${{ inputs.COUNTRY }}
+          title: iOS PPV live workflow report · ${{ inputs.COUNTRY }}
           ppv_config: ${{ inputs.PPV_CONFIG }}
           country: ${{ inputs.COUNTRY }}
-          artifact_pattern: ppv-android-*
-          artifact_name: ppv-android-${{ inputs.COUNTRY }}-workflow-summary-${{ github.run_attempt }}
+          artifact_pattern: ppv-ios-*
+          artifact_name: ppv-ios-${{ inputs.COUNTRY }}-workflow-summary-${{ github.run_attempt }}
           new_user_status: ${{ needs.new-user.result }}
           sign_in_status: ${{ needs.existing-sign-in-during-flow.result }}
           signed_in_status: ${{ needs.existing-already-signed-in.result }}

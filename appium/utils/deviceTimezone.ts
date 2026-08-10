@@ -114,6 +114,7 @@ export function recomputeMobileDatesForDeviceTimezone(
   eventData.MOBILE_SCHEDULE_DATE = scheduleDate;
   eventData.MOBILE_SCHEDULE_TIME = scheduleTime;
   eventData.PPV_TIME = ppvTime;
+  eventData.PPV_DATE = bannerDateTime;
   eventData.HOME_BOXING_UPCOMING_TIME = scheduleTime;
   eventData.HOME_BOXING_UPCOMING_DATE_TIME_TEXT =
     `WATCH LIVE ${eventData.HOME_BOXING_UPCOMING_DATE || mobilePpvDate} at ${scheduleTime}`;

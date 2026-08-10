@@ -311,10 +311,19 @@ export class SearchPage extends BasePage {
       } catch (clickError) {
         console.log('⚠️ Search input click was intercepted or failed. Attempting to dismiss popup and retry...');
         await dismissMarketingPopup(this.page, 4000).catch(() => {});
-        await searchInput.click({ timeout: 10000 });
+        await searchInput.click({ timeout: 10000, force: true }).catch((retryError) => {
+          console.log(`⚠️ Forced search input click failed, continuing with direct fill: ${retryError.message}`);
+        });
       }
 
-      await searchInput.fill('[dev_mode_on]');
+      await searchInput.fill('[dev_mode_on]', { timeout: 10000 }).catch(async () => {
+        await searchInput.evaluate((input: HTMLInputElement, value: string) => {
+          input.focus();
+          input.value = value;
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+        }, '[dev_mode_on]');
+      });
       await this.page.keyboard.press('Enter');
       console.log('✅ Text entered and Enter pressed');
 

@@ -201,11 +201,14 @@ export class BoxingHomePage extends HomePage {
     const base = baseMatch?.[1] || this.getFallbackBaseUrl();
 
     let sportId = 'Sport:2x2oqzx60orpoeugkd754ga17'; // default Boxing
-    if (sportName.toLowerCase() === 'kickboxing') {
+    const lowerSport = sportName.toLowerCase();
+    if (lowerSport === 'kickboxing') {
       sportId = 'Sport:5rocwbb1fbfub9yh4yrff8khj';
-    } else if (sportName.toLowerCase() === 'wrestling') {
+    } else if (lowerSport === 'wrestling') {
       sportId = 'Sport:50dsk39gxuwwbkss8k2e24mca';
-    } else if (sportName.toLowerCase().includes('misfits')) {
+    } else if (lowerSport.includes('mma') || lowerSport.includes('ufc')) {
+      sportId = 'Sport:53wethrd3bk01jif9w7xvong6'; // MMA / UFC ID
+    } else if (lowerSport.includes('misfits')) {
       sportId = 'Sport:2x2oqzx60orpoeugkd754ga17';
     }
 
@@ -339,7 +342,8 @@ export class BoxingHomePage extends HomePage {
         // Kickboxing/Wrestling/other sports have "Coming up"
         const sportName = (eventData?.SPORT || '').toLowerCase();
         const isBoxingSport = sportName === 'boxing' || sportName === '' || sportName.includes('misfits');
-        let sectionPattern: RegExp = isBoxingSport ? /don't\s*miss/i : /coming\s*up/i;
+        const isMmaSport = sportName === 'mma' || sportName === 'ufc' || sportName.includes('ufc');
+        let sectionPattern: RegExp = isBoxingSport ? /don't\s*miss/i : isMmaSport ? /latest/i : /coming\s*up/i;
         if (src.includes('biggest-fights') || src === 'home-biggest-fights') {
           sectionPattern = /biggest\s*fights/i;
         } else if (src.includes('upcoming')) {
@@ -348,8 +352,10 @@ export class BoxingHomePage extends HomePage {
 
         // Step 1: Scroll to expected section — try fallback patterns if primary not found
         const fallbackPatterns = isBoxingSport
-          ? [/coming\s*up/i, /upcoming/i, /events/i]
-          : [/don't\s*miss/i, /upcoming/i, /events/i];
+          ? [/coming\s*up/i, /upcoming/i, /latest/i, /events/i, /ppv/i]
+          : isMmaSport
+          ? [/coming\s*up/i, /upcoming/i, /don't\s*miss/i, /events/i, /ppv/i]
+          : [/don't\s*miss/i, /latest/i, /upcoming/i, /events/i, /ppv/i];
         let sectionFound = false;
         try {
           await this.scrollToDontMissSection(sectionPattern);
@@ -368,7 +374,26 @@ export class BoxingHomePage extends HomePage {
             }
           }
           if (!sectionFound) {
-            throw new Error(`❌ [Home Sport Tile] No matching section found (tried: ${sectionPattern}, ${fallbackPatterns.join(', ')})`);
+            // Last resort: search directly for the PPV tile by title anywhere on the page
+            console.log(`⚠️ [Home Sport Tile] No named section found — attempting direct PPV tile search by title...`);
+            const ppvTitle = (eventData?.PPV_NAME || eventData?.PPV_CARD_TITLE || '').trim();
+            const ppvEntitlementId = (eventData?.PPV_ENTITLEMENT_ID || '').trim();
+            const directTile = ppvTitle
+              ? this.page.locator(`a[href*="${ppvEntitlementId}"], [data-entitlement*="${ppvEntitlementId}"]`).first()
+              : null;
+            const directTileByText = ppvTitle
+              ? this.page.getByText(ppvTitle.split(':')[0].trim(), { exact: false }).first()
+              : null;
+            const directVisible =
+              (directTile && await directTile.isVisible({ timeout: 3000 }).catch(() => false)) ||
+              (directTileByText && await directTileByText.isVisible({ timeout: 3000 }).catch(() => false));
+            if (!directVisible) {
+              throw new Error(`❌ [Home Sport Tile] No matching section found (tried: ${sectionPattern}, ${fallbackPatterns.join(', ')}) and PPV tile not found directly`);
+            }
+            console.log(`✅ [Home Sport Tile] Found PPV tile directly by title: "${ppvTitle}" — using page-level search`);
+            // Use the page-level tile and skip section-based rail navigation
+            sectionFound = true;
+            sectionPattern = new RegExp(ppvTitle.split(':')[0].trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
           }
         }
 

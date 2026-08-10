@@ -4,6 +4,7 @@ import { IOSSafariValidationPage } from './IOSSafariValidationPage';
 import { IOSPPVPage } from './IOSPPVPage';
 import { IOSPlanPage } from './IOSPlanPage';
 import { IOSMyAccountPage } from './IOSMyAccountPage';
+import { IOSPaymentPage } from './IOSPaymentPage';
 
 /**
  * DAZN account creation / sign-in in Safari. This page object handles only
@@ -115,10 +116,27 @@ export class IOSSignupPage extends IOSBasePage {
       const body = await this.text();
       const lower = body.toLowerCase();
       const url = await this.driver.getUrl();
+      const isActiveStandardAddonPage = userState.startsWith('active_standard') &&
+        /\/account\/addon\/purchase/i.test(url) &&
+        /isupselltieronppv=true/i.test(url);
       console.log(`Safari account step ${step + 1}: ${url}`);
       if (!body.trim() && /\/account\//i.test(url)) {
-        console.log('⏳ Safari account page is still rendering; waiting for WebKit content...');
-        await this.driver.pause(3000);
+        console.log('⏳ Safari account page is still rendering; waiting for WebKit content or the next redirect...');
+        const pageAdvanced = await this.driver.waitUntil(async () => {
+          const nextUrl = await this.driver.getUrl().catch(() => '');
+          const nextText = await this.text();
+          if (isActiveStandardAddonPage) {
+            return /choose how to buy|one time payment|pay now/.test(nextText.toLowerCase());
+          }
+          return nextUrl !== url || Boolean(nextText.trim());
+        }, {
+          timeout: Number(process.env.IOS_SAFARI_SETTLE_TIMEOUT_MS || 35000),
+          interval: Number(process.env.IOS_SAFARI_SETTLE_POLL_MS || 2000),
+          timeoutMsg: `Safari account checkout did not render after loading ${url}`,
+        }).then(() => true).catch(() => false);
+        if (!pageAdvanced) {
+          throw new Error(`Safari account checkout did not render after loading ${url}`);
+        }
         continue;
       }
 
@@ -127,29 +145,13 @@ export class IOSSignupPage extends IOSBasePage {
       // underlying account or payment page.
       if (/keep me updated/i.test(lower) && await this.acceptKeepMeUpdatedPrompt()) continue;
 
-      // ── Payment page (terminal) ──
-      if (/payment method|choose how to pay|card number|payment details/.test(lower)) {
-        if (eventData) {
-          try {
-            await new IOSSafariValidationPage(this.driver).validatePaymentPage(eventData, results);
-          } catch (err: any) {
-            console.warn(`⚠️ Payment page validation error: ${err.message}`);
-          }
-        }
-        results.push({ page: 'iOS Safari', field: 'Payment page reached', expected: 'Yes', actual: 'Yes', status: 'PASS' });
-        return;
-      }
-
-      // ── PPV Payment page (active_standard saved-card checkout) ──
-      if (/one time payment|pay now/i.test(lower) && /visa|mastercard|amex|\*{4}|saved card/i.test(lower)) {
-        if (eventData) {
-          try {
-            await new IOSSafariValidationPage(this.driver).validatePPVPaymentPage(eventData, results);
-          } catch (err: any) {
-            console.warn(`⚠️ PPV payment page validation error: ${err.message}`);
-          }
-        }
-        results.push({ page: 'iOS Safari', field: 'PPV Payment page reached', expected: 'Yes', actual: 'Yes', status: 'PASS' });
+      // ── PPV Payment page (active_standard checkout) ──
+      // This must be evaluated before the generic payment-page condition:
+      // both saved-card and payment-options PPV screens contain the
+      // "Payment method" heading.
+      if (/one time payment|pay now/i.test(lower) &&
+        (/payment method|visa|mastercard|amex|\*{4}|saved card/i.test(lower))) {
+        await new IOSPaymentPage(this.driver).completePPVPayment(results, eventData);
         return;
       }
 
@@ -257,6 +259,13 @@ export class IOSSignupPage extends IOSBasePage {
         return;
       }
 
+      // ── Payment page (terminal) ──
+      if (!userState.startsWith('active_standard') &&
+        /payment method|choose how to pay|card number|payment details/.test(lower)) {
+        await new IOSPaymentPage(this.driver).completePayment(results, eventData);
+        return;
+      }
+
       // ── Plan selection page (delegated to IOSPlanPage) ──
       if (!isContextualPpvPage && planPage.isPlanPage(lower, url)) {
         await planPage.validateAndSelect(results, eventData);
@@ -280,7 +289,7 @@ export class IOSSignupPage extends IOSBasePage {
         }
         // After sign-in DAZN may briefly land on /home or /welcome before
         // redirecting to the contextual PPV flow. Wait and retry.
-        if (/\/home\/?$|\/welcome\/?$/i.test(url)) {
+        if (/\/home(?:[/?#]|$)|\/welcome(?:[/?#]|$)/i.test(url)) {
           console.log('⏳ Transient redirect to home/welcome after sign-in; waiting for contextual redirect...');
           await this.driver.pause(3000);
           continue;
@@ -289,6 +298,18 @@ export class IOSSignupPage extends IOSBasePage {
         // seconds to render their interactive content after the URL resolves.
         // Wait and retry so the next iteration can match the page text.
         if (/\/account\//i.test(url)) {
+          if (isActiveStandardAddonPage) {
+            console.log('⏳ Waiting for the active-standard add-on page to resolve...');
+            await this.driver.waitUntil(async () => {
+              const nextText = (await this.text()).toLowerCase();
+              return /choose how to buy|one time payment|pay now/.test(nextText);
+            }, {
+              timeout: 15000,
+              interval: 250,
+              timeoutMsg: 'Active-standard add-on page did not resolve to Choose How To Buy or PPV payment.',
+            }).catch(() => { });
+            continue;
+          }
           console.log(`⏳ Account page still rendering (${url.split('?')[0].split('/').pop()}); waiting...`);
           await this.driver.pause(3000);
           continue;

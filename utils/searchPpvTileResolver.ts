@@ -1,6 +1,8 @@
 import { Locator, Page } from '@playwright/test';
 
 const normalise = (value: string): string => String(value || '')
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
   .toLowerCase()
   .replace(/&/g, ' and ')
   .replace(/[^a-z0-9]+/g, ' ')
@@ -59,7 +61,13 @@ export async function resolveSearchPPVTile(page: Page, eventName: string): Promi
     matchPattern = eventName.split(':').pop()?.trim() || eventName;
   }
 
-  const regexes = [new RegExp(matchPattern.replace(/\s+/g, '.*'), 'i')];
+  const normalisedPattern = normalise(matchPattern).replace(/\s+/g, '.*');
+  const regexes = [
+    new RegExp(matchPattern.replace(/\s+/g, '.*'), 'i'),
+    ...(normalisedPattern !== matchPattern.toLowerCase()
+      ? [new RegExp(normalisedPattern, 'i')]
+      : []),
+  ];
   const isStaging = (process.env.DAZN_ENV || 'prod').toLowerCase() === 'stag';
   if (isStaging) {
     const firstWord = matchPattern.split(/\s+/)[0]?.trim();
