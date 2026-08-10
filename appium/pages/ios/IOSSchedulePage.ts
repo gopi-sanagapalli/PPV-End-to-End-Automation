@@ -1,4 +1,5 @@
 import { IOSBasePage, IOSFlowHooks, WdBrowser, WdElement } from './IOSBasePage';
+import { isLikelySamePpvTitle } from '../../utils/ppvTitleMatcher';
 
 export class IOSSchedulePage extends IOSBasePage {
   private async firstVisible(selectors: string[]): Promise<WdElement | null> {
@@ -201,6 +202,13 @@ export class IOSSchedulePage extends IOSBasePage {
   async scrollToPPVTile(ppvName = this.ppvName): Promise<WdElement | null> {
     console.log(`  Target PPV: ${ppvName}`);
     const normaliseTitle = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+    const isExpectedPpvText = (text: string): boolean => {
+      const lower = normaliseTitle(text);
+      if (lower.includes('weigh') || lower.includes('press') || lower.includes('media') || lower.includes('workout') || lower.includes('undercard')) {
+        return false;
+      }
+      return lower === normaliseTitle(ppvName) || isLikelySamePpvTitle(text, ppvName);
+    };
     const zayasMainEvent = [
       `~${ppvName}`,
       `-ios predicate string:name == "${ppvName}" OR label == "${ppvName}"`,
@@ -215,7 +223,7 @@ export class IOSSchedulePage extends IOSBasePage {
       for (const el of textElements) {
         if (!await el.isDisplayed().catch(() => false)) continue;
         const text = String(await el.getAttribute('label').catch(() => '') || await el.getAttribute('name').catch(() => ''));
-        if (normaliseTitle(text) === expectedTitle) return el;
+        if (isExpectedPpvText(text)) return el;
       }
       return null;
     };

@@ -138,7 +138,7 @@ export class PPVUpsellSuccessPage extends BasePage {
     }
 
     // Capture red-boxed screenshots for any failed fields
-    await captureFailures(this.page, results, pageName);
+    await captureFailures(this.page, results, pageName, eventData);
   }
 
   // ─────────────────────────────
@@ -236,7 +236,7 @@ export class PPVUpsellSuccessPage extends BasePage {
     }
 
     // Capture red-boxed screenshots for any failed fields
-    await captureFailures(this.page, results, pageName);
+    await captureFailures(this.page, results, pageName, eventData);
   }
 
   // ─────────────────────────────

@@ -4,6 +4,7 @@ import selectors from '../config/selectors.json';
 import { validateVariant } from '../flows/validateVariant';
 import { readSheet } from '../utils/excelReader';
 import { assertDaznPageAvailable } from '../utils/helpers';
+import { isLikelySamePpvTitle, scorePpvTitleMatch } from '../utils/ppvTitleMatcher';
 
 export class LandingPage extends BasePage {
   // A banner slide can be replaced by React/Swiper between validation and the
@@ -325,15 +326,12 @@ export class LandingPage extends BasePage {
   // MATCH PPV NAME (flexible, splits colons/hyphens)
   // ─────────────────────────────
   protected matchesPPVName(text: string, ppvName: string): boolean {
-    if (!text || !ppvName) return false;
-    const nameParts = ppvName.split(/[:\-–]/).map(p => p.trim()).filter(p => p.length > 3);
-    const cleanStr = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
-    const cleanText = cleanStr(text);
-    return nameParts.some(part => {
-      const words = cleanStr(part).split(/\s+/).filter(Boolean);
-      if (words.length === 0) return false;
-      return words.every(w => cleanText.includes(w));
-    });
+    if (isLikelySamePpvTitle(text, ppvName)) return true;
+    return ppvName
+      .split(/[:\-–]/)
+      .map(part => part.trim())
+      .filter(part => part.length > 3)
+      .some(part => isLikelySamePpvTitle(text, part));
   }
 
   /**
@@ -342,7 +340,7 @@ export class LandingPage extends BasePage {
    * title-like line (or a title/accessibility attribute) on that slide.
    */
   protected async hasPpvBannerTitle(slide: Locator, ppvName: string): Promise<boolean> {
-    return slide.evaluate((node, expectedName) => {
+    const strictMatch = await slide.evaluate((node, expectedName) => {
       const normalise = (value: string) => value.toLowerCase()
         .replace(/[^a-z0-9]/g, ' ')
         .replace(/\s+/g, ' ')
@@ -395,6 +393,33 @@ export class LandingPage extends BasePage {
       }
       return false;
     }, ppvName).catch(() => false);
+    if (strictMatch) return true;
+
+    const candidateTexts = await slide.evaluate((node) => {
+      const values: string[] = [];
+      const push = (value: string | null | undefined) => {
+        const clean = String(value || '').replace(/\s+/g, ' ').trim();
+        if (clean && clean.length <= 120) values.push(clean);
+      };
+
+      const titleElements = node.querySelectorAll(
+        'h1, h2, h3, h4, h5, h6, [role="heading"], ' +
+        '[class*="title" i], [class*="heading" i], ' +
+        '[data-testid*="title" i], [data-test-id*="title" i], img[alt], [aria-label], [title]'
+      );
+      titleElements.forEach(element => {
+        push(element.textContent);
+        push(element.getAttribute('alt'));
+        push(element.getAttribute('aria-label'));
+        push(element.getAttribute('title'));
+      });
+
+      const text = (node as HTMLElement).innerText || node.textContent || '';
+      text.split(/\r?\n/).forEach(line => push(line));
+      return values;
+    }).catch(() => []);
+
+    return candidateTexts.some(text => isLikelySamePpvTitle(text, ppvName));
   }
 
   /**
@@ -404,24 +429,14 @@ export class LandingPage extends BasePage {
    * Partial match (PPV name words found in longer text) scores lower.
    */
   protected scorePPVMatch(tileText: string, ppvName: string): number {
-    if (!tileText || !ppvName) return 0;
-    const cleanStr = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
-    const cleanTile = cleanStr(tileText);
-    const cleanName = cleanStr(ppvName);
-
-    // Exact match (after normalization) — highest score
-    if (cleanTile === cleanName) return 100;
-
-    // Check if all words of PPV name are in tile text
-    const nameWords = cleanName.split(/\s+/).filter(Boolean);
-    const allWordsMatch = nameWords.every(w => cleanTile.includes(w));
-    if (!allWordsMatch) return 0;
-
-    // Score inversely by how much extra text the tile has
-    // "GLORY COLLISION 9" (18 chars) matching "Glory Collision 9: Prelims" (26 chars)
-    // vs matching "GLORY COLLISION 9" (18 chars) — latter scores higher
-    const ratio = cleanName.length / cleanTile.length;
-    return Math.round(ratio * 90); // Max 90 for partial match, 100 for exact
+    return Math.max(
+      scorePpvTitleMatch(tileText, ppvName),
+      ...ppvName
+        .split(/[:\-–]/)
+        .map(part => part.trim())
+        .filter(part => part.length > 3)
+        .map(part => scorePpvTitleMatch(tileText, part))
+    );
   }
 
   // ─────────────────────────────
@@ -762,7 +777,7 @@ export class LandingPage extends BasePage {
     // ─────────────────────────────────────────────────────────────────────────
     // Build an exclusion selector to avoid matching ancillary content
     const exclusions = [
-      'press conference', 'weigh-in', 'workout', 'replay', 'highlights',
+      'press conference', 'weigh-in', 'workout', 'replay', 'highlights', 'full event', 'final words', 'fight night raw',
       'preview', 'promo', 'interview', 'behind the scenes', 'episode',
       'documentary', 'face off'
     ];
@@ -794,9 +809,7 @@ export class LandingPage extends BasePage {
           const el = candidates.nth(i);
           if (await el.isVisible().catch(() => false)) {
             const text = (await el.textContent().catch(() => '')) || '';
-            const match = matchesPPV(text) ||
-              (fighter1 && text.toLowerCase().includes(fighter1.toLowerCase())) ||
-              (fighter2 && text.toLowerCase().includes(fighter2.toLowerCase()));
+            const match = matchesPPV(text);
 
             if (match) {
               const inView = await el.evaluate((node: HTMLElement) => {
@@ -943,6 +956,101 @@ export class LandingPage extends BasePage {
     await found.scrollIntoViewIfNeeded().catch(() => { });
     await found.hover().catch(() => { });
     await this.page.waitForTimeout(300);
+
+    const captureTarget = found.locator(
+      'xpath=ancestor-or-self::*[self::a or self::article or ' +
+      'contains(translate(@class,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"),"tile") or ' +
+      'contains(translate(@class,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"),"card") or ' +
+      'contains(translate(@class,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"),"swiper-slide")][1]'
+    );
+    const captureScope = await captureTarget.count().catch(() => 0) > 0 ? captureTarget : found;
+    const tileCapture = await captureScope.evaluate((el: HTMLElement, expectedTitle: string) => {
+      const clean = (value: string | null | undefined) =>
+        String(value ?? '').replace(/\s+/g, ' ').trim();
+      const cleanTileLabel = (value: string | null | undefined) =>
+        clean(value).replace(/\s*[-–—]?\s*list\s*:\s*[^\s]+.*$/i, '').trim();
+      const tokenMatches = (expected: string, actual: string): boolean => {
+        if (expected === actual) return true;
+        if (expected.length < 4 || actual.length < 4 || Math.abs(expected.length - actual.length) > 1) return false;
+        let edits = 0;
+        let i = 0;
+        let j = 0;
+        while (i < expected.length && j < actual.length) {
+          if (expected[i] === actual[j]) {
+            i++;
+            j++;
+            continue;
+          }
+          edits++;
+          if (edits > 1) return false;
+          if (expected.length === actual.length) {
+            if (
+              i + 1 < expected.length &&
+              j + 1 < actual.length &&
+              expected[i] === actual[j + 1] &&
+              expected[i + 1] === actual[j]
+            ) {
+              i += 2;
+              j += 2;
+            } else {
+              i++;
+              j++;
+            }
+          } else if (expected.length > actual.length) {
+            i++;
+          } else {
+            j++;
+          }
+        }
+        return edits + (expected.length - i) + (actual.length - j) <= 1;
+      };
+      const text = clean(el.innerText || el.textContent);
+      const imgTexts = Array.from(el.querySelectorAll('img'))
+        .map((img: HTMLImageElement) => clean(img.alt || img.getAttribute('aria-label') || img.getAttribute('title')))
+        .filter(Boolean);
+      const combined = clean(`${text} ${imgTexts.join(' ')} ${el.getAttribute('aria-label') || ''} ${el.getAttribute('title') || ''}`);
+      const titleWords = expectedTitle.toLowerCase()
+        .replace(/[^a-z0-9]+/g, ' ')
+        .split(/\s+/)
+        .filter(word => word.length > 2 && !['the', 'and', 'for', 'with', 'from', 'vs'].includes(word));
+      const titleCandidates = [
+        ...Array.from(el.querySelectorAll<HTMLElement>('h1, h2, h3, h4, [class*="title" i], [class*="heading" i], [aria-label], [title]'))
+          .map(node => cleanTileLabel(node.innerText || node.textContent || node.getAttribute('aria-label') || node.getAttribute('title'))),
+        ...imgTexts.map(cleanTileLabel),
+        cleanTileLabel(el.getAttribute('aria-label')),
+        cleanTileLabel(el.getAttribute('title')),
+      ].filter(candidate => {
+        const words = candidate.toLowerCase().replace(/[^a-z0-9]+/g, ' ').split(/\s+/).filter(Boolean);
+        return candidate.length > 2 && candidate.length < 120 &&
+          titleWords.length > 0 &&
+          titleWords.every(word => words.some(candidateWord => tokenMatches(word, candidateWord)));
+      });
+      const hasImage = Array.from(el.querySelectorAll<HTMLElement>('img, picture, [role="img"], div, span, a')).some(node => {
+        const rect = node.getBoundingClientRect();
+        const style = window.getComputedStyle(node);
+        const hasBackground = !!style.backgroundImage && style.backgroundImage !== 'none';
+        return node.tagName.toLowerCase() === 'img' ||
+          node.tagName.toLowerCase() === 'picture' ||
+          node.getAttribute('role') === 'img' ||
+          (hasBackground && rect.width >= 80 && rect.height >= 45);
+      });
+      const dateMatch =
+        combined.match(/\b\d{1,2}\s+(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC|January|February|March|April|May|June|July|August|September|October|November|December)\b/i) ||
+        combined.match(/\b(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC|January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}\b/i);
+      return {
+        text: combined,
+        title: titleCandidates.sort((a, b) => a.length - b.length)[0] || '',
+        dateText: dateMatch ? dateMatch[0] : '',
+        hasImage,
+      };
+    }, ppvName).catch(() => ({ text: '', title: '', dateText: '', hasImage: false }));
+    eventData.__HOME_DONT_MISS_SECTION_HEADING = ((await railHeading.textContent().catch(() => '')) || '').replace(/\s+/g, ' ').trim() || 'Don\'t Miss';
+    eventData.__HOME_DONT_MISS_TILE_FOUND = 'Yes';
+    eventData.__HOME_DONT_MISS_TILE_TEXT = tileCapture.text || '';
+    eventData.__HOME_DONT_MISS_TILE_TITLE = tileCapture.title || '';
+    eventData.__HOME_DONT_MISS_TILE_DATE = tileCapture.dateText || eventData.LANDING_PAGE_PPV_DATE || '';
+    eventData.__HOME_DONT_MISS_IMAGE_PRESENT = tileCapture.hasImage ? 'Yes' : 'No';
+
     return found;
   }
 

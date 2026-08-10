@@ -2,6 +2,7 @@ import { AndroidBasePage, AndroidFlowHooks, WdBrowser, WdElement, adbSwipe, adbT
 import { navigateToPPVTile } from '../../utils/scheduleNavigator';
 import { sendTvKeyevent, TV_KEYCODES } from '../../utils/androidTvControls';
 import { parsePPVDate } from '../../utils/eventLoader';
+import { isLikelySamePpvTitle } from '../../utils/ppvTitleMatcher';
 
 type ScheduleBounds = { x1: number; y1: number; x2: number; y2: number };
 type ScheduleTile = ScheduleBounds & { label: string };
@@ -898,6 +899,17 @@ export class AndroidSchedulePage extends AndroidBasePage {
     console.log(`  Target PPV: ${ppvName}`);
     const normaliseTitle = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
     const expectedTitle = normaliseTitle(ppvName);
+    const isExpectedPpvText = (text: string): boolean => {
+      const lower = normaliseTitle(text);
+      if (
+        lower.includes('weigh') ||
+        lower.includes('press') ||
+        lower.includes('media') ||
+        lower.includes('workout') ||
+        lower.includes('undercard')
+      ) return false;
+      return lower === expectedTitle || isLikelySamePpvTitle(text, ppvName);
+    };
     console.log('  Step 1: Fast scroll to July...');
 
     for (let i = 0; i < 20; i++) {
@@ -926,7 +938,7 @@ export class AndroidSchedulePage extends AndroidBasePage {
         // Try exact match first
         for (const el of textViews) {
           const txt = await el.getText().catch(() => '');
-          if (normaliseTitle(txt) === expectedTitle) {
+          if (isExpectedPpvText(txt)) {
             ppvEl = el;
             break;
           }
@@ -936,15 +948,7 @@ export class AndroidSchedulePage extends AndroidBasePage {
         if (!ppvEl) {
           for (const el of textViews) {
             const txt = await el.getText().catch(() => '');
-            const lower = normaliseTitle(txt);
-            if (
-              lower.includes(expectedTitle) &&
-              !lower.includes('weigh') &&
-              !lower.includes('press') &&
-              !lower.includes('media') &&
-              !lower.includes('workout') &&
-              !lower.includes('undercard')
-            ) {
+            if (isExpectedPpvText(txt)) {
               ppvEl = el;
               break;
             }
@@ -980,7 +984,7 @@ export class AndroidSchedulePage extends AndroidBasePage {
             const updatedViews = await this.driver.$$('android=new UiSelector().className("android.widget.TextView")').catch(() => []);
             for (const el of updatedViews) {
               const txt = await el.getText().catch(() => '');
-              if (normaliseTitle(txt) === expectedTitle) {
+              if (isExpectedPpvText(txt)) {
                 centeredEl = el;
                 break;
               }
@@ -988,15 +992,7 @@ export class AndroidSchedulePage extends AndroidBasePage {
             if (!centeredEl) {
               for (const el of updatedViews) {
                 const txt = await el.getText().catch(() => '');
-                const lower = normaliseTitle(txt);
-                if (
-                  lower.includes(expectedTitle) &&
-                  !lower.includes('weigh') &&
-                  !lower.includes('press') &&
-                  !lower.includes('media') &&
-                  !lower.includes('workout') &&
-                  !lower.includes('undercard')
-                ) {
+                if (isExpectedPpvText(txt)) {
                   centeredEl = el;
                   break;
                 }

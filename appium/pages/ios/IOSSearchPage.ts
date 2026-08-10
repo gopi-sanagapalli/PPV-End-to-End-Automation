@@ -1,6 +1,7 @@
 import { IOSBasePage, IOSFlowHooks, WdBrowser, WdElement } from './IOSBasePage';
 import { IOSSignupPage } from './IOSSignupPage';
 import { IOSValidationResult } from './IOSValidationPage';
+import { isLikelySamePpvTitle } from '../../utils/ppvTitleMatcher';
 
 export interface IOSSafariSearchOptions {
   capturedUrl: string;
@@ -620,14 +621,11 @@ export class IOSSearchPage extends IOSBasePage {
         if (!text) continue;
 
         const textLower = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-        const matchesQuery = keywords.every(kw => textLower.includes(kw));
-        const isAncillary = [
-          'press', 'weigh', 'workout', 'replay', 'highlights',
-          'preview', 'promo', 'interview', 'behind the', 'episode',
-          'documentary', 'face off', 'kickboxing',
-        ].some(term => textLower.includes(term));
+        const matchesQuery = this.ppvName
+          ? isLikelySamePpvTitle(text, this.ppvName)
+          : keywords.every(kw => textLower.includes(kw));
 
-        if (matchesQuery && !isAncillary) {
+        if (matchesQuery) {
           console.log(`  Found matching main event tile: "${text}"`);
           return el;
         }

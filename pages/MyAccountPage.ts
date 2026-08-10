@@ -2,6 +2,7 @@ import { Page, Locator } from '@playwright/test';
 import { handleCookies } from '../utils/helpers';
 import { validateVariant } from '../flows/validateVariant';
 import { getMyAccountData } from '../utils/excelReader';
+import { isLikelySamePpvTitle } from '../utils/ppvTitleMatcher';
 
 const MY_ACCOUNT_PPV_CARD_MARKER = 'data-myaccount-ppv-card-target';
 
@@ -120,26 +121,13 @@ export class MyAccountPage {
       .filter(w => w.length > 2 && !['the', 'and', 'for', 'with', 'from', 'vs'].includes(w));
   }
 
-  private isNearWordMatch(expected: string, actual: string): boolean {
-    if (expected === actual) return true;
-    if (expected.length < 5 || expected.length !== actual.length) return false;
-    for (let i = 0; i < expected.length - 1; i++) {
-      const swapped = expected.slice(0, i) + expected[i + 1] + expected[i] + expected.slice(i + 2);
-      if (swapped === actual) return true;
-    }
-    return false;
-  }
-
   private isEventTitleText(text: string, ppvName: string): boolean {
-    const cleanText = this.normalizeEventName(text);
-    const cleanName = this.normalizeEventName(ppvName);
-    if (!cleanText || !cleanName) return false;
-    if (cleanText === cleanName) return true;
-
-    const words = this.eventNameWords(ppvName);
-    if (words.length === 0 || text.length > 100) return false;
-    const textWords = cleanText.split(' ');
-    return words.every(word => textWords.some(textWord => this.isNearWordMatch(word, textWord)));
+    if (isLikelySamePpvTitle(text, ppvName)) return true;
+    return ppvName
+      .split(/[:\-–]/)
+      .map(part => part.trim())
+      .filter(part => part.length > 3)
+      .some(part => isLikelySamePpvTitle(text, part));
   }
 
   private async cardHasMatchingTitle(card: Locator, ppvName: string): Promise<boolean> {
@@ -197,12 +185,28 @@ export class MyAccountPage {
 
       const isNearWordMatch = (expected: string, actual: string): boolean => {
         if (expected === actual) return true;
-        if (expected.length < 5 || expected.length !== actual.length) return false;
-        for (let i = 0; i < expected.length - 1; i++) {
-          const swapped = expected.slice(0, i) + expected[i + 1] + expected[i] + expected.slice(i + 2);
-          if (swapped === actual) return true;
+        if (expected.length < 4 || actual.length < 4 || Math.abs(expected.length - actual.length) > 1) return false;
+        let edits = 0;
+        let i = 0;
+        let j = 0;
+        while (i < expected.length && j < actual.length) {
+          if (expected[i] === actual[j]) {
+            i++;
+            j++;
+            continue;
+          }
+          edits++;
+          if (edits > 1) return false;
+          if (expected.length === actual.length) {
+            i++;
+            j++;
+          } else if (expected.length > actual.length) {
+            i++;
+          } else {
+            j++;
+          }
         }
-        return false;
+        return edits + (expected.length - i) + (actual.length - j) <= 1;
       };
 
       const hasAllWords = (text: string): boolean => {
@@ -417,15 +421,8 @@ export class MyAccountPage {
     }
 
     // Strategy 2: Fallback to old candidate list-based scan
-    const nameParts = ppvName
-      .split(/[:\-–—,]+/)
-      .flatMap(p => p.trim().split(/\s+/))
-      .filter(w => w.length > 3 && !/^(the|and|for|with|from)$/i.test(w))
-      .map(w => w.toLowerCase());
     const matchesPartially = (text: string): boolean => {
-      const lower = text.toLowerCase();
-      const matchCount = nameParts.filter(w => lower.includes(w)).length;
-      return matchCount >= Math.min(2, nameParts.length);
+      return isLikelySamePpvTitle(text, ppvName);
     };
 
     const candidates = this.page.locator('div, li, article, section, a').filter({ hasText: regex });
@@ -893,6 +890,36 @@ export class MyAccountPage {
       console.log('✅ PPV image is visible in row');
       return true;
     }
+    const hasVisualMedia = await row.evaluate((card: HTMLElement) => {
+      const isVisibleNode = (node: HTMLElement) => {
+        const rect = node.getBoundingClientRect();
+        const style = window.getComputedStyle(node);
+        return rect.width > 0 &&
+          rect.height > 0 &&
+          style.display !== 'none' &&
+          style.visibility !== 'hidden' &&
+          style.opacity !== '0';
+      };
+      const nodes = Array.from(card.querySelectorAll<HTMLElement>('img, picture, [role="img"], div, a, span'));
+      return nodes.some(node => {
+        if (!isVisibleNode(node)) return false;
+        const style = window.getComputedStyle(node);
+        const before = window.getComputedStyle(node, '::before');
+        const after = window.getComputedStyle(node, '::after');
+        const tag = node.tagName.toLowerCase();
+        const hasBackground = [style, before, after].some(candidate =>
+          !!candidate.backgroundImage && candidate.backgroundImage !== 'none'
+        );
+        const hasImageSource = tag === 'img' &&
+          (!!node.getAttribute('src') || !!node.getAttribute('srcset') || (node as HTMLImageElement).naturalWidth > 0);
+        const hasImageRole = tag === 'picture' || node.getAttribute('role') === 'img';
+        return hasImageSource || hasImageRole || hasBackground;
+      });
+    }).catch(() => false);
+    if (hasVisualMedia) {
+      console.log('✅ PPV visual media block is present in row');
+      return true;
+    }
     const count = await row.locator('img, picture, [role="img"], [style*="background-image"]').count().catch(() => 0);
     console.log(`ℹ️ PPV media count in row: ${count}`);
     return count > 0;
@@ -919,12 +946,28 @@ export class MyAccountPage {
           .trim();
       const isNearWordMatch = (expected: string, actual: string): boolean => {
         if (expected === actual) return true;
-        if (expected.length < 5 || expected.length !== actual.length) return false;
-        for (let i = 0; i < expected.length - 1; i++) {
-          const swapped = expected.slice(0, i) + expected[i + 1] + expected[i] + expected.slice(i + 2);
-          if (swapped === actual) return true;
+        if (expected.length < 4 || actual.length < 4 || Math.abs(expected.length - actual.length) > 1) return false;
+        let edits = 0;
+        let i = 0;
+        let j = 0;
+        while (i < expected.length && j < actual.length) {
+          if (expected[i] === actual[j]) {
+            i++;
+            j++;
+            continue;
+          }
+          edits++;
+          if (edits > 1) return false;
+          if (expected.length === actual.length) {
+            i++;
+            j++;
+          } else if (expected.length > actual.length) {
+            i++;
+          } else {
+            j++;
+          }
         }
-        return false;
+        return edits + (expected.length - i) + (actual.length - j) <= 1;
       };
       const nameParts = normalize(name)
         .split(/\s+/)
@@ -1139,8 +1182,51 @@ export class MyAccountPage {
     const cardData: any = await this.page.evaluate((name: string) => {
       // Helper to check match of name parts
       const matchesName = (text: string) => {
-        const nameParts = name.toLowerCase().split(/\s+/).filter(part => part.length > 1);
-        return nameParts.every(part => text.toLowerCase().includes(part));
+        const normalize = (value: string) => value
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .toLowerCase()
+          .replace(/\bv(?:s)?\.?\b/g, ' vs ')
+          .replace(/[^a-z0-9]+/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+        const oneEditAway = (expected: string, actual: string) => {
+          if (expected === actual) return true;
+          if (expected.length < 4 || actual.length < 4 || Math.abs(expected.length - actual.length) > 1) return false;
+          let edits = 0;
+          let i = 0;
+          let j = 0;
+          while (i < expected.length && j < actual.length) {
+            if (expected[i] === actual[j]) {
+              i++;
+              j++;
+              continue;
+            }
+            edits++;
+            if (edits > 1) return false;
+            if (expected.length === actual.length) {
+              i++;
+              j++;
+            } else if (expected.length > actual.length) {
+              i++;
+            } else {
+              j++;
+            }
+          }
+          return edits + (expected.length - i) + (actual.length - j) <= 1;
+        };
+        const normalizedName = normalize(name);
+        const normalizedText = normalize(text);
+        if (!normalizedName || !normalizedText) return false;
+        if (/[_]/.test(name) || /^ppv[-_]/i.test(name)) return normalizedText === normalizedName;
+        if (normalizedText.includes(normalizedName)) return true;
+        const textParts = normalizedText.split(/\s+/).filter(Boolean);
+        const nameParts = normalizedName
+          .split(/\s+/)
+          .filter(part => part.length > 2 && !['the', 'and', 'for', 'with', 'from', 'vs'].includes(part));
+        return nameParts.length > 0 && nameParts.every(part =>
+          textParts.some(textPart => oneEditAway(part, textPart))
+        );
       };
 
       // 1. Try finding card containers
@@ -1150,8 +1236,27 @@ export class MyAccountPage {
         if (text.length > 300 || text.length < 15) continue;
         if (!matchesName(text)) continue;
 
-        const img = card.querySelector('img');
-        const imgPresent = img && (img.getAttribute('src') || img.getAttribute('srcset')) ? 'Yes' : 'No';
+        const hasImage = (() => {
+          const visible = (node: HTMLElement) => {
+            const rect = node.getBoundingClientRect();
+            const style = window.getComputedStyle(node);
+            return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+          };
+          return Array.from(card.querySelectorAll<HTMLElement>('img, picture, [role="img"], div, a, span')).some(node => {
+            if (!visible(node)) return false;
+            const style = window.getComputedStyle(node);
+            const before = window.getComputedStyle(node, '::before');
+            const after = window.getComputedStyle(node, '::after');
+            const tag = node.tagName.toLowerCase();
+            const hasBg = [style, before, after].some(candidate =>
+              !!candidate.backgroundImage && candidate.backgroundImage !== 'none'
+            );
+            const hasImg = tag === 'img' && (!!node.getAttribute('src') || !!node.getAttribute('srcset') || (node as HTMLImageElement).naturalWidth > 0);
+            const hasRole = tag === 'picture' || node.getAttribute('role') === 'img';
+            return hasBg || hasImg || hasRole;
+          });
+        })();
+        const imgPresent = hasImage ? 'Yes' : 'No';
 
         const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
         let title = '';
@@ -1185,8 +1290,27 @@ export class MyAccountPage {
         if (text.length > 200 || text.length < 15) continue;
         if (!matchesName(text)) continue;
 
-        const img = el.querySelector('img');
-        const imgPresent = img ? 'Yes' : 'No';
+        const hasImage = (() => {
+          const visible = (node: HTMLElement) => {
+            const rect = node.getBoundingClientRect();
+            const style = window.getComputedStyle(node);
+            return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+          };
+          return Array.from(el.querySelectorAll<HTMLElement>('img, picture, [role="img"], div, a, span')).some(node => {
+            if (!visible(node)) return false;
+            const style = window.getComputedStyle(node);
+            const before = window.getComputedStyle(node, '::before');
+            const after = window.getComputedStyle(node, '::after');
+            const tag = node.tagName.toLowerCase();
+            const hasBg = [style, before, after].some(candidate =>
+              !!candidate.backgroundImage && candidate.backgroundImage !== 'none'
+            );
+            const hasImg = tag === 'img' && (!!node.getAttribute('src') || !!node.getAttribute('srcset') || (node as HTMLImageElement).naturalWidth > 0);
+            const hasRole = tag === 'picture' || node.getAttribute('role') === 'img';
+            return hasBg || hasImg || hasRole;
+          });
+        })();
+        const imgPresent = hasImage ? 'Yes' : 'No';
 
         const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
         let title = '';

@@ -1,6 +1,7 @@
 import { AndroidBasePage, AndroidFlowHooks, WdBrowser, adbSwipe, adbTap, getScreenSize } from './AndroidBasePage';
 import { AndroidRailsFetcher } from '../../utils/androidRailsFetcher';
 import { DynamicPpvTileLocator } from '../../utils/dynamicPpvTileLocator';
+import { isLikelySamePpvTitle } from '../../utils/ppvTitleMatcher';
 import https from 'https';
 import dotenv from 'dotenv';
 import path from 'path';
@@ -762,19 +763,8 @@ function isPpvTitleMatch(candidateTitle: string, ppvName: string): boolean {
   const candidate = comparableTitle(candidateTitle);
   const target = comparableTitle(ppvName);
   if (!candidate || !target) return false;
-  if (candidate.includes(target) || target.includes(candidate)) return true;
-
-  const vsMatch = ppvName.match(/(\w+)\s+vs\.?\s+(\w+)/i);
-  if (vsMatch) {
-    const f1 = vsMatch[1].toLowerCase();
-    const f2 = vsMatch[2].toLowerCase();
-    if (f1.length >= 3 && f2.length >= 3 && candidate.includes(f1) && candidate.includes(f2)) return true;
-  }
-
-  const tokens = titleTokens(ppvName);
-  if (tokens.length === 0) return false;
-  const matchCount = tokens.filter(token => candidate.includes(token)).length;
-  return matchCount >= Math.min(2, tokens.length);
+  if (/[_]/.test(ppvName) || /^ppv[-_]/i.test(ppvName)) return candidate === target;
+  return candidate === target || isLikelySamePpvTitle(candidateTitle, ppvName);
 }
 
 function cropPngBase64(base64Png: string, bounds: AndroidBounds): string {

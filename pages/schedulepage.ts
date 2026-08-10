@@ -2,6 +2,7 @@ import { Page, Locator, expect } from '@playwright/test';
 import { handleCookies, dismissMarketingPopup } from '../utils/helpers';
 import { validateVariant } from '../flows/validateVariant';
 import { readSheet } from '../utils/excelReader';
+import { scorePpvTitleMatch } from '../utils/ppvTitleMatcher';
 
 
 export class SchedulePage {
@@ -174,14 +175,13 @@ export class SchedulePage {
     console.log(`🔍 Searching for event: ${eventName}`);
     await handleCookies(this.page);
 
-    const regex = new RegExp(
-      eventName.replace(/[:\-–]/g, '').replace(/\s+/g, '.*'),
-      'i'
-    );
-
     const cleanStr = (value: string) =>
       (value || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
     const eventTitle = cleanStr(eventName);
+    const eventTitleParts = eventName
+      .split(/[:\-–]/)
+      .map(part => part.trim())
+      .filter(part => part.length > 3);
     const variantPattern = /\b(press\s*conference|weigh\s*in|weigh-in|prelims?|preliminary|undercard|open\s*workout|face\s*off|highlights?|trailer|preview|countdown|full\s*fight|replay)\b/i;
     const scoreEventText = (text: string): number => {
       const cleaned = cleanStr(text);
@@ -190,9 +190,19 @@ export class SchedulePage {
       const exactTitleLine = lines.some(line => cleanStr(line) === eventTitle);
       const startsWithTitle = !!eventTitle && cleaned.startsWith(eventTitle);
 
-      if (cleaned === eventTitle || exactTitleLine) return hasVariantSuffix ? 80 : 100;
-      if (startsWithTitle) return hasVariantSuffix ? 50 : 90;
-      return hasVariantSuffix ? 10 : 60;
+      if (hasVariantSuffix) return 10;
+      if (cleaned === eventTitle || exactTitleLine) return 100;
+      if (startsWithTitle) return 90;
+      const titleMatchScore = Math.max(
+        scorePpvTitleMatch(text, eventName),
+        ...eventTitleParts.map(part => scorePpvTitleMatch(text, part)),
+        ...lines.flatMap(line => [
+          scorePpvTitleMatch(line, eventName),
+          ...eventTitleParts.map(part => scorePpvTitleMatch(line, part)),
+        ])
+      );
+      if (titleMatchScore > 0) return titleMatchScore;
+      return 0;
     };
 
     await this.page.evaluate(() => window.scrollTo(0, 0));
@@ -203,9 +213,7 @@ export class SchedulePage {
     let bestLabel = '';
 
     for (let i = 0; i < 25; i++) {
-      const articles = this.page
-        .locator('article')
-        .filter({ hasText: regex });
+      const articles = this.page.locator('article');
 
       const count = await articles.count().catch(() => 0);
 

@@ -92,6 +92,144 @@ async function findTarget(page: any, candidates: string[]): Promise<any | null> 
   return null;
 }
 
+async function findDontMissLiveTarget(
+  page: any,
+  source: string,
+  field: string,
+  candidates: string[],
+  context?: Record<string, any>
+): Promise<any | null> {
+  if (!source.startsWith('landing-page-dont-miss-live')) return null;
+  const tileFields = new Set([
+    'event name',
+    'ppv name',
+    'ppv card title',
+    'ppv tile present',
+    'ppv date',
+    'landing page ppv date',
+    'ppv image present',
+    'ppv image',
+    'hero image',
+    'buy now cta',
+  ]);
+  if (!tileFields.has(field.toLowerCase().replace(/\s+/g, ' ').trim())) return null;
+
+  const marked = await page.evaluate(({ marker, field, candidates, context }: {
+    marker: string;
+    field: string;
+    candidates: string[];
+    context?: Record<string, any>;
+  }) => {
+    const clean = (value: string | null | undefined) => String(value || '').replace(/\s+/g, ' ').trim();
+    const normalize = (value: string | null | undefined) => clean(value)
+      .toLowerCase()
+      .replace(/&/g, ' and ')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const isVisible = (el: HTMLElement) => {
+      const rect = el.getBoundingClientRect();
+      const style = window.getComputedStyle(el);
+      return rect.width > 0 && rect.height > 0 && style.display !== 'none' &&
+        style.visibility !== 'hidden' && style.opacity !== '0';
+    };
+    const isConfigId = (value: string) => /(^|[\s_-])ppv[\s_-]/i.test(value) || /[_/\\]/.test(value);
+    const distance = (a: string, b: string) => {
+      const previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+      const current = Array(b.length + 1).fill(0);
+      for (let row = 1; row <= a.length; row++) {
+        current[0] = row;
+        for (let column = 1; column <= b.length; column++) {
+          current[column] = Math.min(
+            previous[column] + 1,
+            current[column - 1] + 1,
+            previous[column - 1] + (a[row - 1] === b[column - 1] ? 0 : 1)
+          );
+        }
+        for (let column = 0; column <= b.length; column++) previous[column] = current[column];
+      }
+      return previous[b.length];
+    };
+    const titles = [
+      context?.PPV_DISPLAY_NAME,
+      context?.PPV_CARD_TITLE,
+      context?.PPV_FULL_NAME,
+      context?.PPV_NAME,
+      ...candidates,
+    ]
+      .map(value => clean(value))
+      .filter(value => value.length > 3 && !isConfigId(value));
+    const titleScore = (value: string) => {
+      const actualTokens = normalize(value).split(' ').filter(token => token.length > 1 && token !== 'vs');
+      let best = 0;
+      for (const title of titles) {
+        const expectedTokens = normalize(title).split(' ').filter(token => token.length > 1 && token !== 'vs');
+        if (!expectedTokens.length) continue;
+        const matched = expectedTokens.filter(expected => actualTokens.some(actual =>
+          actual === expected ||
+          (actual.length >= 4 && expected.length >= 4 && Math.abs(actual.length - expected.length) <= 1 && distance(actual, expected) <= 1)
+        )).length;
+        if (matched === expectedTokens.length) best = Math.max(best, matched);
+      }
+      return best;
+    };
+    const heading = Array.from(document.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6'))
+      .find(node => isVisible(node) && /don.?t miss live/i.test(clean(node.innerText || node.textContent)));
+    if (!heading || !titles.length) return false;
+
+    let rail: HTMLElement | null = heading.parentElement;
+    for (let depth = 0; rail && depth < 8; depth++, rail = rail.parentElement) {
+      const text = clean(rail.innerText || rail.textContent);
+      const actions = rail.querySelectorAll('button,a,[role="button"]').length;
+      if (/don.?t miss live/i.test(text) && actions >= 2) break;
+    }
+    if (!rail) return false;
+
+    const controls = Array.from(rail.querySelectorAll<HTMLElement>('button,a,[role="button"]'))
+      .filter(node => isVisible(node) && /buy now|see more|watch free/i.test(clean(node.innerText || node.textContent)));
+    let card: HTMLElement | null = null;
+    let cardLength = Infinity;
+    for (const control of controls) {
+      let node: HTMLElement | null = control;
+      for (let depth = 0; node && node !== rail && depth < 8; depth++, node = node.parentElement) {
+        const text = clean(node.innerText || node.textContent);
+        const rect = node.getBoundingClientRect();
+        if (rect.width < 100 || rect.height < 100 || titleScore(text) === 0) continue;
+        if (text.length < cardLength) {
+          card = node;
+          cardLength = text.length;
+        }
+      }
+    }
+    if (!card) return false;
+
+    const fieldKey = normalize(field);
+    let target: HTMLElement | null = card;
+    if (/\b(name|title|event)\b/.test(fieldKey)) {
+      target = Array.from(card.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6,p,span,strong,b'))
+        .filter(node => isVisible(node) && titleScore(clean(node.innerText || node.textContent)) > 0)
+        .sort((a, b) => clean(a.innerText || a.textContent).length - clean(b.innerText || b.textContent).length)[0] || card;
+    } else if (/\b(date|time)\b/.test(fieldKey)) {
+      target = Array.from(card.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6,p,span,strong,b'))
+        .filter(node => isVisible(node) && /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\b|\b\d{1,2}(?:st|nd|rd|th)?\b/i.test(clean(node.innerText || node.textContent)))
+        .sort((a, b) => clean(a.innerText || a.textContent).length - clean(b.innerText || b.textContent).length)[0] || card;
+    } else if (/\b(image|poster|thumbnail)\b/.test(fieldKey)) {
+      target = Array.from(card.querySelectorAll<HTMLElement>('img')).find(isVisible) || card;
+    } else if (/\b(status|cta|button)\b/.test(fieldKey)) {
+      target = Array.from(card.querySelectorAll<HTMLElement>('button,a,[role="button"]')).find(isVisible) || card;
+    }
+
+    document.querySelectorAll(`[${marker}]`).forEach(node => node.removeAttribute(marker));
+    target.setAttribute(marker, 'true');
+    return true;
+  }, { marker: FAILURE_FIELD_MARKER, field, candidates, context }).catch(() => false);
+
+  if (!marked) return null;
+  const target = page.locator(`[${FAILURE_FIELD_MARKER}="true"]`).first();
+  await target.waitFor({ state: 'visible', timeout: 1000 }).catch(() => { });
+  return target;
+}
+
 // A payment summary contains the PPV price twice: once beside the PPV name
 // and once beside "Today you pay".  Generic text matching always picks the
 // first occurrence, which made failure evidence box the wrong price.  Scope
@@ -421,6 +559,7 @@ export async function captureFailures(
           : null) ||
           (isPopupField ? await findPopupTarget(page, candidates) : null) ||
           (isPopupField && popup ? await findTarget(popup, candidates) : null) ||
+          await findDontMissLiveTarget(page, source, field, candidates, context) ||
           await findPpvTitleTarget(page, field, candidates) ||
           (banner ? await findTarget(banner, candidates) : null) ||
           await findTarget(page, candidates);

@@ -102,7 +102,10 @@ export class AndroidValidationPage extends AndroidBasePage {
       // Try to find the bounds of the element
       let elementBounds: { x: number; y: number; width: number; height: number } | null = null;
       try {
-        const searchTexts = [actualValue, expectedValue].filter(t => t && t !== 'Not found' && t.length > 2);
+        const nonText = new Set(['not found', 'n/a', 'na', 'yes', 'no', 'true', 'false']);
+        const searchTexts = [actualValue, expectedValue].filter(t =>
+          t && t.length > 2 && !nonText.has(String(t).trim().toLowerCase())
+        );
         for (const t of searchTexts) {
           const esc = t.replace(/"/g, '\\"');
           const el = await this.driver.$(`//*[@text="${esc}" or contains(@text, "${esc}")]`).catch(() => null);

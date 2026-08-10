@@ -1,5 +1,6 @@
 import { DOMNode } from './helpers';
 import { resolveSearchPPVTile } from './searchPpvTileResolver';
+import { isLikelySamePpvTitle, scorePpvTitleMatch } from './ppvTitleMatcher';
 
 async function getScopedLandingPPVContainer(
   page: any,
@@ -12,7 +13,20 @@ async function getScopedLandingPPVContainer(
   if (!isLandingOrHome) return null;
 
   const source = (eventData?.SOURCE || eventData?.source || '').toLowerCase();
-  const ppvName = (eventData?.PPV_NAME || '').toLowerCase();
+  const rawPpvName = eventData?.PPV_NAME || '';
+  const ppvName = rawPpvName.toLowerCase();
+  const ppvTitleParts = rawPpvName
+    .split(/[:\-–]/)
+    .map(part => part.trim())
+    .filter(part => part.length > 3);
+  const matchesConfiguredPpvTitle = (text: string): boolean =>
+    isLikelySamePpvTitle(text, rawPpvName) ||
+    ppvTitleParts.some(part => isLikelySamePpvTitle(text, part));
+  const scoreConfiguredPpvTitle = (text: string): number =>
+    Math.max(
+      scorePpvTitleMatch(text, rawPpvName),
+      ...ppvTitleParts.map(part => scorePpvTitleMatch(text, part))
+    );
   const vsPart = ppvName.includes(':') ? ppvName.split(':')[1].trim() : ppvName;
   const nameWords = vsPart.replace(/\bppv\b/gi, '').trim().split(/\s+/).filter(w => w.length > 2);
   const firstWord = nameWords[0] || '';
@@ -74,7 +88,7 @@ async function getScopedLandingPPVContainer(
     const matchesCard = (text: string): boolean => {
       const cleanText = cleanStr(text);
       const wordMatch = partsWordLists.some(words => words.every(w => cleanText.includes(w)));
-      return wordMatch || nameWords.every(w => cleanText.includes(w));
+      return wordMatch || nameWords.every(w => cleanText.includes(w)) || matchesConfiguredPpvTitle(text);
     };
 
     const candidateLocators = [
@@ -99,7 +113,7 @@ async function getScopedLandingPPVContainer(
         const box = await el.boundingBox().catch(() => null);
         if (!box || box.width <= 50 || box.height <= 50 || box.width >= 1800 || box.height >= 700) continue;
 
-        const score = nameWords.filter(w => cleanStr(text).includes(w)).length * 20 +
+        const score = Math.max(scoreConfiguredPpvTitle(text), nameWords.filter(w => cleanStr(text).includes(w)).length * 20) +
           (lower.includes('fight card') ? 10 : 0) +
           (lower.includes('watch live') ? 10 : 0);
         if (score > bestScore) {
@@ -174,7 +188,7 @@ async function getScopedLandingPPVContainer(
         // Strategy 1: Find tile matching ALL name words (most precise)
         for (let ti = 0; ti < tileCount; ti++) {
           const combinedText = await getTileSearchText(allTiles.nth(ti));
-          if (nameWords.every(w => combinedText.includes(w))) {
+          if (nameWords.every(w => combinedText.includes(w)) || matchesConfiguredPpvTitle(combinedText)) {
             return allTiles.nth(ti);
           }
         }
@@ -282,6 +296,213 @@ export async function getActualValue(
       .trim();
 
   const T = 0;
+  const isDontMissTileSource = (source: string): boolean =>
+    source === 'home-page-dont-miss' ||
+    source === 'landing-page-dont-miss' ||
+    source.startsWith('landing-page-dont-miss-live');
+
+  type DontMissTileData = {
+    found: string;
+    text: string;
+    title: string;
+    dateText: string;
+    imagePresent: string;
+  };
+
+  let dontMissTileDataPromise: Promise<DontMissTileData | null> | null = null;
+  const getDontMissTileData = async (): Promise<DontMissTileData | null> => {
+    const source = (eventData?.SOURCE || eventData?.source || '').toLowerCase();
+    if (!isDontMissTileSource(source)) return null;
+
+    const savedText = clean(eventData?.__HOME_DONT_MISS_TILE_TEXT || '');
+    const savedTitle = clean(eventData?.__HOME_DONT_MISS_TILE_TITLE || '');
+    if (eventData?.__HOME_DONT_MISS_TILE_FOUND && (savedText || savedTitle)) {
+      return {
+        found: eventData.__HOME_DONT_MISS_TILE_FOUND,
+        text: savedText,
+        title: savedTitle,
+        dateText: clean(eventData.__HOME_DONT_MISS_TILE_DATE || ''),
+        imagePresent: clean(eventData.__HOME_DONT_MISS_IMAGE_PRESENT || 'No'),
+      };
+    }
+
+    if (dontMissTileDataPromise) return dontMissTileDataPromise;
+
+    dontMissTileDataPromise = page.evaluate((expectedTitle: string) => {
+      const normalize = (value: string): string =>
+        String(value || '')
+          .toLowerCase()
+          .replace(/&/g, ' and ')
+          .replace(/[^a-z0-9]+/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+
+      const editDistance = (a: string, b: string): number => {
+        if (a === b) return 0;
+        if (!a.length) return b.length;
+        if (!b.length) return a.length;
+        const prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+        const curr = Array(b.length + 1).fill(0);
+        for (let i = 1; i <= a.length; i++) {
+          curr[0] = i;
+          for (let j = 1; j <= b.length; j++) {
+            curr[j] = Math.min(
+              prev[j] + 1,
+              curr[j - 1] + 1,
+              prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)
+            );
+          }
+          for (let j = 0; j <= b.length; j++) prev[j] = curr[j];
+        }
+        return prev[b.length];
+      };
+
+      const isCloseToken = (actual: string, expected: string): boolean => {
+        if (actual === expected) return true;
+        if (expected.length < 4 || actual.length < 4) return false;
+        if (Math.abs(actual.length - expected.length) > 1) return false;
+        return editDistance(actual, expected) <= 1;
+      };
+
+      const isConfigId = (value: string): boolean =>
+        /(^|[\s_-])ppv[\s_-]/i.test(value) || /[_/\\]/.test(value);
+
+      const variantTerms = [
+        'press conference',
+        'weigh in',
+        'weigh-in',
+        'face off',
+        'preview',
+        'highlights',
+        'full fight',
+        'full event',
+        'replay',
+        'trailer',
+        'workout',
+      ];
+
+      const expectedNorm = normalize(expectedTitle);
+      const expectedTokens = expectedNorm
+        .split(' ')
+        .filter(token => token.length > 1 && !['vs', 'v', 'ppv', 'pay', 'per', 'view'].includes(token));
+
+      const scoreTitle = (text: string): number => {
+        const actualNorm = normalize(text);
+        if (!expectedNorm || !expectedTokens.length || isConfigId(expectedTitle)) return 0;
+        if (!variantTerms.some(term => expectedNorm.includes(term)) &&
+          variantTerms.some(term => actualNorm.includes(term))) return 0;
+
+        const actualTokens = actualNorm
+          .split(' ')
+          .filter(token => token.length > 1 && !['vs', 'v', 'ppv', 'pay', 'per', 'view'].includes(token));
+
+        let matched = 0;
+        let exact = 0;
+        for (const expectedToken of expectedTokens) {
+          const match = actualTokens.find(actualToken => isCloseToken(actualToken, expectedToken));
+          if (!match) return 0;
+          matched++;
+          if (match === expectedToken) exact++;
+        }
+        return matched * 10 + exact;
+      };
+
+      const textOf = (element: Element): string => {
+        const ownText = (element as HTMLElement).innerText || element.textContent || '';
+        const descendantText = Array.from(element.querySelectorAll<HTMLElement>(
+          'h1, h2, h3, h4, h5, h6, p, span, strong, b, button, a, [role="heading"]'
+        ))
+          .map(node => node.innerText || node.textContent || '')
+          .join(' ');
+        return `${ownText} ${descendantText}`.replace(/\s+/g, ' ').trim();
+      };
+
+      const selectors = [
+        'article',
+        'a',
+        'li',
+        '[class*="swiper-slide" i]',
+        '[class*="tile" i]',
+        '[class*="card" i]',
+        '[data-testid*="tile" i]',
+      ].join(', ');
+
+      const candidates = Array.from(document.querySelectorAll<HTMLElement>(selectors));
+      let best: { element: HTMLElement; text: string; score: number } | null = null;
+
+      for (const element of candidates) {
+        const rect = element.getBoundingClientRect();
+        if (rect.width < 80 || rect.height < 80 || rect.width > 900 || rect.height > 900) continue;
+
+        const text = textOf(element);
+        if (!text || text.length > 900) continue;
+
+        const score = scoreTitle(text);
+        if (!score) continue;
+
+        const railRoot = element.closest('[class*="rail" i], section');
+        const isDontMissRail = !!railRoot && /don.?t miss/i.test(textOf(railRoot));
+        if (!isDontMissRail) continue;
+
+        if (!best || score > best.score || (score === best.score && text.length < best.text.length)) {
+          best = { element, text, score };
+        }
+      }
+
+      if (!best) return null;
+
+      const lines = best.text
+        .split(/\n|(?=\b(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\b)/i)
+        .map(line => line.replace(/\s+/g, ' ').trim())
+        .filter(Boolean);
+
+      const titleFromLine = lines
+        .map(line => ({ line, score: scoreTitle(line) }))
+        .filter(item => item.score > 0)
+        .sort((a, b) => b.score - a.score || a.line.length - b.line.length)[0]?.line || '';
+
+      const titleFromNode = Array.from(best.element.querySelectorAll<HTMLElement>(
+        'h1, h2, h3, h4, h5, h6, p, span, strong, b, [role="heading"], [class*="title" i], [class*="heading" i], img[alt], [aria-label], [title]'
+      ))
+        .map(node => node.getAttribute('alt') || node.getAttribute('aria-label') || node.getAttribute('title') || textOf(node))
+        .map(text => text.replace(/\s+/g, ' ').trim())
+        .filter(text => scoreTitle(text) > 0)
+        .sort((a, b) => a.length - b.length)[0] || '';
+
+      const dateMatch =
+        best.text.match(/\b\d{1,2}(?:st|nd|rd|th)?\s+(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC|January|February|March|April|May|June|July|August|September|October|November|December)(?:\s+(?:at\s*)?\d{1,2}(?::\d{2})?\s*(?:AM|PM)?)?/i) ||
+        best.text.match(/\b(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC|January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}(?:st|nd|rd|th)?(?:\s+(?:at\s*)?\d{1,2}(?::\d{2})?\s*(?:AM|PM)?)?/i);
+
+      const imagePresent = Array.from(best.element.querySelectorAll<HTMLElement>(
+        'img, picture, [role="img"], [style*="background-image"], div, span, a'
+      )).some(node => {
+        const rect = node.getBoundingClientRect();
+        const style = window.getComputedStyle(node);
+        const tag = node.tagName.toLowerCase();
+        return (tag === 'img' || tag === 'picture' || node.getAttribute('role') === 'img') ||
+          (!!style.backgroundImage && style.backgroundImage !== 'none' && rect.width >= 80 && rect.height >= 45) ||
+          (/image|poster|thumbnail|picture/i.test(node.className.toString()) && rect.width >= 80 && rect.height >= 45);
+      });
+
+      return {
+        found: 'Yes',
+        text: best.text,
+        title: titleFromNode || titleFromLine,
+        dateText: dateMatch ? dateMatch[0].replace(/\s+/g, ' ').trim() : '',
+        imagePresent: imagePresent ? 'Yes' : 'No',
+      };
+    }, eventData?.PPV_NAME || eventData?.PPV_DISPLAY_NAME || '').catch(() => null);
+
+    const result = await dontMissTileDataPromise;
+    if (result && eventData) {
+      eventData.__HOME_DONT_MISS_TILE_FOUND = result.found;
+      eventData.__HOME_DONT_MISS_TILE_TEXT = result.text;
+      eventData.__HOME_DONT_MISS_TILE_TITLE = result.title;
+      eventData.__HOME_DONT_MISS_TILE_DATE = result.dateText;
+      eventData.__HOME_DONT_MISS_IMAGE_PRESENT = result.imagePresent;
+    }
+    return result;
+  };
 
   // ── Snapshot helpers ─────────────────────────────────────────
   const snap = snapshot || [];
@@ -764,7 +985,8 @@ export async function getActualValue(
           /\bvs?\b\.?/i.test(line) &&
           !/\d{1,2}:\d{2}/.test(line) &&
           !line.toLowerCase().includes('buy ') &&
-          titleWords.every(word => textWords.some(textWord => isNearWordMatch(word, textWord)));
+          (values.some(value => isLikelySamePpvTitle(line, value)) ||
+            titleWords.every(word => textWords.some(textWord => isNearWordMatch(word, textWord))));
       });
     };
     const extractCurrency = (line: string) =>
@@ -1468,7 +1690,7 @@ export async function getActualValue(
     case 'dont miss section': {
       const source = (eventData?.SOURCE || eventData?.source || '').toLowerCase();
       const savedHeading = (eventData?.__HOME_DONT_MISS_SECTION_HEADING || '').trim();
-      if (source === 'home-page-dont-miss' && savedHeading) return 'Present';
+      if (isDontMissTileSource(source) && savedHeading) return 'Present';
 
       const heading = page.locator(
         'h1, h2, h3, h4, [role="heading"], [class*="heading" i], [class*="title" i], [data-testid*="title" i]'
@@ -2525,7 +2747,11 @@ export async function getActualValue(
     // ════════════════════════════════════════════════════════════
     case 'ppv tile present': {
       const source = (eventData?.SOURCE || eventData?.source || '').toLowerCase();
-      if (source === 'home-page-dont-miss' && eventData?.__HOME_DONT_MISS_TILE_FOUND) {
+      if (isDontMissTileSource(source)) {
+        const tileData = await getDontMissTileData();
+        if (tileData?.found) return tileData.found;
+      }
+      if (isDontMissTileSource(source) && eventData?.__HOME_DONT_MISS_TILE_FOUND) {
         return eventData.__HOME_DONT_MISS_TILE_FOUND;
       }
       if (source === 'home-boxing-tile' && eventData?.__HOME_BOXING_TILE_FOUND) {
@@ -2819,7 +3045,11 @@ export async function getActualValue(
     // ════════════════════════════════════════════════════════════
     case 'ppv name': {
       const source = (eventData?.SOURCE || eventData?.source || '').toLowerCase();
-      if (source === 'home-page-dont-miss' && eventData?.__HOME_DONT_MISS_TILE_TEXT) {
+      if (isDontMissTileSource(source)) {
+        const tileData = await getDontMissTileData();
+        if (tileData?.text || tileData?.title) return tileData.title || tileData.text;
+      }
+      if (isDontMissTileSource(source) && eventData?.__HOME_DONT_MISS_TILE_TEXT) {
         // Return what the tile rendered. Do not substitute the configured
         // expected name after a partial word match, otherwise a missing colon
         // or altered promotion prefix can incorrectly pass validation.
@@ -3091,12 +3321,13 @@ export async function getActualValue(
     case 'ppv date': {
       const url = page.url();
       const source = (eventData?.SOURCE || eventData?.source || '').toLowerCase();
-      if (source === 'home-page-dont-miss') {
-        const dateText = eventData?.__HOME_DONT_MISS_TILE_DATE || eventData?.LANDING_PAGE_PPV_DATE || '';
+      if (isDontMissTileSource(source)) {
+        const tileData = await getDontMissTileData();
+        const dateText = tileData?.dateText || eventData?.__HOME_DONT_MISS_TILE_DATE || eventData?.LANDING_PAGE_PPV_DATE || '';
         if (!dateText) return 'N/A';
         const monthPattern = '(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC|January|February|March|April|May|June|July|August|September|October|November|December)';
-        const dayMonthMatch = dateText.match(new RegExp(`(?:^|[^0-9])([1-9]|[12]\\d|3[01])(?:st|nd|rd|th)?\\s*${monthPattern}`, 'i'));
-        const monthDayMatch = dateText.match(new RegExp(`${monthPattern}\\s*([1-9]|[12]\\d|3[01])(?:st|nd|rd|th)?`, 'i'));
+        const dayMonthMatch = dateText.match(new RegExp(`(?:^|[^0-9])(3[01]|[12]\\d|[1-9])(?:st|nd|rd|th)?\\s*${monthPattern}`, 'i'));
+        const monthDayMatch = dateText.match(new RegExp(`${monthPattern}\\s*(3[01]|[12]\\d|[1-9])(?:st|nd|rd|th)?`, 'i'));
         if (dayMonthMatch) return `${dayMonthMatch[1]} ${dayMonthMatch[2].toUpperCase()}`;
         if (monthDayMatch) return `${monthDayMatch[2]} ${monthDayMatch[1].toUpperCase()}`;
         return dateText;
@@ -3108,8 +3339,8 @@ export async function getActualValue(
           return dateText;
         }
         const monthPattern = '(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC|January|February|March|April|May|June|July|August|September|October|November|December)';
-        const dayMonthMatch = dateText.match(new RegExp(`(?:^|[^0-9])([1-9]|[12]\\d|3[01])(?:st|nd|rd|th)?\\s*${monthPattern}`, 'i'));
-        const monthDayMatch = dateText.match(new RegExp(`${monthPattern}\\s*([1-9]|[12]\\d|3[01])(?:st|nd|rd|th)?`, 'i'));
+        const dayMonthMatch = dateText.match(new RegExp(`(?:^|[^0-9])(3[01]|[12]\\d|[1-9])(?:st|nd|rd|th)?\\s*${monthPattern}`, 'i'));
+        const monthDayMatch = dateText.match(new RegExp(`${monthPattern}\\s*(3[01]|[12]\\d|[1-9])(?:st|nd|rd|th)?`, 'i'));
         if (dayMonthMatch) return `${dayMonthMatch[1]} ${dayMonthMatch[2].toUpperCase()}`;
         if (monthDayMatch) return `${monthDayMatch[2]} ${monthDayMatch[1].toUpperCase()}`;
         return dateText;
@@ -3130,8 +3361,8 @@ export async function getActualValue(
       const scopedCardText = await getScopedLandingContainerText();
       if (scopedCardText) {
         const monthPattern = '(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC|January|February|March|April|June|July|August|September|October|November|December)';
-        const dayMonthMatch = scopedCardText.match(new RegExp(`(?:^|[^0-9])([1-9]|[12]\\d|3[01])(?:st|nd|rd|th)?\\s*${monthPattern}`, 'i'));
-        const monthDayMatch = scopedCardText.match(new RegExp(`${monthPattern}\\s*([1-9]|[12]\\d|3[01])(?:st|nd|rd|th)?`, 'i'));
+        const dayMonthMatch = scopedCardText.match(new RegExp(`(?:^|[^0-9])(3[01]|[12]\\d|[1-9])(?:st|nd|rd|th)?\\s*${monthPattern}`, 'i'));
+        const monthDayMatch = scopedCardText.match(new RegExp(`${monthPattern}\\s*(3[01]|[12]\\d|[1-9])(?:st|nd|rd|th)?`, 'i'));
         if (dayMonthMatch) {
           return `${dayMonthMatch[1]} ${dayMonthMatch[2].toUpperCase()}`;
         }
@@ -3433,7 +3664,11 @@ export async function getActualValue(
       // These values are captured from the exact clicked card before its popup
       // opens. Prefer them over a document-wide image scan, which otherwise
       // reports the home/boxing hero image while the popup is visible.
-      if (source === 'home-page-dont-miss' && eventData?.__HOME_DONT_MISS_IMAGE_PRESENT) {
+      if (isDontMissTileSource(source)) {
+        const tileData = await getDontMissTileData();
+        if (tileData?.imagePresent) return tileData.imagePresent;
+      }
+      if (isDontMissTileSource(source) && eventData?.__HOME_DONT_MISS_IMAGE_PRESENT) {
         return eventData.__HOME_DONT_MISS_IMAGE_PRESENT;
       }
       if (source === 'home-boxing-tile' && eventData?.__HOME_BOXING_IMAGE_PRESENT) {
@@ -3721,11 +3956,53 @@ export async function getActualValue(
             style.opacity !== '0';
         };
 
+        const tokenMatches = (expected: string, actual: string): boolean => {
+          if (expected === actual) return true;
+          if (expected.length < 4 || actual.length < 4) return false;
+          if (Math.abs(expected.length - actual.length) > 1) return false;
+          let edits = 0;
+          let i = 0;
+          let j = 0;
+          while (i < expected.length && j < actual.length) {
+            if (expected[i] === actual[j]) {
+              i++;
+              j++;
+              continue;
+            }
+            edits++;
+            if (edits > 1) return false;
+            if (expected.length === actual.length) {
+              if (
+                i + 1 < expected.length &&
+                j + 1 < actual.length &&
+                expected[i] === actual[j + 1] &&
+                expected[i + 1] === actual[j]
+              ) {
+                i += 2;
+                j += 2;
+              } else {
+                i++;
+                j++;
+              }
+            } else if (expected.length > actual.length) {
+              i++;
+            } else {
+              j++;
+            }
+          }
+          return edits + (expected.length - i) + (actual.length - j) <= 1;
+        };
+
         const matchesPPVName = (text: string): boolean => {
-          const lower = text.toLowerCase();
+          if (ppvName.includes('_') || /^ppv[-_]/i.test(ppvName)) return false;
           if (!nameTokens.length) return false;
-          const matches = nameTokens.filter(token => lower.includes(token)).length;
-          return matches >= Math.min(2, nameTokens.length);
+          const textTokens = clean(text)
+            .toLowerCase()
+            .split(/[^a-z0-9]+/i)
+            .filter(Boolean);
+          return nameTokens.every(token =>
+            textTokens.some(textToken => tokenMatches(token, textToken))
+          );
         };
 
         const isPlanPriceContext = (text: string, matchIndex: number): boolean => {

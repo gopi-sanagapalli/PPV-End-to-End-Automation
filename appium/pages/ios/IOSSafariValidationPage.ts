@@ -95,6 +95,7 @@ export class IOSSafariValidationPage extends IOSBasePage {
     field: string,
     expected: string,
     actual: string,
+    context?: Record<string, any>,
   ): Promise<string> {
     try {
       const fs = require('fs');
@@ -106,9 +107,21 @@ export class IOSSafariValidationPage extends IOSBasePage {
         `ios_safari_${pageName.replace(/[^a-zA-Z0-9]/g, '_')}_${field.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}.png`,
       );
       const markerId = `ios-safari-failure-${Date.now()}`;
+      const fieldKey = field.toLowerCase().replace(/\s+/g, ' ').trim();
+      const extraCandidates = [];
+      if (/\b(name|title|event)\b/.test(fieldKey)) {
+        extraCandidates.push(context?.PPV_DISPLAY_NAME, context?.PPV_CARD_TITLE, context?.PPV_NAME, context?.PPV_FULL_NAME);
+      }
+      if (/\b(date|time)\b/.test(fieldKey)) {
+        extraCandidates.push(context?.PPV_DATE, context?.PPV_PAGE_DATE, context?.SEARCH_PPV_DATE_TIME, context?.MOBILE_PPV_DATE);
+      }
+      if (/\b(price|amount|pay|total|currency)\b/.test(fieldKey)) {
+        extraCandidates.push(context?.PPV_PRICE_DISPLAY, context?.PPV_PRICE, context?.TODAY_YOU_PAY_PRICE, context?.UPSELL_PRICE_DISPLAY, context?.UPSELL_PRICE);
+      }
       const marked = await this.driver.execute((values: string[], id: string, fieldName: string) => {
         const normalise = (value: string) => value.replace(/\s+/g, ' ').trim().toLowerCase();
-        const candidates = values.map(normalise).filter(value => value && value !== 'not found');
+        const nonText = new Set(['not found', 'n/a', 'na', 'yes', 'no', 'true', 'false']);
+        const candidates = values.map(normalise).filter(value => value && !nonText.has(value));
         let target: HTMLElement | null = null;
         let smallestText = Number.POSITIVE_INFINITY;
         if (fieldName.toLowerCase() === 'page title' && candidates[0]) {
@@ -139,7 +152,7 @@ export class IOSSafariValidationPage extends IOSBasePage {
         });
         document.body.appendChild(marker);
         return true;
-      }, [actual, expected], markerId, field).catch(() => false);
+      }, [actual, expected, ...extraCandidates].filter(Boolean), markerId, field).catch(() => false);
       if (marked) await this.driver.pause(100);
       await this.driver.saveScreenshot(screenshot);
       await this.driver.execute((id: string) => document.getElementById(id)?.remove(), markerId).catch(() => {});
@@ -795,7 +808,7 @@ export class IOSSafariValidationPage extends IOSBasePage {
       );
 
       const screenshot = status === 'FAIL'
-        ? await this.captureAndMarkFailureScreenshot(pageName, field, expected, actual)
+        ? await this.captureAndMarkFailureScreenshot(pageName, field, expected, actual, eventData)
         : undefined;
       const resultPage = /\(safari\)$/i.test(pageName) ? pageName : `${pageName} (Safari)`;
       results.push({ page: resultPage, field, expected, actual, status, screenshot });
@@ -1204,7 +1217,7 @@ export class IOSSafariValidationPage extends IOSBasePage {
       const tierActual = /dazn\s+ultimate/i.test(await this.browserText()) ? tierExpected : 'Not found';
       const tierStatus: 'PASS' | 'FAIL' = tierActual === tierExpected ? 'PASS' : 'FAIL';
       const screenshot = tierStatus === 'FAIL'
-        ? await this.captureAndMarkFailureScreenshot(PAGE, 'DAZN Tier', tierExpected, tierActual)
+        ? await this.captureAndMarkFailureScreenshot(PAGE, 'DAZN Tier', tierExpected, tierActual, eventData)
         : undefined;
       results.push({ page: PAGE, field: 'DAZN Tier', expected: tierExpected, actual: tierActual, status: tierStatus, screenshot });
 
@@ -1382,7 +1395,7 @@ export class IOSSafariValidationPage extends IOSBasePage {
         const icon = status === 'PASS' ? '✅' : '❌';
         console.log(`  ${icon} [${field}] expected="${expected}" actual="${actual}"`);
         const screenshot = status === 'FAIL'
-          ? await this.captureAndMarkFailureScreenshot(PAGE, field, expected, actual)
+          ? await this.captureAndMarkFailureScreenshot(PAGE, field, expected, actual, eventData)
           : undefined;
         results.push({ page: PAGE, field, expected, actual, status, screenshot });
       }

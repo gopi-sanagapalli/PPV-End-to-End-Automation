@@ -132,14 +132,7 @@ export class BoxingPage extends LandingPage {
       .filter(list => list.length > 0);
 
     const matchesCard = (text: string): boolean => {
-      const ct = cleanStr(text);
-      const matchTitle = partsWordLists.some(words => words.every(w => ct.includes(w)));
-      const matchFighters = !!(
-        fighter1 && fighter2 &&
-        ct.includes(fighter1.toLowerCase()) &&
-        ct.includes(fighter2.toLowerCase())
-      );
-      return matchTitle || matchFighters;
+      return this.scorePPVMatch(text, ppvName) > 0;
     };
 
     // ── STEP 5: Check if PPV card is already visible ──────────────────
@@ -171,15 +164,7 @@ export class BoxingPage extends LandingPage {
         if (!inView) continue;
 
         // Score the match (exact match = 100, partial = lower)
-        const score = (() => {
-          const ct = cleanStr(text);
-          const cn = cleanStr(ppvName);
-          if (ct === cn) return 100;
-          const nameWords = cn.split(/\s+/).filter(Boolean);
-          const allMatch = nameWords.every(w => ct.includes(w));
-          if (!allMatch) return 0;
-          return Math.round((cn.length / ct.length) * 90);
-        })();
+        const score = this.scorePPVMatch(text, ppvName);
 
         if (score > bestScore) {
           bestScore = score;
@@ -341,13 +326,7 @@ export class BoxingPage extends LandingPage {
       (s || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
 
     const matchesTile = (text: string): boolean => {
-      const ct = cleanStr(text);
-      if (fighter1 && fighter2 && ct.includes(fighter1) && ct.includes(fighter2)) return true;
-      const nameParts = ppvName.split(/[:\-–]/).map(p => p.trim()).filter(p => p.length > 3);
-      return nameParts.some(part => {
-        const words = cleanStr(part).split(/\s+/).filter(Boolean);
-        return words.length > 0 && words.every(w => ct.includes(w));
-      });
+      return this.scorePPVMatch(text, ppvName) > 0;
     };
 
     // ── Step 1: Find the boxing page PPV tile ────────────────────────────────
@@ -384,8 +363,7 @@ export class BoxingPage extends LandingPage {
     }
 
     if (!tile) {
-      console.log(`⚠️ [home-boxing-tile] PPV tile not found by event name — falling back to body`);
-      return this.page.locator('body').first();
+      throw new Error(`❌ [home-boxing-tile] PPV tile for "${ppvName}" was not found on the Boxing page.`);
     }
 
     // ── Step 2: Click the tile → popup should appear ─────────────────────────

@@ -129,8 +129,9 @@ export class IOSValidationPage extends IOSBasePage {
           ? { x: location.x, y: location.y, width: size.width, height: size.height }
           : null;
       };
+      const nonText = new Set(['not found', 'n/a', 'na', 'yes', 'no', 'true', 'false']);
       const rawCandidates = [actualValue, expectedValue]
-        .filter(value => value && value !== 'Not found' && value.length > 2)
+        .filter(value => value && value.length > 2 && !nonText.has(value.trim().toLowerCase()))
         .map(value => value.trim().toLowerCase());
       const candidates = rawCandidates
         .map(value => value.replace(/\\/g, '\\\\').replace(/'/g, "\\'"))

@@ -562,10 +562,7 @@ export class BoxingHomePage extends HomePage {
       const partsWordLists = nameParts.map(part => cleanStr(part).split(/\s+/).filter(Boolean)).filter(list => list.length > 0);
 
       const matchesCard = (text: string): boolean => {
-        const cleanText = cleanStr(text);
-        const matchTitle = partsWordLists.some(words => words.every(w => cleanText.includes(w)));
-        const matchFighters = !!(fighter1 && fighter2 && cleanText.includes(fighter1) && cleanText.includes(fighter2));
-        return matchTitle || matchFighters;
+        return this.scorePPVMatch(text, ppvName) > 0;
       };
 
       try {
@@ -718,10 +715,7 @@ export class BoxingHomePage extends HomePage {
     const partsWordLists = nameParts.map(part => cleanStr(part).split(/\s+/).filter(Boolean)).filter(list => list.length > 0);
 
     const matchesTileText = (text: string): boolean => {
-      const ct = cleanStr(text);
-      const matchTitle = partsWordLists.some(words => words.every(w => ct.includes(w)));
-      const matchFighters = !!(fighter1 && fighter2 && ct.includes(fighter1.toLowerCase()) && ct.includes(fighter2.toLowerCase()));
-      return matchTitle || matchFighters;
+      return this.scorePPVMatch(text, ppvName) > 0;
     };
 
     const exclusions = [

@@ -186,14 +186,7 @@ export class HomePage extends LandingPage {
         .map(part => cleanStr(part).split(/\s+/).filter(Boolean))
         .filter(list => list.length > 0);
       const matchesTileText = (text: string): boolean => {
-        const ct = cleanStr(text);
-        const matchTitle = partsWordLists.some(words => words.every(w => ct.includes(w)));
-        const matchFighters = !!(
-          fighter1 && fighter2 &&
-          ct.includes(fighter1.toLowerCase()) &&
-          ct.includes(fighter2.toLowerCase())
-        );
-        return matchTitle || matchFighters;
+        return this.scorePPVMatch(text, ppvName) > 0;
       };
 
       // ── RailsInterceptor (for diagnostics) ──
@@ -581,10 +574,7 @@ export class HomePage extends LandingPage {
       const partsWordLists = nameParts.map(part => cleanStr(part).split(/\s+/).filter(Boolean)).filter(list => list.length > 0);
 
       const matchesTileText = (text: string): boolean => {
-        const ct = cleanStr(text);
-        const matchTitle = partsWordLists.some(words => words.every(w => ct.includes(w)));
-        const matchFighters = !!(fighter1 && fighter2 && ct.includes(fighter1.toLowerCase()) && ct.includes(fighter2.toLowerCase()));
-        return matchTitle || matchFighters;
+        return this.scorePPVMatch(text, ppvName) > 0;
       };
 
       const exclusions = [
@@ -755,7 +745,42 @@ export class HomePage extends LandingPage {
         const titleWords = expectedTitle.toLowerCase()
           .replace(/[^a-z0-9]+/g, ' ')
           .split(/\s+/)
-          .filter(word => word.length > 2);
+          .filter(word => word.length > 2 && !['the', 'and', 'for', 'with', 'from', 'vs'].includes(word));
+        const tokenMatches = (expected: string, actual: string): boolean => {
+          if (expected === actual) return true;
+          if (expected.length < 4 || actual.length < 4 || Math.abs(expected.length - actual.length) > 1) return false;
+          let edits = 0;
+          let i = 0;
+          let j = 0;
+          while (i < expected.length && j < actual.length) {
+            if (expected[i] === actual[j]) {
+              i++;
+              j++;
+              continue;
+            }
+            edits++;
+            if (edits > 1) return false;
+            if (expected.length === actual.length) {
+              if (
+                i + 1 < expected.length &&
+                j + 1 < actual.length &&
+                expected[i] === actual[j + 1] &&
+                expected[i + 1] === actual[j]
+              ) {
+                i += 2;
+                j += 2;
+              } else {
+                i++;
+                j++;
+              }
+            } else if (expected.length > actual.length) {
+              i++;
+            } else {
+              j++;
+            }
+          }
+          return edits + (expected.length - i) + (actual.length - j) <= 1;
+        };
         const titleCandidates = [
           ...Array.from(el.querySelectorAll<HTMLElement>('h1, h2, h3, h4, [class*="title" i], [class*="heading" i], [aria-label], [title]'))
             .map(node => cleanTileLabel(node.innerText || node.textContent || node.getAttribute('aria-label') || node.getAttribute('title'))),
@@ -763,9 +788,10 @@ export class HomePage extends LandingPage {
           cleanTileLabel(el.getAttribute('aria-label')),
           cleanTileLabel(el.getAttribute('title')),
         ].filter(candidate => {
-          const lower = candidate.toLowerCase();
+          const words = candidate.toLowerCase().replace(/[^a-z0-9]+/g, ' ').split(/\s+/).filter(Boolean);
           return candidate.length > 2 && candidate.length < 120 &&
-            titleWords.length > 0 && titleWords.every(word => lower.includes(word));
+            titleWords.length > 0 &&
+            titleWords.every(word => words.some(candidateWord => tokenMatches(word, candidateWord)));
         });
         const title = titleCandidates.sort((a, b) => a.length - b.length)[0] || '';
         const hasImage = Array.from(el.querySelectorAll<HTMLElement>('img, picture, [role="img"], div, span, a')).some(node => {

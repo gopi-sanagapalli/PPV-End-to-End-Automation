@@ -1,5 +1,6 @@
 import { AndroidFlowHooks, WdBrowser, adbBack, adbTap } from '../pages/android/AndroidBasePage';
 import { AndroidRailTileMatch, AndroidRailsFetcher } from './androidRailsFetcher';
+import { isLikelySamePpvTitle } from './ppvTitleMatcher';
 
 export interface DynamicPpvTileLocatorResult {
   success: boolean;
@@ -247,9 +248,7 @@ export class DynamicPpvTileLocator {
       const pageSource = await this.driver.getPageSource().catch(() => '');
       if (!pageSource) return null;
 
-      const cleanTarget = targetTitle.toLowerCase().replace(/[^a-z0-9]/g, '');
       const cleanEntitlement = entitlementId.toLowerCase().replace(/[^a-z0-9]/g, '');
-      const titleParts = cleanTarget.split(/[\s:vs\-–]/).map(p => p.trim()).filter(p => p.length > 2);
 
       const matches = pageSource.matchAll(/<([a-zA-Z0-9.]+)\b([^>]*)bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/g);
 
@@ -265,11 +264,10 @@ export class DynamicPpvTileLocator {
 
         if (top >= railTopY - 30 && bottom <= screenHeight * 0.85 && left >= 0 && right <= screenWidth && text && text.length > 2) {
           const txtClean = text.toLowerCase().replace(/[^a-z0-9]/g, '');
-          const matchesTarget = cleanTarget && (txtClean.includes(cleanTarget) || cleanTarget.includes(txtClean));
+          const matchesTarget = targetTitle && isLikelySamePpvTitle(text, targetTitle);
           const matchesEntitlement = cleanEntitlement && txtClean.includes(cleanEntitlement);
-          const matchesParts = titleParts.length > 0 && titleParts.some(part => txtClean.includes(part));
 
-          if (matchesTarget || matchesEntitlement || matchesParts) {
+          if (matchesTarget || matchesEntitlement) {
             const tapX = Math.round((left + right) / 2);
             const tapY = Math.round((top + bottom) / 2);
             return { x: tapX, y: tapY };
@@ -289,9 +287,7 @@ export class DynamicPpvTileLocator {
       const pageSource = await this.driver.getPageSource().catch(() => '');
       if (!pageSource) return null;
 
-      const cleanTarget = targetTitle.toLowerCase().replace(/[^a-z0-9]/g, '');
       const cleanEntitlement = entitlementId.toLowerCase().replace(/[^a-z0-9]/g, '');
-      const titleParts = cleanTarget.split('vs').map(p => p.trim()).filter(p => p.length > 2);
 
       const matches = pageSource.matchAll(/<([a-zA-Z0-9.]+)\b([^>]*)bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/g);
       const railTexts: string[] = [];
@@ -312,11 +308,10 @@ export class DynamicPpvTileLocator {
 
       for (let idx = 0; idx < railTexts.length; idx++) {
         const txtClean = railTexts[idx].toLowerCase().replace(/[^a-z0-9]/g, '');
-        const matchesTarget = cleanTarget && txtClean.includes(cleanTarget);
+        const matchesTarget = targetTitle && isLikelySamePpvTitle(railTexts[idx], targetTitle);
         const matchesEntitlement = cleanEntitlement && txtClean.includes(cleanEntitlement);
-        const matchesParts = titleParts.length > 0 && titleParts.every(part => txtClean.includes(part));
 
-        if (matchesTarget || matchesEntitlement || matchesParts) {
+        if (matchesTarget || matchesEntitlement) {
           return idx;
         }
       }
@@ -447,7 +442,6 @@ export class DynamicPpvTileLocator {
       const pageSource = await this.driver.getPageSource().catch(() => '');
       if (!pageSource) return null;
 
-      const cleanTarget = targetTitle.toLowerCase().replace(/[^a-z0-9]/g, '');
       const cleanEntitlement = entitlementId.toLowerCase().replace(/[^a-z0-9]/g, '');
 
       const matches = pageSource.matchAll(/<([a-zA-Z0-9.]+)\b([^>]*)bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/g);
@@ -470,7 +464,7 @@ export class DynamicPpvTileLocator {
 
       const targetEl = elements.find(e => {
         const txtClean = e.text.toLowerCase().replace(/[^a-z0-9]/g, '');
-        return (cleanTarget && txtClean.includes(cleanTarget)) || (cleanEntitlement && txtClean.includes(cleanEntitlement));
+        return (targetTitle && isLikelySamePpvTitle(e.text, targetTitle)) || (cleanEntitlement && txtClean.includes(cleanEntitlement));
       });
 
       if (targetEl) {
@@ -520,25 +514,19 @@ export class DynamicPpvTileLocator {
   private async validatePaywall(expectedPpvTitle: string, entitlementId: string): Promise<boolean> {
     try {
       const pageSource = (await this.driver.getPageSource().catch(() => '')).toLowerCase();
-      const cleanExpected = expectedPpvTitle.toLowerCase().trim();
       const cleanEntitlement = entitlementId.toLowerCase().trim();
-
-      const nameParts = cleanExpected.split(/[:\-–]/).map(p => p.trim()).filter(p => p.length > 2);
-
-      const matchesTitle = cleanExpected && pageSource.includes(cleanExpected);
       const matchesEntitlement = cleanEntitlement && pageSource.includes(cleanEntitlement);
-      const matchesPart = nameParts.some(part => pageSource.includes(part));
       const matchesPaywallCta = pageSource.includes('buy') || pageSource.includes('get ppv') || pageSource.includes('subscribe') || pageSource.includes('purchase');
 
-      if ((matchesTitle || matchesEntitlement || matchesPart) && matchesPaywallCta) {
+      if (matchesEntitlement && matchesPaywallCta) {
         return true;
       }
 
       // Check displayed text views on paywall screen
       const textEls = await this.driver.$$('//android.widget.TextView');
       for (const el of textEls) {
-        const text = (await el.getText().catch(() => '')).toLowerCase().trim();
-        if (text && (text.includes(cleanExpected) || (cleanExpected && cleanExpected.includes(text)))) {
+        const text = (await el.getText().catch(() => '')).trim();
+        if (text && isLikelySamePpvTitle(text, expectedPpvTitle)) {
           return true;
         }
       }

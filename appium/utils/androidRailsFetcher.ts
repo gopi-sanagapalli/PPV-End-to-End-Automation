@@ -1,3 +1,5 @@
+import { isLikelySamePpvTitle } from './ppvTitleMatcher';
+
 export type RecordDict = Record<string, unknown>;
 
 export function isRecord(val: unknown): val is RecordDict {
@@ -224,13 +226,10 @@ export class AndroidRailsFetcher {
             }) ||
             tileId.toLowerCase().includes(targetEntitlement)
           );
-          const matchesTitle = targetTitle && (
-            tileTitleClean.includes(targetTitle.toLowerCase().replace(/[^a-z0-9]/g, '')) ||
-            (targetTitle.split('vs')[0] && tileTitleClean.includes(targetTitle.split('vs')[0].toLowerCase().replace(/[^a-z0-9]/g, '').trim()))
-          );
+          const matchesTitle = targetTitle && isLikelySamePpvTitle(tileTitle, options.ppvTitle || '');
           const matchesPromoter = targetPromoter && targetPromoter.length > 2 && tileTitleClean.includes(targetPromoter);
 
-          if (matchesAssetId || matchesEventId || matchesEntitlement || matchesTitle || matchesPromoter) {
+          if (matchesAssetId || matchesEventId || matchesEntitlement || matchesTitle || (!targetTitle && matchesPromoter)) {
             const primaryEntitlement = entitlementIds.find(id => id.toLowerCase().includes(targetEntitlement)) || entitlementIds[0] || targetEntitlement;
 
             // Page-aware tile index: use sportTileIndex on sport pages (e.g. Boxing) and globalTileIndex on Home page
