@@ -36,7 +36,7 @@ env:
 jobs:
   prepare:
     runs-on: [self-hosted, macOS, ARM64]
-    timeout-minutes: 10
+    timeout-minutes: 30
     env:
       ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
     outputs:
@@ -64,7 +64,7 @@ jobs:
     environment: prod
     name: New user | ${{ matrix.source }} | ${{ matrix.plan }}
     runs-on: [self-hosted, macOS, ARM64]
-    timeout-minutes: 45
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       max-parallel: 10
@@ -91,7 +91,7 @@ jobs:
     environment: prod
     name: Existing user · Already signed in | ${{ matrix.source }} | ${{ matrix.profile }}
     runs-on: [self-hosted, macOS, ARM64]
-    timeout-minutes: 45
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       max-parallel: 10
@@ -118,7 +118,7 @@ jobs:
     if: ${{ always() }}
     name: Consolidated workflow report · ${{ inputs.COUNTRY }}
     runs-on: [self-hosted, macOS, ARM64]
-    timeout-minutes: 10
+    timeout-minutes: 30
     env:
       ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
     steps:

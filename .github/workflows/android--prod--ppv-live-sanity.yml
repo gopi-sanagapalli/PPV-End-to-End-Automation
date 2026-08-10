@@ -22,7 +22,7 @@ jobs:
   prepare:
     name: Validate PPV and build sanity matrix
     runs-on: [self-hosted, macOS, ARM64, sridevi-runners]
-    timeout-minutes: 10
+    timeout-minutes: 30
     outputs:
       new_matrix: ${{ steps.matrix.outputs.new_matrix }}
       signin_matrix: ${{ steps.matrix.outputs.signin_matrix }}
@@ -132,7 +132,7 @@ jobs:
     if: ${{ always() }}
     name: Consolidated workflow report · ${{ inputs.COUNTRY }}
     runs-on: [self-hosted, macOS, ARM64, sridevi-runners]
-    timeout-minutes: 10
+    timeout-minutes: 30
     env:
       ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
     steps:

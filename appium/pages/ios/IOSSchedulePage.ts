@@ -163,39 +163,35 @@ export class IOSSchedulePage extends IOSBasePage {
       }, { timeout: 1200, interval: 200 }).catch(() => { });
     }
 
-    if (sportEl) {
-      if (await this.isSelectedFilter(sportEl)) {
-        console.log(`✅ ${sport} filter already selected`);
-        return;
-      }
-      await sportEl.click();
-      const waitForSelectedSport = (timeout: number) => this.driver.waitUntil(async () => {
-        const selectedSport = await this.firstVisibleNearY(sportTab, menuY);
-        if (!selectedSport) return false;
-        const pageSource = await this.driver.getPageSource().catch(() => '');
-        const selectionExposed = await this.isSelectedFilter(selectedSport);
-        return !/<XCUIElementTypeActivityIndicator\b/i.test(pageSource) &&
-          (selectionExposed || await hasFilteredSportContent());
-      }, {
-        timeout,
-        interval: 300,
-        timeoutMsg: `${sport} filter did not become selected after it was tapped.`,
-      });
-
-      const selected = await waitForSelectedSport(4000).then(() => true).catch(() => false);
-      if (!selected) {
-        sportEl = await this.firstVisibleNearY(sportTab, menuY);
-        if (sportEl && !await this.isSelectedFilter(sportEl)) await sportEl.click();
-      }
-      await waitForSelectedSport(6000).catch(async (error: any) => {
-        await this.driver.saveScreenshot('./test-results/ios_schedule_sport_filter_not_selected.png').catch(() => { });
-        throw error;
-      });
-      await this.driver.saveScreenshot('./test-results/ios_schedule_after_sport_filter.png');
-      console.log(`✅ ${sport} filter applied and Schedule content settled`);
-    } else {
-      console.warn(`⚠️ ${sport} filter not found, proceeding with default list`);
+    if (!sportEl) {
+      await this.driver.saveScreenshot('./test-results/ios_schedule_sport_filter_not_found.png').catch(() => { });
+      throw new Error(`${sport} filter was not found in the Schedule filter strip.`);
     }
+    if (await this.isSelectedFilter(sportEl)) {
+      console.log(`✅ ${sport} filter already selected`);
+      return;
+    }
+
+    const sourceBeforeFilterTap = await this.driver.getPageSource().catch(() => '');
+    await sportEl.click();
+    await this.driver.waitUntil(async () => {
+      const selectedSport = await this.firstVisibleNearY(sportTab, menuY);
+      if (!selectedSport) return false;
+      const pageSource = await this.driver.getPageSource().catch(() => '');
+      const selectionExposed = await this.isSelectedFilter(selectedSport);
+      const contentUpdated = pageSource !== sourceBeforeFilterTap;
+      return !/<XCUIElementTypeActivityIndicator\b/i.test(pageSource) &&
+        (selectionExposed || (contentUpdated && await hasFilteredSportContent()));
+    }, {
+      timeout: Number(process.env.IOS_SCHEDULE_FILTER_TIMEOUT_MS || 6000),
+      interval: 300,
+      timeoutMsg: `${sport} filter did not become selected after it was tapped.`,
+    }).catch(async (error: any) => {
+      await this.driver.saveScreenshot('./test-results/ios_schedule_sport_filter_not_selected.png').catch(() => { });
+      throw error;
+    });
+    await this.driver.saveScreenshot('./test-results/ios_schedule_after_sport_filter.png');
+    console.log(`✅ ${sport} filter applied and Schedule content settled`);
   }
 
   async scrollToPPVTile(ppvName = this.ppvName): Promise<WdElement | null> {

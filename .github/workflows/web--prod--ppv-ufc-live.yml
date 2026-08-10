@@ -30,7 +30,7 @@ env:
 jobs:
   prepare:
     runs-on: [self-hosted, macOS, ARM64]
-    timeout-minutes: 10
+    timeout-minutes: 30
     env:
       ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
     outputs:
@@ -38,7 +38,7 @@ jobs:
       signin_matrix: ${{ steps.matrix.outputs.signin_matrix }}
       signed_matrix: ${{ steps.matrix.outputs.signed_matrix }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - id: matrix
         shell: bash
         env:
@@ -57,9 +57,10 @@ jobs:
           done
   new-user:
     needs: prepare
+    environment: prod
     name: New user | ${{ matrix.source }} | ${{ matrix.plan }}
     runs-on: [self-hosted, macOS, ARM64]
-    timeout-minutes: 45
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       max-parallel: 10
@@ -78,14 +79,15 @@ jobs:
       DEV_MODE_ON: 'off'
       SWITCH: ${{ matrix.switch || 'false' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/ppv-generic-runner
         with: { journey: new-user }
   sign-in-during-flow:
     needs: prepare
+    environment: prod
     name: Existing user · Sign in during flow | ${{ matrix.source }} | ${{ matrix.profile }}
     runs-on: [self-hosted, macOS, ARM64]
-    timeout-minutes: 45
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       max-parallel: 10
@@ -104,14 +106,15 @@ jobs:
       DEV_MODE_ON: 'off'
       SWITCH: ${{ matrix.switch || 'false' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/ppv-generic-runner
         with: { journey: sign-in-during-flow }
   already-signed-in:
     needs: prepare
+    environment: prod
     name: Existing user · Already signed in | ${{ matrix.source }} | ${{ matrix.profile }}
     runs-on: [self-hosted, macOS, ARM64]
-    timeout-minutes: 45
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       max-parallel: 10
@@ -130,7 +133,7 @@ jobs:
       DEV_MODE_ON: 'off'
       SWITCH: ${{ matrix.switch || 'false' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/ppv-generic-runner
         with: { journey: already-signed-in }
   workflow-summary:
@@ -138,11 +141,11 @@ jobs:
     if: ${{ always() }}
     name: Consolidated workflow report · CA
     runs-on: [self-hosted, macOS, ARM64]
-    timeout-minutes: 10
+    timeout-minutes: 30
     env:
       ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/ppv-workflow-summary
         with:
           title: Web UFC PPV live workflow report · CA
