@@ -39,7 +39,7 @@ env:
 jobs:
   prepare:
     name: Validate PPV and build sanity matrix
-    runs-on: [self-hosted, macOS, ARM64, gopi-runners]
+    runs-on: [self-hosted, macOS, ARM64]
     timeout-minutes: 30
     env:
       ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
@@ -71,7 +71,7 @@ jobs:
     needs: prepare
     environment: prod
     name: New user | ${{ matrix.source }} | ${{ matrix.plan }}
-    runs-on: [self-hosted, macOS, ARM64, gopi-runners]
+    runs-on: [self-hosted, macOS, ARM64]
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -98,7 +98,7 @@ jobs:
     needs: prepare
     environment: prod
     name: Existing user · Sign in during flow | ${{ matrix.source }} | ${{ matrix.profile }}
-    runs-on: [self-hosted, macOS, ARM64, gopi-runners]
+    runs-on: [self-hosted, macOS, ARM64]
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -125,7 +125,7 @@ jobs:
     needs: prepare
     environment: prod
     name: Existing user · Already signed in | ${{ matrix.source }} | ${{ matrix.profile }}
-    runs-on: [self-hosted, macOS, ARM64, gopi-runners]
+    runs-on: [self-hosted, macOS, ARM64]
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -152,7 +152,7 @@ jobs:
     needs: [prepare, new-user, sign-in-during-flow, already-signed-in]
     if: ${{ always() }}
     name: Consolidated workflow report · ${{ inputs.COUNTRY }}
-    runs-on: [self-hosted, macOS, ARM64, gopi-runners]
+    runs-on: [self-hosted, macOS, ARM64]
     timeout-minutes: 30
     env:
       ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
