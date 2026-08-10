@@ -260,7 +260,12 @@ switch (mode) {
     const sources = applicable(liveSources.existing, false);
     matrix = sources.map((source, index) => {
       const profiles = regularProfiles.filter((profile) => !ultimateOnly.has(source) || validUltimateProfiles.has(profile));
-      return { source, profile: profiles[index % profiles.length] };
+      const ultimateProfile = source === 'schedule'
+        ? 'active_ultimate_apm/ultimate_apm'
+        : source === 'myaccount'
+          ? 'active_ultimate_upfront/ultimate_upfront'
+          : undefined;
+      return { source, profile: ultimateProfile && profiles.includes(ultimateProfile) ? ultimateProfile : profiles[index % profiles.length] };
     });
     break;
   }
@@ -268,7 +273,12 @@ switch (mode) {
     const sources = applicable(liveSources.signed, false);
     matrix = sources.map((source, index) => {
       const profiles = regularProfiles.filter((profile) => !ultimateOnly.has(source) || validUltimateProfiles.has(profile));
-      return { source, profile: profiles[index % profiles.length] };
+      const ultimateProfile = source === 'schedule'
+        ? 'active_ultimate_apm/ultimate_apm'
+        : source === 'myaccount'
+          ? 'active_ultimate_upfront/ultimate_upfront'
+          : undefined;
+      return { source, profile: ultimateProfile && profiles.includes(ultimateProfile) ? ultimateProfile : profiles[index % profiles.length] };
     });
     break;
   }
