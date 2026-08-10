@@ -30,6 +30,7 @@ env:
 jobs:
   prepare:
     runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 10
     env:
       ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
     outputs:
