@@ -164,11 +164,11 @@ export function resolveExpected(
   if (isPaymentPage) {
     const isMobileWebHandoff = String(eventData.MOBILE_WEB_HANDOFF || eventData.mobile_web_handoff || '').toLowerCase() === 'true';
 
-    // Mobile checkout does not render these desktop payment-section headings.
+    // Mobile checkout does not render the desktop purchase-summary heading.
     // Returning N/A lets validateVariant skip them via its existing not-required path.
     if (
       isMobileWebHandoff &&
-      (field === 'payment method heading' || field === 'purchase summary heading')
+      field === 'purchase summary heading'
     ) {
       return 'N/A';
     }

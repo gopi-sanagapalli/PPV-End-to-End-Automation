@@ -174,7 +174,7 @@
             "USER_PASSWORD": "TODO_ADD_PASSWORD"
           },
           "prod": {
-            "USER_EMAIL": "ukactivemonthly@yopmail.com",
+            "USER_EMAIL": "ukactivemon@yopmail.com",
             "USER_PASSWORD": "Dazn@123"
           }
         }

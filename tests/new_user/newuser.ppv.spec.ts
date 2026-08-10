@@ -1997,11 +1997,11 @@ async function runFlow(
           }
         }
 
-        // NOTE: For ultimate_upfront, plan page defaults to APM selected on load.
+        // The page default can differ from the requested Ultimate rate plan.
         // validateVariant is deferred to after the card click (below) so that
         // 'Annual Pay Monthly Selected' / 'Annual Pay Upfront Selected' fields
         // are read from the DOM in the correct post-selection state.
-        const shouldDeferPlanValidation = tier === 'ultimate' && ratePlan === 'annual pay upfront';
+        const shouldDeferPlanValidation = tier === 'ultimate';
 
         if (!planValidated && !page.url().includes('page=TierPlans') && !shouldDeferPlanValidation) {
           try {
@@ -2092,7 +2092,7 @@ async function runFlow(
           }
 
           // ── Post-selection: Validate selected plan ──
-          // For ultimate_upfront: run full validateVariant now that the APU card is selected.
+          // Run full validation now that the requested Ultimate card is selected.
           if (shouldDeferPlanValidation && !planValidated) {
             try {
               const planData = getPlanDataByTier(tier);
