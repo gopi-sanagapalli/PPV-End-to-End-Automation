@@ -103,7 +103,7 @@ runs:
             lsof -ti tcp:"$p" >/dev/null 2>&1 || break
             sleep 1
           done
-          pids="$(lsof -ti tcp:"$p" 2>/dev/null)"
+          pids="$(lsof -ti tcp:"$p" 2>/dev/null || true)"
           [ -n "$pids" ] && kill -9 $pids 2>/dev/null || true
         done
     - name: Store iOS test results locally

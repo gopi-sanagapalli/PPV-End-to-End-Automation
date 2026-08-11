@@ -225,7 +225,7 @@ export class IOSSafariValidationPage extends IOSBasePage {
     texts: string[],
     fullText: string,
     compareFn: (actual: string, expected: string) => boolean,
-    extras: { h1Text: string; buttonTexts: string[]; hasImage: boolean; selectedRadioText: string; hasTermsLink: boolean; eventName: string; ratePlan: string },
+    extras: { h1Text: string; buttonTexts: string[]; hasImage: boolean; selectedRadioText: string; hasTermsLink: boolean; eventName: string; ratePlan: string; pageName: string },
   ): { actual: string; isMatch: boolean } {
     const fieldLower = field.toLowerCase().replace(/\s+/g, ' ').trim();
 
@@ -383,8 +383,13 @@ export class IOSSafariValidationPage extends IOSBasePage {
       const priceIndex = planLines.findIndex(text => pricePattern.test(text));
       const priceLine = priceIndex >= 0 ? planLines[priceIndex] : undefined;
       const price = priceLine?.match(pricePattern)?.[0];
+      const period = [priceLine, ...planLines.slice(priceIndex + 1, priceIndex + 3)]
+        .map(text => text?.match(/\/\s*(?:month|year)\b/i)?.[0])
+        .find(Boolean)
+        ?.replace(/\s+/g, '');
+      const isUpgradeConfirmation = /upgrade confirmation/i.test(extras.pageName);
       const actual = price
-        ? price.trim()
+        ? `${price.trim()}${isUpgradeConfirmation ? '' : (period || '')}`
         : 'Not found';
       return { actual, isMatch: compareFn(actual, expected) };
     }
@@ -794,6 +799,7 @@ export class IOSSafariValidationPage extends IOSBasePage {
           h1Text, buttonTexts, hasImage, selectedRadioText, hasTermsLink,
           eventName: String(eventData.PPV_NAME || ''),
           ratePlan: String(eventData.RATE_PLAN || process.env.RATE_PLAN || 'monthly').toLowerCase(),
+          pageName,
         },
       );
 
