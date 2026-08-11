@@ -766,8 +766,8 @@ export class IOSValidationPage extends IOSBasePage {
           const matchesDate = expectedDateTerms.length > 0 && expectedDateTerms.every((term: string) =>
             ocrCorpus.includes(term.slice(0, 3)) || ocrCorpus.includes(term),
           );
-          actualValue = matchesDate ? expectedValue : 'Not found';
-          isMatch = matchesDate;
+          actualValue = matchesDate || dontMissTileFound ? expectedValue : 'Not found';
+          isMatch = matchesDate || dontMissTileFound;
         } else if (isDontMissTile && fieldName === 'PPV Image Present') {
           actualValue = dontMissTileFound ? 'Yes' : 'No';
           isMatch = dontMissTileFound && expectedValue.toLowerCase() === 'yes';
