@@ -26,5 +26,8 @@
     "fs-extra": "^11.3.4",
     "playwright-mcp": "^0.0.19",
     "xlsx": "^0.18.5"
+  },
+  "overrides": {
+    "happy-dom": "^20.8.9"
   }
 }
