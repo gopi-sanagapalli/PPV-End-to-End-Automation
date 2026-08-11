@@ -88,7 +88,7 @@ jobs:
 
   existing-sign-in-during-flow:
     needs: [prepare, new-user]
-    if: ${{ always() && needs.prepare.result == 'success' }}
+    if: ${{ !cancelled() && needs.prepare.result == 'success' }}
     name: Existing user · Sign in during flow | ${{ matrix.source }} | ${{ matrix.profile }}
     runs-on: [self-hosted, macOS, ARM64]
     timeout-minutes: 30
@@ -118,7 +118,7 @@ jobs:
 
   existing-already-signed-in:
     needs: [prepare, existing-sign-in-during-flow]
-    if: ${{ always() && needs.prepare.result == 'success' }}
+    if: ${{ !cancelled() && needs.prepare.result == 'success' }}
     name: Existing user · Already signed in | ${{ matrix.source }} | ${{ matrix.profile }}
     runs-on: [self-hosted, macOS, ARM64]
     timeout-minutes: 30
@@ -147,7 +147,7 @@ jobs:
           journey: already-signed-in
   workflow-summary:
     needs: [prepare, new-user, existing-sign-in-during-flow, existing-already-signed-in]
-    if: ${{ always() }}
+    if: ${{ !cancelled() }}
     name: Consolidated workflow report · ${{ inputs.COUNTRY }}
     runs-on: [self-hosted, macOS, ARM64]
     timeout-minutes: 10
