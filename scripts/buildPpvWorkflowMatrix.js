@@ -139,7 +139,7 @@ const androidProfiles = regularProfiles;
 let detectedDevices = [];
 try {
   const { execSync } = require('child_process');
-  const adbOut = execSync('adb devices', { encoding: 'utf8' });
+  const adbOut = execSync('adb devices', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] });
   const lines = adbOut.split('\n').slice(1).map(l => l.trim()).filter(Boolean);
   detectedDevices = lines
     .filter(l => l.endsWith('\tdevice') || l.endsWith(' device'))
@@ -301,6 +301,7 @@ switch (mode) {
   case 'android-full-signed': matrix = assignAndroidDevices(androidExistingSources.flatMap(source => androidProfiles.map(profile => ({ source, profile })))); break;
   case 'android-sanity-new': matrix = assignAndroidDevices(androidNewSources.map((source, index) => ({ source, plan: standardPlans[index % standardPlans.length] }))); break;
   case 'android-sanity-signin': matrix = assignAndroidDevices(androidNewSources.map((source, index) => ({ source, profile: androidProfiles[index] }))); break;
+  case 'android-sanity-signed': matrix = assignAndroidDevices(androidExistingSources.map((source, index) => ({ source, profile: androidProfiles[(index + androidNewSources.length) % androidProfiles.length] }))); break;
   case 'ios-full-new': matrix = assignIosDevices(iosNewSources.flatMap(source => standardPlans.map(plan => ({ source, plan })))); break;
   case 'ios-full-signin': matrix = assignIosDevices(iosNewSources.flatMap(source => iosProfiles.map(profile => ({ source, profile })))); break;
   case 'ios-full-signed': matrix = assignIosDevices(iosExistingSources.flatMap(source => iosProfiles.map(profile => ({ source, profile })))); break;
