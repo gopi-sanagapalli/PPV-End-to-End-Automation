@@ -1,9 +1,19 @@
 name: Run Android PPV journey
+description: Runs Android Appium PPV test journeys.
 inputs:
-  journey: { required: true }
+  journey:
+    description: 'The PPV journey to run (e.g., new-user or existing-user)'
+    required: true
 runs:
   using: composite
   steps:
+    - name: Add Android SDK platform-tools to PATH
+      shell: bash
+      run: |
+        SDK_PATH="${ANDROID_HOME:-$HOME/Library/Android/sdk}/platform-tools"
+        if [ -d "$SDK_PATH" ]; then
+          echo "$SDK_PATH" >> "$GITHUB_PATH"
+        fi
     - shell: bash
       run: npm ci
     - shell: bash
@@ -12,7 +22,19 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
+        export PATH="${ANDROID_HOME:-$HOME/Library/Android/sdk}/platform-tools:$PATH"
         adb start-server
+        if [ -z "${DEVICE_SERIAL:-}" ] || ! adb devices | grep -qw "${DEVICE_SERIAL:-nosuchdevice}"; then
+          DETECTED_SERIAL=$(adb devices | awk 'NR>1 && $2=="device" {print $1; exit}')
+          if [ -n "$DETECTED_SERIAL" ]; then
+            echo "Auto-detected connected Android device: $DETECTED_SERIAL"
+            echo "DEVICE_SERIAL=$DETECTED_SERIAL" >> "$GITHUB_ENV"
+            export DEVICE_SERIAL="$DETECTED_SERIAL"
+          else
+            echo "::error::No connected Android device found via ADB."
+            exit 1
+          fi
+        fi
         adb -s "$DEVICE_SERIAL" wait-for-device
         adb -s "$DEVICE_SERIAL" get-state | grep -qx device
     - if: ${{ env.PROFILE != '' }}

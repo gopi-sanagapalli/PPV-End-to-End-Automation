@@ -1,0 +1,166 @@
+name: FireTV.Prod.PPV.Live
+
+run-name: "FireTV.Prod.PPV.Live · ${{ inputs.COUNTRY }} · ${{ inputs.PPV_CONFIG }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      PPV_CONFIG:
+        description: "PPV JSON filename (for example: ppv_t_garcia_benn.json)"
+        required: true
+        type: string
+      COUNTRY:
+        description: "Country"
+        required: true
+        type: choice
+        default: GB
+        options: [GB, IE, US, AU, BR, AE, SA]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: firetv-prod-ppv-live
+  cancel-in-progress: false
+
+env:
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
+  CI: 'true'
+  HEADLESS: 'false'
+  DAZN_ENV: prod
+  DAZN_REGION: ${{ inputs.COUNTRY }}
+  SOURCE: schedule
+  TV_TARGET: firetv
+  FIRETV_SERIAL: 172.26.81.184:5555
+  DEVICE_SERIAL: 172.26.81.184:5555
+  APP_PACKAGE: com.dazn
+  PPV_CONFIG_NAME: ${{ inputs.PPV_CONFIG }}
+
+jobs:
+  prepare:
+    name: Build FireTV live profile matrix
+    runs-on: [self-hosted, macOS, ARM64, chandrababu-runners]
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - id: matrix
+        name: Build active paid, freemium, and frozen profiles
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+
+          const country = '${{ inputs.COUNTRY }}';
+          const ppvConfig = '${{ inputs.PPV_CONFIG }}';
+          const eventPath = path.join('config', 'events', path.basename(ppvConfig));
+          if (!fs.existsSync(eventPath)) throw new Error(`PPV config not found: ${ppvConfig}`);
+
+          const event = JSON.parse(fs.readFileSync(eventPath, 'utf8'));
+          const planConfig = JSON.parse(fs.readFileSync('config/DaznPlan.json', 'utf8'));
+          const userStatus = JSON.parse(fs.readFileSync('config/userstatus.json', 'utf8'));
+          if (!event.regions?.[country]) throw new Error(`${ppvConfig} is not available in ${country}: regions.${country} is missing.`);
+
+          const profiles = [
+            'freemium/standard_monthly',
+            'freemium/standard_apm',
+            'freemium/ultimate_apm',
+            'freemium/ultimate_upfront',
+            'frozen/standard_monthly',
+            'frozen/standard_apm',
+            'frozen/ultimate_apm',
+            'frozen/ultimate_upfront',
+            'active_standard_monthly/standard_monthly',
+            'active_standard_monthly/ultimate_apm',
+            'active_standard_monthly/ultimate_upfront',
+            'active_standard_apm/standard_apm',
+            'active_standard_apm/ultimate_apm',
+            'active_ultimate_apm/ultimate_apm',
+            'active_ultimate_upfront/ultimate_upfront',
+          ];
+
+          const hasValidCredentials = (userState) => {
+            const env = userStatus[userState]?.regions?.[country]?.environments?.prod;
+            return Boolean(env?.USER_EMAIL && env?.USER_PASSWORD && !env.USER_EMAIL.startsWith('TODO_') && !env.USER_PASSWORD.startsWith('TODO_'));
+          };
+
+          const matrix = profiles
+            .map((profile) => {
+              const [userState, plan] = profile.split('/');
+              return {
+                profile,
+                user_state: userState,
+                plan,
+                dev_mode_on: plan.startsWith('ultimate_') ? 'on' : 'off',
+              };
+            })
+            .filter((entry) => planConfig[entry.plan]?.regions?.[country])
+            .filter((entry) => hasValidCredentials(entry.user_state));
+
+          if (!matrix.length) throw new Error(`No FireTV live profiles with valid prod credentials were found for ${country}.`);
+          console.log(`FireTV live matrix for ${country}: ${matrix.length} jobs`);
+          for (const entry of matrix) console.log(`${entry.profile} DEV_MODE_ON=${entry.dev_mode_on}`);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `matrix=${JSON.stringify(matrix)}\n`);
+          NODE
+
+  firetv-prod-ppv-live:
+    needs: prepare
+    name: FireTV · ${{ matrix.profile }}
+    runs-on: [self-hosted, macOS, ARM64, chandrababu-runners]
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Install root dependencies
+        shell: bash
+        run: npm ci
+
+      - name: Install Appium dependencies
+        shell: bash
+        run: npm ci --prefix appium
+
+      - name: Connect FireTV over ADB
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/connect-adb-device.sh "$DEVICE_SERIAL"
+
+      - name: Run FireTV PPV live profile
+        env:
+          USER_STATE: ${{ matrix.user_state }}
+          WEB_USER_STATE: ${{ matrix.user_state }}
+          PLAN: ${{ matrix.plan }}
+          DEV_MODE_ON: ${{ matrix.dev_mode_on }}
+          PPV_CONFIG: ${{ env.PPV_CONFIG_NAME }}
+          WEB_PPV_CONFIG: ${{ env.PPV_CONFIG_NAME }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run tv:ppv:e2e
+
+      - name: Upload FireTV PPV artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: firetv-prod-ppv-live-${{ matrix.user_state }}-${{ matrix.plan }}-${{ github.run_attempt }}
+          if-no-files-found: ignore
+          retention-days: 14
+          path: |
+            reports/**
+            playwright-report/**
+            test-results/**
+            appium/test-results/**
+            mobile_entry_url.txt
+            tv_ppv_report_metadata.json
