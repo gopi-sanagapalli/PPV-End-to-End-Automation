@@ -77,7 +77,10 @@ import {
 } from '../../pages/android/AndroidValidationPage';
 
 // ── Config ───────────────────────────────────────────────────────────────────
-const PPV_NAME = process.env.PPV_NAME || 'Joshua';
+const { loadEventConfig: loadTopEventConfig } = require('../../../utils/testHelpers');
+const TOP_EVENT_CONFIG = process.env.PPV_CONFIG || 'ppv_t_joshua_prenga.json';
+const topEventJson = loadTopEventConfig(TOP_EVENT_CONFIG);
+const PPV_NAME = process.env.PPV_NAME || topEventJson.PPV_NAME || 'Joshua';
 const SOURCE = (process.env.SOURCE || 'home-boxing-upcoming').trim().toLowerCase();
 const SURFACING_POINT = getAndroidSurfacingPoint(SOURCE);
 const APP_PACKAGE = process.env.APP_PACKAGE || 'com.dazn';

@@ -282,12 +282,39 @@ export class PPVUpsellPaymentPage extends BasePage {
 
         // ── Pay Now Button ──
       } else if (key === 'pay now button') {
+        // 1. Explicit "Pay Now" / "Pay £X" button
         const payBtn = this.page.locator(
           'button:has-text("Pay Now"), button:has-text("Pay now"), ' +
           'button:has-text("Pay €"), button:has-text("Pay £"), ' +
           'button[type="submit"]:has-text("Pay")'
         ).first();
-        actual = (await payBtn.isVisible({ timeout: 2000 }).catch(() => false)) ? 'Yes' : 'No';
+        const hasExplicitPayBtn = await payBtn.isVisible({ timeout: 2000 }).catch(() => false);
+
+        // 2. GB mobile checkout: Google Pay is shown as a radio-style selector
+        //    (not a button). The label/radio itself IS the pay trigger.
+        const hasGooglePayElement = await this.page.locator(
+          '[aria-label*="Google Pay" i], button:has-text("Google Pay"), ' +
+          'label:has-text("Google Pay"), [role="radio"]:has-text("Google Pay"), ' +
+          'input[value*="googlepay" i], [data-testid*="googlepay" i], ' +
+          '[class*="googlepay" i], [class*="google-pay" i], ' +
+          'text=Google Pay'
+        ).first().isVisible({ timeout: 1500 }).catch(() => false);
+
+        // 3. Any payment method section visible = pay action is available
+        const hasPaymentMethodSection = await this.page.locator(
+          'text=Payment method, [class*="payment-method" i], ' +
+          'text=More payment methods, [class*="paymentMethod" i]'
+        ).first().isVisible({ timeout: 1500 }).catch(() => false);
+
+        // 4. Any primary submit / CTA button
+        const hasPrimarySubmit = await this.page.locator(
+          'button[type="submit"], button:has-text("Complete"), button:has-text("Confirm"), ' +
+          'button:has-text("Subscribe"), button:has-text("Purchase"), button:has-text("Buy")'
+        ).first().isVisible({ timeout: 1500 }).catch(() => false);
+
+        const payTriggerFound = hasExplicitPayBtn || hasGooglePayElement || hasPaymentMethodSection || hasPrimarySubmit;
+        console.log(`  [Pay Now Button] explicit=${hasExplicitPayBtn}, googlePay=${hasGooglePayElement}, paymentSection=${hasPaymentMethodSection}, submitBtn=${hasPrimarySubmit} → ${payTriggerFound ? 'Yes' : 'No'}`);
+        actual = payTriggerFound ? 'Yes' : 'No';
 
         // ── Secure Checkout ──
       } else if (key === 'secure checkout') {

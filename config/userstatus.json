@@ -174,8 +174,8 @@
             "USER_PASSWORD": "TODO_ADD_PASSWORD"
           },
           "prod": {
-            "USER_EMAIL": "sri004ie@yopmail.com",
-            "USER_PASSWORD": "Dazn@123"
+            "USER_EMAIL": "tarunukprod3@t.dazn.com",
+            "USER_PASSWORD": "Test@123"
           }
         }
       },
@@ -256,7 +256,7 @@
             "USER_PASSWORD": "TODO_ADD_PASSWORD"
           },
           "prod": {
-            "USER_EMAIL": "tarunukprod@t.dazn.com",
+            "USER_EMAIL": "tarunukprod5@t.dazn.com",
             "USER_PASSWORD": "Test@123"
           }
         }

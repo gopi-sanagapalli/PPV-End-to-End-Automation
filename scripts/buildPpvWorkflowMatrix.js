@@ -136,9 +136,23 @@ if (country === 'CA') {
 let androidNewSources = ['landing-page-banner', 'home-page-banner', 'home-page-dont-miss', 'home-boxing-banner', 'home-boxing-upcoming', 'home-boxing-tile', 'schedule', 'search'];
 let androidExistingSources = androidNewSources.filter(source => source !== 'landing-page-banner');
 const androidProfiles = regularProfiles;
+let detectedDevices = [];
+try {
+  const { execSync } = require('child_process');
+  const adbOut = execSync('adb devices', { encoding: 'utf8' });
+  const lines = adbOut.split('\n').slice(1).map(l => l.trim()).filter(Boolean);
+  detectedDevices = lines
+    .filter(l => l.endsWith('\tdevice') || l.endsWith(' device'))
+    .map(l => l.split(/\s+/)[0]);
+} catch (e) {
+  // ADB optional during build step
+}
+
+const defaultSerial = process.env.DEVICE_SERIAL || detectedDevices[0] || '';
+const secondSerial = process.env.DEVICE_SERIAL || detectedDevices[1] || defaultSerial;
 const androidDevices = [
-  { deviceSerial: 'RZCW308EJKZ', appiumPort: 4723, appiumSystemPort: 8200, chromedriverPort: 9515 },
-  { deviceSerial: 'RZCX22324AF', appiumPort: 4724, appiumSystemPort: 8201, chromedriverPort: 9516 },
+  { deviceSerial: defaultSerial, appiumPort: 4723, appiumSystemPort: 8200, chromedriverPort: 9515 },
+  { deviceSerial: secondSerial, appiumPort: 4724, appiumSystemPort: 8201, chromedriverPort: 9516 },
 ];
 const assignAndroidDevices = (entries) => entries.map((entry, index) => ({ ...entry, ...androidDevices[index % androidDevices.length] }));
 
@@ -244,6 +258,37 @@ switch (mode) {
   case 'android-sanity-new': matrix = assignAndroidDevices(androidNewSources.map((source, index) => ({ source, plan: standardPlans[index % standardPlans.length] }))); break;
   case 'android-sanity-signin': matrix = assignAndroidDevices(androidNewSources.map((source, index) => ({ source, profile: androidProfiles[index] }))); break;
   case 'android-sanity-signed': matrix = assignAndroidDevices(androidExistingSources.map((source, index) => ({ source, profile: androidProfiles[index + androidNewSources.length] }))); break;
+  case 'ufc-sanity-new':
+  case 'web-sanity-new': {
+    const sources = applicable(liveSources.new, false);
+    if (canadaPlans) {
+      matrix = sources.map((source, index) => ({ source, plan: canadaPlans[index % canadaPlans.length] }));
+    } else {
+      matrix = sources.map((source, index) => ({ source, plan: standardPlans[index % standardPlans.length] }));
+    }
+    break;
+  }
+  case 'ufc-sanity-signin':
+  case 'web-sanity-signin':
+  case 'web-sanity-existing': {
+    const sources = applicable(liveSources.existing, false);
+    if (canadaProfiles) {
+      matrix = sources.map((source, index) => ({ source, profile: canadaProfiles[index % canadaProfiles.length] }));
+    } else {
+      matrix = sources.map((source, index) => ({ source, profile: regularProfiles[index % regularProfiles.length] }));
+    }
+    break;
+  }
+  case 'ufc-sanity-signed':
+  case 'web-sanity-signed': {
+    const sources = applicable(liveSources.signed, false);
+    if (canadaProfiles) {
+      matrix = sources.map((source, index) => ({ source, profile: canadaProfiles[(index + sources.length) % canadaProfiles.length] }));
+    } else {
+      matrix = sources.map((source, index) => ({ source, profile: regularProfiles[(index + sources.length) % regularProfiles.length] }));
+    }
+    break;
+  }
   case 'default-new':
     matrix = ['boxing-standard-subscription', 'home-page-get-started', 'home-page-dazntile'].flatMap((source) => standardPlans.map((plan) => ({ source, plan })));
     matrix.push({ source: 'subscribe-without-pay-per-view', plan: 'standard_monthly' });

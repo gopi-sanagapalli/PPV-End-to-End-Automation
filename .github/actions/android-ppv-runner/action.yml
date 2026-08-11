@@ -1,6 +1,9 @@
 name: Run Android PPV journey
+description: Runs Android Appium PPV test journeys.
 inputs:
-  journey: { required: true }
+  journey:
+    description: 'The PPV journey to run (e.g., new-user or existing-user)'
+    required: true
 runs:
   using: composite
   steps:
@@ -13,6 +16,17 @@ runs:
       run: |
         set -euo pipefail
         adb start-server
+        if [ -z "${DEVICE_SERIAL:-}" ] || ! adb devices | grep -qw "${DEVICE_SERIAL:-nosuchdevice}"; then
+          DETECTED_SERIAL=$(adb devices | awk 'NR>1 && $2=="device" {print $1; exit}')
+          if [ -n "$DETECTED_SERIAL" ]; then
+            echo "Auto-detected connected Android device: $DETECTED_SERIAL"
+            echo "DEVICE_SERIAL=$DETECTED_SERIAL" >> "$GITHUB_ENV"
+            export DEVICE_SERIAL="$DETECTED_SERIAL"
+          else
+            echo "::error::No connected Android device found via ADB."
+            exit 1
+          fi
+        fi
         adb -s "$DEVICE_SERIAL" wait-for-device
         adb -s "$DEVICE_SERIAL" get-state | grep -qx device
     - if: ${{ env.PROFILE != '' }}
