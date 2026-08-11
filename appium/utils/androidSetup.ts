@@ -116,14 +116,29 @@ async function dismissOneStartupDialog(driver: WdBrowser): Promise<boolean> {
 async function dismissLandingPage(driver: WdBrowser): Promise<boolean> {
   const isFireTv = String(process.env.TV_TARGET || '').toLowerCase().trim() === 'firetv';
 
-  // Prefer only sign-in oriented CTAs for TV startup.
-  const ctaTapped = await tapFirstVisible(driver, [
+  const mobileLandingSelectors = [
+    'android=new UiSelector().textMatches("(?i)^Explore$")',
+    'android=new UiSelector().textMatches("(?i)^Explore DAZN$")',
+    'android=new UiSelector().textMatches("(?i)^Explore the app$")',
+    'android=new UiSelector().textContains("Explore")',
+    'android=new UiSelector().descriptionMatches("(?i)^Explore$")',
+    'android=new UiSelector().descriptionContains("Explore")',
+    'android=new UiSelector().resourceId("com.dazn:id/btn_explore")',
+  ];
+
+  const tvLandingSelectors = [
     'android=new UiSelector().textMatches("(?i)^Get started$")',
     'android=new UiSelector().textContains("Get started")',
     'android=new UiSelector().textMatches("(?i)^Log in$")',
     'android=new UiSelector().textMatches("(?i)^Sign in$")',
     'android=new UiSelector().resourceId("com.dazn:id/btn_get_started")',
-  ], 'Landing page dismissed');
+  ];
+
+  const selectors = isFireTv
+    ? [...tvLandingSelectors, ...mobileLandingSelectors]
+    : [...mobileLandingSelectors, ...tvLandingSelectors];
+
+  const ctaTapped = await tapFirstVisible(driver, selectors, 'Landing page dismissed');
   
   if (ctaTapped) {
     await driver.pause(2000); // Wait for navigation

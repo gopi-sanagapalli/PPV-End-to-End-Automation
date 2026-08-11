@@ -47,8 +47,8 @@ const EFFECTIVE_TV_TARGET = IS_TV_SPEC_RUN ? TV_TARGET : '';
 // AndroidTV profile defaults (can be overridden with env vars).
 const ANDROIDTV_PROFILE_DEFAULTS = {
   platformVersion: '11',
-  deviceName: 'Android TV at 172.26.89.94',
-  udid: '172.26.89.94:5555',
+  deviceName: 'Android TV at 172.26.83.48',
+  udid: '172.26.83.48:5555',
   automationName: 'UiAutomator2',
 };
 
@@ -224,9 +224,10 @@ export const config = {
     appiumProcess = spawn(appiumCommand, [
       '--port', String(APPIUM_PORT),
       '--address', '127.0.0.1',
-      '--relaxed-security'
+      '--relaxed-security',
+      '--log-level', process.env.APPIUM_LOG_LEVEL || 'error'
     ], {
-      stdio: 'inherit',
+      stdio: process.env.APPIUM_SHOW_LOGS === 'true' ? 'inherit' : 'ignore',
       shell: true,
       env: { ...process.env, NODE_OPTIONS: '' }
     });
@@ -279,7 +280,7 @@ export const config = {
     } as any,
   ],
 
-  logLevel:               'info',
+  logLevel:               (process.env.WDIO_LOG_LEVEL || 'warn') as any,
   bail:                   0,
   waitforTimeout:         20000,
   connectionRetryTimeout: 180000,

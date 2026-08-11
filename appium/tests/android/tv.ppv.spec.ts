@@ -17,6 +17,7 @@ import { copyImmediateCheckoutUrl } from '../../pages/android/AndroidPaywallPage
 import { captureCheckoutUrl } from '../../pages/android/AndroidBasePage';
 import { primeAndroidTvFocus, sendTvKeyevent, TV_KEYCODES } from '../../utils/androidTvControls';
 import { decodeCheckoutUrlFromQr } from '../../utils/qrBridge';
+import { PNG } from 'pngjs';
 
 const event = loadEventConfig();
 const PPV_NAME = event.PPV_NAME;
@@ -42,9 +43,9 @@ const ANDROIDTV_BROWSER_PLANS_BACK_CHECK_MS = Number(process.env.ANDROIDTV_BROWS
 const TV_PPV_REPORT_METADATA = process.env.TV_PPV_REPORT_METADATA || path.resolve(__dirname, '../../../tv_ppv_report_metadata.json');
 const TV_PPV_SPEC_TIMEOUT_MS = Number(process.env.TV_PPV_SPEC_TIMEOUT_MS || 600000);
 const TV_POST_LOGIN_SCREENSHOTS = process.env.TV_POST_LOGIN_SCREENSHOTS === 'true';
-const TV_PAYWALL_INSTRUCTION_HEADER = 'How to watch this and more?';
+const TV_PAYWALL_INSTRUCTION_HEADER = 'How to watch this?';
 const TV_PAYWALL_EMAIL_INSTRUCTION = 'Follow the instructions we’ve just sent you to';
-const TV_PAYWALL_BROWSER_INSTRUCTION = "Go to 'My account' on a web browser to purchase this event with a DAZN plan";
+const TV_PAYWALL_BROWSER_INSTRUCTION = "Go to 'My account' on a web browser to purchase this event";
 
 type TvPpvReportStep = {
   page: string;
@@ -157,22 +158,146 @@ function hasText(texts: string[], expected: string): boolean {
   return Boolean(findVisibleText(texts, expected));
 }
 
-function recordComparison(page: string, field: string, expected: string, actual: string): void {
+function parseBounds(value: string): { x: number; y: number; width: number; height: number } | null {
+  const match = String(value || '').match(/\[(\d+),(\d+)\]\[(\d+),(\d+)\]/);
+  if (!match) return null;
+
+  const left = Number(match[1]);
+  const top = Number(match[2]);
+  const right = Number(match[3]);
+  const bottom = Number(match[4]);
+  if (right <= left || bottom <= top) return null;
+
+  return { x: left, y: top, width: right - left, height: bottom - top };
+}
+
+function findTextBounds(pageSource: string, candidates: string[]): { x: number; y: number; width: number; height: number } | null {
+  const normalizedCandidates = candidates
+    .map(candidate => normalizeForComparison(candidate))
+    .filter(candidate => candidate && candidate !== 'not found');
+  if (!normalizedCandidates.length) return null;
+
+  const tagPattern = /<[^>]+>/g;
+  let match: RegExpExecArray | null;
+  while ((match = tagPattern.exec(pageSource)) !== null) {
+    const tag = match[0];
+    const text = tag.match(/\b(?:text|content-desc)="([^"]*)"/)?.[1] || '';
+    const bounds = parseBounds(tag.match(/\bbounds="([^"]+)"/)?.[1] || '');
+    if (!text || !bounds) continue;
+
+    const normalizedText = normalizeForComparison(text);
+    if (normalizedCandidates.some(candidate => normalizedText === candidate || normalizedText.includes(candidate) || candidate.includes(normalizedText))) {
+      return bounds;
+    }
+  }
+
+  return null;
+}
+
+function drawRedBorder(image: PNG, bounds: { x: number; y: number; width: number; height: number }): void {
+  const left = Math.max(0, Math.min(image.width - 1, bounds.x));
+  const top = Math.max(0, Math.min(image.height - 1, bounds.y));
+  const right = Math.max(0, Math.min(image.width - 1, bounds.x + bounds.width));
+  const bottom = Math.max(0, Math.min(image.height - 1, bounds.y + bounds.height));
+  const thickness = 6;
+
+  const setRed = (x: number, y: number) => {
+    if (x < 0 || y < 0 || x >= image.width || y >= image.height) return;
+    const idx = (image.width * y + x) << 2;
+    image.data[idx] = 255;
+    image.data[idx + 1] = 23;
+    image.data[idx + 2] = 68;
+    image.data[idx + 3] = 255;
+  };
+
+  for (let offset = 0; offset < thickness; offset++) {
+    for (let x = left; x <= right; x++) {
+      setRed(x, top + offset);
+      setRed(x, bottom - offset);
+    }
+    for (let y = top; y <= bottom; y++) {
+      setRed(left + offset, y);
+      setRed(right - offset, y);
+    }
+  }
+}
+
+async function captureTvFailureScreenshot(
+  driver: any,
+  pageSource: string,
+  page: string,
+  field: string,
+  expected: string,
+  actual: string,
+): Promise<string | undefined> {
+  try {
+    const shotsDir = path.resolve(process.cwd(), 'test-results/failure-shots');
+    if (!fs.existsSync(shotsDir)) fs.mkdirSync(shotsDir, { recursive: true });
+
+    const screenshotPath = path.join(
+      shotsDir,
+      `tv_${page}_${field}_${Date.now()}.png`.replace(/[^a-zA-Z0-9._/-]/g, '_'),
+    );
+    await driver.saveScreenshot(screenshotPath);
+
+    const image = PNG.sync.read(fs.readFileSync(screenshotPath));
+    const windowRect = await driver.getWindowRect().catch(() => null);
+    const logicalWidth = windowRect?.width || image.width;
+    const logicalHeight = windowRect?.height || image.height;
+    const elementBounds = findTextBounds(pageSource, [actual, expected]);
+    const bounds = elementBounds
+      ? {
+          x: Math.round(elementBounds.x * (image.width / logicalWidth)),
+          y: Math.round(elementBounds.y * (image.height / logicalHeight)),
+          width: Math.round(elementBounds.width * (image.width / logicalWidth)),
+          height: Math.round(elementBounds.height * (image.height / logicalHeight)),
+        }
+      : { x: 4, y: 4, width: image.width - 8, height: image.height - 8 };
+
+    drawRedBorder(image, bounds);
+    fs.writeFileSync(screenshotPath, PNG.sync.write(image));
+    console.log(`📸 [TV Report] Marked failed field "${field}" in red: ${screenshotPath}`);
+    return screenshotPath;
+  } catch (error: any) {
+    console.warn(`⚠️ Could not capture TV failure screenshot for ${field}: ${error?.message || error}`);
+    return undefined;
+  }
+}
+
+async function recordComparison(driver: any, pageSource: string, page: string, field: string, expected: string, actual: string): Promise<void> {
+  const status = normalizeForComparison(expected) === normalizeForComparison(actual || '') ? 'PASS' : 'FAIL';
+  const reportActual = actual || 'Not found';
+  const screenshot = status === 'FAIL'
+    ? await captureTvFailureScreenshot(driver, pageSource, page, field, expected, reportActual)
+    : undefined;
+
   recordTvPpvReportStep(
     field,
     expected,
-    actual || 'Not found',
-    normalizeForComparison(expected) === normalizeForComparison(actual || '') ? 'PASS' : 'FAIL',
+    reportActual,
+    status,
     page,
+    screenshot,
   );
 }
 
-function recordComparisonWithStatus(page: string, field: string, expected: string, actual: string, passed: boolean): void {
-  recordTvPpvReportStep(field, expected, actual || 'Not found', passed ? 'PASS' : 'FAIL', page);
+async function recordComparisonWithStatus(driver: any, pageSource: string, page: string, field: string, expected: string, actual: string, passed: boolean): Promise<void> {
+  const status = passed ? 'PASS' : 'FAIL';
+  const reportActual = actual || 'Not found';
+  const screenshot = status === 'FAIL'
+    ? await captureTvFailureScreenshot(driver, pageSource, page, field, expected, reportActual)
+    : undefined;
+
+  recordTvPpvReportStep(field, expected, reportActual, status, page, screenshot);
 }
 
-function recordPresence(page: string, field: string, present: boolean): void {
-  recordTvPpvReportStep(field, 'Yes', present ? 'Yes' : 'No', present ? 'PASS' : 'FAIL', page);
+async function recordPresence(driver: any, pageSource: string, page: string, field: string, present: boolean): Promise<void> {
+  const actual = present ? 'Yes' : 'No';
+  const screenshot = present
+    ? undefined
+    : await captureTvFailureScreenshot(driver, pageSource, page, field, 'Yes', actual);
+
+  recordTvPpvReportStep(field, 'Yes', actual, present ? 'PASS' : 'FAIL', page, screenshot);
 }
 
 function findDateTimeText(texts: string[], parts: { date: string; month: string; time: string; dateTime: string }): string {
@@ -259,15 +384,15 @@ async function recordTvScheduleAndTileAssertions(driver: any): Promise<void> {
   const expectedWhenTileVisible = (expected: string, fallbackActual = '') => tileVisible ? expected : fallbackActual;
   const expectedWhenDateVisible = (expected: string, fallbackActual = '') => targetDateVisible ? expected : fallbackActual;
 
-  recordPresence('Schedule', 'PPV Tile Present', tileVisible);
-  recordComparison('Schedule', 'PPV Name', tileName, findVisibleText(texts, tileName));
-  recordPresence('Schedule', 'PPV Image Present', imageVisible);
-  recordPresence('Schedule', 'Lock Icon Present', tileVisible && (/lock|locked/i.test(source) || imageVisible));
-  recordComparison('Schedule', 'PPV Promoter', promoter, expectedWhenTileVisible(promoter, findVisibleText(texts, promoter)));
-  recordComparison('Schedule', 'Day', dateParts.weekday, expectedWhenDateVisible(dateParts.weekday, findVisibleText(texts, dateParts.weekday)));
-  recordComparison('Schedule', 'Month', dateParts.month, expectedWhenDateVisible(dateParts.month, findVisibleText(texts, dateParts.month)));
-  recordComparison('Schedule', 'Date', dateParts.date, expectedWhenDateVisible(dateParts.date, findVisibleText(texts, dateParts.date)));
-  recordComparison('Schedule', 'Time', dateParts.time, expectedWhenTileVisible(dateParts.time, findVisibleText(texts, dateParts.time)));
+  await recordPresence(driver, source, 'Schedule', 'PPV Tile Present', tileVisible);
+  await recordComparison(driver, source, 'Schedule', 'PPV Name', tileName, findVisibleText(texts, tileName));
+  await recordPresence(driver, source, 'Schedule', 'PPV Image Present', imageVisible);
+  await recordPresence(driver, source, 'Schedule', 'Lock Icon Present', tileVisible && (/lock|locked/i.test(source) || imageVisible));
+  await recordComparison(driver, source, 'Schedule', 'PPV Promoter', promoter, expectedWhenTileVisible(promoter, findVisibleText(texts, promoter)));
+  await recordComparison(driver, source, 'Schedule', 'Day', dateParts.weekday, expectedWhenDateVisible(dateParts.weekday, findVisibleText(texts, dateParts.weekday)));
+  await recordComparison(driver, source, 'Schedule', 'Month', dateParts.month, expectedWhenDateVisible(dateParts.month, findVisibleText(texts, dateParts.month)));
+  await recordComparison(driver, source, 'Schedule', 'Date', dateParts.date, expectedWhenDateVisible(dateParts.date, findVisibleText(texts, dateParts.date)));
+  await recordComparison(driver, source, 'Schedule', 'Time', dateParts.time, expectedWhenTileVisible(dateParts.time, findVisibleText(texts, dateParts.time)));
 
   if (!ready) {
     console.warn(`⚠️ Schedule report validation continued with partial accessibility data for ${tileName}.`);
@@ -289,22 +414,24 @@ async function recordTvPaywallAssertions(driver: any, expectedEmail = ''): Promi
   const emailInstructionWithEmailActual = emailInstructionActual && actualEmail
     ? `${emailInstructionActual} ${actualEmail}.`
     : emailInstructionActual;
-  const browserInstructionActual = hasVisibleTextParts(texts, ["Go to 'My account'", 'web browser', 'purchase this event', 'DAZN plan'])
+  const browserInstructionActual = hasVisibleTextParts(texts, ["Go to 'My account'", 'web browser', 'purchase this event'])
     ? TV_PAYWALL_BROWSER_INSTRUCTION
     : findVisibleText(texts, TV_PAYWALL_BROWSER_INSTRUCTION);
 
-  recordComparison('Paywall', 'Event Name', eventName, findVisibleText(texts, eventName));
-  recordComparison('Paywall', 'Event Date and Time', dateParts.dateTime, findDateTimeText(texts, dateParts));
-  recordComparison('Paywall', 'Instruction Header', TV_PAYWALL_INSTRUCTION_HEADER, findVisibleText(texts, TV_PAYWALL_INSTRUCTION_HEADER));
-  recordComparisonWithStatus(
+  await recordComparison(driver, source, 'Paywall', 'Event Name', eventName, findVisibleText(texts, eventName));
+  await recordComparison(driver, source, 'Paywall', 'Event Date and Time', dateParts.dateTime, findDateTimeText(texts, dateParts));
+  await recordComparison(driver, source, 'Paywall', 'Instruction Header', TV_PAYWALL_INSTRUCTION_HEADER, findVisibleText(texts, TV_PAYWALL_INSTRUCTION_HEADER));
+  await recordComparisonWithStatus(
+    driver,
+    source,
     'Paywall',
     'Email Instruction Text',
     emailInstructionExpected,
     emailInstructionWithEmailActual,
     Boolean(emailInstructionActual) && (!expectedEmail || normalizeForComparison(actualEmail) === normalizeForComparison(expectedEmail)),
   );
-  recordComparison('Paywall', 'Instruction Email', expectedEmail || actualEmail, actualEmail);
-  recordComparison('Paywall', 'Web Browser Instruction', TV_PAYWALL_BROWSER_INSTRUCTION, browserInstructionActual);
+  await recordComparison(driver, source, 'Paywall', 'Instruction Email', expectedEmail || actualEmail, actualEmail);
+  await recordComparison(driver, source, 'Paywall', 'Web Browser Instruction', TV_PAYWALL_BROWSER_INSTRUCTION, browserInstructionActual);
 }
 
 // TV PPV flow outline:

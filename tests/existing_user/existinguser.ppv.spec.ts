@@ -145,6 +145,7 @@ type TvPpvReportMetadata = {
     expected: string;
     actual: string;
     status: 'PASS' | 'FAIL';
+    screenshot?: string;
   }>;
 };
 
@@ -176,6 +177,7 @@ function appendTvPpvReportSteps(results: any[], metadata: TvPpvReportMetadata | 
       expected: step.expected,
       actual: step.actual,
       status: step.status || 'PASS',
+      screenshot: step.screenshot,
     });
   }
 }
@@ -2068,6 +2070,18 @@ for (const stateKey of userStatesToRun) {
         eventData['FULL_NAME'] = eventData.FULL_NAME;
         eventData['IS_RETURNING_USER'] = eventData.IS_RETURNING_USER;
         eventData['SIGNED_IN_AS_TEXT'] = eventData.SIGNED_IN_AS_TEXT;
+
+        if (devModeEnabled) {
+          const daznBaseUrl = tvHandoffUrl.match(/https:\/\/[^/]+\/en-[A-Z]+/i)?.[0] || baseUrl;
+          const reason = devModeForced ? '(forced via DEV_MODE_ON=on)' : '(auto: ultimate tier in GB/US)';
+          console.log(`\n🎭 [TV Handoff] Dev mode flow detected ${reason} — enabling dev mode before opening web handoff URL...`);
+          console.log(`🧭 [TV Handoff] Opening DAZN base URL for dev mode: ${daznBaseUrl}`);
+          await page.goto(daznBaseUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+          await handleCookies(page, 8000).catch(() => {});
+          const searchPage = new SearchPage(page);
+          await searchPage.enableDevMode();
+          console.log('✅ [TV Handoff] Dev mode enabled — continuing with TV handoff URL');
+        }
 
         if (isYopmailHandoffUrl(tvHandoffUrl)) {
           postClickUrl = await openYopmailHandoffAndReachPlansPage(page, tvHandoffUrl, userEmail, userPassword, results);

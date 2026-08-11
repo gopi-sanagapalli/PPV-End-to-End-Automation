@@ -137,7 +137,7 @@ export async function detectPageType(
       body.includes('pay now') ||
       body.includes('payment method')
     ) {
-      return 'payment';
+      return 'saved-card-payment';
     } else {
       return 'choose-how-to-buy';
     }
@@ -151,6 +151,10 @@ export async function detectPageType(
     urlLower.includes('/addon/purchase/checkout') ||
     urlLower.includes('/addon/purchase/pay')
   ) {
+    const userState = (process.env.USER_STATE || '').toLowerCase().trim();
+    if (userState.startsWith('active_')) {
+      return 'saved-card-payment';
+    }
     return 'payment';
   }
 
