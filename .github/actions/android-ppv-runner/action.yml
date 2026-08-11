@@ -7,6 +7,13 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Add Android SDK platform-tools to PATH
+      shell: bash
+      run: |
+        SDK_PATH="${ANDROID_HOME:-$HOME/Library/Android/sdk}/platform-tools"
+        if [ -d "$SDK_PATH" ]; then
+          echo "$SDK_PATH" >> "$GITHUB_PATH"
+        fi
     - shell: bash
       run: npm ci
     - shell: bash
@@ -15,6 +22,7 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
+        export PATH="${ANDROID_HOME:-$HOME/Library/Android/sdk}/platform-tools:$PATH"
         adb start-server
         if [ -z "${DEVICE_SERIAL:-}" ] || ! adb devices | grep -qw "${DEVICE_SERIAL:-nosuchdevice}"; then
           DETECTED_SERIAL=$(adb devices | awk 'NR>1 && $2=="device" {print $1; exit}')
