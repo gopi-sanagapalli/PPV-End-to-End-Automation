@@ -41,7 +41,7 @@ jobs:
   androidtv-prod-ppv-existing-user:
     name: AndroidTV.Prod.PPV.Existing User
     runs-on: [self-hosted, macOS, ARM64, chandrababu-runners]
-    timeout-minutes: 120
+    timeout-minutes: 60
 
     steps:
       - name: Checkout repository
