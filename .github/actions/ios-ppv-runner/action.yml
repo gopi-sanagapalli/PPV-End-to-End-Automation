@@ -8,6 +8,18 @@ runs:
       run: npm ci
     - shell: bash
       run: cd appium && npm ci
+    - name: Kill stale Appium/iproxy processes before starting
+      shell: bash
+      run: |
+        set +e
+        port="${APPIUM_PORT:-4723}"
+        echo "🧹 Cleaning up any stale process on port $port and iproxy for ${IOS_UDID:-unknown}..."
+        pids="$(lsof -ti tcp:"$port" 2>/dev/null)"
+        [ -n "$pids" ] && kill -9 $pids 2>/dev/null
+        pkill -f "iproxy 8100 8100 -u ${IOS_UDID}" 2>/dev/null
+        sleep 2
+        echo "✅ Stale process cleanup complete."
+        set -e
     - name: Start Appium server
       shell: bash
       run: |

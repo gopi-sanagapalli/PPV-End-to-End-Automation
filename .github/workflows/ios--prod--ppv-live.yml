@@ -56,6 +56,9 @@ jobs:
   new-user:
     needs: prepare
     name: New user | ${{ matrix.source }} | ${{ matrix.plan }}
+    concurrency:
+      group: ios-physical-device-lock
+      cancel-in-progress: false
     runs-on: [self-hosted, macOS, ARM64, sridevi-runners]
     timeout-minutes: 30
     strategy:
@@ -84,6 +87,9 @@ jobs:
   existing-sign-in-during-flow:
     needs: prepare
     name: Existing user · Sign in during flow | ${{ matrix.source }} | ${{ matrix.profile }}
+    concurrency:
+      group: ios-physical-device-lock
+      cancel-in-progress: false
     runs-on: [self-hosted, macOS, ARM64, sridevi-runners]
     timeout-minutes: 30
     strategy:
@@ -113,6 +119,9 @@ jobs:
   existing-already-signed-in:
     needs: prepare
     name: Existing user · Already signed in | ${{ matrix.source }} | ${{ matrix.profile }}
+    concurrency:
+      group: ios-physical-device-lock
+      cancel-in-progress: false
     runs-on: [self-hosted, macOS, ARM64, sridevi-runners]
     timeout-minutes: 30
     strategy:
