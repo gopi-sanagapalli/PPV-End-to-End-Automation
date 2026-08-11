@@ -89,7 +89,41 @@ export async function clickAndWaitForNav(
     await page.waitForLoadState('domcontentloaded', { timeout: 3000 }).catch(() => { });
     console.log(`navigated to: ${page.url()}`);
   }
+  await waitForPostClickStateChange(page, before, label);
   await assertDaznPageAvailable(page, `after clicking ${label}`);
+}
+
+async function waitForPostClickStateChange(
+  page: any,
+  beforeUrl: string,
+  label: string
+): Promise<void> {
+  const beforeLower = beforeUrl.toLowerCase();
+  const isPlanContinue =
+    beforeLower.includes('page=plandetails') &&
+    /continue|plan/i.test(label);
+
+  if (!isPlanContinue) return;
+
+  const settled = await page.waitForFunction(() => {
+    const href = window.location.href.toLowerCase();
+    const body = document.body?.innerText?.toLowerCase() || '';
+    if (!href.includes('page=plandetails')) return true;
+    if (href.includes('paymentdetails') || href.includes('payment') || href.includes('checkout')) return true;
+    if (body.includes('today you pay') || body.includes('payment method')) return true;
+    if (body.includes('first name') && body.includes('last name')) return true;
+    if (body.includes('email address') && !body.includes('continue with dazn ultimate')) return true;
+    return !body.includes('continue with dazn ultimate');
+  }, { timeout: 10_000 }).then(() => true).catch(() => false);
+
+  if (!settled) {
+    const body = await page.locator('body').innerText().catch(() => '');
+    throw new Error(
+      `❌ ${label} did not leave the PlanDetails page.\n` +
+      `URL: ${page.url()}\n` +
+      `Page text: ${body.slice(0, 3000)}`
+    );
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────

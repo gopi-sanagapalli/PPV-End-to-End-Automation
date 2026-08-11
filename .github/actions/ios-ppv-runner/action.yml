@@ -17,8 +17,15 @@ runs:
         echo "🧹 Cleaning up any stale process on port $port and iproxy for ${IOS_UDID:-unknown}..."
         pids="$(lsof -ti tcp:"$port" 2>/dev/null)"
         [ -n "$pids" ] && kill -9 $pids 2>/dev/null
+        pids="$(lsof -ti tcp:8100 2>/dev/null)"
+        [ -n "$pids" ] && kill -9 $pids 2>/dev/null
         pkill -f "iproxy 8100 8100 -u ${IOS_UDID}" 2>/dev/null
-        sleep 2
+        for p in "$port" 8100; do
+          for i in $(seq 1 10); do
+            lsof -ti tcp:"$p" >/dev/null 2>&1 || break
+            sleep 1
+          done
+        done
         echo "✅ Stale process cleanup complete."
         set -e
     - name: Start Appium server
@@ -27,17 +34,33 @@ runs:
         set -euo pipefail
         port="${APPIUM_PORT:-4723}"
         cd appium
-        npx appium --port "$port" --relaxed-security --address 127.0.0.1 &
+        appium_log="${RUNNER_TEMP:-/tmp}/appium-${port}.log"
+        if command -v appium >/dev/null 2>&1; then
+          appium_cmd=(appium)
+        else
+          appium_cmd=(npx --yes --package appium@2 appium)
+        fi
+        "${appium_cmd[@]}" --port "$port" --relaxed-security --address 127.0.0.1 > "$appium_log" 2>&1 &
         APPIUM_PID=$!
         echo "APPIUM_PID=$APPIUM_PID" >> "$GITHUB_ENV"
+        echo "APPIUM_LOG=$appium_log" >> "$GITHUB_ENV"
         # Wait for Appium to be ready
-        for i in $(seq 1 30); do
+        for i in $(seq 1 60); do
           if curl -sf "http://127.0.0.1:${port}/status" > /dev/null 2>&1; then
             echo "✅ Appium ready on port $port (PID $APPIUM_PID)"
-            break
+            exit 0
+          fi
+          if ! kill -0 "$APPIUM_PID" 2>/dev/null; then
+            echo "❌ Appium exited before it became ready. Log:"
+            cat "$appium_log" || true
+            exit 1
           fi
           sleep 1
         done
+        echo "❌ Appium did not become ready on port $port. Log:"
+        cat "$appium_log" || true
+        kill "$APPIUM_PID" 2>/dev/null || true
+        exit 1
     - name: Start iproxy
       shell: bash
       run: |
@@ -46,6 +69,10 @@ runs:
         IPROXY_PID=$!
         echo "IPROXY_PID=$IPROXY_PID" >> "$GITHUB_ENV"
         sleep 2
+        if ! kill -0 "$IPROXY_PID" 2>/dev/null; then
+          echo "❌ iproxy exited before it became ready."
+          exit 1
+        fi
         echo "✅ iproxy started (PID $IPROXY_PID)"
     - if: ${{ env.PROFILE != '' }}
       shell: bash
@@ -68,8 +95,17 @@ runs:
       if: ${{ always() }}
       shell: bash
       run: |
+        port="${APPIUM_PORT:-4723}"
         [ -n "${APPIUM_PID:-}" ] && kill "$APPIUM_PID" 2>/dev/null || true
         [ -n "${IPROXY_PID:-}" ] && kill "$IPROXY_PID" 2>/dev/null || true
+        for p in "$port" 8100; do
+          for i in $(seq 1 10); do
+            lsof -ti tcp:"$p" >/dev/null 2>&1 || break
+            sleep 1
+          done
+          pids="$(lsof -ti tcp:"$p" 2>/dev/null)"
+          [ -n "$pids" ] && kill -9 $pids 2>/dev/null || true
+        done
     - name: Store iOS test results locally
       if: ${{ always() }}
       shell: bash

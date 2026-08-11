@@ -705,6 +705,10 @@ export class IOSSafariValidationPage extends IOSBasePage {
 
       // ── Skip mobile-irrelevant fields ─────────────────────────
       if (IOSSafariValidationPage.MOBILE_SKIP_FIELDS.has(fieldLower)) continue;
+      if (pageName === 'Payment Page' && fieldLower === 'payment method heading') {
+        console.log('⏭️  Skipping desktop-only Safari field: Payment Method Heading');
+        continue;
+      }
       if (fieldLower.includes('welcome back')) continue;
       if (fieldLower === 'cta without ppv' &&
         !/subscribe without a pay-per-view|continue without(?: a)? pay-per-view/i.test(fullText)) {
