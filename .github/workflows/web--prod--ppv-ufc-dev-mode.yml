@@ -30,19 +30,22 @@ env:
   JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
 jobs:
   prepare:
-    runs-on: [self-hosted, macOS, ARM64]
+    runs-on: [self-hosted, macOS, ARM64, sridevi-runners]
+    timeout-minutes: 30
     env:
       ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - id: matrix
         run: node scripts/buildPpvWorkflowMatrix.js dev-account '${{ inputs.PPV_CONFIG }}' 'CA'
   my-account:
     needs: prepare
+    environment: prod
     name: Existing user · Dev mode My Account | ${{ matrix.profile }}
-    runs-on: [self-hosted, macOS, ARM64]
+    runs-on: [self-hosted, macOS, ARM64, sridevi-runners]
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       max-parallel: 10
@@ -61,18 +64,19 @@ jobs:
       DEV_MODE_ON: 'on'
       SWITCH: 'false'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/ppv-generic-runner
         with: { journey: dev-mode-my-account }
   workflow-summary:
     needs: [prepare, my-account]
     if: ${{ always() }}
     name: Consolidated workflow report · CA
-    runs-on: [self-hosted, macOS, ARM64]
+    runs-on: [self-hosted, macOS, ARM64, sridevi-runners]
+    timeout-minutes: 30
     env:
       ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/ppv-workflow-summary
         with:
           title: Web UFC PPV dev-mode workflow report · CA

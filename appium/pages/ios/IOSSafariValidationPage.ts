@@ -24,13 +24,9 @@ export class IOSSafariValidationPage extends IOSBasePage {
     'welcome back banner',
     'welcome back banner title',
     'welcome back banner description',
-    // iOS Safari payment page shows a card input form directly (not tab selectors)
-    'credit & debit card option',
-    'paypal option',
-    'google pay option',
+    // Apple Pay is checked separately after expanding payment methods.
     'apple pay option',
-    // iOS payment page does not render a "Purchase summary" section heading
-    'payment method heading',
+    // iOS payment page does not render a "Purchase summary" section heading.
     'purchase summary heading',
     'welcome back banner cta',
     'tooltip text',
@@ -118,7 +114,6 @@ export class IOSSafariValidationPage extends IOSBasePage {
           }) || null;
         }
         for (const element of Array.from(document.querySelectorAll<HTMLElement>('body *'))) {
-          if (target) break;
           const text = normalise(element.innerText || element.textContent || '');
           if (!text || !candidates.some(value => text === value || text.includes(value))) continue;
           const box = element.getBoundingClientRect();
@@ -384,10 +379,17 @@ export class IOSSafariValidationPage extends IOSBasePage {
         : /annual\s*[-–]?\s*pay\s*monthly/i;
       const planIndex = texts.findIndex(text => planRegex.test(text));
       const pricePattern = /(?:[A-Z]{3}\s*|[£$€₹]\s?)\d+(?:[.,]\d{2})?/;
-      const price = planIndex >= 0
-        ? texts.slice(planIndex + 1, planIndex + 5).map(text => text.match(pricePattern)?.[0]).find(Boolean)
-        : undefined;
-      const actual = price ? price.trim() : 'Not found';
+      const planLines = planIndex >= 0 ? texts.slice(planIndex + 1, planIndex + 5) : [];
+      const priceIndex = planLines.findIndex(text => pricePattern.test(text));
+      const priceLine = priceIndex >= 0 ? planLines[priceIndex] : undefined;
+      const price = priceLine?.match(pricePattern)?.[0];
+      const period = [priceLine, ...planLines.slice(priceIndex + 1, priceIndex + 3)]
+        .map(text => text?.match(/\/\s*(?:month|year)\b/i)?.[0])
+        .find(Boolean)
+        ?.replace(/\s+/g, '');
+      const actual = price
+        ? `${price.trim()}${period || ''}`
+        : 'Not found';
       return { actual, isMatch: compareFn(actual, expected) };
     }
 
@@ -715,11 +717,9 @@ export class IOSSafariValidationPage extends IOSBasePage {
         console.log(`⏭️  Skipping ${rowFlow}-only Safari field: ${field}`);
         continue;
       }
-      // Skip account-only fields for freemium, new-user, and ultimate users.
-      // These fields only apply to frozen / active_standard users.
-      const isFreemiumOrNewOrUltimate = userState === 'freemium' || userState.startsWith('new') ||
-        (eventData.TIER || '').toLowerCase() === 'ultimate';
-      if (isFreemiumOrNewOrUltimate &&
+      // Account fields apply to frozen users regardless of the plan tier selected.
+      const isFreemiumOrNew = userState === 'freemium' || userState.startsWith('new');
+      if (isFreemiumOrNew &&
           (fieldLower === 'log out present' || fieldLower === 'signed in as text' || fieldLower === 'saved card present')) {
         console.log(`⏭️  Skipping ${fieldLower} for ${userState} user.`);
         continue;
@@ -991,6 +991,16 @@ export class IOSSafariValidationPage extends IOSBasePage {
         },
         { timeout: 10000, timeoutMsg: 'Payment page plan/price did not render.' },
       ).catch(() => { });
+
+      await this.driver.waitUntil(
+        async () => Boolean(await this.driver.execute(() => {
+          const text = (document.body?.innerText || '').replace(/\s+/g, ' ').toLowerCase();
+          return /apple pay|google pay|paypal|credit.*debit.*card|credit.*card|debit.*card|card number/.test(text);
+        }).catch(() => false)),
+        { timeout: 20000, interval: 500, timeoutMsg: 'Payment methods did not render.' },
+      ).catch(() => {
+        console.log('⚠️  Payment methods did not render before Safari payment validation.');
+      });
 
       // Match the web PaymentPage behaviour: the annual legal text is
       // collapsed behind "... More" by default. Expand it before collecting

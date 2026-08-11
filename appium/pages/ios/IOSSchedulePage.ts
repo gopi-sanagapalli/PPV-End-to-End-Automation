@@ -163,59 +163,58 @@ export class IOSSchedulePage extends IOSBasePage {
       }, { timeout: 1200, interval: 200 }).catch(() => { });
     }
 
-    if (sportEl) {
-      if (await this.isSelectedFilter(sportEl)) {
-        console.log(`✅ ${sport} filter already selected`);
-        return;
-      }
-      await sportEl.click();
-      const waitForSelectedSport = (timeout: number) => this.driver.waitUntil(async () => {
-        const selectedSport = await this.firstVisibleNearY(sportTab, menuY);
-        if (!selectedSport) return false;
-        const pageSource = await this.driver.getPageSource().catch(() => '');
-        const selectionExposed = await this.isSelectedFilter(selectedSport);
-        return !/<XCUIElementTypeActivityIndicator\b/i.test(pageSource) &&
-          (selectionExposed || await hasFilteredSportContent());
-      }, {
-        timeout,
-        interval: 300,
-        timeoutMsg: `${sport} filter did not become selected after it was tapped.`,
-      });
-
-      const selected = await waitForSelectedSport(4000).then(() => true).catch(() => false);
-      if (!selected) {
-        sportEl = await this.firstVisibleNearY(sportTab, menuY);
-        if (sportEl && !await this.isSelectedFilter(sportEl)) await sportEl.click();
-      }
-      await waitForSelectedSport(6000).catch(async (error: any) => {
-        await this.driver.saveScreenshot('./test-results/ios_schedule_sport_filter_not_selected.png').catch(() => { });
-        throw error;
-      });
-      await this.driver.saveScreenshot('./test-results/ios_schedule_after_sport_filter.png');
-      console.log(`✅ ${sport} filter applied and Schedule content settled`);
-    } else {
-      console.warn(`⚠️ ${sport} filter not found, proceeding with default list`);
+    if (!sportEl) {
+      await this.driver.saveScreenshot('./test-results/ios_schedule_sport_filter_not_found.png').catch(() => { });
+      throw new Error(`${sport} filter was not found in the Schedule filter strip.`);
     }
+    if (await this.isSelectedFilter(sportEl)) {
+      console.log(`✅ ${sport} filter already selected`);
+      return;
+    }
+
+    const sourceBeforeFilterTap = await this.driver.getPageSource().catch(() => '');
+    await sportEl.click();
+    await this.driver.waitUntil(async () => {
+      const selectedSport = await this.firstVisibleNearY(sportTab, menuY);
+      if (!selectedSport) return false;
+      const pageSource = await this.driver.getPageSource().catch(() => '');
+      const selectionExposed = await this.isSelectedFilter(selectedSport);
+      const contentUpdated = pageSource !== sourceBeforeFilterTap;
+      return !/<XCUIElementTypeActivityIndicator\b/i.test(pageSource) &&
+        (selectionExposed || (contentUpdated && await hasFilteredSportContent()));
+    }, {
+      timeout: Number(process.env.IOS_SCHEDULE_FILTER_TIMEOUT_MS || 6000),
+      interval: 300,
+      timeoutMsg: `${sport} filter did not become selected after it was tapped.`,
+    }).catch(async (error: any) => {
+      await this.driver.saveScreenshot('./test-results/ios_schedule_sport_filter_not_selected.png').catch(() => { });
+      throw error;
+    });
+    await this.driver.saveScreenshot('./test-results/ios_schedule_after_sport_filter.png');
+    console.log(`✅ ${sport} filter applied and Schedule content settled`);
   }
 
   async scrollToPPVTile(ppvName = this.ppvName): Promise<WdElement | null> {
     console.log(`  Target PPV: ${ppvName}`);
     const normaliseTitle = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+    const predicateValue = (value: string) => value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    const titleTerms = normaliseTitle(ppvName)
+      .split(/[^a-z0-9]+/)
+      .filter(term => term.length > 2 && !['the', 'and', 'vs'].includes(term))
+      .slice(0, 2);
     const zayasMainEvent = [
       `~${ppvName}`,
       `-ios predicate string:name == "${ppvName}" OR label == "${ppvName}"`,
+      titleTerms.length
+        ? `-ios predicate string:type == "XCUIElementTypeStaticText" AND ${titleTerms
+          .map(term => `(name CONTAINS[c] "${predicateValue(term)}" OR label CONTAINS[c] "${predicateValue(term)}")`)
+          .join(' AND ')}`
+        : '',
     ];
     const findPPVTile = async (): Promise<WdElement | null> => {
-      for (const selector of zayasMainEvent) {
+      for (const selector of zayasMainEvent.filter(Boolean)) {
         const el = await this.driver.$(selector).catch(() => null);
         if (el && await el.isDisplayed().catch(() => false)) return el;
-      }
-      const expectedTitle = normaliseTitle(ppvName);
-      const textElements = await this.driver.$$('//XCUIElementTypeStaticText').catch(() => []);
-      for (const el of textElements) {
-        if (!await el.isDisplayed().catch(() => false)) continue;
-        const text = String(await el.getAttribute('label').catch(() => '') || await el.getAttribute('name').catch(() => ''));
-        if (normaliseTitle(text) === expectedTitle) return el;
       }
       return null;
     };
@@ -224,7 +223,8 @@ export class IOSSchedulePage extends IOSBasePage {
     const cx = Math.round(width / 2);
     const midY = Math.round(height * 0.55);
 
-    // Scroll down in small steps
+    // Use short swipes so the native hierarchy has a chance to expose the
+    // target before the next movement carries it past the viewport.
     for (let i = 0; i < 25; i++) {
       const el = await findPPVTile();
       if (el) {
@@ -244,7 +244,7 @@ export class IOSSchedulePage extends IOSBasePage {
         ],
       }]);
       await this.driver.releaseActions();
-      await this.driver.pause(500);
+      await this.driver.pause(300);
     }
 
     // Scroll up recovery just in case we overshot
@@ -267,7 +267,7 @@ export class IOSSchedulePage extends IOSBasePage {
         ],
       }]);
       await this.driver.releaseActions();
-      await this.driver.pause(500);
+      await this.driver.pause(300);
     }
 
     return null;

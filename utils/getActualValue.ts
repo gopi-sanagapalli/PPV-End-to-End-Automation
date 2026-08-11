@@ -5967,7 +5967,7 @@ export async function getActualValue(
       // The badge belongs to the APU card only. Do not search the whole page:
       // doing so can associate text from the selected APM card with this field.
       const upfrontCard = page.locator(
-        'label:has-text("Annual - Pay Upfront"), [role="radio"]:has-text("Annual - Pay Upfront"), [class*="card" i]:has-text("Annual - Pay Upfront")'
+        'label:has-text("Pay Upfront"), [role="radio"]:has-text("Pay Upfront"), [class*="card" i]:has-text("Pay Upfront")'
       ).first();
       if (await upfrontCard.isVisible({ timeout: 1000 }).catch(() => false)) {
         const badgeText = await upfrontCard.evaluate((card: HTMLElement) => {

@@ -1,0 +1,82 @@
+name: Run iOS PPV journey
+inputs:
+  journey: { required: true }
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: npm ci
+    - shell: bash
+      run: cd appium && npm ci
+    - name: Start Appium server
+      shell: bash
+      run: |
+        set -euo pipefail
+        port="${APPIUM_PORT:-4723}"
+        cd appium
+        npx appium --port "$port" --relaxed-security --address 127.0.0.1 &
+        APPIUM_PID=$!
+        echo "APPIUM_PID=$APPIUM_PID" >> "$GITHUB_ENV"
+        # Wait for Appium to be ready
+        for i in $(seq 1 30); do
+          if curl -sf "http://127.0.0.1:${port}/status" > /dev/null 2>&1; then
+            echo "✅ Appium ready on port $port (PID $APPIUM_PID)"
+            break
+          fi
+          sleep 1
+        done
+    - name: Start iproxy
+      shell: bash
+      run: |
+        set -euo pipefail
+        iproxy 8100 8100 -u "${IOS_UDID}" &
+        IPROXY_PID=$!
+        echo "IPROXY_PID=$IPROXY_PID" >> "$GITHUB_ENV"
+        sleep 2
+        echo "✅ iproxy started (PID $IPROXY_PID)"
+    - if: ${{ env.PROFILE != '' }}
+      shell: bash
+      run: |
+        IFS='/' read -r state plan <<< "$PROFILE"
+        echo "USER_STATE=$state" >> "$GITHUB_ENV"
+        echo "PLAN=$plan" >> "$GITHUB_ENV"
+    - shell: bash
+      env:
+        IOS_DEVICE_MODE: real
+        DAZN_BUNDLE_ID: com.dazn.theApp
+      run: |
+        cd appium
+        if [ "${{ inputs.journey }}" = "new-user" ]; then
+          npx wdio run config/wdio.ios.conf.ts --spec tests/ios/newuserios.spec.ts
+        else
+          npx wdio run config/wdio.ios.conf.ts --spec tests/ios/existinguserios.spec.ts
+        fi
+    - name: Stop background processes
+      if: ${{ always() }}
+      shell: bash
+      run: |
+        [ -n "${APPIUM_PID:-}" ] && kill "$APPIUM_PID" 2>/dev/null || true
+        [ -n "${IPROXY_PID:-}" ] && kill "$IPROXY_PID" 2>/dev/null || true
+    - name: Store iOS test results locally
+      if: ${{ always() }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        journey="${{ inputs.journey }}"
+        report_id="${SOURCE}-${PROFILE:-$PLAN}"
+        report_id="$(echo "$report_id" | tr '/ :|*?<>\"' '_' | tr -cd '[:alnum:]_.-')"
+        report_name="ppv-ios-${journey}-${report_id}"
+        reports_root="${PPV_REPORTS_ROOT:-/tmp/ppv-reports}"
+        report_dir="${reports_root}/${GITHUB_RUN_ID}/${report_name}"
+        mkdir -p "$report_dir"
+        found=false
+        for source_dir in appium/test-results appium/reports; do
+          if [ -e "$source_dir" ]; then
+            cp -R "$source_dir" "$report_dir/"
+            found=true
+          fi
+        done
+        if [ "$found" = false ]; then
+          echo "No iOS report folders found for $report_name"
+        fi
+        echo "Stored iOS test results locally at $report_dir"
