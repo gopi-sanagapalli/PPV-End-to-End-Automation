@@ -1,4 +1,5 @@
 name: Run iOS PPV journey
+description: Run an iOS PPV Appium journey
 inputs:
   journey: { required: true }
 runs:

@@ -5970,19 +5970,23 @@ export async function getActualValue(
         'label:has-text("Pay Upfront"), [role="radio"]:has-text("Pay Upfront"), [class*="card" i]:has-text("Pay Upfront")'
       ).first();
       if (await upfrontCard.isVisible({ timeout: 1000 }).catch(() => false)) {
-        const badgeText = await upfrontCard.evaluate((card: HTMLElement) => {
-          const normalise = (value: string | null | undefined) =>
-            String(value || '').replace(/\s+/g, ' ').trim();
-          const candidates = [card, ...Array.from(card.querySelectorAll<HTMLElement>('*'))];
-          for (const element of candidates) {
-            const text = normalise(element.innerText || element.textContent);
-            if (/\bsave\s+(?:[A-Z]{3}\s*)?[\d,.]+/i.test(text) && text.length < 80) {
-              return text;
+        for (let attempt = 0; attempt < 6; attempt++) {
+          const badgeText = await upfrontCard.evaluate((card: HTMLElement) => {
+            const normalise = (value: string | null | undefined) =>
+              String(value || '').replace(/\s+/g, ' ').trim();
+            const candidates = [card, ...Array.from(card.querySelectorAll<HTMLElement>('*'))];
+            for (const element of candidates) {
+              const text = normalise(element.innerText || element.textContent);
+              const match = text.match(/\bsave\s+(?:[A-Z]{3}\s*)?[£$€₹]?[\d,.]+/i);
+              if (match && text.length < 120) {
+                return match[0].trim();
+              }
             }
-          }
-          return '';
-        }).catch(() => '');
-        if (badgeText) return badgeText;
+            return '';
+          }).catch(() => '');
+          if (badgeText) return badgeText;
+          await page.waitForTimeout(500).catch(() => {});
+        }
 
         // A visible APU card with no saving copy is the precise missing-badge
         // result; avoid falling through to another card's page-wide text.

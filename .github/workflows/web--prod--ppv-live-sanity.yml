@@ -33,8 +33,6 @@ env:
   JIRA_BASE_URL: https://livesport.atlassian.net
   JIRA_PROJECT_KEY: QAR
   JIRA_ISSUE_TYPE: Bug
-  JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
-  JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
 
 jobs:
   prepare:
@@ -89,6 +87,8 @@ jobs:
       PLAN: ${{ matrix.plan }}
       LOGIN_FIRST: 'false'
       DEV_MODE_ON: 'off'
+      JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+      JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/ppv-generic-runner
@@ -116,6 +116,8 @@ jobs:
       PROFILE: ${{ matrix.profile }}
       LOGIN_FIRST: 'false'
       DEV_MODE_ON: 'off'
+      JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+      JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/ppv-generic-runner
@@ -143,6 +145,8 @@ jobs:
       PROFILE: ${{ matrix.profile }}
       LOGIN_FIRST: 'true'
       DEV_MODE_ON: 'off'
+      JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+      JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/ppv-generic-runner

@@ -145,6 +145,26 @@ async function waitForPostPlanTransition(page: Page): Promise<void> {
     ));
   }
 
+  const leftPlanPage = await page.waitForFunction(() => {
+    const href = window.location.href.toLowerCase();
+    const body = document.body?.innerText?.toLowerCase() || '';
+    if (!href.includes('page=plandetails')) return true;
+    if (href.includes('paymentdetails') || href.includes('payment') || href.includes('checkout')) return true;
+    if (body.includes('today you pay') || body.includes('payment method')) return true;
+    if (body.includes('first name') && body.includes('last name')) return true;
+    if (body.includes('email address') && !body.includes('continue with dazn ultimate')) return true;
+    return !body.includes('continue with dazn ultimate');
+  }, { timeout: 10_000 }).then(() => true).catch(() => false);
+
+  if (!leftPlanPage) {
+    const body = await page.locator('body').innerText().catch(() => '');
+    throwLogged(new Error(
+      `❌ Plan CTA click did not leave the PlanDetails page.\n` +
+      `URL: ${page.url()}\n` +
+      `Page text: ${body.slice(0, 3000)}`
+    ));
+  }
+
   console.log(`✅ Post-plan transition detected: ${nextState} | URL: ${page.url()}`);
 }
 
