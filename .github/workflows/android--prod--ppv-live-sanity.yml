@@ -52,7 +52,7 @@ jobs:
     timeout-minutes: 30
     strategy:
       fail-fast: false
-      max-parallel: 1
+      max-parallel: 2
       matrix:
         include: ${{ fromJSON(needs.prepare.outputs.new_matrix) }}
     env:
