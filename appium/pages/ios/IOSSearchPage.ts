@@ -498,15 +498,36 @@ export class IOSSearchPage extends IOSBasePage {
       status: /dazn\.com/i.test(landedUrl) ? 'PASS' : 'FAIL',
     });
     await this.waitForSafariStartToSettle();
+    this.resetCookieConsentCache();
+    await this.handleSafariCookies();
     const settledUrl = await this.driver.getUrl().catch(() => '');
     if (this.isAccountCheckoutUrl(settledUrl)) {
       console.log(`ℹ️ Safari handoff is already in account checkout: ${settledUrl}`);
+      // Dev mode must still be activated for ultimate tier even when landing
+      // directly on the checkout page.
+      const tier = String(options.eventData?.TIER || process.env.TIER || '').toLowerCase();
+      const region = String(options.eventData?.DAZN_REGION || process.env.DAZN_REGION || '').toUpperCase();
+      const userState = String(options.eventData?.USER_STATE || process.env.USER_STATE || '').toLowerCase().trim();
+      const isUSorGB = region === 'GB' || region === 'US';
+      const isUltimateUser = userState.startsWith('active_ultimate');
+      const isLoginFirst = String(process.env.LOGIN_FIRST || process.env.LOGIN || '').toLowerCase() === 'true';
+      const ppvDevMode = String(options.eventData?.PPV_DEV_MODE || process.env.PPV_DEV_MODE || '').toLowerCase() === 'true';
+      const devModeForced = String(process.env.DEV_MODE_ON || '').toLowerCase() === 'on' || ppvDevMode;
+      if (devModeForced || (tier === 'ultimate' && isUSorGB) || (isUltimateUser && isLoginFirst)) {
+        console.log('🎭 Ultimate tier detected on account checkout — enabling dev mode first...');
+        const baseUrl = settledUrl.replace(/\/account\/.*/, '');
+        await this.driver.url(`${baseUrl}/en-${region}/search`);
+        await this.driver.pause(2000);
+        await this.enableSafariDevMode();
+        // Navigate back to the checkout URL with dev mode active
+        await this.driver.url(settledUrl);
+        await this.waitForSafariStartToSettle();
+        this.resetCookieConsentCache();
+        await this.handleSafariCookies();
+      }
       await new IOSSignupPage(this.driver).completeToPayment(options.results, options.eventName, options.eventData);
       return;
     }
-
-    this.resetCookieConsentCache();
-    await this.handleSafariCookies();
 
     // Dev mode must be activated BEFORE clicking Buy now on the welcome page,
     // because it navigates to /search internally. After it completes, we always
@@ -784,6 +805,7 @@ export class IOSSearchPage extends IOSBasePage {
     console.log('Validating native Search paywall before external handoff...');
     await this.driver.saveScreenshot('./test-results/ios_search_native_paywall.png');
     await this.runPaywallValidation(hooks);
+    if (await this.handleUsNativePaywallSheet(hooks)) return true;
 
     // Only after native validation is complete may we leave DAZN for Safari.
     console.log('Tapping Buy/Go-to CTA on event page...');

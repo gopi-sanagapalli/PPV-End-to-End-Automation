@@ -241,6 +241,8 @@ export class IOSValidationPage extends IOSBasePage {
       'Go to dazn.com/start',
       'Pick a plan on dazn.com',
       'How to watch this and more',
+      'Buy Now',
+      'Buy now',
     ];
     let isLoaded = false;
     for (let i = 0; i < 30; i++) {
@@ -566,15 +568,17 @@ export class IOSValidationPage extends IOSBasePage {
         results.push({ page: 'Mobile Paywall', field: fieldName, expected: expectedValue, actual: actualValue, status, screenshot });
       }
 
+      const isUSRegion = String(eventData.DAZN_REGION || process.env.DAZN_REGION || '').toUpperCase() === 'US';
       const startLinkPresent = texts.some(t => /go\s+to\s+dazn\.com\/start/i.test(t));
+      const buyNowPresent = texts.some(t => /^buy\s+now$/i.test(t));
       results.push({
         page: 'Mobile Paywall',
-        field: 'Go to dazn.com/start Link',
+        field: isUSRegion ? 'Buy Now Button' : 'Go to dazn.com/start Link',
         expected: 'Yes',
-        actual: startLinkPresent ? 'Yes' : 'No',
-        status: startLinkPresent ? 'PASS' : 'FAIL',
-        screenshot: startLinkPresent ? undefined : await this.captureAndMarkFailureScreenshot(
-          'Mobile Paywall', 'Go_to_dazn_com_start_Link', 'Yes', 'No',
+        actual: isUSRegion ? (buyNowPresent ? 'Yes' : 'No') : (startLinkPresent ? 'Yes' : 'No'),
+        status: (isUSRegion ? buyNowPresent : startLinkPresent) ? 'PASS' : 'FAIL',
+        screenshot: (isUSRegion ? buyNowPresent : startLinkPresent) ? undefined : await this.captureAndMarkFailureScreenshot(
+          'Mobile Paywall', isUSRegion ? 'Buy_Now_Button' : 'Go_to_dazn_com_start_Link', 'Yes', 'No',
         ),
       });
     } catch (err: any) {

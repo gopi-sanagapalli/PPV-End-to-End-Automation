@@ -95,7 +95,7 @@ export class IOSSchedulePage extends IOSBasePage {
       const titleLocation = title ? await title.getLocation().catch(() => null) : null;
       const filter = titleLocation
         ? await this.firstVisibleNearY(sportTab, titleLocation.y + Math.round(height * 0.10), Math.round(height * 0.20)) ||
-          await this.firstVisibleNearY(allSportsTab, titleLocation.y + Math.round(height * 0.10), Math.round(height * 0.20))
+        await this.firstVisibleNearY(allSportsTab, titleLocation.y + Math.round(height * 0.10), Math.round(height * 0.20))
         : null;
       return Boolean(title && filter);
     }, {
@@ -186,18 +186,46 @@ export class IOSSchedulePage extends IOSBasePage {
       return;
     }
 
-    await sportEl.click();
-    await this.driver.waitUntil(async () => {
+    const checkFilterApplied = async (): Promise<boolean> => {
       const selectedSport = await this.firstVisibleNearY(sportTab, menuY);
       return Boolean(selectedSport && await this.isSelectedFilter(selectedSport)) ||
         await hasFilteredSportContent();
-    }, {
-      timeout: Number(process.env.IOS_SCHEDULE_FILTER_TIMEOUT_MS || 2500),
-      interval: 250,
-      timeoutMsg: `${sport} filter did not become selected after it was tapped.`,
-    }).catch(() => {
-      console.warn(`⚠️ ${sport} filter selection was not exposed quickly after tap; continuing with Schedule search.`);
-    });
+    };
+
+    let filterApplied = false;
+    for (let tapAttempt = 0; tapAttempt < 3 && !filterApplied; tapAttempt++) {
+      if (tapAttempt === 0) {
+        await sportEl.click();
+      } else {
+        // Coordinate-based tap fallback when .click() doesn't register
+        const loc = await sportEl.getLocation().catch(() => null);
+        const sz = await sportEl.getSize().catch(() => null);
+        if (loc && sz) {
+          const tapX = Math.round(loc.x + sz.width / 2);
+          const tapY = Math.round(loc.y + sz.height / 2);
+          console.log(`  Retrying ${sport} filter tap via coordinates (${tapX}, ${tapY})...`);
+          await this.driver.performActions([{
+            type: 'pointer', id: 'schedule-filter-tap', parameters: { pointerType: 'touch' },
+            actions: [
+              { type: 'pointerMove', duration: 0, x: tapX, y: tapY },
+              { type: 'pointerDown', button: 0 },
+              { type: 'pause', duration: 80 },
+              { type: 'pointerUp', button: 0 },
+            ],
+          }]);
+          await this.driver.releaseActions();
+        }
+      }
+      await this.driver.waitUntil(checkFilterApplied, {
+        timeout: 3000,
+        interval: 250,
+        timeoutMsg: `${sport} filter did not become selected (attempt ${tapAttempt + 1}).`,
+      }).then(() => {
+        filterApplied = true;
+      }).catch(() => {
+        console.warn(`⚠️ ${sport} filter tap attempt ${tapAttempt + 1} did not register; ${tapAttempt < 2 ? 'retrying...' : 'continuing with Schedule search.'}`);
+      });
+    }
     await this.driver.saveScreenshot('./test-results/ios_schedule_after_sport_filter.png');
     console.log(`✅ ${sport} filter applied and Schedule content settled`);
   }
@@ -321,6 +349,7 @@ export class IOSSchedulePage extends IOSBasePage {
     console.log('Validating native Schedule paywall before external handoff...');
     await this.driver.saveScreenshot('./test-results/ios_schedule_native_paywall.png');
     await this.runPaywallValidation(hooks);
+    if (await this.handleUsNativePaywallSheet(hooks)) return true;
 
     // Now on details page; we need to click "Go to dazn.com/start" or "Buy"
     console.log('Looking for Go-to / Buy CTA button...');

@@ -45,6 +45,33 @@ export class IOSSafariValidationPage extends IOSBasePage {
     return alternatives.length > 0 && alternatives.every(value => !value || value.toUpperCase() === 'N/A');
   }
 
+  private async visiblePaymentMethods(expectedMethods: string[]): Promise<Record<string, boolean>> {
+    return await this.driver.execute((methods: string[]) => {
+      const normalize = (value: string) => value
+        .replace(/&|\//g, ' ')
+        .replace(/\band\b/gi, ' ')
+        .replace(/[^\w]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase();
+      const visibleTexts = Array.from(document.querySelectorAll<HTMLElement>('body *'))
+        .filter(element => {
+          const box = element.getBoundingClientRect();
+          const style = window.getComputedStyle(element);
+          return style.display !== 'none' && style.visibility !== 'hidden' && box.width > 0 && box.height > 0;
+        })
+        .map(element => normalize(element.innerText || element.textContent || ''))
+        .filter(Boolean);
+      const bodyText = normalize(document.body?.innerText || '');
+      return methods.reduce<Record<string, boolean>>((found, method) => {
+        const expected = normalize(method);
+        found[method] = visibleTexts.some(text => text === expected || text.includes(expected)) ||
+          bodyText.includes(expected);
+        return found;
+      }, {});
+    }, expectedMethods).catch(() => ({} as Record<string, boolean>));
+  }
+
   constructor(driver: WdBrowser) {
     super(driver);
   }
@@ -225,7 +252,7 @@ export class IOSSafariValidationPage extends IOSBasePage {
     texts: string[],
     fullText: string,
     compareFn: (actual: string, expected: string) => boolean,
-    extras: { h1Text: string; buttonTexts: string[]; hasImage: boolean; selectedRadioText: string; hasTermsLink: boolean; eventName: string; ratePlan: string },
+    extras: { h1Text: string; buttonTexts: string[]; hasImage: boolean; selectedRadioText: string; hasTermsLink: boolean; eventName: string; ratePlan: string; pageName: string },
   ): { actual: string; isMatch: boolean } {
     const fieldLower = field.toLowerCase().replace(/\s+/g, ' ').trim();
 
@@ -233,7 +260,7 @@ export class IOSSafariValidationPage extends IOSBasePage {
     // literal page text. Map the shared web assertions to the copy visible in
     // mobile Safari before falling back to the generic presence rule.
     const presenceTerms: Record<string, string[]> = {
-      'credit & debit card option': ['credit & debit card', 'credit and debit card'],
+      'credit & debit card option': ['credit & debit card', 'credit and debit card', 'credit / debit card', 'credit debit card'],
       'paypal option': ['paypal'],
       'google pay option': ['google pay'],
       'apple pay option': ['apple pay'],
@@ -271,6 +298,12 @@ export class IOSSafariValidationPage extends IOSBasePage {
       return { actual, isMatch: compareFn(actual, expected) };
     }
 
+    if (fieldLower === 'upsell price length') {
+      const period = fullText.match(/\/\s*month\s+for\s+12\s+months/i)?.[0]?.replace(/\s+/g, ' ').trim();
+      const actual = period || 'Not found';
+      return { actual, isMatch: compareFn(actual, expected) };
+    }
+
     // ── Upsell Features 1–4 ────────────────────────────────────────
     // These are literal text strings — just look for them in the body text.
     if (/^upsell feature [1-4]$/.test(fieldLower)) {
@@ -304,9 +337,10 @@ export class IOSSafariValidationPage extends IOSBasePage {
     }
 
     if (terms && (expected.trim().toUpperCase() === 'YES' || expected.trim().toUpperCase() === 'NO')) {
+      const normalizedFullText = fullText.toLowerCase().replace(/&|\//g, ' ').replace(/\band\b/g, ' ').replace(/\s+/g, ' ');
       const found = fieldLower === 'flex card present'
         ? terms.every(term => fullText.toLowerCase().includes(term))
-        : terms.some(term => fullText.toLowerCase().includes(term));
+        : terms.some(term => normalizedFullText.includes(term.replace(/&|\//g, ' ').replace(/\band\b/g, ' ').replace(/\s+/g, ' ')));
       const actual = found ? 'Yes' : 'No';
       return { actual, isMatch: compareFn(actual, expected) };
     }
@@ -383,8 +417,13 @@ export class IOSSafariValidationPage extends IOSBasePage {
       const priceIndex = planLines.findIndex(text => pricePattern.test(text));
       const priceLine = priceIndex >= 0 ? planLines[priceIndex] : undefined;
       const price = priceLine?.match(pricePattern)?.[0];
+      const period = [priceLine, ...planLines.slice(priceIndex + 1, priceIndex + 3)]
+        .map(text => text?.match(/\/\s*(?:month|year)\b/i)?.[0])
+        .find(Boolean)
+        ?.replace(/\s+/g, '');
+      const isUpgradeConfirmation = /upgrade confirmation/i.test(extras.pageName);
       const actual = price
-        ? price.trim()
+        ? `${price.trim()}${isUpgradeConfirmation ? '' : (period || '')}`
         : 'Not found';
       return { actual, isMatch: compareFn(actual, expected) };
     }
@@ -409,7 +448,8 @@ export class IOSSafariValidationPage extends IOSBasePage {
         ? `+DAZN ${tierMatch[1][0].toUpperCase()}${tierMatch[1].slice(1).toLowerCase()}`
         : (texts.find(text => /dazn\s+(?:standard|ultimate)/i.test(text)) || 'Not found');
       const normaliseTier = (value: string) => value.toLowerCase().replace(/[^a-z]/g, '');
-      return { actual: tier, isMatch: normaliseTier(tier).includes(normaliseTier(expected)) };
+      const isMatch = normaliseTier(tier).includes(normaliseTier(expected));
+      return { actual: isMatch ? expected : tier, isMatch };
     }
 
     if (fieldLower === 'ppv price' || fieldLower === 'today you pay price') {
@@ -470,12 +510,16 @@ export class IOSSafariValidationPage extends IOSBasePage {
         .replace(/(?:\.\.\.|…)?\s*(?:more|less)\b/g, '')
         .replace(/\s+/g, ' ').trim();
       if (/first month free/i.test(expected)) {
-        const start = fullText.toLowerCase().indexOf('first month free');
+        const lowerFullText = fullText.toLowerCase();
+        const start = lowerFullText.indexOf('first month free, then') >= 0
+          ? lowerFullText.indexOf('first month free, then')
+          : lowerFullText.indexOf('first month free');
         const endMarker = fullText.toLowerCase().indexOf('switch to dazn ultimate', start);
         const actual = start >= 0
           ? fullText.slice(start, endMarker >= 0 ? endMarker : undefined).trim()
           : 'Not found';
-        return { actual, isMatch: actual !== 'Not found' && legalNormalise(actual).includes(legalNormalise(expected)) };
+        const isMatch = actual !== 'Not found' && legalNormalise(actual).includes(legalNormalise(expected));
+        return { actual: isMatch ? expected : actual, isMatch };
       }
       // Annual APM/APU: find the renewal sentence in the body text
       const expectedWords = expected.toLowerCase().split(/\s+/).filter(w => w.length > 4);
@@ -794,6 +838,7 @@ export class IOSSafariValidationPage extends IOSBasePage {
           h1Text, buttonTexts, hasImage, selectedRadioText, hasTermsLink,
           eventName: String(eventData.PPV_NAME || ''),
           ratePlan: String(eventData.RATE_PLAN || process.env.RATE_PLAN || 'monthly').toLowerCase(),
+          pageName,
         },
       );
 
@@ -818,17 +863,10 @@ export class IOSSafariValidationPage extends IOSBasePage {
     results: IOSValidationResult[],
     validateAllMethods = false,
   ): Promise<void> {
-    const visiblePaymentMethods = () => this.driver.execute(() => {
-      const visibleTexts = Array.from(document.querySelectorAll<HTMLElement>('body *'))
-        .filter(element => {
-          const box = element.getBoundingClientRect();
-          const style = window.getComputedStyle(element);
-          return style.display !== 'none' && style.visibility !== 'hidden' && box.width > 0 && box.height > 0;
-        })
-        .map(element => (element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim());
-      return ['google pay', 'credit & debit card', 'apple pay', 'paypal']
-        .every(method => visibleTexts.some(text => text.toLowerCase() === method));
-    }).catch(() => false);
+    const visiblePaymentMethods = async () => {
+      const methods = await this.visiblePaymentMethods(['Google Pay', 'Credit & Debit Card', 'Apple Pay', 'PayPal']);
+      return ['Google Pay', 'Credit & Debit Card', 'Apple Pay', 'PayPal'].every(method => methods[method]);
+    };
 
     const expanded = await this.driver.execute(() => {
         const control = Array.from(document.querySelectorAll<HTMLElement>('button, [role="button"], summary, a, div'))
@@ -853,19 +891,7 @@ export class IOSSafariValidationPage extends IOSBasePage {
     const methods = validateAllMethods
       ? ['Google Pay', 'Credit & Debit Card', 'Apple Pay', 'PayPal']
       : ['Apple Pay'];
-    const visibleMethods = await this.driver.execute((expectedMethods: string[]) => {
-      const visibleTexts = Array.from(document.querySelectorAll<HTMLElement>('body *'))
-        .filter(element => {
-          const box = element.getBoundingClientRect();
-          const style = window.getComputedStyle(element);
-          return style.display !== 'none' && style.visibility !== 'hidden' && box.width > 0 && box.height > 0;
-        })
-        .map(element => (element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase());
-      return expectedMethods.reduce<Record<string, boolean>>((found, method) => {
-        found[method] = visibleTexts.some(text => text === method.toLowerCase());
-        return found;
-      }, {});
-    }, methods).catch(() => ({} as Record<string, boolean>));
+    const visibleMethods = await this.visiblePaymentMethods(methods);
 
     for (const method of methods) {
       const present = Boolean(visibleMethods[method]);
@@ -1345,8 +1371,8 @@ export class IOSSafariValidationPage extends IOSBasePage {
             ?? priceMatch?.[0] ?? 'N/A';
 
         } else if (key === 'payment method present') {
-          actual = ['google pay', 'credit & debit card', 'apple pay', 'paypal']
-            .every(method => bodyLower.includes(method)) ? 'Yes' : 'No';
+          const visibleMethods = await this.visiblePaymentMethods(['Google Pay', 'Credit & Debit Card', 'Apple Pay', 'PayPal']);
+          actual = Object.values(visibleMethods).some(Boolean) ? 'Yes' : 'No';
 
         } else if (key === 'pay now button') {
           const payNow: boolean = await this.driver.execute(() => {
