@@ -498,15 +498,14 @@ export class IOSSearchPage extends IOSBasePage {
       status: /dazn\.com/i.test(landedUrl) ? 'PASS' : 'FAIL',
     });
     await this.waitForSafariStartToSettle();
+    this.resetCookieConsentCache();
+    await this.handleSafariCookies();
     const settledUrl = await this.driver.getUrl().catch(() => '');
     if (this.isAccountCheckoutUrl(settledUrl)) {
       console.log(`ℹ️ Safari handoff is already in account checkout: ${settledUrl}`);
       await new IOSSignupPage(this.driver).completeToPayment(options.results, options.eventName, options.eventData);
       return;
     }
-
-    this.resetCookieConsentCache();
-    await this.handleSafariCookies();
 
     // Dev mode must be activated BEFORE clicking Buy now on the welcome page,
     // because it navigates to /search internally. After it completes, we always
@@ -784,6 +783,7 @@ export class IOSSearchPage extends IOSBasePage {
     console.log('Validating native Search paywall before external handoff...');
     await this.driver.saveScreenshot('./test-results/ios_search_native_paywall.png');
     await this.runPaywallValidation(hooks);
+    if (await this.handleUsNativePaywallSheet(hooks)) return true;
 
     // Only after native validation is complete may we leave DAZN for Safari.
     console.log('Tapping Buy/Go-to CTA on event page...');

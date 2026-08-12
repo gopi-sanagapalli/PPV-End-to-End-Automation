@@ -473,7 +473,11 @@ export class IOSBoxingPage extends IOSBasePage {
       throw new Error(`PPV banner "${this.ppvName}" moved before Buy CTA tap. See test-results/ios_home_boxing_buy_cta_not_found.png`);
     }
 
-    return this.tapVerifiedBannerCta(bannerCtas);
+    const bannerCtaTapped = await this.tapVerifiedBannerCta(bannerCtas);
+    if (!bannerCtaTapped) return false;
+    await this.driver.pause(1500);
+    if (await this.handleUsNativePaywallSheet(hooks)) return true;
+    return true;
   }
 
   /** Re-query the verified banner CTA when its carousel node is replaced. */
@@ -542,6 +546,7 @@ export class IOSBoxingPage extends IOSBasePage {
     console.log('Validating native Upcoming Fights paywall before external handoff...');
     await this.driver.saveScreenshot('./test-results/ios_home_boxing_upcoming_native_paywall.png');
     await this.runPaywallValidation(hooks);
+    if (await this.handleUsNativePaywallSheet(hooks)) return true;
 
     const externalCtaTapped = await this.tapBuyCtaWithFallback([
       'Go to dazn.com/start',

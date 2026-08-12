@@ -64,6 +64,7 @@ export class IOSHomePage extends IOSLandingPage {
     console.log('Validating native Home Page paywall before external handoff...');
     await this.driver.saveScreenshot('./test-results/ios_home_native_paywall.png');
     await this.runPaywallValidation(hooks);
+    if (await this.handleUsNativePaywallSheet(hooks)) return true;
 
     return this.tapBuyCtaWithFallback([
       'Go to dazn.com/start',
@@ -465,6 +466,7 @@ export class IOSHomePage extends IOSLandingPage {
     console.log('Validating native Don\'t Miss paywall before external handoff...');
     await this.driver.saveScreenshot('./test-results/ios_dont_miss_native_paywall.png');
     await this.runPaywallValidation(hooks);
+    if (await this.handleUsNativePaywallSheet(hooks)) return true;
 
     return this.tapBuyCtaWithFallback(['Buy now', 'Buy Now', 'Buy', 'Get PPV', 'Purchase']);
   }

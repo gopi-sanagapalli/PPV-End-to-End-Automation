@@ -465,6 +465,70 @@ export class IOSBasePage {
     return !!fallback;
   }
 
+  protected async handleUsNativePaywallSheet(hooks?: IOSFlowHooks): Promise<boolean> {
+    if ((process.env.DAZN_REGION || '').toUpperCase() !== 'US') return false;
+
+    console.log('🇺🇸 [US] Checking for native paywall bottom sheet...');
+    const sheetSelectors = [
+      '-ios predicate string:type == "XCUIElementTypeStaticText" AND (name CONTAINS[c] "How to watch" OR label CONTAINS[c] "How to watch")',
+      '-ios predicate string:type == "XCUIElementTypeStaticText" AND (name CONTAINS[c] "Pick a plan" OR label CONTAINS[c] "Pick a plan")',
+      '-ios predicate string:type == "XCUIElementTypeButton" AND (name CONTAINS[c] "Buy Now" OR label CONTAINS[c] "Buy Now" OR name CONTAINS[c] "Buy now" OR label CONTAINS[c] "Buy now")',
+      '~Buy Now',
+      '~Buy now',
+    ];
+
+    let sheetVisible = false;
+    const deadline = Date.now() + Number(process.env.IOS_US_PAYWALL_SHEET_TIMEOUT_MS || 5000);
+    while (Date.now() < deadline && !sheetVisible) {
+      for (const selector of sheetSelectors) {
+        const element = await this.driver.$(selector).catch(() => null);
+        if (element && await element.isDisplayed().catch(() => false)) {
+          sheetVisible = true;
+          break;
+        }
+      }
+      if (!sheetVisible) await this.driver.pause(300);
+    }
+
+    if (!sheetVisible) {
+      console.log('ℹ️ [US] Native paywall bottom sheet not detected.');
+      return false;
+    }
+
+    await this.driver.saveScreenshot('./test-results/ios_us_native_paywall_sheet.png').catch(() => { });
+    await this.runPaywallValidation(hooks);
+
+    for (const selector of [
+      '-ios predicate string:type == "XCUIElementTypeButton" AND (name == "Buy Now" OR label == "Buy Now" OR name == "Buy now" OR label == "Buy now")',
+      '~Buy Now',
+      '~Buy now',
+      '-ios predicate string:type == "XCUIElementTypeButton" AND (name CONTAINS[c] "Buy" OR label CONTAINS[c] "Buy")',
+    ]) {
+      const button = await this.driver.$(selector).catch(() => null);
+      if (!button || !await button.isDisplayed().catch(() => false)) continue;
+      if (await button.click().then(() => true).catch(() => false)) {
+        console.log('✅ [US] Tapped "Buy Now" on native paywall bottom sheet.');
+        await this.driver.pause(Number(process.env.IOS_US_INAPP_BROWSER_SETTLE_MS || 2000));
+        return true;
+      }
+    }
+
+    const { width, height } = await this.driver.getWindowRect();
+    await this.driver.performActions([{
+      type: 'pointer', id: 'us-native-paywall-buy-now', parameters: { pointerType: 'touch' },
+      actions: [
+        { type: 'pointerMove', duration: 0, x: Math.round(width * 0.5), y: Math.round(height * 0.88) },
+        { type: 'pointerDown', button: 0 },
+        { type: 'pause', duration: 80 },
+        { type: 'pointerUp', button: 0 },
+      ],
+    }]);
+    await this.driver.releaseActions();
+    console.log('✅ [US] Tapped native paywall Buy Now via fallback position.');
+    await this.driver.pause(Number(process.env.IOS_US_INAPP_BROWSER_SETTLE_MS || 2000));
+    return true;
+  }
+
   async runSurfaceValidation(hooks: IOSFlowHooks | undefined, surface: IOSPPVSurface): Promise<void> {
     if (!hooks?.validateSurface) return;
     try {
@@ -630,6 +694,8 @@ export class IOSBasePage {
       console.warn('⚠️ Failed to save alert screenshot:', e.message);
     }
 
+    const region = (process.env.DAZN_REGION || '').toUpperCase();
+    if (region !== 'US') {
     // 1. Let the system sheet complete its presentation animation. On this
     // device/iOS version the App Store sheet is visible on screen but omitted
     // from both the XCUITest tree and native page source, so source-based
@@ -731,6 +797,7 @@ export class IOSBasePage {
     // Do not treat an old DAZN WebView as a successful handoff when the
     // current App Store presentation has failed with a Retry surface.
     await this.retryOrFailIfAppStoreCannotConnect();
+    }
 
     // Switch automation context to the active browser app to inspect its UI tree.
     // DAZN opens the web flow in SFSafariViewController (an in-app browser), so
@@ -742,7 +809,12 @@ export class IOSBasePage {
     // After the App Store sheet is dismissed, Safari needs time to open and
     // begin loading the DAZN URL. Without this pause the WEBVIEW poll starts
     // immediately and sees only about:blank for several iterations.
-    await this.driver.pause(Number(process.env.IOS_POST_SHEET_SETTLE_MS || 5000));
+    if (region === 'US') {
+      console.log('🇺🇸 [US] Skipping App Store sheet handling — polling for SFSafariViewController WEBVIEW directly...');
+      await this.driver.pause(Number(process.env.IOS_US_INAPP_BROWSER_SETTLE_MS || 2000));
+    } else {
+      await this.driver.pause(Number(process.env.IOS_POST_SHEET_SETTLE_MS || 5000));
+    }
 
     // Phase 1: poll for a WEBVIEW context (SFSafariViewController or WKWebView)
     // that resolves to a valid DAZN handoff URL. This covers the common in-app
@@ -755,7 +827,7 @@ export class IOSBasePage {
     while (Date.now() < webviewDeadline) {
       await this.driver.pause(webviewPollIntervalMs);
       try {
-        await this.retryOrFailIfAppStoreCannotConnect();
+        if (region !== 'US') await this.retryOrFailIfAppStoreCannotConnect();
         // Do not switch into every listed WebView while Safari is connecting:
         // on real devices that context-switch request can block until the
         // overall Mocha timeout. The XCUITest extension exposes each context's
@@ -946,6 +1018,41 @@ export class IOSBasePage {
     }
 
     const expectedHostname = new URL(capturedUrl).hostname.replace(/^www\./i, '').toLowerCase();
+    const hasExpectedSafariUrl = (url: string): boolean => {
+      try {
+        return new URL(url).hostname.replace(/^www\./i, '').toLowerCase() === expectedHostname;
+      } catch {
+        return false;
+      }
+    };
+
+    if ((process.env.DAZN_REGION || '').toUpperCase() === 'US') {
+      console.log('🇺🇸 [US] Continuing in the current SFSafariViewController context; skipping new private tab.');
+      let safariContext = '';
+      await this.driver.waitUntil(async () => {
+        const contexts = await this.driver.getContexts().catch(() => []) as string[];
+        for (const context of contexts.filter(value => value !== 'NATIVE_APP').reverse()) {
+          try {
+            await this.driver.switchContext(context);
+            const url = await this.driver.getUrl();
+            if (hasExpectedSafariUrl(url)) {
+              safariContext = context;
+              return true;
+            }
+          } catch { }
+        }
+        await this.driver.switchContext('NATIVE_APP').catch(() => { });
+        return false;
+      }, {
+        timeout: 30000,
+        interval: 500,
+        timeoutMsg: `US in-app browser did not expose a WebKit context for ${capturedUrl}.`,
+      });
+      await this.driver.switchContext('NATIVE_APP').catch(() => { });
+      console.log(`✅ [US] Reusing in-app browser context (${safariContext}).`);
+      return safariContext;
+    }
+
     const findVisibleNativeControl = async (selectors: string[]): Promise<WdElement | null> => {
       for (const selector of selectors) {
         try {
@@ -970,13 +1077,6 @@ export class IOSBasePage {
         timeoutMsg: `Safari did not expose ${description}.`,
       });
       return control!;
-    };
-    const hasExpectedSafariUrl = (url: string): boolean => {
-      try {
-        return new URL(url).hostname.replace(/^www\./i, '').toLowerCase() === expectedHostname;
-      } catch {
-        return false;
-      }
     };
 
     const moreButtonSelectors = [

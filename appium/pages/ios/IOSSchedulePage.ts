@@ -321,6 +321,7 @@ export class IOSSchedulePage extends IOSBasePage {
     console.log('Validating native Schedule paywall before external handoff...');
     await this.driver.saveScreenshot('./test-results/ios_schedule_native_paywall.png');
     await this.runPaywallValidation(hooks);
+    if (await this.handleUsNativePaywallSheet(hooks)) return true;
 
     // Now on details page; we need to click "Go to dazn.com/start" or "Buy"
     console.log('Looking for Go-to / Buy CTA button...');
