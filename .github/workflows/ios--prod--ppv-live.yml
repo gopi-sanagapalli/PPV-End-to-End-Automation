@@ -4,7 +4,6 @@ run-name: "iOS · Prod · PPV live · ${{ inputs.COUNTRY }} · ${{ inputs.PPV_CO
 concurrency:
   group: ios-physical-device-lock
   cancel-in-progress: false
-  queue: max
 
 on:
   workflow_dispatch:

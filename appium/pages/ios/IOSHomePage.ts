@@ -364,12 +364,13 @@ export class IOSHomePage extends IOSLandingPage {
       console.log(`  PPV tile is not in the current card viewport; making short horizontal swipe ${attempt + 1}/${maxHorizontalRailSwipes}.`);
       await swipeRail('left', 'dont-miss-rail-search');
       ppvTile = await findVisiblePpvTile();
+      if (!ppvTile) visualTile = await findPpvTileByImage();
     }
 
     // Vision OCR starts a Swift process and can take tens of seconds on the
-    // test host. It is an artwork-only fallback, so never run it between
-    // horizontal swipes; do one evidence/fallback pass after native search.
-    if (!ppvTile) visualTile = await findPpvTileByImage();
+    // test host. It is an artwork-only fallback, so keep native search first
+    // and only do one final evidence/fallback pass if the loop did not match.
+    if (!ppvTile && !visualTile) visualTile = await findPpvTileByImage();
 
     if (!ppvTile && !visualTile) {
       const shot = hooks.saveScreenshot
