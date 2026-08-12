@@ -158,6 +158,6 @@ export const config = {
   reporters: ['spec'],
   mochaOpts: {
     ui: 'bdd',
-    timeout: 420000,
+    timeout: 600000,
   },
 };

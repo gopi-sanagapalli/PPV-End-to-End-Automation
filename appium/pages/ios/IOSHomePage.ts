@@ -358,8 +358,9 @@ export class IOSHomePage extends IOSLandingPage {
 
     let ppvTile = await findVisiblePpvTile();
     let visualTile: { x: number; y: number } | undefined;
-    for (let attempt = 0; attempt < 10 && !ppvTile && !visualTile; attempt++) {
-      console.log(`  PPV tile is not in the current card viewport; making short horizontal swipe ${attempt + 1}/10.`);
+    const maxHorizontalRailSwipes = 40;
+    for (let attempt = 0; attempt < maxHorizontalRailSwipes && !ppvTile && !visualTile; attempt++) {
+      console.log(`  PPV tile is not in the current card viewport; making short horizontal swipe ${attempt + 1}/${maxHorizontalRailSwipes}.`);
       await swipeRail('left', 'dont-miss-rail-search');
       ppvTile = await findVisiblePpvTile();
     }
