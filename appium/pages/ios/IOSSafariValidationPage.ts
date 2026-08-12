@@ -45,6 +45,33 @@ export class IOSSafariValidationPage extends IOSBasePage {
     return alternatives.length > 0 && alternatives.every(value => !value || value.toUpperCase() === 'N/A');
   }
 
+  private async visiblePaymentMethods(expectedMethods: string[]): Promise<Record<string, boolean>> {
+    return await this.driver.execute((methods: string[]) => {
+      const normalize = (value: string) => value
+        .replace(/&|\//g, ' ')
+        .replace(/\band\b/gi, ' ')
+        .replace(/[^\w]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase();
+      const visibleTexts = Array.from(document.querySelectorAll<HTMLElement>('body *'))
+        .filter(element => {
+          const box = element.getBoundingClientRect();
+          const style = window.getComputedStyle(element);
+          return style.display !== 'none' && style.visibility !== 'hidden' && box.width > 0 && box.height > 0;
+        })
+        .map(element => normalize(element.innerText || element.textContent || ''))
+        .filter(Boolean);
+      const bodyText = normalize(document.body?.innerText || '');
+      return methods.reduce<Record<string, boolean>>((found, method) => {
+        const expected = normalize(method);
+        found[method] = visibleTexts.some(text => text === expected || text.includes(expected)) ||
+          bodyText.includes(expected);
+        return found;
+      }, {});
+    }, expectedMethods).catch(() => ({} as Record<string, boolean>));
+  }
+
   constructor(driver: WdBrowser) {
     super(driver);
   }
@@ -233,7 +260,7 @@ export class IOSSafariValidationPage extends IOSBasePage {
     // literal page text. Map the shared web assertions to the copy visible in
     // mobile Safari before falling back to the generic presence rule.
     const presenceTerms: Record<string, string[]> = {
-      'credit & debit card option': ['credit & debit card', 'credit and debit card'],
+      'credit & debit card option': ['credit & debit card', 'credit and debit card', 'credit / debit card', 'credit debit card'],
       'paypal option': ['paypal'],
       'google pay option': ['google pay'],
       'apple pay option': ['apple pay'],
@@ -310,9 +337,10 @@ export class IOSSafariValidationPage extends IOSBasePage {
     }
 
     if (terms && (expected.trim().toUpperCase() === 'YES' || expected.trim().toUpperCase() === 'NO')) {
+      const normalizedFullText = fullText.toLowerCase().replace(/&|\//g, ' ').replace(/\band\b/g, ' ').replace(/\s+/g, ' ');
       const found = fieldLower === 'flex card present'
         ? terms.every(term => fullText.toLowerCase().includes(term))
-        : terms.some(term => fullText.toLowerCase().includes(term));
+        : terms.some(term => normalizedFullText.includes(term.replace(/&|\//g, ' ').replace(/\band\b/g, ' ').replace(/\s+/g, ' ')));
       const actual = found ? 'Yes' : 'No';
       return { actual, isMatch: compareFn(actual, expected) };
     }
@@ -835,17 +863,10 @@ export class IOSSafariValidationPage extends IOSBasePage {
     results: IOSValidationResult[],
     validateAllMethods = false,
   ): Promise<void> {
-    const visiblePaymentMethods = () => this.driver.execute(() => {
-      const visibleTexts = Array.from(document.querySelectorAll<HTMLElement>('body *'))
-        .filter(element => {
-          const box = element.getBoundingClientRect();
-          const style = window.getComputedStyle(element);
-          return style.display !== 'none' && style.visibility !== 'hidden' && box.width > 0 && box.height > 0;
-        })
-        .map(element => (element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim());
-      return ['google pay', 'credit & debit card', 'apple pay', 'paypal']
-        .every(method => visibleTexts.some(text => text.toLowerCase() === method));
-    }).catch(() => false);
+    const visiblePaymentMethods = async () => {
+      const methods = await this.visiblePaymentMethods(['Google Pay', 'Credit & Debit Card', 'Apple Pay', 'PayPal']);
+      return ['Google Pay', 'Credit & Debit Card', 'Apple Pay', 'PayPal'].every(method => methods[method]);
+    };
 
     const expanded = await this.driver.execute(() => {
         const control = Array.from(document.querySelectorAll<HTMLElement>('button, [role="button"], summary, a, div'))
@@ -870,19 +891,7 @@ export class IOSSafariValidationPage extends IOSBasePage {
     const methods = validateAllMethods
       ? ['Google Pay', 'Credit & Debit Card', 'Apple Pay', 'PayPal']
       : ['Apple Pay'];
-    const visibleMethods = await this.driver.execute((expectedMethods: string[]) => {
-      const visibleTexts = Array.from(document.querySelectorAll<HTMLElement>('body *'))
-        .filter(element => {
-          const box = element.getBoundingClientRect();
-          const style = window.getComputedStyle(element);
-          return style.display !== 'none' && style.visibility !== 'hidden' && box.width > 0 && box.height > 0;
-        })
-        .map(element => (element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase());
-      return expectedMethods.reduce<Record<string, boolean>>((found, method) => {
-        found[method] = visibleTexts.some(text => text === method.toLowerCase());
-        return found;
-      }, {});
-    }, methods).catch(() => ({} as Record<string, boolean>));
+    const visibleMethods = await this.visiblePaymentMethods(methods);
 
     for (const method of methods) {
       const present = Boolean(visibleMethods[method]);
@@ -1362,8 +1371,8 @@ export class IOSSafariValidationPage extends IOSBasePage {
             ?? priceMatch?.[0] ?? 'N/A';
 
         } else if (key === 'payment method present') {
-          actual = ['google pay', 'credit & debit card', 'apple pay', 'paypal']
-            .every(method => bodyLower.includes(method)) ? 'Yes' : 'No';
+          const visibleMethods = await this.visiblePaymentMethods(['Google Pay', 'Credit & Debit Card', 'Apple Pay', 'PayPal']);
+          actual = Object.values(visibleMethods).some(Boolean) ? 'Yes' : 'No';
 
         } else if (key === 'pay now button') {
           const payNow: boolean = await this.driver.execute(() => {

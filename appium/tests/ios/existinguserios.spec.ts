@@ -318,6 +318,8 @@ describe('DAZN iOS PPV — Existing User Flow', () => {
       }
       if (fs.existsSync(mobileConfigPath)) {
         const mobileJson = JSON.parse(fs.readFileSync(mobileConfigPath, 'utf8'));
+        // Merge top-level fields (e.g. SPORT) from mobile config
+        if (mobileJson.SPORT) eventData.SPORT = mobileJson.SPORT;
         const mobileRegional = mobileJson.regions?.[REGION] || {};
         Object.assign(eventData, mobileRegional);
         console.log(`📱 Loaded mobile-specific overrides from ${mobileConfigPath}`);
@@ -409,7 +411,7 @@ describe('DAZN iOS PPV — Existing User Flow', () => {
     }
     // ── schedule ────────────────────────────────────────────────────────────
     else if (SOURCE === 'schedule') {
-      buyTapped = await openSchedulePPVPaywall(driver, PPV_NAME, event, iosFlowHooks);
+      buyTapped = await openSchedulePPVPaywall(driver, PPV_NAME, eventData, iosFlowHooks);
     }
     // ── search ────────────────────────────────────────────────────────────
     else if (SOURCE === 'search') {
