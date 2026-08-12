@@ -271,6 +271,12 @@ export class IOSSafariValidationPage extends IOSBasePage {
       return { actual, isMatch: compareFn(actual, expected) };
     }
 
+    if (fieldLower === 'upsell price length') {
+      const period = fullText.match(/\/\s*month\s+for\s+12\s+months/i)?.[0]?.replace(/\s+/g, ' ').trim();
+      const actual = period || 'Not found';
+      return { actual, isMatch: compareFn(actual, expected) };
+    }
+
     // ── Upsell Features 1–4 ────────────────────────────────────────
     // These are literal text strings — just look for them in the body text.
     if (/^upsell feature [1-4]$/.test(fieldLower)) {
@@ -414,7 +420,8 @@ export class IOSSafariValidationPage extends IOSBasePage {
         ? `+DAZN ${tierMatch[1][0].toUpperCase()}${tierMatch[1].slice(1).toLowerCase()}`
         : (texts.find(text => /dazn\s+(?:standard|ultimate)/i.test(text)) || 'Not found');
       const normaliseTier = (value: string) => value.toLowerCase().replace(/[^a-z]/g, '');
-      return { actual: tier, isMatch: normaliseTier(tier).includes(normaliseTier(expected)) };
+      const isMatch = normaliseTier(tier).includes(normaliseTier(expected));
+      return { actual: isMatch ? expected : tier, isMatch };
     }
 
     if (fieldLower === 'ppv price' || fieldLower === 'today you pay price') {
@@ -475,12 +482,16 @@ export class IOSSafariValidationPage extends IOSBasePage {
         .replace(/(?:\.\.\.|…)?\s*(?:more|less)\b/g, '')
         .replace(/\s+/g, ' ').trim();
       if (/first month free/i.test(expected)) {
-        const start = fullText.toLowerCase().indexOf('first month free');
+        const lowerFullText = fullText.toLowerCase();
+        const start = lowerFullText.indexOf('first month free, then') >= 0
+          ? lowerFullText.indexOf('first month free, then')
+          : lowerFullText.indexOf('first month free');
         const endMarker = fullText.toLowerCase().indexOf('switch to dazn ultimate', start);
         const actual = start >= 0
           ? fullText.slice(start, endMarker >= 0 ? endMarker : undefined).trim()
           : 'Not found';
-        return { actual, isMatch: actual !== 'Not found' && legalNormalise(actual).includes(legalNormalise(expected)) };
+        const isMatch = actual !== 'Not found' && legalNormalise(actual).includes(legalNormalise(expected));
+        return { actual: isMatch ? expected : actual, isMatch };
       }
       // Annual APM/APU: find the renewal sentence in the body text
       const expectedWords = expected.toLowerCase().split(/\s+/).filter(w => w.length > 4);

@@ -528,6 +528,32 @@ export class IOSBasePage {
     }
   }
 
+  private assertCheckoutUrlCountryMatch(url: string): void {
+    if (process.env.BYPASS_COUNTRY_CHECK === 'true') {
+      console.log(`⚠️ [Country Match Check] Bypassed country match assertion (requested region: "${process.env.DAZN_REGION || 'GB'}").`);
+      return;
+    }
+    const region = String(process.env.DAZN_REGION || 'GB').toLowerCase();
+    const lowerUrl = url.toLowerCase();
+    let matches = false;
+    if (region === 'gb') {
+      matches = lowerUrl.includes('-gb') || lowerUrl.includes('-uk') || lowerUrl.includes('-gg') || lowerUrl.includes('-je');
+    } else if (region === 'ca') {
+      matches = lowerUrl.includes('-ca');
+    } else {
+      matches = lowerUrl.includes(`-${region}`);
+    }
+    if (!matches) {
+      throw new Error(`❌ [Country Match Check] Country mismatch: expected region "${process.env.DAZN_REGION || 'GB'}" but URL is "${url}". Please ensure your VPN is connected to the correct region.`);
+    }
+    console.log(`✅ [Country Match Check] URL matches expected region "${process.env.DAZN_REGION || 'GB'}": ${url}`);
+  }
+
+  private isPreferredSafariHandoffUrl(url: string): boolean {
+    return this.isValidCheckoutUrl(url) && /\/account\//i.test(url) &&
+      (/contextualPpvId=|\/signup|[?&]page=/i.test(url));
+  }
+
   private async getAppStoreCannotConnectState(): Promise<{ visible: boolean; retryButton: WdElement | null }> {
     await this.driver.switchContext('NATIVE_APP').catch(() => { });
     const source = await this.driver.getPageSource().catch(() => '');
@@ -751,6 +777,16 @@ export class IOSBasePage {
         const webContexts = contextDetails
           .filter(context => context.id && context.id !== 'NATIVE_APP')
           .reverse();
+        const preferredContext = webContexts.find(context =>
+          this.isPreferredSafariHandoffUrl(String(context.url || ''))
+        );
+        if (preferredContext?.url) {
+          const url = String(preferredContext.url);
+          console.log(`✅ Captured DAZN account handoff URL from WEBVIEW context ${preferredContext.id}: ${url}`);
+          this.assertCheckoutUrlCountryMatch(url);
+          activatedBrowser = 'WEBVIEW';
+          return url;
+        }
         for (let contextIndex = 0; contextIndex < webContexts.length; contextIndex++) {
           const webContext = webContexts[contextIndex];
           const webCtx = webContext.id!;
@@ -758,6 +794,7 @@ export class IOSBasePage {
           console.log(`🌐 Checking web context ${webCtx}: ${url || '(no URL yet)'}`);
           if (this.isSafariHandoffLandingUrl(url)) {
             console.log(`✅ Captured new DAZN handoff URL from WEBVIEW context ${webCtx}: ${url}`);
+            this.assertCheckoutUrlCountryMatch(url);
             activatedBrowser = 'WEBVIEW';
             return url;
           }
@@ -809,8 +846,14 @@ export class IOSBasePage {
               await this.driver.switchContext(webCtx);
               const url = await this.driver.getUrl();
               console.log(`🌐 Checking web context ${webCtx}: ${url || '(no URL yet)'}`);
+              if (this.isPreferredSafariHandoffUrl(url)) {
+                console.log(`✅ Captured Safari account handoff context ${webCtx}: ${url}`);
+                this.assertCheckoutUrlCountryMatch(url);
+                return url;
+              }
               if (this.isSafariHandoffLandingUrl(url)) {
                 console.log(`✅ Captured new Safari handoff context ${webCtx}: ${url}`);
+                this.assertCheckoutUrlCountryMatch(url);
                 return url;
               }
             } catch (e: any) {
@@ -874,6 +917,7 @@ export class IOSBasePage {
             }
             if (this.isSafariHandoffLandingUrl(cleanUrl)) {
               console.log(`✅ Extracted Safari handoff URL from browser elements: "${cleanUrl}"`);
+              this.assertCheckoutUrlCountryMatch(cleanUrl);
               return cleanUrl;
             }
           }
@@ -1061,8 +1105,67 @@ export class IOSBasePage {
       console.log('⚠️ Safari page-ready wait timed out; proceeding anyway.');
     });
 
+    const searchScrolls = Math.max(maxCarouselScrolls, 40);
+    const foundOnLanding = await this.searchDontMissRailOnCurrentPage(eventName, eventTerms, searchScrolls);
+    if (foundOnLanding) return;
+
+    console.log('ℹ️ PPV tile not found in Don\'t miss rail on Landing page. Falling back to Home page via Explore...');
+    const explore = await this.browserFirstVisible([
+      '//*[self::button or self::a or @role="button"][normalize-space(.)="Explore"]',
+      'a*=Explore',
+      'button*=Explore',
+      '[role="button"]*=Explore',
+    ]);
+    if (explore) {
+      await explore.click();
+      console.log('✅ Clicked Explore to navigate from Landing page to Home page.');
+      await this.driver.waitUntil(async () => this.driver.execute(() => {
+        if (document.readyState !== 'complete') return false;
+        const isVisible = (element: HTMLElement): boolean => {
+          const style = window.getComputedStyle(element);
+          const rect = element.getBoundingClientRect();
+          return style.display !== 'none' && style.visibility !== 'hidden' &&
+            rect.width > 0 && rect.height > 0;
+        };
+        const controls = Array.from(document.querySelectorAll<HTMLElement>('button, a, [role="button"], [aria-label], [data-testid]'));
+        const searchVisible = controls.some(element => {
+          const text = `${element.innerText || element.textContent || ''} ${element.getAttribute('aria-label') || ''} ${element.getAttribute('data-testid') || ''}`;
+          const inHeader = Boolean(element.closest('header')) || element.getBoundingClientRect().top < window.innerHeight * 0.25;
+          return inHeader && /search/i.test(text) && isVisible(element);
+        });
+        const exploreVisible = controls.some(element =>
+          /^explore$/i.test((element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim()) &&
+          isVisible(element),
+        );
+        return searchVisible || !exploreVisible || document.querySelectorAll('div, section, article').length > 10;
+      }).catch(() => false), {
+        timeout: 15000,
+        interval: 500,
+        timeoutMsg: 'Safari Home page did not settle after clicking Explore.',
+      }).catch(() => {
+        console.log('⚠️ Safari Home settle wait timed out after Explore; continuing with Don\'t miss search.');
+      });
+    } else {
+      console.log('ℹ️ \'Explore\' control not found — assuming already on Home page or a different landing variant; continuing without navigation.');
+    }
+
+    const foundOnHome = await this.searchDontMissRailOnCurrentPage(eventName, eventTerms, searchScrolls);
+    if (foundOnHome) return;
+
+    // ── Failure: screenshot + descriptive error ───────────────────────────────
+    await this.driver.saveScreenshot('./test-results/ios_safari_ppv_tile_not_found.png').catch(() => { });
+    const pageText = (await this.browserText()).slice(0, 600);
+    throw new Error(
+      `Safari welcome page: PPV tile not found for "${eventName}" after ${searchScrolls} carousel scrolls (checked both Landing and Home pages).\n` +
+      `Visible text snippet: ${pageText}`
+    );
+  }
+
+  private async searchDontMissRailOnCurrentPage(eventName: string, eventTerms: string[], maxCarouselScrolls: number): Promise<boolean> {
     // ── Step 1: Scroll the page down until "Don't miss" is visible ───────────
-    const findVisibleDontMissRail = async (): Promise<any | null> => this.driver.execute(() => {
+    const findVisibleDontMissRail = async (): Promise<boolean> => this.driver.execute(() => {
+      document.querySelectorAll('[data-ios-dontmiss-rail="true"]')
+        .forEach(element => element.removeAttribute('data-ios-dontmiss-rail'));
       const headings = Array.from(document.querySelectorAll<HTMLElement>('*')).filter(el => {
         const text = (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
         const rect = el.getBoundingClientRect();
@@ -1075,13 +1178,16 @@ export class IOSBasePage {
         for (let depth = 0; scope && depth < 6; depth++, scope = scope.parentElement) {
           const rail = [scope, ...Array.from(scope.querySelectorAll<HTMLElement>('*'))]
             .find(el => el.scrollWidth > el.clientWidth + 5 && el.offsetParent !== null);
-          if (rail) return rail;
+          if (rail) {
+            rail.setAttribute('data-ios-dontmiss-rail', 'true');
+            return true;
+          }
         }
       }
-      return null;
-    }).catch(() => null);
+      return false;
+    }).catch(() => false);
 
-    let dontMissRail: any | null = null;
+    let dontMissRail = false;
     for (let scroll = 0; scroll < 15; scroll++) {
       dontMissRail = await findVisibleDontMissRail();
       if (dontMissRail) break;
@@ -1089,8 +1195,7 @@ export class IOSBasePage {
       await this.driver.pause(400);
     }
     if (!dontMissRail) {
-      await this.driver.saveScreenshot('./test-results/ios_safari_dont_miss_not_found.png').catch(() => { });
-      throw new Error('Safari welcome page: "Don\'t miss" rail was not found. See test-results/ios_safari_dont_miss_not_found.png');
+      return false;
     }
     // The heading can first appear at the bottom of the viewport while all
     // cards and their Buy now CTA remain below it. Position it above the
@@ -1113,17 +1218,7 @@ export class IOSBasePage {
 
     // ── Step 2: Check and click only a visible tile in this rail ──────────────
     const clickVisibleMatchingTile = async (): Promise<string> => this.driver.execute((terms: string[]) => {
-      const heading = Array.from(document.querySelectorAll<HTMLElement>('*')).find(el =>
-        /^don.?t miss(?: live on dazn)?$/i.test((el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim()),
-      );
-      if (!heading) return '';
-
-      let rail: HTMLElement | undefined;
-      let scope: HTMLElement | null = heading;
-      for (let depth = 0; scope && depth < 6 && !rail; depth++, scope = scope.parentElement) {
-        rail = [scope, ...Array.from(scope.querySelectorAll<HTMLElement>('*'))]
-          .find(el => el.scrollWidth > el.clientWidth + 5 && el.offsetParent !== null);
-      }
+      const rail = document.querySelector<HTMLElement>('[data-ios-dontmiss-rail="true"]') || undefined;
       if (!rail) return '';
 
       const railRect = rail.getBoundingClientRect();
@@ -1150,53 +1245,64 @@ export class IOSBasePage {
       return '';
     }, eventTerms).catch(() => '');
 
+    let urlBeforeTileClick = await this.driver.getUrl().catch(() => '');
     let clicked = await clickVisibleMatchingTile();
     if (clicked) {
       console.log(`✅ Clicked ${clicked} for PPV tile "${eventName}" in "Don't miss".`);
-      await this.driver.pause(1500);
-      return;
+      await this.waitForSafariAfterDontMissClick(eventName, urlBeforeTileClick);
+      return true;
     }
 
     // ── Carousel scroll passes: scroll the rail left to reveal hidden tiles ───
     for (let i = 0; i < maxCarouselScrolls; i++) {
-      const moved = await this.driver.execute(() => {
-        const heading = Array.from(document.querySelectorAll<HTMLElement>('*')).find(el =>
-          /^don.?t miss(?: live on dazn)?$/i.test((el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim()),
-        );
-        if (!heading) return false;
-        let rail: HTMLElement | undefined;
-        let scope: HTMLElement | null = heading;
-        for (let depth = 0; scope && depth < 6 && !rail; depth++, scope = scope.parentElement) {
-          rail = [scope, ...Array.from(scope.querySelectorAll<HTMLElement>('*'))]
-            .find(el => el.scrollWidth > el.clientWidth + 5 && el.offsetParent !== null);
-        }
-        if (!rail) return false;
-        const before = rail.scrollLeft;
-        rail.scrollLeft += rail.clientWidth * 0.8;
-        return rail.scrollLeft > before;
-      }).catch(() => false);
-      if (!moved) {
+      const scrollState = await this.driver.execute(() => {
+        const rail = document.querySelector<HTMLElement>('[data-ios-dontmiss-rail="true"]');
+        if (!rail) return 'missing';
+        const maxLeft = Math.max(0, rail.scrollWidth - rail.clientWidth);
+        if (rail.scrollLeft >= maxLeft - 4) return 'end';
+        rail.scrollLeft = Math.min(maxLeft, rail.scrollLeft + rail.clientWidth * 0.8);
+        return 'scrolled';
+      }).catch(() => 'missing');
+      if (scrollState !== 'scrolled') {
         console.log('📜 Reached the end of the "Don\'t miss" rail.');
         break;
       }
       console.log(`↔️ Scrolled "Don\'t miss" rail horizontally (${i + 1}/${maxCarouselScrolls}).`);
-      await this.driver.pause(600);
+      await this.driver.pause(700);
 
+      urlBeforeTileClick = await this.driver.getUrl().catch(() => '');
       clicked = await clickVisibleMatchingTile();
       if (clicked) {
         console.log(`✅ Clicked ${clicked} for PPV tile "${eventName}" in "Don't miss".`);
-        await this.driver.pause(1500);
-        return;
+        await this.waitForSafariAfterDontMissClick(eventName, urlBeforeTileClick);
+        return true;
+      }
+
+      const atEnd = await this.driver.execute(() => {
+        const rail = document.querySelector<HTMLElement>('[data-ios-dontmiss-rail="true"]');
+        return !rail || rail.scrollLeft + rail.clientWidth >= rail.scrollWidth - 4;
+      }).catch(() => true);
+      if (atEnd) {
+        console.log('📜 Reached the end of the "Don\'t miss" rail.');
+        break;
       }
     }
+    return false;
+  }
 
-    // ── Failure: screenshot + descriptive error ───────────────────────────────
-    await this.driver.saveScreenshot('./test-results/ios_safari_ppv_tile_not_found.png').catch(() => { });
-    const pageText = (await this.browserText()).slice(0, 600);
-    throw new Error(
-      `Safari welcome page: PPV tile not found for "${eventName}" after ${maxCarouselScrolls} carousel scrolls.\n` +
-      `Visible text snippet: ${pageText}`
-    );
+  private async waitForSafariAfterDontMissClick(eventName: string, previousUrl: string): Promise<void> {
+    await this.driver.pause(Number(process.env.IOS_SAFARI_AFTER_TILE_CLICK_PAUSE_MS || 5000));
+    await this.driver.waitUntil(async () => {
+      const currentUrl = await this.driver.getUrl().catch(() => '');
+      if (currentUrl && currentUrl !== previousUrl) return true;
+      return await this.browserDocumentReady();
+    }, {
+      timeout: Number(process.env.IOS_SAFARI_AFTER_TILE_CLICK_TIMEOUT_MS || 20000),
+      interval: 500,
+      timeoutMsg: `Safari did not settle after clicking PPV tile "${eventName}".`,
+    }).catch(() => {
+      console.log(`⚠️ Safari settle wait timed out after clicking PPV tile "${eventName}"; continuing.`);
+    });
   }
 }
 
