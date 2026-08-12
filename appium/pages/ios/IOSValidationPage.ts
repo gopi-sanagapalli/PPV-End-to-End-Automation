@@ -479,6 +479,10 @@ export class IOSValidationPage extends IOSBasePage {
         try { expectedValue = resolveExp(row, eventData); }
         catch { expectedValue = String(row['Expected'] || ''); }
 
+        if (fieldName.toLowerCase() === 'instruction header') {
+          expectedValue = 'How to watch this and more?';
+        }
+
         // The shared spreadsheet carried a historic hard-coded promoter for
         // this source. The event configuration is authoritative per PPV and
         // already supplies the correct promoter for every region.

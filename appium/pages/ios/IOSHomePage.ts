@@ -469,7 +469,15 @@ export class IOSHomePage extends IOSLandingPage {
     await this.runPaywallValidation(hooks);
     if (await this.handleUsNativePaywallSheet(hooks)) return true;
 
-    return this.tapBuyCtaWithFallback(['Buy now', 'Buy Now', 'Buy', 'Get PPV', 'Purchase']);
+    const externalCtas = [
+      'Go to dazn.com/start',
+      'Go to DAZN.com/start',
+      'dazn.com/start',
+    ];
+    return this.tapBuyCtaWithFallback(externalCtas, {
+      scrollBeforeFallback: true,
+      fallbackCtas: externalCtas,
+    });
   }
 }
 

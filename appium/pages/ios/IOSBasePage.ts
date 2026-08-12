@@ -439,7 +439,7 @@ export class IOSBasePage {
       'Purchase',
       'Continue',
     ],
-    options: { primaryTimeoutMs?: number; fallbackTimeoutMs?: number; scrollBeforeFallback?: boolean } = {},
+    options: { primaryTimeoutMs?: number; fallbackTimeoutMs?: number; scrollBeforeFallback?: boolean; fallbackCtas?: string[] } = {},
   ): Promise<boolean> {
     const primaryTimeoutMs = options.primaryTimeoutMs ?? 6000;
     const fallbackTimeoutMs = options.fallbackTimeoutMs ?? 3000;
@@ -452,7 +452,7 @@ export class IOSBasePage {
       await this.driver.pause(1000);
     }
 
-    const fallback = await this.tapFirstText([
+    const fallback = await this.tapFirstText(options.fallbackCtas ?? [
       'Go to dazn.com/start',
       'dazn.com/start',
       'dazn.com',
@@ -695,6 +695,8 @@ export class IOSBasePage {
     }
 
     const region = (process.env.DAZN_REGION || '').toUpperCase();
+    const isLoginFirst = String(process.env.LOGIN_FIRST || process.env.LOGIN || '').toLowerCase() === 'true';
+    const loginFirstStartUrl = 'https://www.dazn.com/start';
     if (region !== 'US') {
     // 1. Let the system sheet complete its presentation animation. On this
     // device/iOS version the App Store sheet is visible on screen but omitted
@@ -797,6 +799,10 @@ export class IOSBasePage {
     // Do not treat an old DAZN WebView as a successful handoff when the
     // current App Store presentation has failed with a Retry surface.
     await this.retryOrFailIfAppStoreCannotConnect();
+    if (isLoginFirst) {
+      console.log(`✅ LOGIN_FIRST=true: using DAZN start URL for private Safari handoff: ${loginFirstStartUrl}`);
+      return loginFirstStartUrl;
+    }
     }
 
     // Switch automation context to the active browser app to inspect its UI tree.
@@ -1017,10 +1023,17 @@ export class IOSBasePage {
       throw new Error(`Cannot open an invalid DAZN handoff URL in Safari: ${capturedUrl || '(empty)'}`);
     }
 
-    const expectedHostname = new URL(capturedUrl).hostname.replace(/^www\./i, '').toLowerCase();
+    const expectedUrl = new URL(capturedUrl);
+    const expectedHostname = expectedUrl.hostname.replace(/^www\./i, '').toLowerCase();
+    const expectedPathname = expectedUrl.pathname.replace(/\/+$/, '') || '/';
     const hasExpectedSafariUrl = (url: string): boolean => {
       try {
-        return new URL(url).hostname.replace(/^www\./i, '').toLowerCase() === expectedHostname;
+        const actualUrl = new URL(url);
+        const actualHostname = actualUrl.hostname.replace(/^www\./i, '').toLowerCase();
+        const actualPathname = actualUrl.pathname.replace(/\/+$/, '') || '/';
+        return actualHostname === expectedHostname &&
+          actualPathname === expectedPathname &&
+          (!expectedUrl.search || actualUrl.search === expectedUrl.search);
       } catch {
         return false;
       }
