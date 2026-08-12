@@ -43,7 +43,7 @@ const ANDROIDTV_BROWSER_PLANS_BACK_CHECK_MS = Number(process.env.ANDROIDTV_BROWS
 const TV_PPV_REPORT_METADATA = process.env.TV_PPV_REPORT_METADATA || path.resolve(__dirname, '../../../tv_ppv_report_metadata.json');
 const TV_PPV_SPEC_TIMEOUT_MS = Number(process.env.TV_PPV_SPEC_TIMEOUT_MS || 600000);
 const TV_POST_LOGIN_SCREENSHOTS = process.env.TV_POST_LOGIN_SCREENSHOTS === 'true';
-const TV_PAYWALL_INSTRUCTION_HEADER = 'How to watch this?';
+const TV_PAYWALL_INSTRUCTION_HEADER = 'How to watch this and more?';
 const TV_PAYWALL_EMAIL_INSTRUCTION = 'Follow the instructions we’ve just sent you to';
 const TV_PAYWALL_BROWSER_INSTRUCTION = "Go to 'My account' on a web browser to purchase this event";
 
@@ -222,6 +222,29 @@ function drawRedBorder(image: PNG, bounds: { x: number; y: number; width: number
   }
 }
 
+function getFailureHighlightCandidates(field: string, expected: string, actual: string): string[] {
+  const candidates = [actual, expected];
+
+  if (field === 'Instruction Header') {
+    candidates.push('How to watch this and more?', 'How to watch this?');
+  }
+
+  if (field === 'Web Browser Instruction') {
+    candidates.push(
+      "Go to 'My account' on a web browser to purchase this event with a DAZN plan",
+      "Go to ‘My account’ on a web browser to purchase this event with a DAZN plan",
+      "Go to 'My account'",
+      'purchase this event',
+    );
+  }
+
+  if (field === 'Email Instruction Text') {
+    candidates.push(TV_PAYWALL_EMAIL_INSTRUCTION);
+  }
+
+  return candidates;
+}
+
 async function captureTvFailureScreenshot(
   driver: any,
   pageSource: string,
@@ -244,7 +267,7 @@ async function captureTvFailureScreenshot(
     const windowRect = await driver.getWindowRect().catch(() => null);
     const logicalWidth = windowRect?.width || image.width;
     const logicalHeight = windowRect?.height || image.height;
-    const elementBounds = findTextBounds(pageSource, [actual, expected]);
+    const elementBounds = findTextBounds(pageSource, getFailureHighlightCandidates(field, expected, actual));
     const bounds = elementBounds
       ? {
           x: Math.round(elementBounds.x * (image.width / logicalWidth)),

@@ -164,3 +164,75 @@ jobs:
             appium/test-results/**
             mobile_entry_url.txt
             tv_ppv_report_metadata.json
+
+  workflow-summary:
+    needs: [prepare, firetv-prod-ppv-live]
+    if: ${{ always() }}
+    name: Consolidated FireTV workflow report · ${{ inputs.COUNTRY }}
+    runs-on: [self-hosted, macOS, ARM64, chandrababu-runners]
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Download FireTV profile artifacts
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: firetv-prod-ppv-live-*-*-${{ github.run_attempt }}
+          path: tv-summary-artifacts
+
+      - name: Prepare FireTV artifacts for workflow summary
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ppv-workflow-summary/job-artifacts
+          if [ ! -d tv-summary-artifacts ]; then
+            echo "No FireTV profile artifacts were downloaded for this run."
+            exit 0
+          fi
+
+          find tv-summary-artifacts -mindepth 1 -maxdepth 1 -type d -name 'firetv-prod-ppv-live-*' -print | while IFS= read -r artifact_dir; do
+            artifact_name="$(basename "$artifact_dir")"
+            identity="${artifact_name#firetv-prod-ppv-live-}"
+            identity="${identity%-${GITHUB_RUN_ATTEMPT}}"
+
+            case "$identity" in
+              *-standard_monthly) user_state="${identity%-standard_monthly}"; plan="standard_monthly" ;;
+              *-standard_apm) user_state="${identity%-standard_apm}"; plan="standard_apm" ;;
+              *-ultimate_apm) user_state="${identity%-ultimate_apm}"; plan="ultimate_apm" ;;
+              *-ultimate_upfront) user_state="${identity%-ultimate_upfront}"; plan="ultimate_upfront" ;;
+              *)
+                echo "::warning::Unable to parse FireTV artifact name: $artifact_name"
+                continue
+                ;;
+            esac
+
+            summary_dir="ppv-workflow-summary/job-artifacts/ppv-android-already-signed-in-firetv-live-schedule-${user_state}_${plan}"
+            rm -rf "$summary_dir"
+            mkdir -p "$summary_dir"
+            cp -R "$artifact_dir/." "$summary_dir/"
+            echo "Prepared $artifact_name for summary as $(basename "$summary_dir")"
+          done
+
+      - name: Build FireTV workflow summary
+        if: ${{ always() }}
+        uses: ./.github/actions/ppv-workflow-summary
+        with:
+          title: FireTV PPV live workflow report · ${{ inputs.COUNTRY }}
+          ppv_config: ${{ inputs.PPV_CONFIG }}
+          country: ${{ inputs.COUNTRY }}
+          artifact_pattern: ppv-android-already-signed-in-firetv-live-*
+          artifact_name: firetv-prod-ppv-live-summary-${{ github.run_attempt }}
+          signed_in_status: ${{ needs.firetv-prod-ppv-live.result }}
+
+      - name: Upload FireTV workflow summary
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: firetv-prod-ppv-live-summary-${{ github.run_attempt }}
+          if-no-files-found: warn
+          retention-days: 14
+          path: ppv-workflow-summary/**
