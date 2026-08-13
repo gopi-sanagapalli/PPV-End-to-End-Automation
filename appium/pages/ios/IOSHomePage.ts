@@ -99,6 +99,7 @@ export class IOSHomePage extends IOSLandingPage {
     const isLoginFirst = String(process.env.LOGIN_FIRST || '').toLowerCase() === 'true';
 
     if (isUltimateUser && isLoginFirst) {
+      await this.validateUltimateFixtureOrPreviewPage(hooks);
       console.log('✨ [Ultimate Active User with LOGIN_FIRST=true] Tile clicked (generic). Skipping Buy click and returning true.');
       return true;
     }
@@ -462,7 +463,10 @@ export class IOSHomePage extends IOSLandingPage {
 
     const isUltimateUser = ['active_ultimate_apm', 'active_ultimate_upfront'].includes(String(process.env.USER_STATE || '').toLowerCase().trim());
     const isLoginFirst = String(process.env.LOGIN_FIRST || '').toLowerCase() === 'true';
-    if (isUltimateUser && isLoginFirst) return true;
+    if (isUltimateUser && isLoginFirst) {
+      await this.validateUltimateFixtureOrPreviewPage(hooks);
+      return true;
+    }
 
     console.log('Validating native Don\'t Miss paywall before external handoff...');
     await this.driver.saveScreenshot('./test-results/ios_dont_miss_native_paywall.png');

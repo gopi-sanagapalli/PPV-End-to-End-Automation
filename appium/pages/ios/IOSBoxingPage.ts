@@ -542,6 +542,13 @@ export class IOSBoxingPage extends IOSBasePage {
       return false;
     }
 
+    const isUltimateUser = ['active_ultimate_apm', 'active_ultimate_upfront'].includes(String(process.env.USER_STATE || '').toLowerCase().trim());
+    const isLoginFirst = String(process.env.LOGIN_FIRST || '').toLowerCase() === 'true';
+    if (isUltimateUser && isLoginFirst) {
+      await this.validateUltimateFixtureOrPreviewPage(hooks);
+      return true;
+    }
+
     await this.driver.pause(1500);
     console.log('Validating native Upcoming Fights paywall before external handoff...');
     await this.driver.saveScreenshot('./test-results/ios_home_boxing_upcoming_native_paywall.png');

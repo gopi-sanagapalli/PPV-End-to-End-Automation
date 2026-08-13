@@ -17,6 +17,7 @@ export type IOSPPVSurface = 'PPV Banner' | 'PPV Tile';
 export interface IOSFlowHooks {
   validateSurface?: (surface: IOSPPVSurface) => Promise<void>;
   validatePaywall?: () => Promise<void>;
+  validateFixtureOrPreview?: () => Promise<void>;
   recordAvailability?: (available: boolean, screenshot?: string, page?: string) => void;
   saveScreenshot?: (relativePath: string) => Promise<string | undefined>;
   generateAvailabilityFailureReport?: (errorMessage: string) => Promise<void>;
@@ -376,6 +377,11 @@ export class IOSBasePage {
     const horizontalSwipes = options.horizontalSwipes ?? 8;
     const verticalScrolls = options.verticalScrolls ?? 5;
     const ctaTexts = options.ctaTexts || ['Go to dazn.com/start', 'dazn.com/start', 'dazn.com'];
+    const isUltimateUser = ['active_ultimate_apm', 'active_ultimate_upfront'].includes(String(process.env.USER_STATE || '').toLowerCase().trim());
+    const isLoginFirst = String(process.env.LOGIN_FIRST || '').toLowerCase() === 'true';
+    const activeBannerCtas = isUltimateUser && isLoginFirst
+      ? [...ctaTexts, 'Fight Card', 'Set Reminder', 'Purchased']
+      : ctaTexts;
 
     const simplifiedName = ppvName.split(/ vs/i)[0].trim().replace(/\./g, '');
     const titleTerms = ppvName
@@ -388,7 +394,7 @@ export class IOSBasePage {
       for (const term of titleTerms) {
         if (!await this.isVisible(term, 200)) return false;
       }
-      for (const cta of ctaTexts) {
+      for (const cta of activeBannerCtas) {
         if (await this.isVisible(cta, 200)) return true;
       }
       return false;
@@ -560,6 +566,22 @@ export class IOSBasePage {
     } catch (err: any) {
       console.warn(`Mobile paywall validation failed: ${err.message}`);
     }
+  }
+
+  async validateUltimateFixtureOrPreviewPage(hooks?: IOSFlowHooks): Promise<void> {
+    const title = this.ppvName.split(/ vs/i)[0].trim().replace(/\./g, '');
+    await this.driver.waitUntil(async () => {
+      const source = await this.driver.getPageSource().catch(() => '');
+      const corpus = source.toLowerCase();
+      return corpus.includes(title.toLowerCase()) &&
+        /\brelated\b|\bcompetitors\b|\bevents\b|\bfeatures\b/i.test(source);
+    }, {
+      timeout: 8000,
+      interval: 500,
+      timeoutMsg: `PPV fixture/preview page did not load for "${this.ppvName}" after tile click.`,
+    });
+    console.log('✅ [Ultimate Active User with LOGIN_FIRST=true] Fixture/preview page detected after tile click.');
+    await hooks?.validateFixtureOrPreview?.();
   }
 
   isValidCheckoutUrl(url: string): boolean {
