@@ -1806,6 +1806,10 @@ function buildYopmailHandoffUrl(email: string): string {
   return `https://www.yopmail.com/?login=${encodeURIComponent(email.split('@')[0])}`;
 }
 
+function isYopmailEmail(email: string): boolean {
+  return email.trim().toLowerCase().endsWith('@yopmail.com');
+}
+
 async function extractTvPaywallEmail(driver: any): Promise<string> {
   const source = await driver.getPageSource().catch(() => '');
   const email = extractEmailFromText(source);
@@ -1819,14 +1823,22 @@ function isEmailOnlyTvPaywall(): boolean {
   return TV_TARGET === 'firetv' || TV_TARGET === 'androidtv';
 }
 
-async function writeYopmailHandoffFromPaywallEmail(driver: any): Promise<boolean> {
+async function writeYopmailHandoffFromPaywallEmail(driver: any, fallbackEmail = ''): Promise<boolean> {
   const paywallEmail = await extractTvPaywallEmail(driver);
-  if (!paywallEmail.toLowerCase().endsWith('@yopmail.com')) return false;
+  const handoffEmail = isYopmailEmail(paywallEmail)
+    ? paywallEmail
+    : isYopmailEmail(fallbackEmail)
+      ? fallbackEmail
+      : '';
+  if (!handoffEmail) return false;
+  const handoffEmailSource = paywallEmail === handoffEmail
+    ? 'Yopmail address visible on TV paywall'
+    : 'Configured Yopmail account available for web handoff';
 
-  const checkoutUrl = buildYopmailHandoffUrl(paywallEmail);
+  const checkoutUrl = buildYopmailHandoffUrl(handoffEmail);
   writeHandoffUrl(checkoutUrl);
   await driver.saveScreenshot('./test-results/android_tv_handoff_success.png').catch(() => {});
-  recordTvPpvReportStep('Paywall email captured', 'Yopmail address visible on TV paywall', paywallEmail);
+  recordTvPpvReportStep('Paywall email captured', handoffEmailSource, handoffEmail);
   recordTvPpvReportStep('Yopmail inbox prepared', 'Yopmail inbox URL for existing-user browser', 'Yopmail inbox URL prepared');
   console.log(`✅ TV handoff will continue via Yopmail in existing-user browser: ${checkoutUrl}`);
   return true;
@@ -1834,8 +1846,8 @@ async function writeYopmailHandoffFromPaywallEmail(driver: any): Promise<boolean
 
 // After the TV app opens the PPV paywall, capture the web handoff URL that the
 // root Playwright runner continues from.
-async function captureTvPpvHandoffUrl(driver: any): Promise<void> {
-  if (isEmailOnlyTvPaywall() && await writeYopmailHandoffFromPaywallEmail(driver)) {
+async function captureTvPpvHandoffUrl(driver: any, fallbackEmail = ''): Promise<void> {
+  if (isEmailOnlyTvPaywall() && await writeYopmailHandoffFromPaywallEmail(driver, fallbackEmail)) {
     return;
   }
 
@@ -1862,7 +1874,7 @@ async function captureTvPpvHandoffUrl(driver: any): Promise<void> {
   }
 
   if ((!checkoutUrl || !checkoutUrl.includes('dazn.com')) && isEmailOnlyTvPaywall()) {
-    if (await writeYopmailHandoffFromPaywallEmail(driver)) return;
+    if (await writeYopmailHandoffFromPaywallEmail(driver, fallbackEmail)) return;
   }
 
   if (!checkoutUrl || !isSupportedTvHandoffUrl(checkoutUrl)) {
@@ -2001,7 +2013,7 @@ describe('DAZN TV PPV Android Handoff', function () {
         throw new Error(`TV PPV flow did not reach paywall for SOURCE=${SOURCE}`);
       }
 
-      await captureTvPpvHandoffUrl(driver);
+      await captureTvPpvHandoffUrl(driver, credentials.email);
       return;
     }
 
@@ -2020,6 +2032,6 @@ describe('DAZN TV PPV Android Handoff', function () {
       throw new Error(`TV PPV flow did not reach paywall for SOURCE=${SOURCE}`);
     }
 
-    await captureTvPpvHandoffUrl(driver);
+    await captureTvPpvHandoffUrl(driver, credentials.email);
   });
 });
