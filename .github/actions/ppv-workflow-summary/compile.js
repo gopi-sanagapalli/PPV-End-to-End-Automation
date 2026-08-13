@@ -221,6 +221,20 @@ function resolveDuration(jobPath, jsonFiles, customHtmlFiles) {
   return 'N/A';
 }
 
+function customHtmlReportHasFailure(htmlContent) {
+  const bodyContent = htmlContent
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[\s\S]*?<\/script>/gi, '');
+
+  const failedCountMatch = bodyContent.match(/<div class=["'][^"']*\bcard\b[^"']*\bfail\b[^"']*["'][^>]*>\s*<div class=["']v["']>\s*(\d+)\s*<\/div>\s*<div class=["']k["']>\s*Failed\s*<\/div>/i);
+  if (failedCountMatch) {
+    return Number(failedCountMatch[1]) > 0;
+  }
+
+  return /<tr class=["'][^"']*\brow-fail\b[^"']*["']/i.test(bodyContent) ||
+    /<span class=["'][^"']*\bst-fail\b[^"']*["'][^>]*>\s*FAIL\s*<\/span>/i.test(bodyContent);
+}
+
 /**
  * Report directories are written by the runners as:
  *   ppv-<platform>-<journey>-<source>-<profile-or-plan>
@@ -392,7 +406,7 @@ if (fs.existsSync(artifactsDir)) {
       try {
         for (const htmlFile of customHtmlFiles) {
           const htmlContent = fs.readFileSync(htmlFile, 'utf-8');
-          if (htmlContent.includes('st-fail') || htmlContent.includes('class="card fail"') || /Failed<\/div>\s*<div class="k">/i.test(htmlContent)) {
+          if (customHtmlReportHasFailure(htmlContent)) {
             isFail = true;
             break;
           }
