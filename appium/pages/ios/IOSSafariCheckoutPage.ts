@@ -109,6 +109,7 @@ export class IOSSafariCheckoutPage extends IOSBasePage {
     console.log('⏳ Waiting for Safari landing controls after cookie handling...');
     await this.driver.waitUntil(async () => {
       if (!await this.browserDocumentReady()) return false;
+      await this.refreshSafariOpeningProblemPageIfPresent();
       if (/\/search(?:[/?#]|$)/i.test(await this.driver.getUrl())) return true;
       return Boolean(await this.browserFirstVisible(landingControls));
     }, {
@@ -264,6 +265,7 @@ export class IOSSafariCheckoutPage extends IOSBasePage {
       console.log('ℹ️ Safari is already on the Search route.');
       return;
     }
+    await this.refreshSafariOpeningProblemPageIfPresent();
 
     const explore = await this.browserFirstVisible([
       '//*[self::button or self::a or @role="button"][normalize-space(.)="Explore"]',
@@ -272,7 +274,15 @@ export class IOSSafariCheckoutPage extends IOSBasePage {
     if (explore) {
       await explore.click();
       console.log('✅ Safari handoff selected Explore.');
-      await this.driver.pause(1200);
+      await this.driver.waitUntil(async () => {
+        if (!await this.browserDocumentReady()) return false;
+        await this.refreshSafariOpeningProblemPageIfPresent();
+        return true;
+      }, {
+        timeout: 15000,
+        interval: 1000,
+        timeoutMsg: 'Safari did not settle after selecting Explore.',
+      });
     } else {
       console.log('ℹ️ Safari handoff is already beyond the Explore screen.');
     }
@@ -280,6 +290,7 @@ export class IOSSafariCheckoutPage extends IOSBasePage {
     const deadline = Date.now() + 15000;
     let searchControl: any | null = null;
     while (Date.now() < deadline && !searchControl) {
+      await this.refreshSafariOpeningProblemPageIfPresent();
       searchControl = await this.browserFirstVisible([
         'header a[href*="/search"]',
         'header button[aria-label*="Search" i]',
@@ -297,7 +308,11 @@ export class IOSSafariCheckoutPage extends IOSBasePage {
     }
 
     await searchControl.click();
-    await this.driver.waitUntil(async () => /\/search(?:[/?#]|$)/i.test(await this.driver.getUrl()), {
+    await this.driver.waitUntil(async () => {
+      if (!await this.browserDocumentReady()) return false;
+      await this.refreshSafariOpeningProblemPageIfPresent();
+      return /\/search(?:[/?#]|$)/i.test(await this.driver.getUrl());
+    }, {
       timeout: 20000,
       timeoutMsg: 'Safari Search icon did not open the DAZN search route.',
     });
@@ -388,6 +403,7 @@ export class IOSSafariCheckoutPage extends IOSBasePage {
   private async enableSafariDevMode(): Promise<void> {
     console.log('🎭 Enabling Safari dev mode for Ultimate checkout...');
     await this.openSafariSearchFromLanding();
+    await this.refreshSafariOpeningProblemPageIfPresent();
 
     const hasDevIndicator = async () => {
       if (await this.browserFirstVisible([
@@ -426,6 +442,7 @@ export class IOSSafariCheckoutPage extends IOSBasePage {
     let input: any | null = null;
     const inputDeadline = Date.now() + 15000;
     while (Date.now() < inputDeadline && !input) {
+      await this.refreshSafariOpeningProblemPageIfPresent();
       input = await this.browserFirstVisible([
         'input[type="search"]', 'input[placeholder*="search" i]',
         '[role="searchbox"]', '[role="textbox"]',

@@ -2281,18 +2281,43 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
               await planBtn.waitFor({ state: 'visible', timeout: 5000 }).catch(() => { });
               await clickAndWaitForNav(page, planBtn, 'Ultimate Plan Continue');
             } else {
-              // Non-ultimate: proceed with PPV only — click PPV CTA, no plan upgrade
-              console.log('🛒 [PPV-only] Clicking PPV/Continue CTA on plan page...');
-              const ppvBtn = page.locator(
-                'button:has-text("Continue with pay-per-view"), ' +
-                'button:has-text("Continue with PPV"), ' +
-                'button:has-text("Buy"), ' +
-                'button:has-text("Continue with 7-day Free Trial"), ' +
-                'button:has-text("Continue with 1st Month Free"), ' +
-                'button:has-text("Continue")'
-              ).first();
-              await ppvBtn.waitFor({ state: 'visible', timeout: 5000 }).catch(() => { });
-              await clickAndWaitForNav(page, ppvBtn, 'PPV Continue (non-ultimate)');
+              if (ratePlan === 'annual pay monthly' || ratePlan.includes('annual')) {
+                const annualCard = page.locator(
+                  'label:has-text("Annual - pay over time"), label:has-text("Annual - Pay Monthly")'
+                ).first();
+
+                if (await annualCard.isVisible({ timeout: 3000 }).catch(() => false)) {
+                  await safeScrollToElement(page, annualCard);
+                  await annualCard.click({ force: true }).catch(() => { });
+                } else {
+                  const radio = page.locator('input[type="radio"]').nth(1);
+                  if (await radio.isVisible({ timeout: 1500 }).catch(() => false)) {
+                    await safeScrollToElement(page, radio);
+                    await radio.click({ force: true }).catch(() => { });
+                  }
+                }
+
+                const planBtn = page.locator(
+                  'button:has-text("Continue with 1st Month Free"), ' +
+                  'button:has-text("Continue with Annual"), ' +
+                  'button:has-text("Continue")'
+                ).first();
+                await planBtn.waitFor({ state: 'visible', timeout: 5000 }).catch(() => { });
+                await clickAndWaitForNav(page, planBtn, 'Standard Annual Plan Continue');
+              } else {
+                // Non-ultimate monthly: proceed with PPV only — click PPV CTA, no plan upgrade
+                console.log('🛒 [PPV-only] Clicking PPV/Continue CTA on plan page...');
+                const ppvBtn = page.locator(
+                  'button:has-text("Continue with pay-per-view"), ' +
+                  'button:has-text("Continue with PPV"), ' +
+                  'button:has-text("Buy"), ' +
+                  'button:has-text("Continue with 7-day Free Trial"), ' +
+                  'button:has-text("Continue with 1st Month Free"), ' +
+                  'button:has-text("Continue")'
+                ).first();
+                await ppvBtn.waitFor({ state: 'visible', timeout: 5000 }).catch(() => { });
+                await clickAndWaitForNav(page, ppvBtn, 'PPV Continue (non-ultimate)');
+              }
             }
 
             await setupPage(page, 500);

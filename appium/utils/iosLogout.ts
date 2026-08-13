@@ -11,7 +11,7 @@
 type WdBrowser = any;
 type WdElement = any;
 
-const LOGOUT_TIMEOUT = 30_000;
+const LOGOUT_TIMEOUT = 90_000;
 
 // ── Selectors ────────────────────────────────────────────────────────────
 
@@ -22,8 +22,11 @@ const PROFILE_ICON_SELECTORS = [
 
 const LANDING_INDICATORS = [
   '-ios predicate string:type == "XCUIElementTypeButton" AND (name == "Log in" OR label == "Log in")',
+  '-ios predicate string:type == "XCUIElementTypeButton" AND (name == "Log In" OR label == "Log In")',
   '-ios predicate string:type == "XCUIElementTypeButton" AND (name == "Explore" OR label == "Explore")',
+  '-ios predicate string:type == "XCUIElementTypeButton" AND (name == "Get started" OR label == "Get started")',
   '~Log in',
+  '~Log In',
   '~Explore',
   '~Get started',
 ];
@@ -135,6 +138,7 @@ export async function ensureLoggedOut(driver: WdBrowser): Promise<void> {
 
     // 6. Wait for the landing page.
     let landingPageVisible = false;
+    console.log('🔓 [Logout] Waiting for landing CTA after logout...');
     await driver.waitUntil(async () => {
       landingPageVisible = Boolean(await firstVisible(driver, LANDING_INDICATORS));
       return landingPageVisible;

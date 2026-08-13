@@ -38,6 +38,7 @@ export class AndroidHomePage extends AndroidLandingPage {
       page: 'Home',
       eventConfig,
       hooks,
+      forceRailTitle: "Don't Miss",
     });
 
     if (locatorRes.success) {

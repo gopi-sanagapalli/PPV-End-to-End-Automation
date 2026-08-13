@@ -248,6 +248,20 @@ export class IOSBoxingPage extends IOSBasePage {
       getElementId(sport),
     ].filter(Boolean));
     const pageSportSelector = `-ios predicate string:name CONTAINS[c] "${escapedSport}" OR label CONTAINS[c] "${escapedSport}" OR value CONTAINS[c] "${escapedSport}"`;
+    const loadedPageControls = [
+      '-ios predicate string:(name == "Home" OR label == "Home") AND type == "XCUIElementTypeButton"',
+      '-ios predicate string:name CONTAINS[c] "Upcoming Fights" OR label CONTAINS[c] "Upcoming Fights"',
+      '-ios predicate string:name CONTAINS[c] "Buy now" OR label CONTAINS[c] "Buy now"',
+      '-ios predicate string:name CONTAINS[c] "Fight Card" OR label CONTAINS[c] "Fight Card"',
+      `-ios predicate string:name CONTAINS[c] "Best of ${escapedSport}" OR label CONTAINS[c] "Best of ${escapedSport}"`,
+    ];
+    const isSportContentReady = async (): Promise<boolean> => {
+      for (const selector of loadedPageControls) {
+        const element = await this.driver.$(selector).catch(() => null);
+        if (element && await element.isDisplayed().catch(() => false)) return true;
+      }
+      return false;
+    };
     const isConfiguredSportPageReady = async (): Promise<boolean> => {
       // Re-query every poll: the element picked in All Sports becomes stale as
       // the destination hierarchy replaces the picker.
@@ -256,7 +270,7 @@ export class IOSBoxingPage extends IOSBasePage {
         const candidateId = getElementId(candidate);
         if (!candidateId || pickerAndHomeSportIds.has(candidateId)) continue;
         if (!(await candidate.isDisplayed().catch(() => false))) continue;
-        if (await this.isInViewport(candidate)) return true;
+        if (await this.isInViewport(candidate) && await isSportContentReady()) return true;
       }
       return false;
     };
