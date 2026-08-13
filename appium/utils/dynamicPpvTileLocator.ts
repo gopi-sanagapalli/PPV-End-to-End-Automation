@@ -22,6 +22,7 @@ export class DynamicPpvTileLocator {
     page: 'Home' | 'Boxing' | string;
     eventConfig?: any;
     hooks?: AndroidFlowHooks;
+    forceRailTitle?: string;
   }): Promise<DynamicPpvTileLocatorResult> {
     const pageName = options.page || 'Home';
     const eventConfig = options.eventConfig || {};
@@ -57,9 +58,14 @@ export class DynamicPpvTileLocator {
       country: process.env.DAZN_REGION || 'GB',
     });
 
-    let apiMatch: AndroidRailTileMatch | undefined = railsFetch.matchingTiles[0];
+    const forcedRailTitle = (options.forceRailTitle || '').trim();
+    const cleanRailTitle = (value: string) => value.toLowerCase().replace(/['’]/g, '').replace(/\s+/g, ' ').trim();
+    let apiMatch: AndroidRailTileMatch | undefined = forcedRailTitle
+      ? railsFetch.matchingTiles.find(match => cleanRailTitle(match.railTitle).includes(cleanRailTitle(forcedRailTitle)))
+      : railsFetch.matchingTiles[0];
 
     const railTitle = (
+      forcedRailTitle ||
       apiMatch?.railTitle ||
       eventConfig?.PPV_RAIL_TITLE ||
       eventConfig?.RAIL_TITLE ||
@@ -82,14 +88,6 @@ export class DynamicPpvTileLocator {
       };
     }
     console.log(`Rail found at y=${railHeaderRect.y}.`);
-
-    // Run tile surface validations (tile present, lock icon, title under tile) while tile is on screen
-    if (hooks?.validateSurface) {
-      console.log(`🔍 [Tile Validation] Running PPV tile validations on screen...`);
-      await hooks.validateSurface('PPV Tile').catch((err: any) => {
-        console.warn(`⚠️ PPV Tile validation warning: ${err.message}`);
-      });
-    }
 
     // 3. Derive tile index dynamically from backend API response or UI DOM scan (no hardcoded numbers)
     let expectedTileIndex: number;
@@ -115,10 +113,21 @@ export class DynamicPpvTileLocator {
 
     console.log(`  Tile card swipe & tap line set to safe Y=${safeSwipeY} (Header Y=${railHeaderRect.y})`);
 
+    let tileSurfaceValidated = false;
+    const validateTileSurface = async () => {
+      if (!hooks?.validateSurface || tileSurfaceValidated) return;
+      tileSurfaceValidated = true;
+      console.log(`🔍 [Tile Validation] Running PPV tile validations on screen...`);
+      await hooks.validateSurface('PPV Tile').catch((err: any) => {
+        console.warn(`⚠️ PPV Tile validation warning: ${err.message}`);
+      });
+    };
+
     // 4.5. Check if target tile text is ALREADY visible on screen under rail
     const directVisibleTap = await this.findVisibleTileBoundsUnderRail(railHeaderRect.y, targetPpvTitle, entitlementId, width, height);
     if (directVisibleTap) {
       console.log(`🎯 Found target PPV title text under tile directly on screen at x=${directVisibleTap.x}, y=${directVisibleTap.y}`);
+      await validateTileSurface();
       console.log(`Opening tile via direct UI text tap...`);
       adbTap(directVisibleTap.x, directVisibleTap.y);
       await this.driver.pause(3000);
@@ -175,6 +184,10 @@ export class DynamicPpvTileLocator {
           totalSwipesPerformed += deltaSwipes;
         }
         currentTilePositionOnScreen = candidateIndex;
+      }
+
+      if (candidateIndex === expectedTileIndex) {
+        await validateTileSurface();
       }
 
       console.log(`Opening tile...`);
@@ -403,8 +416,16 @@ export class DynamicPpvTileLocator {
                   .perform();
                 await this.driver.pause(1200);
 
-                const freshLoc = await el.getLocation().catch(() => loc);
+                const freshEl = await this.driver.$(sel).catch(() => el);
+                const freshLoc = await freshEl.getLocation().catch(() => loc);
+                const freshSize = await freshEl.getSize().catch(() => size);
                 rect.y = freshLoc.y;
+                rect.height = freshSize.height;
+
+                if (rect.y > Math.round(height * 0.70)) {
+                  console.log(`  Rail "${railTitle}" header still low at y=${rect.y}; continuing vertical alignment...`);
+                  continue;
+                }
               }
 
               return rect;

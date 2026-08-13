@@ -332,8 +332,8 @@
             "USER_PASSWORD": "Dazn@123"
           },
           "prod": {
-            "USER_EMAIL": "saiultimate1@t.dazn.com",
-            "USER_PASSWORD": "Dazn@1"
+            "USER_EMAIL": "tarunukprod5@t.dazn.com",
+            "USER_PASSWORD": "Test@123"
           }
         }
       },
