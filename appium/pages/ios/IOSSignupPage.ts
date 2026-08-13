@@ -162,6 +162,34 @@ export class IOSSignupPage extends IOSBasePage {
         return;
       }
 
+      // ── Contextual PPV page (delegated to IOSPPVPage) ──
+      // Handle account PlanDetails surfaces before probing form inputs. The
+      // PlanDetails React tree can re-render while WebDriver is scanning
+      // password/email inputs, causing repeated stale-element warnings.
+      const isContextualPpvPage = await ppvPage.isContextualPPVPage(lower, url);
+      if (isContextualPpvPage) {
+        await ppvPage.validateAndSelectOption(results, eventName, eventData);
+        // validateAndSelectOption submits the CTA associated with the chosen
+        // PPV/Ultimate option. Do not fall through to the generic Continue
+        // locator below, which prioritises the PPV CTA.
+        continue;
+      }
+
+      // ── "Choose how to buy" page (active_standard users, delegated to IOSPPVPage) ──
+      if (ppvPage.isChooseHowToBuyPage(lower)) {
+        await ppvPage.validateAndClickBuyNow(results, eventData);
+        continue;
+      }
+
+      // ── Plan selection page (delegated to IOSPlanPage) ──
+      if (planPage.isPlanPage(lower, url)) {
+        await planPage.validateAndSelect(results, eventData);
+        // The plan card has been verified above. Use its tier-specific CTA;
+        // do not let the generic PPV-first Continue list choose a different
+        // purchase path.
+        await planPage.continueWithSelectedPlan();
+        continue;
+      }
 
       // ── Personal details (first name + password visible) ──
       const passwordInput = await this.firstVisible([
@@ -225,22 +253,6 @@ export class IOSSignupPage extends IOSBasePage {
         continue;
       }
 
-      // ── Contextual PPV page (delegated to IOSPPVPage) ──
-      const isContextualPpvPage = await ppvPage.isContextualPPVPage(lower, url);
-      if (isContextualPpvPage) {
-        await ppvPage.validateAndSelectOption(results, eventName, eventData);
-        // validateAndSelectOption submits the CTA associated with the chosen
-        // PPV/Ultimate option. Do not fall through to the generic Continue
-        // locator below, which prioritises the PPV CTA.
-        continue;
-      }
-
-      // ── "Choose how to buy" page (active_standard users, delegated to IOSPPVPage) ──
-      if (!isContextualPpvPage && ppvPage.isChooseHowToBuyPage(lower)) {
-        await ppvPage.validateAndClickBuyNow(results, eventData);
-        continue;
-      }
-
       // ── Upgrade Confirmation page (active_standard → ultimate upgrade) ──
       // After selecting Ultimate on Choose How To Buy → Plan page → Continue,
       // the user lands on the Upgrade Confirmation page.
@@ -264,16 +276,6 @@ export class IOSSignupPage extends IOSBasePage {
         /payment method|choose how to pay|card number|payment details/.test(lower)) {
         await new IOSPaymentPage(this.driver).completePayment(results, eventData);
         return;
-      }
-
-      // ── Plan selection page (delegated to IOSPlanPage) ──
-      if (!isContextualPpvPage && planPage.isPlanPage(lower, url)) {
-        await planPage.validateAndSelect(results, eventData);
-        // The plan card has been verified above. Use its tier-specific CTA;
-        // do not let the generic PPV-first Continue list choose a different
-        // purchase path.
-        await planPage.continueWithSelectedPlan();
-        continue;
       }
 
       // ── Click Continue / Next to progress ──

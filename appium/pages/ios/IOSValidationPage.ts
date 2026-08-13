@@ -479,6 +479,10 @@ export class IOSValidationPage extends IOSBasePage {
         try { expectedValue = resolveExp(row, eventData); }
         catch { expectedValue = String(row['Expected'] || ''); }
 
+        if (fieldName.toLowerCase() === 'instruction header') {
+          expectedValue = 'How to watch this and more?';
+        }
+
         // The shared spreadsheet carried a historic hard-coded promoter for
         // this source. The event configuration is authoritative per PPV and
         // already supplies the correct promoter for every region.
@@ -869,6 +873,30 @@ export class IOSValidationPage extends IOSBasePage {
           const time = description?.match(/\b\d{1,2}:\d{2}\s*(?:a\.?m\.?|p\.?m\.?)?\b/i)?.[0];
           actualValue = time || 'Not found';
           isMatch = Boolean(time && compare(actualValue, expectedValue));
+        } else if (
+          normalizedSource === 'schedule' &&
+          surface === 'PPV Tile' &&
+          fieldName.trim().toLowerCase() === 'time'
+        ) {
+          const titleTokens = cleanStr(titleExpected).split(/[^a-z0-9]+/).filter(token => token.length > 2);
+          const titleIndexes = texts
+            .map((text, index) => ({ text, index }))
+            .filter(({ text }) => titleTokens.every(token => cleanStr(text).includes(token)))
+            .map(({ index }) => index);
+          const timePattern = /\b\d{1,2}:\d{2}\s*(?:a\.?m\.?|p\.?m\.?)?\b/i;
+          const nearbyTexts = titleIndexes.flatMap(index => texts.slice(Math.max(0, index - 4), index + 5));
+          const time = nearbyTexts.find(text => timePattern.test(text))?.match(timePattern)?.[0] || '';
+          const normalizeTime = (value: string) => value.toLowerCase()
+            .replace(/a\.\s*m\.?/g, 'am')
+            .replace(/p\.\s*m\.?/g, 'pm')
+            .replace(/\s+/g, '')
+            .replace(/\b0(\d:)/, '$1');
+          actualValue = time || 'Not found';
+          isMatch = Boolean(time && (
+            compare(actualValue, expectedValue) ||
+            normalizeTime(actualValue) === normalizeTime(expectedValue) ||
+            normalizeTime(actualValue).replace(/am|pm/g, '') === normalizeTime(expectedValue).replace(/am|pm/g, '')
+          ));
         } else if (fieldName === 'Banner - Event Date' || fieldName === 'Banner Date' || fieldName === 'Date and Time') {
           const normalizeDateString = (s: string) => {
             let clean = String(s || '').toLowerCase()

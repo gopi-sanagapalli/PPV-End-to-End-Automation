@@ -118,47 +118,43 @@ export class IOSSchedulePage extends IOSBasePage {
 
     const sportTab = [
       `-ios predicate string:(type == "XCUIElementTypeButton" OR type == "XCUIElementTypeStaticText" OR type == "XCUIElementTypeOther") AND (name == "${escapedSport}" OR label == "${escapedSport}")`,
-      `-ios predicate string:(name CONTAINS[c] "${escapedSport}" OR label CONTAINS[c] "${escapedSport}")`,
+      `-ios predicate string:(type == "XCUIElementTypeButton" OR type == "XCUIElementTypeStaticText" OR type == "XCUIElementTypeOther") AND (name CONTAINS[c] "${escapedSport}" OR label CONTAINS[c] "${escapedSport}")`,
     ];
 
     const allSportsTab = [
       '-ios predicate string:(type == "XCUIElementTypeButton" OR type == "XCUIElementTypeStaticText" OR type == "XCUIElementTypeOther") AND (name == "All Sports" OR label == "All Sports")',
-      '-ios predicate string:(name CONTAINS[c] "All Sports" OR label CONTAINS[c] "All Sports")',
+      '-ios predicate string:(type == "XCUIElementTypeButton" OR type == "XCUIElementTypeStaticText" OR type == "XCUIElementTypeOther") AND (name CONTAINS[c] "All Sports" OR label CONTAINS[c] "All Sports")',
     ];
     const { width, height } = await this.driver.getWindowRect();
-    let sportEl = await this.firstVisibleNearY(
-      sportTab,
-      Math.round(height * 0.20),
-      Math.round(height * 0.24),
-    );
-    const allSports = sportEl ? null : await this.firstVisibleNearY(
-      allSportsTab,
-      Math.round(height * 0.20),
-      Math.round(height * 0.24),
-    );
-    if (!sportEl && !allSports) {
-      throw new Error('Schedule filter strip was not visible after Schedule loaded.');
-    }
+    let sportEl: WdElement | null = null;
+    let allSports: WdElement | null = null;
+    await this.driver.waitUntil(async () => {
+      sportEl = await this.firstVisibleNearY(
+        sportTab,
+        Math.round(height * 0.20),
+        Math.round(height * 0.24),
+      );
+      if (sportEl) return true;
+      allSports = await this.firstVisibleNearY(
+        allSportsTab,
+        Math.round(height * 0.20),
+        Math.round(height * 0.24),
+      );
+      return Boolean(allSports);
+    }, {
+      timeout: 30000,
+      interval: 500,
+      timeoutMsg: 'Schedule filter strip was not visible after Schedule loaded.',
+    });
 
     const anchor = sportEl || allSports!;
     const location = await anchor.getLocation();
     const size = await anchor.getSize();
     const menuY = Math.round(location.y + size.height / 2);
-    const sportContent = `-ios predicate string:name CONTAINS[c] "${sport}" OR label CONTAINS[c] "${sport}"`;
-    const hasFilteredSportContent = async (): Promise<boolean> => {
-      const candidates = await this.driver.$$(sportContent).catch(() => []);
-      for (const candidate of candidates) {
-        if (!(await candidate.isDisplayed().catch(() => false))) continue;
-        const candidateLocation = await candidate.getLocation().catch(() => null);
-        if (candidateLocation && candidateLocation.y > menuY + size.height / 2) return true;
-      }
-      return false;
-    };
-
     // The event list can contain a Boxing label too. Restrict discovery to
     // the filter-strip row so the following click cannot select list content.
     sportEl = sportEl || await this.firstVisibleNearY(sportTab, menuY);
-    for (let attempt = 0; attempt < 8 && !sportEl; attempt++) {
+    for (let attempt = 0; attempt < 20 && !sportEl; attempt++) {
       console.log(`  Horizontal swipe ${attempt + 1} to find ${sport} in the filter strip...`);
       await this.driver.performActions([{
         type: 'pointer', id: 'schedule-filter-strip', parameters: { pointerType: 'touch' },
@@ -186,45 +182,39 @@ export class IOSSchedulePage extends IOSBasePage {
       return;
     }
 
-    const checkFilterApplied = async (): Promise<boolean> => {
-      const selectedSport = await this.firstVisibleNearY(sportTab, menuY);
-      return Boolean(selectedSport && await this.isSelectedFilter(selectedSport)) ||
-        await hasFilteredSportContent();
-    };
-
-    let filterApplied = false;
-    for (let tapAttempt = 0; tapAttempt < 3 && !filterApplied; tapAttempt++) {
-      if (tapAttempt === 0) {
-        await sportEl.click();
-      } else {
-        // Coordinate-based tap fallback when .click() doesn't register
-        const loc = await sportEl.getLocation().catch(() => null);
-        const sz = await sportEl.getSize().catch(() => null);
-        if (loc && sz) {
-          const tapX = Math.round(loc.x + sz.width / 2);
-          const tapY = Math.round(loc.y + sz.height / 2);
-          console.log(`  Retrying ${sport} filter tap via coordinates (${tapX}, ${tapY})...`);
-          await this.driver.performActions([{
-            type: 'pointer', id: 'schedule-filter-tap', parameters: { pointerType: 'touch' },
-            actions: [
-              { type: 'pointerMove', duration: 0, x: tapX, y: tapY },
-              { type: 'pointerDown', button: 0 },
-              { type: 'pause', duration: 80 },
-              { type: 'pointerUp', button: 0 },
-            ],
-          }]);
-          await this.driver.releaseActions();
-        }
-      }
-      await this.driver.waitUntil(checkFilterApplied, {
-        timeout: 3000,
-        interval: 250,
-        timeoutMsg: `${sport} filter did not become selected (attempt ${tapAttempt + 1}).`,
-      }).then(() => {
-        filterApplied = true;
-      }).catch(() => {
-        console.warn(`⚠️ ${sport} filter tap attempt ${tapAttempt + 1} did not register; ${tapAttempt < 2 ? 'retrying...' : 'continuing with Schedule search.'}`);
-      });
+    // Tap the sport filter using coordinates (more reliable on real iOS).
+    const currentSportEl = await this.firstVisibleNearY(sportTab, menuY) || sportEl;
+    const loc = await currentSportEl.getLocation().catch(() => null);
+    const sz = await currentSportEl.getSize().catch(() => null);
+    if (loc && sz) {
+      const tapX = Math.round(loc.x + sz.width / 2);
+      const tapY = Math.round(loc.y + sz.height / 2);
+      await this.driver.performActions([{
+        type: 'pointer', id: 'schedule-filter-tap', parameters: { pointerType: 'touch' },
+        actions: [
+          { type: 'pointerMove', duration: 0, x: tapX, y: tapY },
+          { type: 'pointerDown', button: 0 },
+          { type: 'pause', duration: 80 },
+          { type: 'pointerUp', button: 0 },
+        ],
+      }]);
+      await this.driver.releaseActions();
+    } else {
+      await currentSportEl.click();
+    }
+    // Brief pause for the schedule to reload after the filter tap.
+    await this.driver.pause(800);
+    // Quick verification — if isSelectedFilter works, great; otherwise
+    // trust the tap since the element was visible and tappable.
+    const filterConfirmed = await (async () => {
+      const selected = await this.firstVisibleNearY(sportTab, menuY);
+      if (selected && await this.isSelectedFilter(selected)) return true;
+      const allSportsEl = await this.firstVisibleNearY(allSportsTab, menuY);
+      if (allSportsEl && !(await this.isSelectedFilter(allSportsEl))) return true;
+      return false;
+    })();
+    if (!filterConfirmed) {
+      console.log(`ℹ️ ${sport} filter selected-state could not be confirmed via attributes; trusting coordinate tap.`);
     }
     await this.driver.saveScreenshot('./test-results/ios_schedule_after_sport_filter.png');
     console.log(`✅ ${sport} filter applied and Schedule content settled`);

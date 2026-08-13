@@ -439,7 +439,7 @@ export class IOSBasePage {
       'Purchase',
       'Continue',
     ],
-    options: { primaryTimeoutMs?: number; fallbackTimeoutMs?: number; scrollBeforeFallback?: boolean } = {},
+    options: { primaryTimeoutMs?: number; fallbackTimeoutMs?: number; scrollBeforeFallback?: boolean; fallbackCtas?: string[] } = {},
   ): Promise<boolean> {
     const primaryTimeoutMs = options.primaryTimeoutMs ?? 6000;
     const fallbackTimeoutMs = options.fallbackTimeoutMs ?? 3000;
@@ -452,7 +452,7 @@ export class IOSBasePage {
       await this.driver.pause(1000);
     }
 
-    const fallback = await this.tapFirstText([
+    const fallback = await this.tapFirstText(options.fallbackCtas ?? [
       'Go to dazn.com/start',
       'dazn.com/start',
       'dazn.com',
@@ -618,6 +618,18 @@ export class IOSBasePage {
       (/contextualPpvId=|\/signup|[?&]page=/i.test(url));
   }
 
+  private assertContextualPpvIdMatch(url: string): void {
+    const expected = String(process.env.PPV_EVENT || '').trim();
+    if (!expected || !/\/account\//i.test(url)) return;
+    let actual = '';
+    try {
+      actual = new URL(url).searchParams.get('contextualPpvId') || '';
+    } catch { }
+    if (actual && actual !== expected) {
+      throw new Error(`❌ [Contextual PPV Check] Expected contextualPpvId="${expected}" but captured "${actual}" from URL "${url}".`);
+    }
+  }
+
   private async getAppStoreCannotConnectState(): Promise<{ visible: boolean; retryButton: WdElement | null }> {
     await this.driver.switchContext('NATIVE_APP').catch(() => { });
     const source = await this.driver.getPageSource().catch(() => '');
@@ -695,6 +707,8 @@ export class IOSBasePage {
     }
 
     const region = (process.env.DAZN_REGION || '').toUpperCase();
+    const isLoginFirst = String(process.env.LOGIN_FIRST || process.env.LOGIN || '').toLowerCase() === 'true';
+    const loginFirstStartUrl = 'https://www.dazn.com/start';
     if (region !== 'US') {
     // 1. Let the system sheet complete its presentation animation. On this
     // device/iOS version the App Store sheet is visible on screen but omitted
@@ -797,6 +811,10 @@ export class IOSBasePage {
     // Do not treat an old DAZN WebView as a successful handoff when the
     // current App Store presentation has failed with a Retry surface.
     await this.retryOrFailIfAppStoreCannotConnect();
+    if (isLoginFirst) {
+      console.log(`✅ LOGIN_FIRST=true: using DAZN start URL for private Safari handoff: ${loginFirstStartUrl}`);
+      return loginFirstStartUrl;
+    }
     }
 
     // Switch automation context to the active browser app to inspect its UI tree.
@@ -856,6 +874,7 @@ export class IOSBasePage {
           const url = String(preferredContext.url);
           console.log(`✅ Captured DAZN account handoff URL from WEBVIEW context ${preferredContext.id}: ${url}`);
           this.assertCheckoutUrlCountryMatch(url);
+          this.assertContextualPpvIdMatch(url);
           activatedBrowser = 'WEBVIEW';
           return url;
         }
@@ -872,6 +891,7 @@ export class IOSBasePage {
           }
         }
       } catch (e: any) {
+        if (/\[(Country Match|Contextual PPV) Check\]/.test(String(e?.message || e))) throw e;
         console.warn(`⚠️ Could not list web contexts: ${e.message}`);
       }
     }
@@ -921,6 +941,7 @@ export class IOSBasePage {
               if (this.isPreferredSafariHandoffUrl(url)) {
                 console.log(`✅ Captured Safari account handoff context ${webCtx}: ${url}`);
                 this.assertCheckoutUrlCountryMatch(url);
+                this.assertContextualPpvIdMatch(url);
                 return url;
               }
               if (this.isSafariHandoffLandingUrl(url)) {
@@ -929,12 +950,14 @@ export class IOSBasePage {
                 return url;
               }
             } catch (e: any) {
+              if (/\[(Country Match|Contextual PPV) Check\]/.test(String(e?.message || e))) throw e;
               console.warn(`⚠️ Unable to inspect web context ${webCtx}: ${e.message}`);
             } finally {
               await this.driver.switchContext('NATIVE_APP').catch(() => { });
             }
           }
         } catch (e: any) {
+          if (/\[(Country Match|Contextual PPV) Check\]/.test(String(e?.message || e))) throw e;
           console.warn(`⚠️ Could not list Safari web contexts: ${e.message}`);
         }
       }
@@ -996,6 +1019,7 @@ export class IOSBasePage {
         } catch { }
       }
     } catch (e: any) {
+      if (/\[(Country Match|Contextual PPV) Check\]/.test(String(e?.message || e))) throw e;
       console.warn('⚠️ Error searching browser elements:', e.message);
     }
 
@@ -1017,10 +1041,17 @@ export class IOSBasePage {
       throw new Error(`Cannot open an invalid DAZN handoff URL in Safari: ${capturedUrl || '(empty)'}`);
     }
 
-    const expectedHostname = new URL(capturedUrl).hostname.replace(/^www\./i, '').toLowerCase();
+    const expectedUrl = new URL(capturedUrl);
+    const expectedHostname = expectedUrl.hostname.replace(/^www\./i, '').toLowerCase();
+    const expectedPathname = expectedUrl.pathname.replace(/\/+$/, '') || '/';
     const hasExpectedSafariUrl = (url: string): boolean => {
       try {
-        return new URL(url).hostname.replace(/^www\./i, '').toLowerCase() === expectedHostname;
+        const actualUrl = new URL(url);
+        const actualHostname = actualUrl.hostname.replace(/^www\./i, '').toLowerCase();
+        const actualPathname = actualUrl.pathname.replace(/\/+$/, '') || '/';
+        return actualHostname === expectedHostname &&
+          actualPathname === expectedPathname &&
+          (!expectedUrl.search || actualUrl.search === expectedUrl.search);
       } catch {
         return false;
       }
