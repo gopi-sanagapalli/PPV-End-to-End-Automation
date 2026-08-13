@@ -93,7 +93,9 @@
           },
           "prod": {
             "USER_EMAIL": "uk_ppvb1@t.com",
-            "USER_PASSWORD": "Test1!"
+            "USER_PASSWORD": "Test1!",
+            "FIRST_NAME": "Hari",
+            "LAST_NAME": "Prasad"
           }
         }
       },
