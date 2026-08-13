@@ -620,6 +620,27 @@ export class IOSValidationPage extends IOSBasePage {
     const isLoginFirst = String(process.env.LOGIN_FIRST || process.env.LOGIN || '').toLowerCase() === 'true';
     const isNativeUltimateEntitlement = isUltimateUser && isLoginFirst;
     const scopedSource = targetXml || pageSource;
+    const corpus = `${texts.join(' ')} ${scopedSource}`.toLowerCase();
+    const findVisibleText = (expected: string): string => {
+      const expectedAlternatives = String(expected || '').split('|').map(cleanStr).filter(Boolean);
+      if (!expectedAlternatives.length) return '';
+      return texts.find(text => {
+        const cleanText = cleanStr(text);
+        return expectedAlternatives.some(expectedText =>
+          cleanText === expectedText ||
+          cleanText.includes(expectedText) ||
+          expectedText.includes(cleanText),
+        );
+      }) || '';
+    };
+    const findDateText = (expected: string): string => {
+      const expectedDateTerms: string[] = String(expected || '').toLowerCase().match(/jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|\b\d{1,2}\b/g) || [];
+      if (!expectedDateTerms.length) return '';
+      return texts.find(text => {
+        const cleanText = text.toLowerCase();
+        return expectedDateTerms.every(term => cleanText.includes(term.slice(0, 3)) || cleanText.includes(term));
+      }) || '';
+    };
     const pushSurfaceResult = async (fieldName: string, expected: string, actual: string, isMatch: boolean) => {
       if (results.some(r => r.page === surface && r.field === fieldName)) return;
       const status: 'PASS' | 'FAIL' = isMatch ? 'PASS' : 'FAIL';
@@ -676,10 +697,23 @@ export class IOSValidationPage extends IOSBasePage {
     }
 
     if (isNativeUltimateEntitlement && surface === 'PPV Banner') {
-      const corpus = `${texts.join(' ')} ${scopedSource}`.toLowerCase();
       const hasSetReminder = /\bset reminder\b|\breminder\b/i.test(corpus);
+      const hasFightCard = /\bfight card\b/i.test(corpus);
       const hasPurchased = /\bpurchased\b|\bincluded\b/i.test(corpus);
       const hasBuyNow = /\bbuy now\b|\bbuy\b/i.test(corpus);
+      const descriptionExpected = String(eventData.PPV_DESCRIPTION || eventData.global?.PPV_DESCRIPTION || '').trim();
+      const dateExpected = String(eventData.MOBILE_BANNER_DATE_TIME || eventData.PPV_DATE || eventData.PPV_PAGE_DATE || '').trim();
+      const titleActual = findVisibleText(titleExpected);
+      const descriptionActual = descriptionExpected ? findVisibleText(descriptionExpected) : '';
+      const dateActual = dateExpected ? findDateText(dateExpected) : '';
+      await pushSurfaceResult('Ultimate PPV Name', titleExpected, titleActual || 'Not found', Boolean(titleActual));
+      if (descriptionExpected) {
+        await pushSurfaceResult('Ultimate PPV Description', descriptionExpected, descriptionActual || 'Not found', Boolean(descriptionActual));
+      }
+      if (dateExpected) {
+        await pushSurfaceResult('Ultimate PPV Date', dateExpected, dateActual || 'Not found', Boolean(dateActual));
+      }
+      await pushSurfaceResult('Fight Card Button', 'Fight Card', hasFightCard ? 'Fight Card' : 'Not found', hasFightCard);
       await pushSurfaceResult('Set Reminder Button', 'Set Reminder', hasSetReminder ? 'Set Reminder' : 'Not found', hasSetReminder);
       await pushSurfaceResult('Purchased Text', 'Purchased', hasPurchased ? 'Purchased' : 'Not found', hasPurchased);
       await pushSurfaceResult('Buy Now Button (Absent)', 'Absent', hasBuyNow ? 'Present' : 'Absent', !hasBuyNow);
@@ -984,6 +1018,34 @@ export class IOSValidationPage extends IOSBasePage {
       }
     }
   }
+
+  async validateUltimateFixtureOrPreviewNavigation(
+    eventData: Record<string, any>,
+    results: IOSValidationResult[],
+  ): Promise<void> {
+    await this.ensureNativeAppContext();
+    const titleExpected = eventData.MOBILE_BANNER_TITLE || eventData.PPV_DISPLAY_NAME || eventData.PPV_NAME || this.ppvName;
+    const title = String(titleExpected).split(/ vs/i)[0].trim().replace(/\./g, '');
+    const source = await this.driver.getPageSource().catch(() => '');
+    const titlePresent = source.toLowerCase().includes(title.toLowerCase());
+    const destinationPresent = /\brelated\b|\bcompetitors\b|\bevents\b|\bfeatures\b/i.test(source);
+    const isMatch = titlePresent && destinationPresent;
+    const actualValue = isMatch ? 'Preview or fixture page detected' : 'Preview or fixture page not detected';
+    const screenshot = isMatch
+      ? undefined
+      : await this.captureAndMarkFailureScreenshot('PPV Tile', 'Fixture/Preview Navigation', 'Preview or fixture page', actualValue);
+    results.push({
+      page: 'PPV Tile',
+      field: 'Fixture/Preview Navigation',
+      expected: 'Preview or fixture page',
+      actual: actualValue,
+      status: isMatch ? 'PASS' : 'FAIL',
+      screenshot,
+    });
+    if (!isMatch) {
+      throw new Error(`PPV fixture/preview page was not detected for "${titleExpected}".`);
+    }
+  }
 }
 
 export async function validateMobilePaywallPage(
@@ -1004,4 +1066,12 @@ export async function validateMobileBannerOrTilePage(
   results: IOSValidationResult[],
 ): Promise<void> {
   return new IOSValidationPage(driver).validateMobileBannerOrTile(surface, eventData, source, results);
+}
+
+export async function validateUltimateFixtureOrPreviewNavigationPage(
+  driver: WdBrowser,
+  eventData: Record<string, any>,
+  results: IOSValidationResult[],
+): Promise<void> {
+  return new IOSValidationPage(driver).validateUltimateFixtureOrPreviewNavigation(eventData, results);
 }

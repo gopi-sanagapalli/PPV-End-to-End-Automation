@@ -66,6 +66,7 @@ import { getIOSBrowserReentry, getIOSSurfacingPoint, getIOSValidationSheet } fro
 import {
   validateMobilePaywallPage,
   validateMobileBannerOrTilePage,
+  validateUltimateFixtureOrPreviewNavigationPage,
   IOSValidationResult,
 } from '../../pages/ios/IOSValidationPage';
 
@@ -81,6 +82,9 @@ const MODE = (process.env.IOS_DEVICE_MODE || 'simulator').toLowerCase();
 const BUNDLE_ID = process.env.DAZN_BUNDLE_ID || (MODE === 'real' ? 'com.dazn.theApp' : 'com.dazn.enterprise');
 const REGION = process.env.DAZN_REGION || 'GB';
 const LOGIN_FIRST = (process.env.LOGIN_FIRST || process.env.LOGIN || '').toLowerCase() === 'true';
+const LOGIN_FIRST_INVALID_LANDING_SOURCES = new Set<string>([
+  'landing-page-banner',
+]);
 
 let USER_EMAIL = process.env.USER_EMAIL || '';
 let USER_PASSWORD = process.env.USER_PASSWORD || '';
@@ -310,6 +314,12 @@ describe('DAZN iOS PPV — Existing User Flow', () => {
 
     const eventData = buildEventData(json, REGION, planTier, ratePlan.replace(/-/g, ' '), SOURCE);
 
+    if (LOGIN_FIRST && LOGIN_FIRST_INVALID_LANDING_SOURCES.has(SOURCE)) {
+      throw new Error(
+        `❌ LOGIN_FIRST=true is not compatible with SOURCE="${SOURCE}". Landing page flows require a non-logged-in user.`,
+      );
+    }
+
     // Merge mobile overrides
     try {
       let mobileConfigPath = path.resolve(__dirname, '../../config/events', EVENT_CONFIG);
@@ -346,6 +356,10 @@ describe('DAZN iOS PPV — Existing User Flow', () => {
       await validateMobileBannerOrTilePage(driver, surface, eventData, SOURCE, iosAvailabilityResults);
     }
 
+    async function validateFixtureOrPreviewNavigation() {
+      await validateUltimateFixtureOrPreviewNavigationPage(driver, eventData, iosAvailabilityResults);
+    }
+
     // ── Pre-Login Phase ───────────────────────────────────────────────────
     if (isMyAccount || LOGIN_FIRST) {
       if (!USER_EMAIL || !USER_PASSWORD) {
@@ -361,6 +375,7 @@ describe('DAZN iOS PPV — Existing User Flow', () => {
     const iosFlowHooks: IOSFlowHooks = {
       validateSurface: validateMobileBannerOrTile,
       validatePaywall: validateMobilePaywall,
+      validateFixtureOrPreview: validateFixtureOrPreviewNavigation,
       recordAvailability: recordIOSPPVAvailability,
       saveScreenshot: (relativePath) => saveIOSScreenshot(driver, relativePath),
       generateAvailabilityFailureReport: generateIOSAvailabilityFailureReport,
@@ -467,6 +482,54 @@ describe('DAZN iOS PPV — Existing User Flow', () => {
     if (!buyTapped) {
       await driver.saveScreenshot('./test-results/ios_buy_not_found.png');
       throw new Error(`❌ Could not tap Buy CTA. SOURCE="${SOURCE}". See test-results/ios_buy_not_found.png`);
+    }
+
+    const isUltimateLoginFirstNativeEndFlow =
+      ['home-page-banner', 'home-boxing-banner', 'schedule', 'search', 'home-boxing-upcoming', 'home-boxing-tile', 'home-page-dont-miss'].includes(SOURCE) &&
+      USER_STATE.toLowerCase().trim().startsWith('active_ultimate') &&
+      LOGIN_FIRST;
+    if (isUltimateLoginFirstNativeEndFlow) {
+      console.log('✨ [Ultimate Active User with LOGIN_FIRST=true] Native source validated. Ending iOS existing-user case before checkout handoff.');
+      const { writeResults } = require('../../../utils/excelWriter');
+      const { displayResultsTable } = require('../../../utils/resultsDisplay');
+      const { generateReports } = require('../../../utils/reportGenerator');
+      const videoOutputPath = await stopIOSRecording(browser);
+      const { excelPath, videoPath } = await writeResults(iosAvailabilityResults, videoOutputPath);
+      const srcLabel = SOURCE.split('-').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+      const formattedUserState = USER_STATE
+        .split('_')
+        .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(' ');
+      displayResultsTable(iosAvailabilityResults, 'ppv', {
+        event: PPV_NAME,
+        region: REGION,
+        excelPath,
+        videoPath,
+      });
+      await generateReports(iosAvailabilityResults, {
+        event: PPV_NAME,
+        region: REGION,
+        source: SOURCE,
+        ratePlan,
+        tier: planTier,
+        env: (process.env.DAZN_ENV || 'stag').toLowerCase(),
+        flowName: `iOS ${formattedUserState}: ${srcLabel}`,
+        startTime: new Date(),
+        endTime: new Date(),
+        excelPath,
+        videoPath,
+        userType: 'existing-user',
+        userStatus: USER_STATE,
+        platform: 'iOS',
+      });
+      const passed = iosAvailabilityResults.filter((r: any) => r.status === 'PASS').length;
+      const failed = iosAvailabilityResults.filter((r: any) => r.status === 'FAIL').length;
+      const total = passed + failed;
+      console.log(`\n📊 iOS native flow complete: ${passed}/${total} passed, ${failed} failed`);
+      if (failed > 0) {
+        throw new Error(`❌ ${failed} of ${total} iOS native validation(s) failed. See report for details.`);
+      }
+      return;
     }
 
     // ── Step 3: Capture checkout URL from paywall screen ──────────────────
