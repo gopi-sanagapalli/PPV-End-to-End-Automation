@@ -618,6 +618,18 @@ export class IOSBasePage {
       (/contextualPpvId=|\/signup|[?&]page=/i.test(url));
   }
 
+  private assertContextualPpvIdMatch(url: string): void {
+    const expected = String(process.env.PPV_EVENT || '').trim();
+    if (!expected || !/\/account\//i.test(url)) return;
+    let actual = '';
+    try {
+      actual = new URL(url).searchParams.get('contextualPpvId') || '';
+    } catch { }
+    if (actual && actual !== expected) {
+      throw new Error(`❌ [Contextual PPV Check] Expected contextualPpvId="${expected}" but captured "${actual}" from URL "${url}".`);
+    }
+  }
+
   private async getAppStoreCannotConnectState(): Promise<{ visible: boolean; retryButton: WdElement | null }> {
     await this.driver.switchContext('NATIVE_APP').catch(() => { });
     const source = await this.driver.getPageSource().catch(() => '');
@@ -862,6 +874,7 @@ export class IOSBasePage {
           const url = String(preferredContext.url);
           console.log(`✅ Captured DAZN account handoff URL from WEBVIEW context ${preferredContext.id}: ${url}`);
           this.assertCheckoutUrlCountryMatch(url);
+          this.assertContextualPpvIdMatch(url);
           activatedBrowser = 'WEBVIEW';
           return url;
         }
@@ -878,6 +891,7 @@ export class IOSBasePage {
           }
         }
       } catch (e: any) {
+        if (/\[(Country Match|Contextual PPV) Check\]/.test(String(e?.message || e))) throw e;
         console.warn(`⚠️ Could not list web contexts: ${e.message}`);
       }
     }
@@ -927,6 +941,7 @@ export class IOSBasePage {
               if (this.isPreferredSafariHandoffUrl(url)) {
                 console.log(`✅ Captured Safari account handoff context ${webCtx}: ${url}`);
                 this.assertCheckoutUrlCountryMatch(url);
+                this.assertContextualPpvIdMatch(url);
                 return url;
               }
               if (this.isSafariHandoffLandingUrl(url)) {
@@ -935,12 +950,14 @@ export class IOSBasePage {
                 return url;
               }
             } catch (e: any) {
+              if (/\[(Country Match|Contextual PPV) Check\]/.test(String(e?.message || e))) throw e;
               console.warn(`⚠️ Unable to inspect web context ${webCtx}: ${e.message}`);
             } finally {
               await this.driver.switchContext('NATIVE_APP').catch(() => { });
             }
           }
         } catch (e: any) {
+          if (/\[(Country Match|Contextual PPV) Check\]/.test(String(e?.message || e))) throw e;
           console.warn(`⚠️ Could not list Safari web contexts: ${e.message}`);
         }
       }
@@ -1002,6 +1019,7 @@ export class IOSBasePage {
         } catch { }
       }
     } catch (e: any) {
+      if (/\[(Country Match|Contextual PPV) Check\]/.test(String(e?.message || e))) throw e;
       console.warn('⚠️ Error searching browser elements:', e.message);
     }
 
