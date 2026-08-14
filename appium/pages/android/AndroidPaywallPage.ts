@@ -145,7 +145,7 @@ export class AndroidPaywallPage extends AndroidBasePage {
     // A short, PPV-guarded retry accommodates a control that is still
     // rendering, without giving the carousel time to switch banners.
     for (let attempt = 0; attempt < 3; attempt++) {
-      if (!await this.isVisible(ppvName, 300)) {
+      if (!await this.isLandingPPVVisible(ppvName, 300)) {
         if (!await this.ensureLandingPPVBannerVisible(ppvName)) {
           await releaseHeldBannerCarousel();
           return false;
@@ -166,8 +166,14 @@ export class AndroidPaywallPage extends AndroidBasePage {
     return false;
   }
 
+  private async isLandingPPVVisible(ppvName: string, timeoutMs: number): Promise<boolean> {
+    const normalizedPpvName = ppvName.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    return (await this.isVisible(ppvName, timeoutMs)) ||
+      (normalizedPpvName !== ppvName && await this.isVisible(normalizedPpvName, timeoutMs));
+  }
+
   private async ensureLandingPPVBannerVisible(ppvName: string): Promise<boolean> {
-    if (await this.isVisible(ppvName, 1500)) {
+    if (await this.isLandingPPVVisible(ppvName, 1500)) {
       console.log(`  ✅ PPV banner "${ppvName}" is visible`);
       return true;
     }
@@ -190,7 +196,7 @@ export class AndroidPaywallPage extends AndroidBasePage {
           .perform();
         await this.driver.pause(600);
 
-        if (await this.isVisible(ppvName, 1000)) {
+        if (await this.isLandingPPVVisible(ppvName, 1000)) {
           console.log(`  ✅ PPV banner found after ${attempt + 1} ${swipeSet.name} swipe(s)`);
           return true;
         }
@@ -215,7 +221,7 @@ export class AndroidPaywallPage extends AndroidBasePage {
     const copyY = Math.round(screen.height * 0.89);
 
     for (let swipeBack = 0; swipeBack < 5; swipeBack++) {
-      const ppvVisible = await this.isVisible(ppvName, 800); // Reduced from 1000
+      const ppvVisible = await this.isLandingPPVVisible(ppvName, 800); // Reduced from 1000
       if (!ppvVisible) {
         await this.driver.action('pointer')
           .move({ x: Math.round(width * 0.2), y: Math.round(height * 0.35) })

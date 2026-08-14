@@ -52,14 +52,32 @@ export class AndroidSchedulePage extends AndroidBasePage {
   private async isSchedulePageVisible(): Promise<boolean> {
     try {
       const source = await this.driver.getPageSource();
+      const screen = getScreenSize();
       const hasBlockingOverlay = /Would you like to close DAZN\?|Close DAZN|Keep watching/.test(source);
-      const hasScheduleHeading = /text="Schedule"/.test(source);
-      const hasDateRail = /text="Previous"|text="Today"|text="Tomorrow"|text="Fri"|text="Sat"|text="Sun"/.test(source);
-      const hasScheduleTile = /text="LIVE"|text="Joshua|Spence|EWC|Teamfight|Matchroom|PBC/.test(source);
       const isBoxingHome = /text="Introducing Ultimate"|text="Upcoming Fights"|text="The Locker Room"/.test(source);
+      let hasScheduleHeading = false;
+      let hasDateRail = false;
+      let hasScheduleFilter = false;
 
-      if (!hasBlockingOverlay && hasScheduleHeading && hasDateRail && hasScheduleTile && !isBoxingHome) {
-        console.log('✅ Schedule page assertion passed: Schedule heading + date rail + event tiles visible');
+      for (const match of source.matchAll(/<[^>]+>/g)) {
+        const node = match[0];
+        const label = this.getXmlAttribute(node, 'text') || this.getXmlAttribute(node, 'content-desc');
+        if (!label) continue;
+
+        const bounds = this.getXmlBounds(node);
+        if (!bounds) continue;
+
+        const text = this.normalizeScheduleText(label);
+        const isUpperContent = bounds.y1 <= Math.round(screen.height * 0.45);
+        const isFilterRow = bounds.y1 >= Math.round(screen.height * 0.06) && bounds.y2 <= Math.round(screen.height * 0.36);
+
+        if (text === 'schedule' && bounds.y1 <= Math.round(screen.height * 0.35)) hasScheduleHeading = true;
+        if (isUpperContent && /^(previous|today|tomorrow|mon|tue|wed|thu|fri|sat|sun)$/.test(text)) hasDateRail = true;
+        if (isFilterRow && /all sports?/.test(text)) hasScheduleFilter = true;
+      }
+
+      if (!hasBlockingOverlay && hasScheduleHeading && hasScheduleFilter && (hasDateRail || !this.isFireTv()) && !isBoxingHome) {
+        console.log('✅ Schedule page assertion passed: Schedule heading + filter strip visible');
         return true;
       }
     } catch {}
@@ -1032,50 +1050,112 @@ export class AndroidSchedulePage extends AndroidBasePage {
     return null;
   }
 
-  async clickBoxingFilterIfPresent(): Promise<void> {
-    console.log('Finding Boxing filter...');
-    const selectors = [
-      'android=new UiSelector().text("Boxing")',
-      'android=new UiSelector().textContains("Boxing")',
-      '//android.widget.TextView[@text="Boxing"]',
-    ];
+  async clickSportFilterIfPresent(eventConfig?: any): Promise<void> {
+    const configuredSport = typeof eventConfig === 'string'
+      ? eventConfig
+      : eventConfig?.SPORT || eventConfig?.global?.SPORT || process.env.SPORT || 'Boxing';
+    const targetSport = String(configuredSport).trim() || 'Boxing';
+    const targetFilterText = this.normalizeScheduleText(targetSport);
 
-    const tryClick = async (): Promise<boolean> => {
-      for (const selector of selectors) {
-        try {
-          const boxingEl = await this.driver.$(selector);
-          if (!await boxingEl.isDisplayed({ timeout: 800 }).catch(() => false)) continue;
+    console.log(`Finding ${targetSport} filter on Schedule page...`);
+    const screen = getScreenSize();
+    const minFilterY = Math.round(screen.height * 0.06);
+    const maxFilterY = Math.round(screen.height * 0.34);
 
-          await boxingEl.click().catch(() => undefined);
-          await this.driver.pause(1200);
-          console.log(`Boxing filter clicked successfully via ${selector}`);
-          return true;
-        } catch {}
+    const getCenterY = (bounds: ScheduleBounds): number => Math.round((bounds.y1 + bounds.y2) / 2);
+    const getCenterX = (bounds: ScheduleBounds): number => Math.round((bounds.x1 + bounds.x2) / 2);
+    const readVisibleFilterChips = async (railY?: number): Promise<Array<{ label: string; bounds: ScheduleBounds }>> => {
+      const source = await this.driver.getPageSource().catch(() => '');
+      const chips: Array<{ label: string; bounds: ScheduleBounds }> = [];
+      const seen = new Set<string>();
+
+      for (const match of source.matchAll(/<[^>]+>/g)) {
+        const node = match[0];
+        const label = (this.getXmlAttribute(node, 'text') || this.getXmlAttribute(node, 'content-desc')).trim();
+        if (!label) continue;
+
+        const bounds = this.getXmlBounds(node);
+        if (!bounds) continue;
+        if (bounds.x2 <= bounds.x1 || bounds.y2 <= bounds.y1) continue;
+        if (bounds.x2 <= 0 || bounds.x1 >= screen.width) continue;
+
+        const centerY = getCenterY(bounds);
+        if (centerY < minFilterY || centerY > maxFilterY) continue;
+        if (railY && Math.abs(centerY - railY) > Math.round(screen.height * 0.08)) continue;
+
+        const text = this.normalizeScheduleText(label);
+        if (!text || text === 'schedule') continue;
+
+        const key = `${text}:${bounds.x1}:${bounds.y1}:${bounds.x2}:${bounds.y2}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        chips.push({ label, bounds });
       }
-      return false;
+
+      return chips.sort((a, b) => a.bounds.x1 - b.bounds.x1);
     };
 
-    if (await tryClick()) return;
+    const findTargetFilter = (chips: Array<{ label: string; bounds: ScheduleBounds }>) =>
+      chips.find(chip => this.normalizeScheduleText(chip.label) === targetFilterText);
 
-    console.log('  Boxing filter not immediately visible - swiping filter rail...');
-    const screen = getScreenSize();
-    for (let i = 0; i < 5; i++) {
-      adbSwipe(
-        Math.round(screen.width * 0.75),
-        Math.round(screen.height * 0.22),
-        Math.round(screen.width * 0.25),
-        Math.round(screen.height * 0.22),
-      );
+    const describeFilters = (chips: Array<{ label: string; bounds: ScheduleBounds }>): string =>
+      chips.length ? chips.map(chip => `"${chip.label}"`).join(', ') : 'none';
+
+    const tapFilter = async (filter: { label: string; bounds: ScheduleBounds }): Promise<void> => {
+      adbTap(getCenterX(filter.bounds), getCenterY(filter.bounds));
+      await this.driver.pause(1200);
+      console.log(`${targetSport} filter clicked successfully`);
+    };
+
+    let visibleFilters = await readVisibleFilterChips();
+    const railAnchor = visibleFilters.find(chip => /all sports?/.test(this.normalizeScheduleText(chip.label))) || visibleFilters[0];
+    const railY = railAnchor
+      ? getCenterY(railAnchor.bounds)
+      : Math.round(screen.height * 0.16);
+    visibleFilters = await readVisibleFilterChips(railY);
+    console.log(`  Visible Schedule filters: ${describeFilters(visibleFilters)}`);
+    const visibleSportFilter = findTargetFilter(visibleFilters);
+    if (visibleSportFilter) {
+      await tapFilter(visibleSportFilter);
+      return;
+    }
+
+    console.log(`  ${targetSport} filter not immediately visible - swiping Schedule filter strip slowly...`);
+    const startX = Math.round(screen.width * 0.72);
+    const endX = Math.round(screen.width * 0.42);
+    const maxSwipes = 12;
+
+    for (let i = 0; i < maxSwipes; i++) {
+      console.log(`  Swiping filter strip one step (attempt ${i + 1}/${maxSwipes})...`);
+      try {
+        await this.driver.performActions([{
+          type: 'pointer', id: 'schedule-filter-strip',
+          parameters: { pointerType: 'touch' },
+          actions: [
+            { type: 'pointerMove', duration: 0, x: startX, y: railY },
+            { type: 'pointerDown', button: 0 },
+            { type: 'pause', duration: 100 },
+            { type: 'pointerMove', duration: 800, x: endX, y: railY },
+            { type: 'pointerUp', button: 0 },
+          ],
+        }]);
+        await this.driver.releaseActions();
+      } catch {
+        adbSwipe(startX, railY, endX, railY);
+      }
       await this.driver.pause(700);
-      if (await tryClick()) return;
+
+      visibleFilters = await readVisibleFilterChips(railY);
+      console.log(`  Visible Schedule filters after swipe ${i + 1}: ${describeFilters(visibleFilters)}`);
+      const sportFilter = findTargetFilter(visibleFilters);
+      if (sportFilter) {
+        await tapFilter(sportFilter);
+        return;
+      }
     }
 
-    await this.driver.saveScreenshot('./test-results/android_schedule_boxing_not_found.png').catch(() => {});
-    if (String(process.env.TV_TARGET || '').toLowerCase().trim() === 'androidtv') {
-      throw new Error('Boxing filter not found on Schedule page. See test-results/android_schedule_boxing_not_found.png');
-    }
-
-    console.log('  Boxing filter not found - continuing without filter');
+    await this.driver.saveScreenshot('./test-results/android_schedule_sport_filter_not_found.png').catch(() => {});
+    throw new Error(`${targetSport} filter not found on Schedule page. See android_schedule_sport_filter_not_found.png`);
   }
 
   async openPPVPaywall(eventConfig?: any, hooks: AndroidFlowHooks = {}): Promise<boolean> {
@@ -1086,7 +1166,7 @@ export class AndroidSchedulePage extends AndroidBasePage {
     let onSchedule = await this.waitForSchedulePage(this.isFireTv() ? 45000 : 8000);
     if (!onSchedule) {
       await this.driver.saveScreenshot('./test-results/schedule_navigation_failed.png');
-      throw new Error('Schedule page assertion failed after clicking Schedule. Expected Schedule title plus schedule date/tile content.');
+      throw new Error('Schedule page assertion failed after clicking Schedule. Expected Schedule title plus filter strip content.');
     }
 
     console.log('On Schedule page');
@@ -1098,7 +1178,7 @@ export class AndroidSchedulePage extends AndroidBasePage {
     } else if (isAndroidTv) {
       await this.focusAndClickBoxingForAndroidTv();
     } else {
-      await this.clickBoxingFilterIfPresent();
+      await this.clickSportFilterIfPresent(eventConfig);
     }
     await this.driver.pause(3000);
 

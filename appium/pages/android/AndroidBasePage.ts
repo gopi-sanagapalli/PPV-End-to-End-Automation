@@ -268,15 +268,20 @@ export class AndroidBasePage {
   ): Promise<boolean> {
     const horizontalSwipes = options.horizontalSwipes ?? 8;
     const verticalScrolls = options.verticalScrolls ?? 5;
+    const normalizedPpvName = ppvName.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const ppvNameCandidates = Array.from(new Set([ppvName, normalizedPpvName]));
 
     const isCurrentBannerPPV = async (timeoutMs: number): Promise<boolean> => {
-      if (await this.isVisible(ppvName, timeoutMs)) return true;
+      for (const candidate of ppvNameCandidates) {
+        if (await this.isVisible(candidate, timeoutMs)) return true;
+      }
 
       // Compose carousel text is sometimes available in the UI hierarchy a
       // fraction before UiSelector reports it as displayed. Checking it here
       // prevents a visible PPV card being skipped while the carousel moves.
       try {
-        return (await this.driver.getPageSource()).toLowerCase().includes(ppvName.toLowerCase());
+        const pageSource = (await this.driver.getPageSource()).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+        return pageSource.includes(normalizedPpvName.toLowerCase());
       } catch {
         return false;
       }
@@ -312,16 +317,93 @@ export class AndroidBasePage {
     const primaryTimeoutMs = options.primaryTimeoutMs ?? 6000;
     const fallbackTimeoutMs = options.fallbackTimeoutMs ?? 3000;
 
-    const primary = await this.tapFirstText(ctas, primaryTimeoutMs);
-    if (primary) return true;
+    const tapAndVerify = async (text: string, timeoutMs: number): Promise<boolean> => {
+      const escapedText = text.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+      const selector = `android=new UiSelector().textContains("${escapedText}")`;
+      const firstElement = await this.findEl(selector, timeoutMs);
+      if (!firstElement) return false;
+      const elements = await this.driver.$$(selector).catch(() => [firstElement]);
+
+      for (const element of elements) {
+        if (!await element.isDisplayed().catch(() => false)) continue;
+
+        const beforeSource = await this.driver.getPageSource().catch(() => '');
+        const beforeActivity = await this.driver.getCurrentActivity().catch(() => '');
+        const copyAlreadyVisible = await this.isVisible('Copy', 250) || await this.isVisible('copy', 250);
+        const rect = typeof element.getRect === 'function'
+          ? await element.getRect().catch(() => null)
+          : await Promise.all([element.getLocation(), element.getSize()])
+            .then(([location, size]: any[]) => ({
+              x: location.x,
+              y: location.y,
+              width: size.width,
+              height: size.height,
+            }))
+            .catch(() => null);
+
+        try {
+          await element.click();
+        } catch {
+          // Coordinate fallback below handles Compose/TextView nodes whose
+          // element click resolves without delivering the touch to the CTA.
+        }
+
+        const waitForTransition = async (): Promise<boolean> => {
+          const startedAt = Date.now();
+          while (Date.now() - startedAt < Math.min(timeoutMs, 3500)) {
+            if (!copyAlreadyVisible && (await this.isVisible('Copy', 250) || await this.isVisible('copy', 250))) {
+              return true;
+            }
+
+            const currentActivity = await this.driver.getCurrentActivity().catch(() => '');
+            if (beforeActivity && currentActivity && currentActivity !== beforeActivity) return true;
+
+            const ctaVisible = await this.isVisible(text, 250);
+            const currentSource = await this.driver.getPageSource().catch(() => '');
+            if (!copyAlreadyVisible && currentSource !== beforeSource && /copy|checkout|paste|https?:/i.test(currentSource)) {
+              return true;
+            }
+            if (!ctaVisible && (!currentSource || currentSource !== beforeSource || !currentSource.toLowerCase().includes(text.toLowerCase()))) {
+              return true;
+            }
+
+            await this.driver.pause(250);
+          }
+          return false;
+        };
+
+        if (await waitForTransition()) {
+          console.log(`Tapped "${text}" (verified)`);
+          return true;
+        }
+
+        if (rect && rect.width > 0 && rect.height > 0) {
+          console.log(`  Element click did not trigger the Buy CTA. Retrying at (${Math.round(rect.x + rect.width / 2)}, ${Math.round(rect.y + rect.height / 2)})...`);
+          adbTap(Math.round(rect.x + rect.width / 2), Math.round(rect.y + rect.height / 2));
+          if (await waitForTransition()) {
+            console.log(`Tapped "${text}" via coordinate fallback (verified)`);
+            return true;
+          }
+        }
+      }
+
+      return false;
+    };
+
+    for (const text of ctas) {
+      if (await tapAndVerify(text, primaryTimeoutMs)) return true;
+    }
 
     if (options.scrollBeforeFallback !== false) {
       await this.scrollDown();
       await this.driver.pause(1000);
     }
 
-    const fallback = await this.tapFirstText(['Buy now', 'Buy Now', 'Buy', 'Get PPV'], fallbackTimeoutMs);
-    return !!fallback;
+    for (const text of ['Buy now', 'Buy Now', 'Buy', 'Get PPV']) {
+      if (await tapAndVerify(text, fallbackTimeoutMs)) return true;
+    }
+
+    return false;
   }
 
   async runSurfaceValidation(hooks: AndroidFlowHooks | undefined, surface: AndroidPPVSurface): Promise<void> {
