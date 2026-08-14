@@ -919,12 +919,22 @@ export class IOSValidationPage extends IOSBasePage {
             .map(({ index }) => index);
           const timePattern = /\b\d{1,2}:\d{2}\s*(?:a\.?m\.?|p\.?m\.?)?\b/i;
           const nearbyTexts = titleIndexes.flatMap(index => texts.slice(Math.max(0, index - 4), index + 5));
-          const time = nearbyTexts.find(text => timePattern.test(text))?.match(timePattern)?.[0] || '';
           const normalizeTime = (value: string) => value.toLowerCase()
             .replace(/a\.\s*m\.?/g, 'am')
             .replace(/p\.\s*m\.?/g, 'pm')
             .replace(/\s+/g, '')
             .replace(/\b0(\d:)/, '$1');
+          const expectedTime = normalizeTime(expectedValue);
+          const time = nearbyTexts.find(text => timePattern.test(text))?.match(timePattern)?.[0] ||
+            (titleIndexes.length
+              ? texts
+                .flatMap(text => Array.from(text.matchAll(new RegExp(timePattern, 'gi')), match => match[0]))
+                .find(candidate =>
+                  normalizeTime(candidate) === expectedTime ||
+                  normalizeTime(candidate).replace(/am|pm/g, '') === expectedTime.replace(/am|pm/g, ''),
+                )
+              : '') ||
+            '';
           actualValue = time || 'Not found';
           isMatch = Boolean(time && (
             compare(actualValue, expectedValue) ||
