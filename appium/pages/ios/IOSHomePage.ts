@@ -132,7 +132,7 @@ export class IOSHomePage extends IOSLandingPage {
           ? candidate.getSize().catch(() => null)
           : Promise.resolve(null),
       ]);
-      if (!viewport || !location) return false;
+      if (!viewport || !location || !size || size.width <= 0 || size.height <= 0) return false;
       const centreX = location.x + (size?.width || 0) / 2;
       const centreY = location.y + (size?.height || 0) / 2;
       return centreX >= 0 && centreX < viewport.width && centreY >= 0 && centreY < viewport.height;
@@ -148,6 +148,8 @@ export class IOSHomePage extends IOSLandingPage {
           const candidates = await this.driver.$$(selector);
           for (const candidate of candidates) {
             if (!(await candidate.isDisplayed().catch(() => false))) continue;
+            const type = await candidate.getAttribute('type').catch(() => '');
+            if (type && type !== 'XCUIElementTypeStaticText') continue;
             // XCTest can retain a displayed accessibility node after its rail
             // has moved outside the viewport. Do not lock horizontal swipes
             // to that stale heading.
