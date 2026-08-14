@@ -1624,7 +1624,7 @@ for (const stateKey of userStatesToRun) {
             return;
           }
 
-          if (isBoxingSubscriptionSource) {
+          if (isBoxingSubscriptionSource && SOURCE !== 'boxing-banner-ultimate') {
             console.log(`ℹ️ [${SOURCE}] Subscription source — skipping boxing banner/landing validation.`);
           } else if (SOURCE === 'home-biggest-fights') {
             // Skip pre-clickBuyNow validation for home-biggest-fights — the popup

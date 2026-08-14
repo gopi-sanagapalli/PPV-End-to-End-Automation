@@ -707,11 +707,9 @@ async function runFlow(
           // Skip landing page validation for subscription-only boxing sources
           // — they go directly to TierPlans/PlanDetails, there is no PPV banner to validate.
           const isBoxingSubscriptionSource =
-            source === 'boxing-banner-ultimate' ||
             source === 'boxing-ultimate-subscription' ||
             source === 'boxing-standard-subscription' ||
             source === 'boxing-page-bundle' ||
-            source === 'boxing-upcoming-fights' ||
             source === 'boxing-join-the-club';
 
           if (!isBoxingSubscriptionSource) {
