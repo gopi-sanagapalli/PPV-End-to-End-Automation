@@ -334,13 +334,20 @@ export async function expandMorePaymentMethods(page: Page, pageName = 'Payment P
   if (page.isClosed()) return false;
 
   const disclosure = await page.evaluate(() => {
+    const isVisible = (element: HTMLElement) => {
+      const rect = element.getBoundingClientRect();
+      const style = window.getComputedStyle(element);
+      return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+    };
+    const alternativesVisible = Array.from(document.querySelectorAll<HTMLElement>('button, [role="button"], label, div, span'))
+      .some(element => isVisible(element) && /google pay|paypal|apple pay/i.test((element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim()));
     const control = Array.from(document.querySelectorAll<HTMLElement>('button, [role="button"], summary, a, div'))
       .find(element => /^more payment methods$/i.test((element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim()));
     if (!control) return null;
     control.scrollIntoView({ block: 'center' });
     const rect = control.getBoundingClientRect();
     return {
-      expanded: control.getAttribute('aria-expanded') === 'true',
+      expanded: control.getAttribute('aria-expanded') === 'true' || alternativesVisible,
       x: rect.left + rect.width / 2,
       y: rect.top + rect.height / 2,
     };
@@ -350,11 +357,19 @@ export async function expandMorePaymentMethods(page: Page, pageName = 'Payment P
     console.log(`👇 [${pageName}] Clicking "More payment methods" to expand payment options...`);
     await page.mouse.click(disclosure.x, disclosure.y);
     await page.waitForFunction(() => {
-      return Array.from(document.querySelectorAll<HTMLElement>('button, [role="button"], summary, a, div'))
+      const isVisible = (element: HTMLElement) => {
+        const rect = element.getBoundingClientRect();
+        const style = window.getComputedStyle(element);
+        return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+      };
+      const controlExpanded = Array.from(document.querySelectorAll<HTMLElement>('button, [role="button"], summary, a, div'))
         .some(element =>
           /^more payment methods$/i.test((element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim()) &&
           element.getAttribute('aria-expanded') === 'true'
         );
+      const alternativesVisible = Array.from(document.querySelectorAll<HTMLElement>('button, [role="button"], label, div, span'))
+        .some(element => isVisible(element) && /google pay|paypal|apple pay/i.test((element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim()));
+      return controlExpanded || alternativesVisible;
     }, { timeout: 8000 }).catch(() => {
       console.warn(`⚠️ [${pageName}] "More payment methods" did not report as expanded after clicking it.`);
     });
