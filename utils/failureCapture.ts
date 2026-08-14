@@ -137,6 +137,87 @@ async function findTodayYouPayPriceTarget(page: any): Promise<any | null> {
   return target;
 }
 
+async function findBoxingUpcomingDateTarget(
+  page: any,
+  field: string,
+  candidates: string[],
+  context?: Record<string, any>
+): Promise<any | null> {
+  const source = String(context?.SOURCE || context?.source || '').toLowerCase();
+  const fieldKey = String(field || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  if (source !== 'boxing-upcoming-fights' || !fieldKey.includes('date')) return null;
+
+  const ppvName = String(context?.PPV_NAME || context?.PPV_DISPLAY_NAME || '').trim();
+  if (!ppvName) return null;
+
+  const marked = await page.evaluate(({ marker, ppvName, candidates }: {
+    marker: string;
+    ppvName: string;
+    candidates: string[];
+  }) => {
+    const clean = (value: string | null | undefined) =>
+      String(value ?? '').replace(/\s+/g, ' ').trim();
+    const normalise = (value: string) =>
+      clean(value).toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+    const isVisible = (el: HTMLElement) => {
+      const rect = el.getBoundingClientRect();
+      const style = window.getComputedStyle(el);
+      return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+    };
+    const words = normalise(ppvName)
+      .replace(/\bppv\b/g, '')
+      .split(/\s+/)
+      .filter(word => word.length > 2);
+    const wantedDates = candidates
+      .map(normalise)
+      .filter(value => /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/.test(value));
+
+    document.querySelectorAll(`[${marker}]`).forEach(node => node.removeAttribute(marker));
+    if (!words.length || !wantedDates.length) return false;
+
+    const elements = Array.from(document.querySelectorAll<HTMLElement>('article, li, section, div'));
+    let best: HTMLElement | null = null;
+    let bestArea = Infinity;
+
+    for (const el of elements) {
+      if (!isVisible(el)) continue;
+      const text = clean(el.innerText || el.textContent);
+      if (text.length < 10 || text.length > 800) continue;
+      const normalizedText = normalise(text);
+      const nameHits = words.filter(word => normalizedText.includes(word)).length;
+      if (nameHits < Math.min(2, words.length)) continue;
+
+      const dateNodes = Array.from(el.querySelectorAll<HTMLElement>('time, span, p, div, strong, b'))
+        .filter(node => isVisible(node) && node.children.length === 0)
+        .map(node => ({ node, text: clean(node.innerText || node.textContent), rect: node.getBoundingClientRect() }))
+        .filter(item => {
+          const textKey = normalise(item.text);
+          const looksLikeDate = /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/.test(textKey) &&
+            /\b\d{1,2}\b/.test(textKey);
+          return item.text.length <= 30 && looksLikeDate &&
+            wantedDates.some(date => textKey === date || textKey.includes(date) || date.includes(textKey));
+        });
+
+      for (const item of dateNodes) {
+        const area = item.rect.width * item.rect.height;
+        if (area > 0 && area < bestArea) {
+          best = item.node;
+          bestArea = area;
+        }
+      }
+    }
+
+    if (!best) return false;
+    best.setAttribute(marker, 'true');
+    return true;
+  }, { marker: FAILURE_FIELD_MARKER, ppvName, candidates }).catch(() => false);
+
+  if (!marked) return null;
+  const target = page.locator(`[${FAILURE_FIELD_MARKER}="true"]`).first();
+  await target.waitFor({ state: 'visible', timeout: 1000 }).catch(() => { });
+  return target;
+}
+
 async function findPpvTitleTarget(page: any, field: string, candidates: string[]): Promise<any | null> {
   const fieldKey = String(field || '').toLowerCase().replace(/\s+/g, ' ').trim();
   if (!['event name', 'ppv name', 'ppv card title'].includes(fieldKey)) return null;
@@ -533,6 +614,7 @@ export async function captureFailures(
           : (normalizedField === 'today you pay price'
           ? await findTodayYouPayPriceTarget(page)
           : null) ||
+          await findBoxingUpcomingDateTarget(page, field, candidates, context) ||
           (isPopupField ? await findPopupTarget(page, candidates) : null) ||
           (isPopupField && popup ? await findTarget(popup, candidates) : null) ||
           await findPpvTitleTarget(page, field, candidates) ||
