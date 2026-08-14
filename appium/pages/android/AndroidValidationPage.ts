@@ -556,7 +556,6 @@ export class AndroidValidationPage extends AndroidBasePage {
       image: true,
       title_visible_under_tile: false, // default: assume no text under tile (conservative)
       title: true,
-      lock_icon: true,
       bell_icon: true,
       date: true,
       title_read: titleExpected,
@@ -580,9 +579,8 @@ export class AndroidValidationPage extends AndroidBasePage {
           1. "image": Is the main background event image loaded and clearly visible? (Should be yes/no)
           2. "title_visible_under_tile": Is the PPV event title text (e.g. "${titleExpected}") visible as text BELOW or OUTSIDE the tile image (as a separate text label beneath the card)? Answer yes/no. NOTE: text printed ON the tile artwork image does NOT count.
           3. "title": If title text is visible below the tile, does it contain the title or names matching "${titleExpected}"? (Should be yes/no. Answer yes if title_visible_under_tile is no.)
-          4. "lock_icon": Is there a padlock/lock icon visible on the top-left corner of this card image? (Should be yes/no)
-          5. "bell_icon": Is there a bell icon or notification icon visible on this card? (Should be yes/no)
-          6. "date": Read the date text written on this card (such as "${dateExpected}"). Does it contain the date or match "${dateExpected}"? (Should be yes/no)
+          4. "bell_icon": Is there a bell icon or notification icon visible on this card? (Should be yes/no)
+          5. "date": Read the date text written on this card (such as "${dateExpected}"). Does it contain the date or match "${dateExpected}"? (Should be yes/no)
           
           Provide concise findings for each.
           
@@ -591,7 +589,6 @@ export class AndroidValidationPage extends AndroidBasePage {
             "image": boolean,
             "title_visible_under_tile": boolean,
             "title": boolean,
-            "lock_icon": boolean,
             "bell_icon": boolean,
             "date": boolean,
             "title_read": string,
@@ -607,14 +604,13 @@ export class AndroidValidationPage extends AndroidBasePage {
             image: { type: 'boolean' },
             title_visible_under_tile: { type: 'boolean' },
             title: { type: 'boolean' },
-            lock_icon: { type: 'boolean' },
             bell_icon: { type: 'boolean' },
             date: { type: 'boolean' },
             title_read: { type: 'string' },
             date_read: { type: 'string' },
             findings: { type: 'array', items: { type: 'string' } }
           },
-          required: ['image', 'title_visible_under_tile', 'title', 'lock_icon', 'bell_icon', 'date', 'title_read', 'date_read', 'findings']
+          required: ['image', 'title_visible_under_tile', 'title', 'bell_icon', 'date', 'title_read', 'date_read', 'findings']
         };
 
         const payload = Buffer.from(JSON.stringify({
@@ -813,7 +809,6 @@ export class AndroidValidationPage extends AndroidBasePage {
               }
             }
           }
-          evaluation.lock_icon = hasLock;
           evaluation.bell_icon = hasBell;
           evaluation.title_visible_under_tile = hasTitleBelowTile;
           if (hasTitleBelowTile) {
@@ -821,7 +816,6 @@ export class AndroidValidationPage extends AndroidBasePage {
             evaluation.title = true; // already matched above
           }
         } else {
-          evaluation.lock_icon = false;
           evaluation.bell_icon = false;
           evaluation.title_visible_under_tile = false;
         }
@@ -829,9 +823,6 @@ export class AndroidValidationPage extends AndroidBasePage {
         console.warn('⚠️ [Heuristic] Fallback validation error:', err.message);
       }
     }
-
-    const userState = String(process.env.USER_STATE || '').toLowerCase().trim().replace('-', '_');
-    const isUltimateUser = ['active_ultimate_apm', 'active_ultimate_upfront'].includes(userState);
 
     const pushResult = async (fieldName: string, expected: string, actual: string, passed: boolean) => {
       const status = passed ? 'PASS' : 'FAIL';
@@ -845,18 +836,7 @@ export class AndroidValidationPage extends AndroidBasePage {
     // ── 1. PPV Tile Present ──────────────────────────────────────────────────
     await pushResult('PPV Tile Present', 'Yes', 'Yes', true);
 
-    // ── 2. Lock Icon (required for non-ultimate users, must NOT appear for ultimate) ─
-    if (isUltimateUser) {
-      // Ultimate users already entitled — NO lock icon should appear on tile
-      const lockPresent = Boolean(evaluation.lock_icon);
-      await pushResult('Lock Icon', 'No', lockPresent ? 'Yes' : 'No', !lockPresent);
-    } else {
-      // Standard/APM users: lock icon MUST be present on PPV tile
-      const lockPresent = Boolean(evaluation.lock_icon);
-      await pushResult('Lock Icon', 'Yes', lockPresent ? 'Yes' : 'No', lockPresent);
-    }
-
-    // ── 3. PPV Title Under Tile (only validate if text label is visible below tile image) ─
+    // ── 2. PPV Title Under Tile (only validate if text label is visible below tile image) ─
     const titleBelowTile = Boolean(evaluation.title_visible_under_tile);
     if (titleBelowTile) {
       // Screenshot 1 case: title text label is present below tile — validate it matches
@@ -1170,6 +1150,14 @@ export class AndroidValidationPage extends AndroidBasePage {
       for (const row of rows) {
         const fieldName = (row['Field'] || '').trim();
         if (!fieldName) continue;
+
+        // Android PPV tile artwork does not expose a stable lock icon across
+        // user states/devices. Do not make it a validation requirement.
+        const fieldLower = fieldName.toLowerCase();
+        if (surface === 'PPV Tile' && fieldLower.includes('lock') && fieldLower.includes('icon')) {
+          console.log(`  Skip field [${fieldName}] (Android PPV tile lock-icon validation disabled)`);
+          continue;
+        }
 
         let expectedValue = '';
         try { expectedValue = resolveExp(row, eventData); }

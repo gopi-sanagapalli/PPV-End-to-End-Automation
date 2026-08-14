@@ -135,6 +135,7 @@ export class AndroidHomePage extends AndroidLandingPage {
       validateSurface: 'PPV Banner',
       immediatePaywall: options.immediatePaywall ?? true,
       recordPage: 'Home Page',
+      ensureBannerStillVisibleBeforeBuy: true,
     }, hooks);
   }
 
