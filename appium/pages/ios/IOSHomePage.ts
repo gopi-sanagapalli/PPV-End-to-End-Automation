@@ -4,6 +4,7 @@ import {
 } from './IOSBasePage';
 import { IOSLandingPage } from './IOSLandingPage';
 import { execFileSync } from 'child_process';
+import { createHash } from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -13,6 +14,7 @@ interface IOSVisualTileMatch {
   xPercent: number | null;
   yPercent: number | null;
   ocrTexts?: string[];
+  screenshotFingerprint?: string;
 }
 
 interface IOSVisualRailMatch {
@@ -183,8 +185,6 @@ export class IOSHomePage extends IOSLandingPage {
       const location = await rail.getLocation().catch(() => null);
       if (!location) return false;
       railY = location.y;
-      railFound = true;
-      console.log(`  Found visible Don't Miss rail at y=${railY}; stopping vertical scroll.`);
       return true;
     }, {
       timeout: 10000,
@@ -195,7 +195,7 @@ export class IOSHomePage extends IOSLandingPage {
     // becomes an accessibility element. Preserve the OCR fallback, but only
     // after the native rail wait so it is not repeatedly invoked while the
     // feed is still mounting.
-    if (!railFound) railFound = await findRailByRenderedHeading();
+    railFound = await findRailByRenderedHeading();
     // Keep the vertical movement deliberately small. The generic scrollDown
     // gesture moves roughly 40% of the screen and can take this rail from
     // below the fold to above it in one action before it is checked again.
@@ -219,8 +219,8 @@ export class IOSHomePage extends IOSLandingPage {
       if (rail) {
         const location = await rail.getLocation();
         railY = location.y;
-        railFound = true;
-        console.log(`  Found visible Don't Miss rail at y=${railY}; stopping vertical scroll.`);
+        railFound = await findRailByRenderedHeading();
+        if (railFound) console.log(`  Found visible Don't Miss rail at y=${railY}; stopping vertical scroll.`);
       } else if (await findRailByRenderedHeading()) {
         railFound = true;
       }
@@ -235,7 +235,8 @@ export class IOSHomePage extends IOSLandingPage {
           const location = await appearedRail.getLocation().catch(() => null);
           if (!location) return false;
           railY = location.y;
-          railFound = true;
+          railFound = await findRailByRenderedHeading();
+          if (!railFound) return false;
           console.log(`  Found visible Don't Miss rail at y=${railY}; stopping vertical scroll.`);
           return true;
         }, {
@@ -342,11 +343,13 @@ export class IOSHomePage extends IOSLandingPage {
     // Don't Miss cards are artwork-only on iOS: XCTest exposes the rail title
     // but not necessarily the PPV title inside the image. OCR the current
     // screenshot locally without changing the scroll or rail-location logic.
+    let latestRailScreenshotFingerprint = '';
     const findPpvTileByImage = async (): Promise<{ x: number; y: number } | undefined> => {
       const visualMatch = await locateIOSPpvTileByImage(this.driver, this.ppvName, {
         minYPercent: Math.max(0, railY / height),
         maxYPercent: Math.min(1, railBottom / height),
       });
+      latestRailScreenshotFingerprint = visualMatch.screenshotFingerprint || '';
       if (!visualMatch.visible || visualMatch.xPercent === null || visualMatch.yPercent === null) return undefined;
 
       const x = Math.round(width * visualMatch.xPercent);
@@ -363,11 +366,25 @@ export class IOSHomePage extends IOSLandingPage {
     let ppvTile = await findVisiblePpvTile();
     let visualTile: { x: number; y: number } | undefined;
     const maxHorizontalRailSwipes = 40;
+    let previousRailScreenshotFingerprint = createHash('sha256')
+      .update(await this.driver.takeScreenshot())
+      .digest('hex');
+    let unchangedRailSwipes = 0;
     for (let attempt = 0; attempt < maxHorizontalRailSwipes && !ppvTile && !visualTile; attempt++) {
       console.log(`  PPV tile is not in the current card viewport; making short horizontal swipe ${attempt + 1}/${maxHorizontalRailSwipes}.`);
       await swipeRail('left', 'dont-miss-rail-search');
       ppvTile = await findVisiblePpvTile();
       if (!ppvTile) visualTile = await findPpvTileByImage();
+      if (!ppvTile && !visualTile && latestRailScreenshotFingerprint) {
+        unchangedRailSwipes = latestRailScreenshotFingerprint === previousRailScreenshotFingerprint
+          ? unchangedRailSwipes + 1
+          : 0;
+        previousRailScreenshotFingerprint = latestRailScreenshotFingerprint;
+        if (unchangedRailSwipes >= 2) {
+          console.log('  Don\'t Miss rail did not move after consecutive horizontal swipes; stopping search.');
+          break;
+        }
+      }
     }
 
     // Vision OCR starts a Swift process and can take tens of seconds on the
@@ -547,7 +564,7 @@ async function locateIOSDontMissRailByImage(driver: WdBrowser): Promise<IOSVisua
       timeout: 30000,
     });
     const observations = JSON.parse(output) as Array<{ text: string; yPercent: number }>;
-    const heading = observations.find(observation => /don.?t miss/i.test(observation.text));
+    const heading = observations.find(observation => /^don['\u2019]?t\s+miss$/i.test(observation.text.trim()));
     return heading
       ? { visible: true, yPercent: heading.yPercent }
       : { visible: false, yPercent: null };
@@ -567,7 +584,9 @@ async function locateIOSPpvTileByImage(
   let screenshotPath = '';
   try {
     screenshotPath = path.join(os.tmpdir(), `dazn-ppv-ocr-${process.pid}-${Date.now()}.png`);
-    fs.writeFileSync(screenshotPath, Buffer.from(await driver.takeScreenshot(), 'base64'));
+    const screenshot = await driver.takeScreenshot();
+    const screenshotFingerprint = createHash('sha256').update(screenshot).digest('hex');
+    fs.writeFileSync(screenshotPath, Buffer.from(screenshot, 'base64'));
 
     const swiftVisionScript = `
       import AppKit
@@ -618,7 +637,7 @@ async function locateIOSPpvTileByImage(
       .filter(candidate => candidate.matchedTerms > 0)
       .sort((left, right) => right.matchedTerms - left.matchedTerms)[0]?.observation;
     if (!match) {
-      return { visible: false, xPercent: null, yPercent: null };
+      return { visible: false, xPercent: null, yPercent: null, screenshotFingerprint };
     }
     console.log(`  Local OCR matched PPV artwork text: "${match.text}".`);
     return {
@@ -629,6 +648,7 @@ async function locateIOSPpvTileByImage(
       // and date checks. Previously it was discarded even after an OCR match,
       // making those checks deterministically report "Not found".
       ocrTexts: railObservations.map(observation => observation.text),
+      screenshotFingerprint,
     };
   } catch (error: any) {
     console.warn(`  Local OCR PPV lookup failed: ${error.message}`);

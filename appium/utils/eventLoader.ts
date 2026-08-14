@@ -10,8 +10,8 @@ export interface EventConfig {
   PPV_TYPE?: string;
   global: {
     [key: string]: any;
-    PPV_DATE: string;       // "Sun 26th Jul at 00:30"
-    PPV_TIME: string;       // "00:30"
+    PPV_DATE?: string;      // "Sun 26th Jul at 00:30"
+    PPV_TIME?: string;      // "00:30"
     PPV_UTC_DATE?: string;
     PPV_DESCRIPTION?: string;
     PPV_PROMOTER?: string;
@@ -175,11 +175,17 @@ export function loadEventConfig(): EventConfig {
   if (!config.PPV_NAME) {
     throw new Error(`Event config "${normalizedFileName}" is missing required field "PPV_NAME".`);
   }
-  if (!config.global || !config.global.PPV_DATE) {
-    throw new Error(`Event config "${normalizedFileName}" is missing required field "global.PPV_DATE".`);
+  if (!config.global) {
+    throw new Error(`Event config "${normalizedFileName}" is missing required "global" block.`);
   }
-  if (!config.global.PPV_TIME) {
-    throw new Error(`Event config "${normalizedFileName}" is missing required field "global.PPV_TIME".`);
+  const regions = Object.values(config.regions || {});
+  const hasDate = Boolean(config.global.PPV_UTC_DATE || config.global.PPV_DATE || regions.some((region: any) => region.PPV_DATE));
+  if (!hasDate) {
+    throw new Error(`Event config "${normalizedFileName}" is missing "PPV_UTC_DATE" or "PPV_DATE" in global/regions.`);
+  }
+  const hasTime = Boolean(config.global.PPV_UTC_DATE || config.global.PPV_TIME || regions.some((region: any) => region.PPV_TIME));
+  if (!hasTime) {
+    throw new Error(`Event config "${normalizedFileName}" is missing "PPV_UTC_DATE" or "PPV_TIME" in global/regions.`);
   }
 
   return config;

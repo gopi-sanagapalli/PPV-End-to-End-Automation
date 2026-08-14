@@ -32,6 +32,7 @@ const LANDING_INDICATORS = [
 ];
 
 const LOGOUT_BUTTON_SELECTORS = [
+  '-ios predicate string:type == "XCUIElementTypeButton" AND (name == "Log out" OR label == "Log out")',
   '-ios class chain:**/XCUIElementTypeOther[`name == "signOutButton"`]/**/XCUIElementTypeButton',
 ];
 
