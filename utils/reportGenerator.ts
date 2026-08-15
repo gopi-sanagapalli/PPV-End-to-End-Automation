@@ -96,6 +96,19 @@ function inlineImage(p?: string): string | null {
   }
 }
 
+function moveVideoIntoRunFolder(sourcePath: string, targetPath: string): void {
+  const source = path.resolve(sourcePath);
+  const target = path.resolve(targetPath);
+  if (source === target) return;
+
+  try {
+    fs.renameSync(source, target);
+  } catch {
+    fs.copyFileSync(source, target);
+    fs.unlinkSync(source);
+  }
+}
+
 function esc(v: unknown): string {
   return String(v ?? '')
     .replace(/&amp;/g, '&')   // unescape already-escaped
@@ -482,9 +495,9 @@ export async function generateReports(
     fs.copyFileSync(meta.excelPath, path.join(runDir, 'PPV_Results.xlsx'));
   }
 
-  // Copy Video into the run folder
+  // Move Video into the run folder so it is stored only once locally
   if (meta.videoPath && fs.existsSync(meta.videoPath)) {
-    fs.copyFileSync(meta.videoPath, path.join(runDir, `PPV_Video${path.extname(meta.videoPath)}`));
+    moveVideoIntoRunFolder(meta.videoPath, path.join(runDir, `PPV_Video${path.extname(meta.videoPath)}`));
   }
 
   const bundledExcelPath = path.join(runDir, 'PPV_Results.xlsx');

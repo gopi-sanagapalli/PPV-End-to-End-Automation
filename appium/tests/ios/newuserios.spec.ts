@@ -147,12 +147,22 @@ async function saveIOSScreenshot(driver: WdBrowser, relativePath: string): Promi
   }
 }
 
-async function generateIOSAvailabilityFailureReport(errorMessage: string): Promise<void> {
+async function generateIOSAvailabilityFailureReport(errorMessage: string, executionFailure = false): Promise<void> {
   if (iosAvailabilityReportGenerated) return;
   iosAvailabilityReportGenerated = true;
 
   if (!iosAvailabilityResults.length) {
-    recordIOSPPVAvailability(false);
+    if (executionFailure) {
+      iosAvailabilityResults.push({
+        page: 'iOS',
+        field: 'Test execution',
+        expected: 'Test completes and report is generated',
+        actual: errorMessage,
+        status: 'FAIL',
+      });
+    } else {
+      recordIOSPPVAvailability(false);
+    }
   }
 
   const originalCwd = process.cwd();
@@ -501,12 +511,18 @@ describe('DAZN iOS PPV — New User Handoff Flow', () => {
 
 
 
-  after(async () => {
+  after(async function () {
     try {
-      // Save the recording even if the test errors before normal report
-      // generation can attach it to the report bundle.
       const videoPath = await stopIOSRecording(browser);
-      if (videoPath) console.log(`🎥 Failure/debug video available: ${videoPath}`);
+      const failed = this.currentTest?.state === 'failed';
+      if (videoPath && failed) {
+        await generateIOSAvailabilityFailureReport(
+          this.currentTest?.err?.message || 'iOS test failed before report generation',
+          true,
+        );
+      } else if (videoPath) {
+        console.log(`🎥 Failure/debug video available: ${videoPath}`);
+      }
     } catch {}
   });
 });
