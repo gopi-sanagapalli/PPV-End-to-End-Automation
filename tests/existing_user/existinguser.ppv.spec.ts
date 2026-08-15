@@ -672,6 +672,7 @@ for (const stateKey of userStatesToRun) {
     const runStartTime = tvPpvReportStartTime || specStartTime;
     appendTvPpvReportSteps(results, tvPpvReportMetadata);
     let capturedVideoPath: string | null = null;
+    let reportGenerated = false;
 
     const finishRun = async (displayTier = tier, userStatusOverride?: string) => {
       reachedEndPage = true;
@@ -719,6 +720,7 @@ for (const stateKey of userStatesToRun) {
         platform: getReportPlatform(),
         paymentMethod: PAYMENT_METHOD === 'gpay' ? 'Google Pay' : 'Credit Card',
       });
+      reportGenerated = true;
       if (folderPath) console.log(`\n📂 Report folder: ${folderPath}`);
 
       const failed = results.filter(r => r.status === 'FAIL').length;
@@ -1423,7 +1425,7 @@ for (const stateKey of userStatesToRun) {
             if (!alreadyEnabledFromHome) {
               console.log('\n🎭 Dev mode flow detected — enabling dev mode on landing page...');
               const searchPage = new SearchPage(page);
-              await searchPage.enableDevMode();
+              await searchPage.enableDevMode(SOURCE === 'home-boxing-banner' ? { preservePpvPromo: true } : undefined);
               if (LOGIN_FIRST) {
                 await page.keyboard.press('Escape').catch(() => { });
                 await page.waitForTimeout(200);
@@ -2410,6 +2412,7 @@ for (const stateKey of userStatesToRun) {
             platform: getReportPlatform(),
             paymentMethod: PAYMENT_METHOD === 'gpay' ? 'Google Pay' : 'Credit Card',
           });
+          reportGenerated = true;
           if (folderPath) console.log(`\n📂 Report folder: ${folderPath}`);
 
           const failedEarly = results.filter(r => r.status === 'FAIL').length;
@@ -2459,6 +2462,7 @@ for (const stateKey of userStatesToRun) {
             platform: getReportPlatform(),
             paymentMethod: PAYMENT_METHOD === 'gpay' ? 'Google Pay' : 'Credit Card',
           });
+          reportGenerated = true;
           if (folderPathCaAct) console.log(`\n📂 Report folder: ${folderPathCaAct}`);
           return;
         }
@@ -2582,6 +2586,7 @@ for (const stateKey of userStatesToRun) {
             platform: getReportPlatform(),
             paymentMethod: PAYMENT_METHOD === 'gpay' ? 'Google Pay' : 'Credit Card',
           });
+          reportGenerated = true;
           if (folderPath2) console.log(`\n📂 Report folder: ${folderPath2}`);
           return;
         }
@@ -4698,6 +4703,7 @@ for (const stateKey of userStatesToRun) {
         platform: getReportPlatform(),
         paymentMethod: PAYMENT_METHOD === 'gpay' ? 'Google Pay' : 'Credit Card',
       });
+      reportGenerated = true;
       if (folderPath) console.log(`\n📂 Report folder: ${folderPath}`);
 
 
@@ -4749,25 +4755,27 @@ for (const stateKey of userStatesToRun) {
     } catch (error) {
       console.error('❌ Test error:', error);
       // Fallback: generate report folder even on crash so CI always has a report
-      try {
-        const crashJson = loadEventConfig(EVENT_CONFIG);
-        const crashMsg = (error as Error)?.message?.slice(0, 200) || 'Unknown error';
-        await generateReports(
-          [{ page: 'Test', field: 'Flow Completion', expected: 'Complete', actual: `CRASHED: ${crashMsg}`, status: 'FAIL' as const }],
-          {
-            event: crashJson?.PPV_NAME || 'Unknown',
-            region: REGION,
-            source: SOURCE,
-            ratePlan: process.env.PLAN || 'unknown',
-            tier: (process.env.PLAN || '').includes('ultimate') ? 'ultimate' : 'standard',
-            env: process.env.DAZN_ENV || 'prod',
-            flowName: `${SOURCE} → ${stateKey} (crashed)`,
-            startTime: specStartTime,
-            endTime: new Date(),
-            userType: 'existing-user',
-          }
-        );
-      } catch { /* best-effort — do not mask original error */ }
+      if (!reportGenerated) {
+        try {
+          const crashJson = loadEventConfig(EVENT_CONFIG);
+          const crashMsg = (error as Error)?.message?.slice(0, 200) || 'Unknown error';
+          await generateReports(
+            [{ page: 'Test', field: 'Flow Completion', expected: 'Complete', actual: `CRASHED: ${crashMsg}`, status: 'FAIL' as const }],
+            {
+              event: crashJson?.PPV_NAME || 'Unknown',
+              region: REGION,
+              source: SOURCE,
+              ratePlan: process.env.PLAN || 'unknown',
+              tier: (process.env.PLAN || '').includes('ultimate') ? 'ultimate' : 'standard',
+              env: process.env.DAZN_ENV || 'prod',
+              flowName: `${SOURCE} → ${stateKey} (crashed)`,
+              startTime: specStartTime,
+              endTime: new Date(),
+              userType: 'existing-user',
+            }
+          );
+        } catch { /* best-effort — do not mask original error */ }
+      }
       throw error;
 
     } finally {

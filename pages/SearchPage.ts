@@ -304,13 +304,13 @@ export class SearchPage extends BasePage {
       await searchInput.waitFor({ state: 'visible', timeout: 30000 });
 
       // Dismiss any marketing/promotion popup that is already visible
-      await dismissMarketingPopup(this.page).catch(() => {});
+      await dismissMarketingPopup(this.page, 0, options).catch(() => {});
 
       try {
         await searchInput.click({ timeout: 5000 });
       } catch (clickError) {
         console.log('⚠️ Search input click was intercepted or failed. Attempting to dismiss popup and retry...');
-        await dismissMarketingPopup(this.page, 4000).catch(() => {});
+        await dismissMarketingPopup(this.page, 4000, options).catch(() => {});
         await searchInput.click({ timeout: 10000, force: true }).catch((retryError) => {
           console.log(`⚠️ Forced search input click failed, continuing with direct fill: ${retryError.message}`);
         });
