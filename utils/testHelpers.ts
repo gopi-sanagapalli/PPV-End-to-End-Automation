@@ -76,6 +76,9 @@ export async function clickAndWaitForNav(
 ): Promise<void> {
   console.log(`clicking: ${label}`);
   const before = page.url();
+  const beforeBody = await page.locator('body').innerText({ timeout: 1000 })
+    .then((text: string) => text.replace(/\s+/g, ' ').trim().toLowerCase())
+    .catch(() => '');
   await safeScrollToElement(page, btn);
   await btn.waitFor({ state: 'visible', timeout: 5000 }).catch(() => { });
   await btn.click({ force: true });
@@ -89,13 +92,14 @@ export async function clickAndWaitForNav(
     await page.waitForLoadState('domcontentloaded', { timeout: 3000 }).catch(() => { });
     console.log(`navigated to: ${page.url()}`);
   }
-  await waitForPostClickStateChange(page, before, label);
+  await waitForPostClickStateChange(page, before, beforeBody, label);
   await assertDaznPageAvailable(page, `after clicking ${label}`);
 }
 
 async function waitForPostClickStateChange(
   page: any,
   beforeUrl: string,
+  beforeBody: string,
   label: string
 ): Promise<void> {
   const beforeLower = beforeUrl.toLowerCase();
@@ -106,21 +110,24 @@ async function waitForPostClickStateChange(
     /ultimate/i.test(label) &&
     beforeLower.includes('upselltiershown=true');
 
-  if (!isPlanContinue) return;
-
-  const settled = await page.waitForFunction((allowSelectedTransition: boolean) => {
+  const settled = await page.waitForFunction((allowSelectedTransition: boolean, requirePlanExit: boolean, previousUrl: string, previousBody: string) => {
     const href = window.location.href.toLowerCase();
-    const body = document.body?.innerText?.toLowerCase() || '';
+    const body = document.body?.innerText?.replace(/\s+/g, ' ').trim().toLowerCase() || '';
+    const bodyChanged = body !== previousBody;
+    if (href !== previousUrl) return true;
+    if (bodyChanged && (body.includes('choose how to pay') || body.includes('payment method') || body.includes('today you pay'))) return true;
+    if (bodyChanged && body.includes('first name') && body.includes('last name')) return true;
+    if (bodyChanged && body.includes('email address') && !body.includes('continue with dazn ultimate')) return true;
+    if (bodyChanged && (body.includes('choose your plan') || body.includes('choose a plan'))) return true;
+    if (bodyChanged && (body.includes('confirm plan change') || body.includes('payment was successful'))) return true;
+    if (!requirePlanExit) return false;
     if (!href.includes('page=plandetails')) return true;
     if (allowSelectedTransition && href.includes('upselltierselected=true')) return true;
     if (href.includes('paymentdetails') || href.includes('payment') || href.includes('checkout')) return true;
-    if (body.includes('today you pay') || body.includes('payment method')) return true;
-    if (body.includes('first name') && body.includes('last name')) return true;
-    if (body.includes('email address') && !body.includes('continue with dazn ultimate')) return true;
     return !body.includes('continue with dazn ultimate');
-  }, allowUpsellTierSelectedTransition, { timeout: 10_000 }).then(() => true).catch(() => false);
+  }, allowUpsellTierSelectedTransition, isPlanContinue, beforeLower, beforeBody, { timeout: isPlanContinue ? 10_000 : 5_000 }).then(() => true).catch(() => false);
 
-  if (!settled) {
+  if (!settled && isPlanContinue) {
     const body = await page.locator('body').innerText().catch(() => '');
     throw new Error(
       `❌ ${label} did not leave the PlanDetails page.\n` +

@@ -337,6 +337,26 @@ export class SignupPage extends BasePage {
     await signInBtn.waitFor({ state: 'visible', timeout: 5000 });
     await signInBtn.click({ force: true });
     await this.page.waitForLoadState('domcontentloaded').catch(() => {});
+
+    // The direct existing-user sign-in flow (for example home-page-popup)
+    // bypasses the navigation-loop recovery. Dismiss DAZN's transient
+    // "No key found" dialog and retry this same sign-in submission once.
+    const noKeyMessage = this.page.getByText(/no key found/i).first();
+    const hasNoKeyDialog = await noKeyMessage
+      .waitFor({ state: 'visible', timeout: 5000 })
+      .then(() => true)
+      .catch(() => false);
+    if (hasNoKeyDialog) {
+      console.warn('⚠️  [SignupPage] "No key found" dialog detected — clicking Ok and retrying Sign in once...');
+      const okBtn = this.page.locator(
+        'button:has-text("Ok"), button:has-text("OK"), button:has-text("Okay"), [role="button"]:has-text("Ok")'
+      ).first();
+      await okBtn.click({ force: true }).catch(() => {});
+      await signInBtn.waitFor({ state: 'visible', timeout: 5000 });
+      await signInBtn.click({ force: true });
+      await this.page.waitForLoadState('domcontentloaded').catch(() => {});
+    }
+
     await assertDaznPageAvailable(this.page, 'after signing in');
     console.log('✅ Sign in clicked');
   }

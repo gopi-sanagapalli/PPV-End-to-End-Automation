@@ -456,20 +456,20 @@ async function activatePpvBannerForEvidence(page: any, ppvName: string): Promise
       });
       if (!target) continue;
 
-      try { (root as any).swiper?.autoplay?.stop(); } catch { }
-      try { (root.querySelector('.swiper') as any)?.swiper?.autoplay?.stop(); } catch { }
-      const wrapper = root.querySelector('.swiper-wrapper') as HTMLElement | null;
-      if (wrapper) wrapper.style.transitionDuration = '0ms';
+      const swiperElement = [root, ...Array.from(
+        root.querySelectorAll<HTMLElement>('.swiper, .swiper-container, [class*="swiper" i]')
+      )].find((element: any) => element.swiper);
+      const swiper = (swiperElement as any)?.swiper;
+      if (!swiper) continue;
 
-      root.querySelectorAll('.swiper-slide').forEach(node => {
-        const slide = node as HTMLElement;
-        slide.classList.remove('swiper-slide-active', 'swiper-slide-next', 'swiper-slide-prev');
-        slide.style.opacity = '0';
-        slide.style.pointerEvents = 'none';
-      });
-      target.classList.add('swiper-slide-active');
-      target.style.opacity = '1';
-      target.style.pointerEvents = 'auto';
+      const logicalIndex = Number(target.getAttribute('data-swiper-slide-index'));
+      const slideIndex = slides.indexOf(target);
+      try { swiper.autoplay?.stop(); } catch { }
+      if (Number.isInteger(logicalIndex) && typeof swiper.slideToLoop === 'function') {
+        swiper.slideToLoop(logicalIndex, 0);
+      } else {
+        swiper.slideTo(slideIndex, 0);
+      }
       target.setAttribute(marker, 'true');
       return true;
     }
@@ -479,7 +479,16 @@ async function activatePpvBannerForEvidence(page: any, ppvName: string): Promise
   if (!activated) return null;
 
   const target = page.locator(`[${FAILURE_BANNER_MARKER}]`).last();
-  await target.waitFor({ state: 'visible', timeout: 3000 }).catch(() => { });
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const active = await target.evaluate((node: HTMLElement) =>
+      node.classList.contains('swiper-slide-active')
+    ).catch(() => false);
+    if (active) break;
+    await page.waitForTimeout(200);
+  }
+  if (!await target.evaluate((node: HTMLElement) => node.classList.contains('swiper-slide-active')).catch(() => false)) {
+    return null;
+  }
   console.log(`✅ [Fail Shot] Re-activated PPV banner "${ppvName}" before evidence capture.`);
   return target;
 }

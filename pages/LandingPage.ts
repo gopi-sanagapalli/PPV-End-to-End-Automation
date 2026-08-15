@@ -244,7 +244,6 @@ export class LandingPage extends BasePage {
           if (!swiper) return;
           swiper.autoplay?.stop();
           swiper.params.autoplay = false;
-          swiper.params.loop = false;
           if (swiper.autoplay?.running) {
             swiper.autoplay.stop();
           }
@@ -290,35 +289,51 @@ export class LandingPage extends BasePage {
       return null;
     }
 
+    const logicalIndex = await slides.nth(targetIndex)
+      .getAttribute('data-swiper-slide-index')
+      .catch(() => null);
     await this.stopCarouselAutoSlide();
-    const activated = await carousel.evaluate((root: HTMLElement, index: number) => {
-      const slides = Array.from(
-        root.querySelectorAll('.swiper-slide:not(.swiper-slide-duplicate)')
-      ) as HTMLElement[];
-      const target = slides[index];
-      if (!target) return false;
+    const activated = await carousel.evaluate((root: HTMLElement, target: {
+      index: number;
+      logicalIndex: string | null;
+    }) => {
+      const swiperElement = [root, ...Array.from(
+        root.querySelectorAll<HTMLElement>('.swiper, .swiper-container, [class*="swiper" i]')
+      )].find((element: any) => element.swiper);
+      const swiper = (swiperElement as any)?.swiper;
+      if (!swiper) return false;
 
-      root.querySelectorAll('.swiper-slide').forEach((node) => {
-        const slide = node as HTMLElement;
-        slide.classList.remove('swiper-slide-active', 'swiper-slide-next', 'swiper-slide-prev');
-        slide.style.opacity = '0';
-        slide.style.pointerEvents = 'none';
-      });
-      target.classList.add('swiper-slide-active');
-      target.style.opacity = '1';
-      target.style.pointerEvents = 'auto';
+      const slideIndex = Number(target.logicalIndex);
+      try { swiper.autoplay?.stop(); } catch { }
+      if (Number.isInteger(slideIndex) && typeof swiper.slideToLoop === 'function') {
+        swiper.slideToLoop(slideIndex, 0);
+      } else {
+        swiper.slideTo(target.index, 0);
+      }
       return true;
-    }, targetIndex).catch(() => false);
+    }, { index: targetIndex, logicalIndex }).catch(() => false);
 
     if (!activated) {
-      console.warn(`⚠️ [Banner] Could not activate refreshed PPV slide ${targetIndex}.`);
+      console.warn(`⚠️ [Banner] Could not move the carousel to refreshed PPV slide ${targetIndex}.`);
       return null;
     }
 
-    const target = this.bannerSlides(this.bannerCarousel()).nth(targetIndex);
-    await target.waitFor({ state: 'visible', timeout: 3000 }).catch(() => { });
+    let activeSlide = carousel.locator(selectors.banner.activeSlide).first();
+    for (let attempt = 0; attempt < 5; attempt++) {
+      if (await this.hasPpvBannerTitle(activeSlide, this.bannerPpvName)) break;
+      await this.page.waitForTimeout(200);
+      activeSlide = carousel.locator(selectors.banner.activeSlide).first();
+    }
+
+    if (!await this.hasPpvBannerTitle(activeSlide, this.bannerPpvName)) {
+      console.warn(`⚠️ [Banner] Carousel did not activate refreshed PPV slide ${targetIndex}.`);
+      return null;
+    }
+
+    await this.stopCarouselAutoSlide();
+    await activeSlide.waitFor({ state: 'visible', timeout: 3000 }).catch(() => { });
     console.log(`✅ [Banner] Re-acquired PPV slide ${targetIndex} immediately before Buy Now click.`);
-    return target;
+    return activeSlide;
   }
 
   // ─────────────────────────────
@@ -562,9 +577,15 @@ export class LandingPage extends BasePage {
     };
     const saveActiveSlideIndex = async (active: Locator, fallbackIndex: number): Promise<void> => {
       const index = await active.getAttribute('data-swiper-slide-index').catch(() => null);
+      const renderedIndex = await active.evaluate((node: HTMLElement) => {
+        const slides = Array.from(
+          node.parentElement?.querySelectorAll('.swiper-slide:not(.swiper-slide-duplicate)') || []
+        );
+        return slides.indexOf(node);
+      }).catch(() => -1);
       eventData._ppvBannerSlideIndex = index && /^\d+$/.test(index)
         ? index
-        : String(fallbackIndex);
+        : String(renderedIndex >= 0 ? renderedIndex : fallbackIndex);
     };
 
     // Check active slide first
@@ -591,21 +612,48 @@ export class LandingPage extends BasePage {
       failPpvNotConfigured('The static banner does not match the configured PPV.');
     }
 
-    // The carousel renders its non-duplicate slides up front. Inspect those
-    // stable slide nodes and activate only the exact PPV match. This avoids the
-    // flaky authenticated-page chevron interaction which can stall before the
-    // actual PPV CTA is clicked.
-    console.log(`🔍 [Banner] Checking ${totalSlideCount} rendered banner slide(s)...`);
-    for (let index = 0; index < totalSlideCount; index++) {
-      const slide = slides.nth(index);
-      if (await this.hasPpvBannerTitle(slide, ppvName)) {
-        console.log(`✅ [Banner] PPV found in slide ${index} — activating matching banner`);
-        eventData._ppvBannerSlideIndex = String(index);
-        return await this.reacquireBannerSlideForClick() || slide;
+    // Walk the visible carousel with its next chevron. Do not promote a hidden
+    // slide by changing Swiper's CSS classes: its text can then be paired with
+    // the artwork still positioned behind it.
+    if (totalSlideCount === 1) {
+      failPpvNotConfigured('The only rendered banner slide does not match the configured PPV.');
+    }
+
+    const nextButton = carousel.locator([
+      selectors.banner.nextButton,
+      'button[aria-label*="next" i]',
+      '[role="button"][aria-label*="next" i]',
+      'button[class*="next" i]',
+      '[role="button"][class*="next" i]',
+    ].join(', ')).first();
+    if (!await nextButton.isVisible({ timeout: 3000 }).catch(() => false)) {
+      failPpvNotConfigured(`The banner has ${totalSlideCount} slide(s), but its next chevron is not available.`);
+    }
+
+    console.log(`🔍 [Banner] Checking up to ${totalSlideCount} banner slide(s) via the next chevron...`);
+    for (let step = 1; step < totalSlideCount; step++) {
+      const previousSlide = getActiveSlide();
+      const previousIndex = await previousSlide.getAttribute('data-swiper-slide-index').catch(() => null);
+      const previousText = await getActiveSlideText();
+      await nextButton.click({ force: true, timeout: 5000 });
+
+      let currentSlide = getActiveSlide();
+      for (let attempt = 0; attempt < 5; attempt++) {
+        await this.page.waitForTimeout(200);
+        currentSlide = getActiveSlide();
+        const currentIndex = await currentSlide.getAttribute('data-swiper-slide-index').catch(() => null);
+        const currentText = await getActiveSlideText();
+        if ((currentIndex && currentIndex !== previousIndex) || currentText !== previousText) break;
+      }
+      if (await this.hasPpvBannerTitle(currentSlide, ppvName)) {
+        console.log(`✅ [Banner] PPV found after ${step} chevron move(s)`);
+        await stopAllAutoSlide();
+        await saveActiveSlideIndex(currentSlide, step);
+        return currentSlide;
       }
     }
 
-    failPpvNotConfigured(`Checked ${totalSlideCount} rendered banner slide(s) without a matching PPV title.`);
+    failPpvNotConfigured(`Checked ${totalSlideCount} active banner slide(s) without a matching PPV title.`);
   }
 
   // ─────────────────────────────
@@ -1144,7 +1192,14 @@ export class LandingPage extends BasePage {
 
     if (src.includes('banner')) {
       const refreshedBanner = await this.reacquireBannerSlideForClick();
-      if (refreshedBanner) targetContainer = refreshedBanner;
+      if (refreshedBanner) {
+        targetContainer = refreshedBanner;
+      } else if (!await this.hasPpvBannerTitle(targetContainer, this.bannerPpvName)) {
+        throw new Error(
+          `❌ [Banner] Could not re-acquire configured PPV "${this.bannerPpvName}" before Buy Now click. ` +
+          'Will NOT use the currently active banner as a fallback.'
+        );
+      }
     }
 
     // Check if container is a swiper slide

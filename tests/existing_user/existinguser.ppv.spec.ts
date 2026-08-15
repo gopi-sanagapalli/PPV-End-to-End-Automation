@@ -1480,7 +1480,7 @@ for (const stateKey of userStatesToRun) {
                 const stopSwiper = (swiper: any) => {
                   if (!swiper) return;
                   try { swiper.autoplay?.stop(); } catch { }
-                  try { swiper.params.autoplay = false; swiper.params.loop = false; } catch { }
+                  try { swiper.params.autoplay = false; } catch { }
                   try { if (swiper.autoplay?.running) swiper.autoplay.stop(); } catch { }
                 };
                 document.querySelectorAll('.swiper, [class*="swiper"], .swiper-container').forEach((el: any) => {
@@ -4291,8 +4291,24 @@ for (const stateKey of userStatesToRun) {
         }
 
         if (!reachedEndPage) {
+          await page.waitForFunction(() => {
+            const href = window.location.href.toLowerCase();
+            const body = document.body?.innerText?.toLowerCase() || '';
+            return href.includes('paymentdetails') ||
+              href.includes('payment') ||
+              href.includes('checkout') ||
+              href.includes('upgradeplan') ||
+              href.includes('upgradetier') ||
+              body.includes('choose how to pay') ||
+              body.includes('payment method') ||
+              body.includes('today you pay') ||
+              body.includes('confirm plan change') ||
+              body.includes('payment was successful');
+          }, { timeout: 30_000 }).catch(() => { });
+
           const finalUrl = page.url();
-          if (finalUrl.includes('paymentDetails') || finalUrl.includes('payment')) {
+          const finalUrlLower = finalUrl.toLowerCase();
+          if (finalUrlLower.includes('paymentdetails') || finalUrlLower.includes('payment') || finalUrlLower.includes('checkout')) {
             console.log('💳 Payment page detected after loop exit');
             reachedEndPage = true;
 
@@ -4321,6 +4337,13 @@ for (const stateKey of userStatesToRun) {
                 await paymentPage.validate(paymentData, results, eventData, undefined);
               }
             }
+          } else if (finalUrlLower.includes('upgradeplan') || finalUrlLower.includes('upgradetier')) {
+            console.log('✅ Confirmation page detected after loop exit');
+            const confirmData = getUpgradeConfirmationData(ratePlan);
+            await validateVariant(
+              page, 'confirmation', confirmData, results, eventData, 'Upgrade Confirmation'
+            );
+            reachedEndPage = true;
           } else {
             console.log(`⚠️  Flow A did not reach expected end page`);
           }
