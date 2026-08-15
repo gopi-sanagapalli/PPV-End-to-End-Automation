@@ -206,7 +206,7 @@ export class PPVUpsellPaymentPage extends BasePage {
         // The PPV name appears next to the price in the order summary row
         const ppvName = eventData.PPV_NAME || '';
         const mainName = ppvName.split(/[:\-–]/)[0].trim();
-        const vsMatch = ppvName.match(/(\w+)\s+vs\.?\s+(\w+)/i);
+        const vsMatch = ppvName.match(/([\w\u00C0-\u024F]+)\s+vs\.?\s+([\w\u00C0-\u024F]+)/i);
         const f1 = vsMatch ? vsMatch[1].toLowerCase() : '';
         const f2 = vsMatch ? vsMatch[2].toLowerCase() : '';
 

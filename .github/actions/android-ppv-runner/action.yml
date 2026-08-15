@@ -7,6 +7,9 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Clean stale local reports
+      shell: bash
+      run: rm -rf appium/test-results appium/reports
     - name: Add Android SDK platform-tools to PATH
       shell: bash
       run: |
@@ -76,3 +79,7 @@ runs:
           echo "No Android report folders found for $report_name"
         fi
         echo "Stored Android test results locally at $report_dir"
+    - name: Clean local reports after storing
+      if: ${{ always() }}
+      shell: bash
+      run: rm -rf appium/test-results appium/reports

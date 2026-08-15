@@ -87,6 +87,10 @@ export function resolveExpected(
     pageName.includes('/addon/purchase');
   const ppvPaymentPrice = eventData.OFFER_EFFECTIVE_PPV_PRICE || eventData.PPV_PRICE || eventData.TODAY_YOU_PAY_PRICE || '';
   const currentUserState = String(eventData.USER_STATE || process.env.USER_STATE || '').trim().toLowerCase();
+  const paymentProfile = String(eventData.PAYMENT_PROFILE || process.env.PAYMENT_PROFILE || '').trim().toLowerCase();
+  const isGiftCodePaymentProfile = paymentProfile === 'giftcode' || paymentProfile === 'gift_code' || paymentProfile === 'gift-code';
+  const isGooglePayPaymentProfile = paymentProfile === 'googlepay' || paymentProfile === 'google_pay' || paymentProfile === 'google-pay';
+  const hasNoSavedCardPaymentProfile = isGiftCodePaymentProfile || isGooglePayPaymentProfile;
   const isActiveStandardUser = [
     'active_standard',
     'active_standard_monthly',
@@ -183,7 +187,11 @@ export function resolveExpected(
     }
     if (field === 'saved card present') {
       const userState = (eventData.USER_STATE || process.env.USER_STATE || 'freemium').trim().toLowerCase();
+      if (hasNoSavedCardPaymentProfile) return 'No';
       return userState === 'freemium' ? 'No' : 'Yes';
+    }
+    if (isGiftCodePaymentProfile && field === 'more payment methods') {
+      return 'N/A';
     }
 
     // ── Next Payment fields: skip for GB, IE, and N-day trials ──
@@ -193,6 +201,15 @@ export function resolveExpected(
       if (region === 'GB' || region === 'IE' || /^\d+_day_trial$/.test(offerType)) {
         return 'N/A';
       }
+    }
+  }
+
+  if (isPpvPaymentPage) {
+    if (hasNoSavedCardPaymentProfile && (field === 'saved card' || field === 'card on file')) {
+      return 'N/A';
+    }
+    if (isGiftCodePaymentProfile && field === 'more payment methods') {
+      return 'N/A';
     }
   }
 

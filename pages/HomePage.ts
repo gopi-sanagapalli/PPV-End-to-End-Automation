@@ -172,13 +172,13 @@ export class HomePage extends LandingPage {
       console.log(`✅ [HomePage Biggest Fights] Section heading found (matched: ${matchedPattern})`);
 
       const ppvName = eventData.PPV_NAME || '';
-      const vsMatch = ppvName.match(/(\w+)\s+vs\.?\s+(\w+)/i);
+      const vsMatch = ppvName.match(/([\w\u00C0-\u024F]+)\s+vs\.?\s+([\w\u00C0-\u024F]+)/i);
       const fighter1 = vsMatch ? vsMatch[1] : '';
       const fighter2 = vsMatch ? vsMatch[2] : '';
       console.log(`🔍 [HomePage Biggest Fights] Looking for: "${ppvName}" (f1="${fighter1}", f2="${fighter2}")`);
 
       const cleanStr = (s: string) =>
-        (s || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+        (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
       const isVariantTileText = (text: string): boolean =>
         /\b(press\s*conference|weigh\s*in|weigh-in|prelims?|preliminary|face\s*off|highlights?|trailer|preview|countdown|full\s*fight|replay)\b/i.test(text);
       const nameParts = ppvName.split(/[:\-–]/).map(p => p.trim()).filter(p => p.length > 3);
@@ -190,8 +190,8 @@ export class HomePage extends LandingPage {
         const matchTitle = partsWordLists.some(words => words.every(w => ct.includes(w)));
         const matchFighters = !!(
           fighter1 && fighter2 &&
-          ct.includes(fighter1.toLowerCase()) &&
-          ct.includes(fighter2.toLowerCase())
+          ct.includes(cleanStr(fighter1)) &&
+          ct.includes(cleanStr(fighter2))
         );
         return matchTitle || matchFighters;
       };
@@ -275,16 +275,23 @@ export class HomePage extends LandingPage {
 
       // The cards in this rail frequently expose only a promoter name in the
       // DOM; the fighter names are rendered into the poster artwork. Resolve
-      // the configured PPV name to that public Home poster asset, then match
-      // the asset in this rail. This deliberately does not use an entitlement,
-      // competition ID, or a secondary browser tab.
-      const eventImageIds = railsInterceptor
+      // the configured PPV name to that public Home competition/poster asset, then match
+      // the asset in this rail. This deliberately does not use a PPV entitlement
+      // or a secondary browser tab.
+      const eventMatchIds = railsInterceptor
         ? await railsInterceptor.findHomePortraitImageIdsByTitle(partsWordLists)
         : [];
 
       const findTileByEventImage = async (): Promise<any> => {
-        for (const imageId of eventImageIds) {
-          const matches = (await getTileCandidates()).filter(({ metadata }) =>
+        const candidates = await getTileCandidates();
+        console.log(`🔎 [Biggest Fights] Match IDs to match: ${JSON.stringify(eventMatchIds)}`);
+        console.log(`🔎 [Biggest Fights] Candidates in view: ${candidates.length}`);
+        for (const { metadata } of candidates) {
+          const preview = metadata.slice(0, 120).replace(/\n/g, ' ');
+          console.log(`   📋 Tile metadata: "${preview}…"`);
+        }
+        for (const imageId of eventMatchIds) {
+          const matches = candidates.filter(({ metadata }) =>
             metadata.toLowerCase().includes(imageId.toLowerCase())
           );
           if (matches.length === 1) {
@@ -315,8 +322,26 @@ export class HomePage extends LandingPage {
         return null;
       };
 
+      const findTileByUniquePromoter = async (): Promise<any> => {
+        const promoter = cleanStr(eventData.PPV_PROMOTER || '');
+        if (!promoter) return null;
+
+        const matches = (await getTileCandidates()).filter(({ metadata }) =>
+          cleanStr(metadata).includes(promoter)
+        );
+        if (matches.length === 1) {
+          const href = await matches[0].tile.getAttribute('href').catch(() => '');
+          console.log(`✅ [Biggest Fights] Found tile by unique promoter "${eventData.PPV_PROMOTER}": href="${href}"`);
+          return matches[0].tile;
+        }
+        if (matches.length > 1) {
+          console.log(`⚠️ [Biggest Fights] Promoter "${eventData.PPV_PROMOTER}" matched ${matches.length} cards; not selecting an ambiguous card`);
+        }
+        return null;
+      };
+
       if (!targetTile) {
-        targetTile = await findTileByEventImage() || await findTileInRail();
+        targetTile = await findTileByEventImage() || await findTileInRail() || await findTileByUniquePromoter();
         let clicks = 0;
         while (!targetTile && clicks < 15) {
           const nd = await nextBtn.evaluate((el: Element) =>
@@ -327,7 +352,31 @@ export class HomePage extends LandingPage {
           await nextBtn.click({ force: true, timeout: 3000 }).catch(() => { });
           clicks++;
           await this.page.waitForTimeout(500);
-          targetTile = await findTileByEventImage() || await findTileInRail();
+          targetTile = await findTileByEventImage() || await findTileInRail() || await findTileByUniquePromoter();
+        }
+      }
+
+      if (!targetTile) {
+        // ── Fallback: entitlement-based tile discovery ──────────────────
+        // The tile text only contains the promoter name (e.g. "PBC") and the
+        // fight name is baked into the poster artwork. Try matching via the
+        // PPV entitlement ID from the intercepted Rails data instead.
+        const ppvEntitlement = eventData.PPV_ENTITLEMENT_ID;
+        if (!targetTile && railsInterceptor && ppvEntitlement) {
+          console.log(`🔎 [Biggest Fights] Image/text match failed — trying entitlement fallback: "${ppvEntitlement}"`);
+          const entitlementMatches = railsInterceptor.findTilesByEntitlement([ppvEntitlement]);
+          if (entitlementMatches.length > 0) {
+            const clicked = await railsInterceptor.clickFirstVisibleEntitlementTile(entitlementMatches);
+            if (clicked) {
+              console.log(
+                `✅ [Biggest Fights] Found PPV tile via entitlement: "${clicked.tileTitle}" ` +
+                `in rail "${clicked.railTitle}"`
+              );
+              // Skip the normal click flow below — tile was already clicked
+              eventData._BIGGEST_FIGHTS_ENTITLEMENT_CLICKED = 'true';
+              targetTile = 'entitlement-clicked';
+            }
+          }
         }
       }
 
@@ -339,11 +388,15 @@ export class HomePage extends LandingPage {
       }
 
       // ── STEP 4: Click tile → Navigate to competition page ────────────
-      const tileHref = await targetTile.getAttribute('href').catch(() => '');
-      console.log(`✅ [Biggest Fights] Clicking competition tile: href="${tileHref}"`);
-      await targetTile.scrollIntoViewIfNeeded().catch(() => { });
-      await targetTile.click({ timeout: 5000 });
-      console.log('🔗 [Biggest Fights] Clicked tile, waiting for competition/sport page...');
+      if (eventData._BIGGEST_FIGHTS_ENTITLEMENT_CLICKED !== 'true') {
+        const tileHref = await targetTile.getAttribute('href').catch(() => '');
+        console.log(`✅ [Biggest Fights] Clicking competition tile: href="${tileHref}"`);
+        await targetTile.scrollIntoViewIfNeeded().catch(() => { });
+        await targetTile.click({ timeout: 5000 });
+        console.log('🔗 [Biggest Fights] Clicked tile, waiting for competition/sport page...');
+      } else {
+        console.log('🔗 [Biggest Fights] Tile already clicked via entitlement fallback, waiting for competition/sport page...');
+      }
 
       await this.page.waitForURL(
         (url: URL) => {
@@ -571,20 +624,38 @@ export class HomePage extends LandingPage {
 
       // 3. Build search parameters for tile (same as LandingPage.ts)
       const ppvName = eventData.PPV_NAME || '';
-      const vsMatch = ppvName.match(/(\w+)\s+vs\.?\s+(\w+)/i);
+      const vsMatch = ppvName.match(/([\w\u00C0-\u024F]+)\s+vs\.?\s+([\w\u00C0-\u024F]+)/i);
       const fighter1 = vsMatch ? vsMatch[1] : '';
       const fighter2 = vsMatch ? vsMatch[2] : '';
       console.log(`🔍 [HomePage Tile] Searching tile for event: "${ppvName}" (fighter1="${fighter1}", fighter2="${fighter2}")`);
 
-      const cleanStr = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+      const cleanStr = (s: string) => (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
       const nameParts = ppvName.split(/[:\-–]/).map(p => p.trim()).filter(p => p.length > 3);
       const partsWordLists = nameParts.map(part => cleanStr(part).split(/\s+/).filter(Boolean)).filter(list => list.length > 0);
 
       const matchesTileText = (text: string): boolean => {
         const ct = cleanStr(text);
         const matchTitle = partsWordLists.some(words => words.every(w => ct.includes(w)));
-        const matchFighters = !!(fighter1 && fighter2 && ct.includes(fighter1.toLowerCase()) && ct.includes(fighter2.toLowerCase()));
+        const matchFighters = !!(fighter1 && fighter2 && ct.includes(cleanStr(fighter1)) && ct.includes(cleanStr(fighter2)));
         return matchTitle || matchFighters;
+      };
+
+      const getTileMetadata = async (tile: any): Promise<string> => {
+        return await tile.evaluate((el: HTMLElement) => {
+          const attrs = ['aria-label', 'title', 'href', 'data-entitlement', 'data-content-id', 'data-testid']
+            .map(attr => el.getAttribute(attr) || '')
+            .filter(Boolean);
+          const imgs = Array.from(el.querySelectorAll('img')).flatMap((img: HTMLImageElement) => [
+            img.alt,
+            img.getAttribute('aria-label') || '',
+            img.getAttribute('title') || '',
+            img.currentSrc,
+            img.src,
+            img.getAttribute('srcset') || '',
+            img.getAttribute('data-src') || '',
+          ]);
+          return [el.innerText || el.textContent || '', ...attrs, ...imgs].join(' ');
+        }).catch(() => '');
       };
 
       const exclusions = [
@@ -618,14 +689,14 @@ export class HomePage extends LandingPage {
         for (let i = 0; i < candidateCount; i++) {
           const tile = tileCandidates.nth(i);
           if (await tile.isVisible().catch(() => false)) {
-            const text = await tile.textContent().catch(() => '');
-            if (text && matchesTileText(text)) {
+            const metadata = await getTileMetadata(tile);
+            if (metadata && matchesTileText(metadata)) {
               const inView = await tile.evaluate((el: HTMLElement) => {
                 const r = el.getBoundingClientRect();
                 return r.width > 0 && r.right > 0 && r.left < window.innerWidth;
               }).catch(() => false);
               if (inView) {
-                const score = this.scorePPVMatch(text, ppvName);
+                const score = this.scorePPVMatch(metadata, ppvName);
                 if (score > bestScore) {
                   bestScore = score;
                   bestTile = tile;

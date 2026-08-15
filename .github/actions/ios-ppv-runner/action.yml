@@ -5,6 +5,9 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Clean stale local reports
+      shell: bash
+      run: rm -rf appium/test-results appium/reports
     - shell: bash
       run: npm ci
     - shell: bash
@@ -129,3 +132,7 @@ runs:
           echo "No iOS report folders found for $report_name"
         fi
         echo "Stored iOS test results locally at $report_dir"
+    - name: Clean local reports after storing
+      if: ${{ always() }}
+      shell: bash
+      run: rm -rf appium/test-results appium/reports

@@ -1820,29 +1820,36 @@ export async function getActualValue(
       const titleRegex = vsMatch
         ? new RegExp(`${escapeRegExp(vsMatch[1].trim())}\\s+v(?:s)?\\.?\\s+${escapeRegExp(vsMatch[2].trim())}`, 'i')
         : new RegExp(escapeRegExp(expectedTitle).replace(/\\ /g, '\\s+'), 'i');
+      const stripDiacritic = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      const titleRegexNoDiacritic = vsMatch
+        ? new RegExp(`${escapeRegExp(stripDiacritic(vsMatch[1].trim()))}\\s+v(?:s)?\\.?\\s+${escapeRegExp(stripDiacritic(vsMatch[2].trim()))}`, 'i')
+        : new RegExp(escapeRegExp(stripDiacritic(expectedTitle)).replace(/\\ /g, '\\s+'), 'i');
 
       const extractTitle = (text: string): string => {
-        const match = clean(text).match(titleRegex);
+        const source = clean(text);
+        const match = source.match(titleRegex) || stripDiacritic(source).match(titleRegexNoDiacritic);
         return match ? normalizeTitle(match[0]) : '';
       };
 
       // Build keyword list from PPV name parts (split on : - –)
       const titleParts = expectedTitle.split(/[:\-–]/).map(p => p.trim().toLowerCase()).filter(p => p.length > 2);
 
+      const fighter1Norm = stripDiacritic(fighter1);
+      const fighter2Norm = stripDiacritic(fighter2);
       const isMatch = (text: string): boolean => {
-        const textLower = text.toLowerCase();
-        if (fighter1 && fighter2) {
-          return textLower.includes(fighter1) && textLower.includes(fighter2);
+        const textNorm = stripDiacritic(text.toLowerCase());
+        if (fighter1Norm && fighter2Norm) {
+          return textNorm.includes(fighter1Norm) && textNorm.includes(fighter2Norm);
         }
         // For non-boxing events: match if all significant name parts are present
         if (titleParts.length > 0) {
           return titleParts.every(part => {
             const words = part.split(/\s+/).filter(w => w.length > 2);
-            return words.every(w => textLower.includes(w));
+            return words.every(w => textNorm.includes(stripDiacritic(w)));
           });
         }
-        const firstWord = expectedTitle.toLowerCase().split(' ')[0];
-        return textLower.includes(firstWord);
+        const firstWord = stripDiacritic(expectedTitle.toLowerCase().split(' ')[0]);
+        return textNorm.includes(firstWord);
       };
 
       let found = snapFind(n => n.isInModal && isMatch(n.text) && n.text.length < 80, true);
@@ -2001,6 +2008,7 @@ export async function getActualValue(
         const t = text.toLowerCase();
         return promoterWords.length > 0 && promoterWords.every(w => t.includes(w)) && text.length < (loose ? 150 : maxLen) && !t.includes('vs');
       };
+      const promoterValue = (text: string): string => promoterMatch(text, true) ? expectedPromoter : text;
       // Pass 1: leaf nodes in modal (best match — no extra text)
       let found = snapFind(n => n.isInModal && n.childCount <= 1 && promoterMatch(n.text), true);
       // Pass 2: any modal node with tighter length
@@ -2033,12 +2041,12 @@ export async function getActualValue(
             const kids = await el.locator('> *').count().catch(() => 0);
             if (kids > 1) continue;
             const t = clean(await el.textContent().catch(() => '') || '');
-            if (t && promoterMatch(t)) return t;
+            if (t && promoterMatch(t)) return promoterValue(t);
           }
           break; // found visible modal, stop searching
         }
       }
-      return found !== 'N/A' ? found : 'Not found';
+      return found !== 'N/A' ? promoterValue(found) : 'Not found';
     }
     case 'popup - buy now cta': {
       let found = snapExists(n => n.isInModal && (n.tag === 'button' || n.tag === 'a') && n.text.toLowerCase().includes('buy now'));
@@ -2528,7 +2536,7 @@ export async function getActualValue(
       if (source === 'home-page-dont-miss' && eventData?.__HOME_DONT_MISS_TILE_FOUND) {
         return eventData.__HOME_DONT_MISS_TILE_FOUND;
       }
-      if (source === 'home-boxing-tile' && eventData?.__HOME_BOXING_TILE_FOUND) {
+      if ((source === 'home-boxing-tile' || source === 'home-boxing-upcoming') && eventData?.__HOME_BOXING_TILE_FOUND) {
         return eventData.__HOME_BOXING_TILE_FOUND;
       }
 
@@ -2722,6 +2730,10 @@ export async function getActualValue(
     case 'ppv promoter':
     case 'mobile ppv promoter':
     case 'ppv promoter on tile': {
+      // Use pre-captured promoter from the correct article when on schedule page
+      if (eventData?.__SCHEDULE_TILE_PROMOTER && page.url().toLowerCase().includes('/schedule')) {
+        return eventData.__SCHEDULE_TILE_PROMOTER;
+      }
       const promoterVal = eventData?.MOBILE_PPV_PROMOTER || eventData?.PPV_PROMOTER || '';
       const promoter = promoterVal.toLowerCase();
       const tilePromoterMaxLen = Math.max(promoterVal.length * 2, 40);
@@ -2733,7 +2745,7 @@ export async function getActualValue(
         return (
           promoterWords.length > 0 &&
           promoterWords.every(w => t.includes(w)) &&
-          text.length > 3 &&
+          text.length >= 3 &&
           text.length < (loose ? 80 : tilePromoterMaxLen) &&
           !t.includes('vs')
         );
@@ -2741,6 +2753,32 @@ export async function getActualValue(
 
       const scopedPromoter = await getScopedLandingFieldText('p, span, div', text => tilePromoterMatch(text, true));
       if (scopedPromoter) return scopedPromoter;
+
+      // For schedule page: run live DOM article-scoped search first to avoid
+      // picking up promoters from other articles visible on the page
+      const ppvFirstWord = (eventData?.PPV_NAME || '').toLowerCase().split(' ')[0];
+      if (page.url().toLowerCase().includes('/schedule') && ppvFirstWord) {
+        const schedArticles = page.locator('article');
+        const schedArtCount = await schedArticles.count().catch(() => 0);
+        for (let i = 0; i < schedArtCount; i++) {
+          const art = schedArticles.nth(i);
+          const artText = clean(
+            await art.innerText({ timeout: T }).catch(() => '')
+          ).toLowerCase();
+          if (!artText.includes(ppvFirstWord)) continue;
+          const inner = art.locator('p, span, a');
+          const ic = await inner.count().catch(() => 0);
+          for (let j = 0; j < ic; j++) {
+            const el = inner.nth(j);
+            if (!await el.isVisible().catch(() => false)) continue;
+            const kids = await el.locator('> *').count().catch(() => 0);
+            if (kids > 1) continue;
+            const t = clean(await el.innerText({ timeout: T }).catch(() => ''));
+            if (tilePromoterMatch(t, true)) return t;
+          }
+        }
+        return 'N/A';
+      }
 
       // Pass 1: leaf nodes only (childCount <= 1) — best match, no extra text
       const fromSnap = snapFind(n => {
@@ -2769,7 +2807,6 @@ export async function getActualValue(
       if (fromSnapGeneric !== 'N/A') return fromSnapGeneric;
 
       // Pass 4: live DOM fallback — search inside article tiles
-      const ppvFirstWord = (eventData?.PPV_NAME || '').toLowerCase().split(' ')[0];
       const articles = page.locator('article');
       const artCount = await articles.count().catch(() => 0);
       for (let i = 0; i < artCount; i++) {
@@ -2825,7 +2862,7 @@ export async function getActualValue(
         // or altered promotion prefix can incorrectly pass validation.
         return eventData.__HOME_DONT_MISS_TILE_TITLE || eventData.__HOME_DONT_MISS_TILE_TEXT;
       }
-      if (source === 'home-boxing-tile' && eventData?.__HOME_BOXING_TILE_TEXT) {
+      if ((source === 'home-boxing-tile' || source === 'home-boxing-upcoming') && eventData?.__HOME_BOXING_TILE_TEXT) {
         return eventData.__HOME_BOXING_TILE_TITLE || eventData.__HOME_BOXING_TILE_TEXT;
       }
 
@@ -3101,7 +3138,7 @@ export async function getActualValue(
         if (monthDayMatch) return `${monthDayMatch[2]} ${monthDayMatch[1].toUpperCase()}`;
         return dateText;
       }
-      if (source === 'home-boxing-tile') {
+      if (source === 'home-boxing-tile' || source === 'home-boxing-upcoming') {
         const dateText = eventData?.__HOME_BOXING_TILE_DATE || eventData?.LANDING_PAGE_PPV_DATE || '';
         if (!dateText) return 'N/A';
         if ((eventData?.CURRENT_PAGE || '').toLowerCase() === 'home of sport') {
@@ -3335,6 +3372,7 @@ export async function getActualValue(
           !t.includes('vs')
         );
       };
+      const promoterValue = (text: string): string => promoterMatchFn(text, true) ? (eventData?.PPV_PROMOTER || '') : text;
       // Pass 1: leaf nodes in modal (best — no extra text)
       let found = snapFind(n => n.isInModal && n.childCount <= 1 && promoterMatchFn(n.text), true);
       // Pass 2: any modal node with tight length
@@ -3367,12 +3405,12 @@ export async function getActualValue(
             const kids = await el.locator('> *').count().catch(() => 0);
             if (kids > 1) continue;
             const t = clean(await el.textContent().catch(() => '') || '');
-            if (t && promoterMatchFn(t, true)) return t;
+            if (t && promoterMatchFn(t, true)) return promoterValue(t);
           }
           break;
         }
       }
-      return found !== 'N/A' ? found : 'Not found';
+      return found !== 'N/A' ? promoterValue(found) : 'Not found';
     }
 
     case 'popup description': {
@@ -3436,7 +3474,7 @@ export async function getActualValue(
       if (source === 'home-page-dont-miss' && eventData?.__HOME_DONT_MISS_IMAGE_PRESENT) {
         return eventData.__HOME_DONT_MISS_IMAGE_PRESENT;
       }
-      if (source === 'home-boxing-tile' && eventData?.__HOME_BOXING_IMAGE_PRESENT) {
+      if ((source === 'home-boxing-tile' || source === 'home-boxing-upcoming') && eventData?.__HOME_BOXING_IMAGE_PRESENT) {
         return eventData.__HOME_BOXING_IMAGE_PRESENT;
       }
       if (await waitForLoadedPPVImage()) return 'Yes';
@@ -5730,6 +5768,10 @@ export async function getActualValue(
 
     case 'fight card cta':
     case 'fight card button': {
+      const source = (eventData?.SOURCE || eventData?.source || '').toLowerCase();
+      if (source === 'home-boxing-upcoming' && eventData?.__HOME_BOXING_FIGHT_CARD_CTA) {
+        return eventData.__HOME_BOXING_FIGHT_CARD_CTA;
+      }
       if (isLandingOrHomeContext()) {
         const container = await getScopedLandingPPVContainer(page, eventData);
         if (container) {

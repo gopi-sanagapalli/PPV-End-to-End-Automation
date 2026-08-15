@@ -108,7 +108,7 @@ export class GloryPage extends BasePage {
 
     // ── Step 3: Score-based tile search ──
     const cleanStr = (s: string) =>
-      (s || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+      (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
 
     const cleanName = cleanStr(targetEvent);
     const nameWords = cleanName.split(/\s+/).filter(Boolean);

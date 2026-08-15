@@ -4748,6 +4748,26 @@ for (const stateKey of userStatesToRun) {
 
     } catch (error) {
       console.error('❌ Test error:', error);
+      // Fallback: generate report folder even on crash so CI always has a report
+      try {
+        const crashJson = loadEventConfig(EVENT_CONFIG);
+        const crashMsg = (error as Error)?.message?.slice(0, 200) || 'Unknown error';
+        await generateReports(
+          [{ page: 'Test', field: 'Flow Completion', expected: 'Complete', actual: `CRASHED: ${crashMsg}`, status: 'FAIL' as const }],
+          {
+            event: crashJson?.PPV_NAME || 'Unknown',
+            region: REGION,
+            source: SOURCE,
+            ratePlan: process.env.PLAN || 'unknown',
+            tier: (process.env.PLAN || '').includes('ultimate') ? 'ultimate' : 'standard',
+            env: process.env.DAZN_ENV || 'prod',
+            flowName: `${SOURCE} → ${stateKey} (crashed)`,
+            startTime: specStartTime,
+            endTime: new Date(),
+            userType: 'existing-user',
+          }
+        );
+      } catch { /* best-effort — do not mask original error */ }
       throw error;
 
     } finally {

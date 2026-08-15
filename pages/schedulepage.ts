@@ -174,13 +174,14 @@ export class SchedulePage {
     console.log(`🔍 Searching for event: ${eventName}`);
     await handleCookies(this.page);
 
+    const stripDiacritics = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
     const regex = new RegExp(
-      eventName.replace(/[:\-–]/g, '').replace(/\s+/g, '.*'),
+      stripDiacritics(eventName).replace(/[:\-–]/g, '').replace(/\s+/g, '.*'),
       'i'
     );
 
     const cleanStr = (value: string) =>
-      (value || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+      (value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
     const eventTitle = cleanStr(eventName);
     const variantPattern = /\b(press\s*conference|weigh\s*in|weigh-in|prelims?|preliminary|undercard|open\s*workout|face\s*off|highlights?|trailer|preview|countdown|full\s*fight|replay)\b/i;
     const scoreEventText = (text: string): number => {
