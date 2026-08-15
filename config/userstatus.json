@@ -259,7 +259,8 @@
           },
           "prod": {
             "USER_EMAIL": "ukgc@yopmail.com",
-            "USER_PASSWORD": "Dazn@1"
+            "USER_PASSWORD": "Dazn@1",
+            "PAYMENT_PROFILE": "giftcode"
           }
         }
       },

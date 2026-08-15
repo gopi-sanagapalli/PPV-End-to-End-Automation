@@ -556,18 +556,18 @@ export class BoxingHomePage extends HomePage {
       const ppvName = eventData.PPV_NAME || '';
       console.log(`🔍 [Home Sport Upcoming] Searching for PPV card: "${ppvName}"`);
 
-      const vsMatch = ppvName.match(/(\w+)\s+vs\.?\s+(\w+)/i);
+      const vsMatch = ppvName.match(/([\w\u00C0-\u024F]+)\s+vs\.?\s+([\w\u00C0-\u024F]+)/i);
       const fighter1 = vsMatch ? vsMatch[1].toLowerCase() : '';
       const fighter2 = vsMatch ? vsMatch[2].toLowerCase() : '';
 
-      const cleanStr = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+      const cleanStr = (s: string) => (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
       const nameParts = ppvName.split(/[:\-–]/).map(p => p.trim()).filter(p => p.length > 3);
       const partsWordLists = nameParts.map(part => cleanStr(part).split(/\s+/).filter(Boolean)).filter(list => list.length > 0);
 
       const matchesCard = (text: string): boolean => {
         const cleanText = cleanStr(text);
         const matchTitle = partsWordLists.some(words => words.every(w => cleanText.includes(w)));
-        const matchFighters = !!(fighter1 && fighter2 && cleanText.includes(fighter1) && cleanText.includes(fighter2));
+        const matchFighters = !!(fighter1 && fighter2 && cleanText.includes(cleanStr(fighter1)) && cleanText.includes(cleanStr(fighter2)));
         return matchTitle || matchFighters;
       };
 
@@ -639,6 +639,75 @@ export class BoxingHomePage extends HomePage {
         }
 
         console.log('✅ [Home Sport Upcoming] Correct PPV card is identified');
+        const tileCapture = await ppvCard.evaluate((el: HTMLElement, ppvName: string) => {
+          const clean = (value: string | null | undefined) =>
+            String(value ?? '').replace(/\s+/g, ' ').trim();
+          const strip = (value: string) =>
+            clean(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+          const text = clean(el.innerText || el.textContent);
+          const expectedWords = strip(ppvName)
+            .replace(/[^a-z0-9]+/g, ' ')
+            .split(/\s+/)
+            .filter(word => word.length > 2);
+          const titleCandidates = Array.from(el.querySelectorAll<HTMLElement>(
+            'h1, h2, h3, h4, h5, h6, p, span, [class*="title" i], [class*="name" i]'
+          ))
+            .filter(node => node.children.length === 0)
+            .map(node => clean(node.innerText || node.textContent))
+            .filter(candidate => {
+              const normalized = strip(candidate).replace(/[^a-z0-9]+/g, ' ');
+              return candidate.length > 2 &&
+                candidate.length < 120 &&
+                expectedWords.length > 0 &&
+                expectedWords.every(word => normalized.includes(word));
+            });
+          const fightCardText = Array.from(el.querySelectorAll<HTMLElement>('a, button, [role="button"]'))
+            .map(node => clean(node.innerText || node.textContent))
+            .find(value => /^fight card$/i.test(value)) || '';
+          const dateMatch =
+            text.match(/\b\d{1,2}\s+(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC|January|February|March|April|May|June|July|August|September|October|November|December)\b/i) ||
+            text.match(/\b(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC|January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}\b/i);
+          return {
+            text,
+            titleText: titleCandidates.sort((a, b) => a.length - b.length)[0] || '',
+            dateText: dateMatch ? dateMatch[0] : '',
+            fightCardText,
+          };
+        }, ppvName).catch(() => ({ text: '', titleText: '', dateText: '', fightCardText: '' }));
+
+        const normaliseTileDate = (value: string): string => {
+          const monthMap: Record<string, string> = {
+            january: 'Jan', jan: 'Jan',
+            february: 'Feb', feb: 'Feb',
+            march: 'Mar', mar: 'Mar',
+            april: 'Apr', apr: 'Apr',
+            may: 'May',
+            june: 'Jun', jun: 'Jun',
+            july: 'Jul', jul: 'Jul',
+            august: 'Aug', aug: 'Aug',
+            september: 'Sep', sep: 'Sep',
+            october: 'Oct', oct: 'Oct',
+            november: 'Nov', nov: 'Nov',
+            december: 'Dec', dec: 'Dec',
+          };
+          const dayMonth = value.match(/\b([1-9]|[12]\d|3[01])(?:st|nd|rd|th)?\s+(January|February|March|April|May|June|July|August|September|October|November|December|JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\b/i);
+          if (dayMonth) return `${dayMonth[1]} ${monthMap[dayMonth[2].toLowerCase()] || dayMonth[2]}`;
+          const monthDay = value.match(/\b(January|February|March|April|May|June|July|August|September|October|November|December|JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\s+([1-9]|[12]\d|3[01])(?:st|nd|rd|th)?\b/i);
+          if (monthDay) return `${monthDay[2]} ${monthMap[monthDay[1].toLowerCase()] || monthDay[1]}`;
+          return value;
+        };
+
+        eventData.__HOME_BOXING_TILE_FOUND = 'Yes';
+        eventData.__HOME_BOXING_TILE_TEXT = tileCapture.text || '';
+        eventData.__HOME_BOXING_TILE_TITLE = tileCapture.titleText || eventData.PPV_NAME || '';
+        eventData.__HOME_BOXING_TILE_DATE = normaliseTileDate(tileCapture.dateText || eventData.LANDING_PAGE_PPV_DATE || '');
+        eventData.__HOME_BOXING_FIGHT_CARD_CTA = tileCapture.fightCardText || '';
+        console.log(
+          `[Home Sport Upcoming] Pre-captured card validation data: ` +
+          `title="${eventData.__HOME_BOXING_TILE_TITLE}", ` +
+          `date="${eventData.__HOME_BOXING_TILE_DATE}", ` +
+          `fightCard="${eventData.__HOME_BOXING_FIGHT_CARD_CTA || 'N/A'}"`
+        );
         return ppvCard;
       } catch (e) {
         console.log(`⚠️ Error finding upcoming PPV card: ${(e as Error).message}`);
@@ -701,7 +770,7 @@ export class BoxingHomePage extends HomePage {
     const ppvName = eventData.PPV_NAME || '';
     console.log(`🔍 [Home Sport Tile] Navigating rail matching pattern ${sectionPattern} to find: "${ppvName}"`);
 
-    const vsMatch = ppvName.match(/(\w+)\s+vs\.?\s+(\w+)/i);
+    const vsMatch = ppvName.match(/([\w\u00C0-\u024F]+)\s+vs\.?\s+([\w\u00C0-\u024F]+)/i);
     const fighter1 = vsMatch ? vsMatch[1] : '';
     const fighter2 = vsMatch ? vsMatch[2] : '';
     console.log(`🔍 [Home Sport Tile] Searching for image with alt containing: "${fighter1}" and "${fighter2}"`);
@@ -716,15 +785,33 @@ export class BoxingHomePage extends HomePage {
     await railWrapper.waitFor({ state: 'visible', timeout: 10000 }).catch(() => { });
     console.log('✅ [Home Sport Tile] Found rail wrapper');
 
-    const cleanStr = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+    const cleanStr = (s: string) => (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
     const nameParts = ppvName.split(/[:\-–]/).map(p => p.trim()).filter(p => p.length > 3);
     const partsWordLists = nameParts.map(part => cleanStr(part).split(/\s+/).filter(Boolean)).filter(list => list.length > 0);
 
     const matchesTileText = (text: string): boolean => {
       const ct = cleanStr(text);
       const matchTitle = partsWordLists.some(words => words.every(w => ct.includes(w)));
-      const matchFighters = !!(fighter1 && fighter2 && ct.includes(fighter1.toLowerCase()) && ct.includes(fighter2.toLowerCase()));
+      const matchFighters = !!(fighter1 && fighter2 && ct.includes(cleanStr(fighter1)) && ct.includes(cleanStr(fighter2)));
       return matchTitle || matchFighters;
+    };
+
+    const getTileMetadata = async (tile: any): Promise<string> => {
+      return await tile.evaluate((el: HTMLElement) => {
+        const attrs = ['aria-label', 'title', 'href', 'data-entitlement', 'data-content-id', 'data-testid']
+          .map(attr => el.getAttribute(attr) || '')
+          .filter(Boolean);
+        const imgs = Array.from(el.querySelectorAll('img')).flatMap((img: HTMLImageElement) => [
+          img.alt,
+          img.getAttribute('aria-label') || '',
+          img.getAttribute('title') || '',
+          img.currentSrc,
+          img.src,
+          img.getAttribute('srcset') || '',
+          img.getAttribute('data-src') || '',
+        ]);
+        return [el.innerText || el.textContent || '', ...attrs, ...imgs].join(' ');
+      }).catch(() => '');
     };
 
     const exclusions = [
@@ -756,8 +843,8 @@ export class BoxingHomePage extends HomePage {
       for (let i = 0; i < candidateCount; i++) {
         const tile = tileCandidates.nth(i);
         if (await tile.isVisible().catch(() => false)) {
-          const text = await tile.textContent().catch(() => '');
-          if (text && matchesTileText(text)) {
+          const metadata = await getTileMetadata(tile);
+          if (metadata && matchesTileText(metadata)) {
             const inView = await tile.evaluate((el: HTMLElement) => {
               const r = el.getBoundingClientRect();
               return r.width > 0 && r.right > 0 && r.left < window.innerWidth;
@@ -767,11 +854,11 @@ export class BoxingHomePage extends HomePage {
               // text-only child div. The latter can still receive the click,
               // but makes image validation incorrectly report "No".
               const imageCount = await tile.locator('img').count().catch(() => 0);
-              const score = this.scorePPVMatch(text, ppvName) + (imageCount > 0 ? 100 : 0);
+              const score = this.scorePPVMatch(metadata, ppvName) + (imageCount > 0 ? 100 : 0);
               if (score > bestScore) {
                 bestScore = score;
                 bestTile = tile;
-                console.log(`🔍 [Home Sport Tile] Candidate tile (score=${score}): "${text.trim().replace(/\s+/g, ' ').substring(0, 80)}"`);
+                console.log(`🔍 [Home Sport Tile] Candidate tile (score=${score}): "${metadata.trim().replace(/\s+/g, ' ').substring(0, 80)}"`);
               }
             }
           }

@@ -57,3 +57,13 @@ runs:
         mkdir -p "$summary_dir"
         cp -R ppv-workflow-summary/. "$summary_dir/"
         echo "Stored consolidated workflow report locally at $summary_dir"
+    - name: Clean up run temp reports
+      if: ${{ always() }}
+      shell: bash
+      run: |
+        reports_root="${PPV_REPORTS_ROOT:-/tmp/ppv-reports}"
+        run_dir="${reports_root}/${GITHUB_RUN_ID}"
+        if [ -d "$run_dir" ]; then
+          rm -rf "$run_dir"
+          echo "🧹 Cleaned up temp reports at $run_dir"
+        fi

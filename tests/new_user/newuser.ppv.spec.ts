@@ -2444,6 +2444,7 @@ for (const planKey of plansToRun) {
         videoPath,
         userType: 'new-user',
       });
+      if (folderPath) console.log(`\n📂 Report folder: ${folderPath}`);
 
       // Playwright manages the browser lifecycle. Closing the browser manually is not recommended.
 
@@ -2493,6 +2494,26 @@ for (const planKey of plansToRun) {
       }
     } catch (error) {
       console.error('❌ Test error:', error);
+      // Fallback: generate report folder even on crash so CI always has a report
+      try {
+        const crashJson = loadEventConfig(EVENT_CONFIG);
+        const crashMsg = (error as Error)?.message?.slice(0, 200) || 'Unknown error';
+        await generateReports(
+          [{ page: 'Test', field: 'Flow Completion', expected: 'Complete', actual: `CRASHED: ${crashMsg}`, status: 'FAIL' as const }],
+          {
+            event: crashJson?.PPV_NAME || 'Unknown',
+            region: REGION,
+            source: SOURCE,
+            ratePlan: planKey,
+            tier: planKey.includes('ultimate') ? 'ultimate' : 'standard',
+            env: process.env.DAZN_ENV || 'prod',
+            flowName: `${SOURCE} → ${planKey} (crashed)`,
+            startTime: runStart,
+            endTime: new Date(),
+            userType: 'new-user',
+          }
+        );
+      } catch { /* best-effort — do not mask original error */ }
       throw error;
     }
   });

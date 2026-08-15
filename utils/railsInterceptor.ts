@@ -430,16 +430,16 @@ export class RailsInterceptor {
   }
 
   /**
-   * Resolve the rendered Home-card image for an event title from DAZN's public
+   * Resolve rendered Home-card match IDs for an event title from DAZN's public
    * Home Rails payload. The Home DOM labels these cards with a promotion, not
-   * the fight name; the event record links its title to the competition's
-   * portrait image. No entitlement or competition ID is used for matching.
+   * the fight name; the event record links its title to the competition and
+   * poster images. No entitlement is used for matching.
    */
   async findHomePortraitImageIdsByTitle(titleWordLists: string[][]): Promise<string[]> {
     if (titleWordLists.length === 0) return [];
 
     const imageIds = await this.page.evaluate(async ({ wordLists }) => {
-      const normalise = (value: string) => value.toLowerCase()
+      const normalise = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
         .replace(/[^a-z0-9]/g, ' ')
         .replace(/\s+/g, ' ')
         .trim();
@@ -458,11 +458,15 @@ export class RailsInterceptor {
         typeof value === 'object' && value !== null && !Array.isArray(value);
       const imageId = (value: unknown): string =>
         isRecord(value) && typeof value.Id === 'string' ? value.Id : '';
+      const competitionIds = new Set<string>();
       const portraitIds = new Set<string>();
       const fallbackIds = new Set<string>();
       const visited = new Set<object>();
 
       const collectImages = (competition: Record<string, unknown>) => {
+        const competitionId = readString(competition, ['Id', 'id', 'CompetitionId', 'competitionId']);
+        if (competitionId) competitionIds.add(competitionId);
+
         const images = Array.isArray(competition.Images) ? competition.Images : [];
         for (const image of images) {
           if (!isRecord(image)) continue;
@@ -521,10 +525,10 @@ export class RailsInterceptor {
       } catch {
         return [];
       }
-      return [...portraitIds, ...fallbackIds];
+      return [...competitionIds, ...portraitIds, ...fallbackIds];
     }, { wordLists: titleWordLists });
 
-    console.log(`🎯 [RailsInterceptor] Resolved ${imageIds.length} Home image ID(s) from PPV title`);
+    console.log(`🎯 [RailsInterceptor] Resolved ${imageIds.length} Home match ID(s) from PPV title`);
     return imageIds;
   }
 

@@ -342,7 +342,7 @@ export class LandingPage extends BasePage {
   protected matchesPPVName(text: string, ppvName: string): boolean {
     if (!text || !ppvName) return false;
     const nameParts = ppvName.split(/[:\-–]/).map(p => p.trim()).filter(p => p.length > 3);
-    const cleanStr = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+    const cleanStr = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
     const cleanText = cleanStr(text);
     return nameParts.some(part => {
       const words = cleanStr(part).split(/\s+/).filter(Boolean);
@@ -358,7 +358,7 @@ export class LandingPage extends BasePage {
    */
   protected async hasPpvBannerTitle(slide: Locator, ppvName: string): Promise<boolean> {
     return slide.evaluate((node, expectedName) => {
-      const normalise = (value: string) => value.toLowerCase()
+      const normalise = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
         .replace(/[^a-z0-9]/g, ' ')
         .replace(/\s+/g, ' ')
         .trim();
@@ -420,7 +420,7 @@ export class LandingPage extends BasePage {
    */
   protected scorePPVMatch(tileText: string, ppvName: string): number {
     if (!tileText || !ppvName) return 0;
-    const cleanStr = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+    const cleanStr = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
     const cleanTile = cleanStr(tileText);
     const cleanName = cleanStr(ppvName);
 
@@ -630,8 +630,9 @@ export class LandingPage extends BasePage {
       failPpvNotConfigured(`The banner has ${totalSlideCount} slide(s), but its next chevron is not available.`);
     }
 
-    console.log(`🔍 [Banner] Checking up to ${totalSlideCount} banner slide(s) via the next chevron...`);
-    for (let step = 1; step < totalSlideCount; step++) {
+    const maxChevronMoves = totalSlideCount + 1;
+    console.log(`🔍 [Banner] Checking up to ${maxChevronMoves + 1} banner slide(s) via the next chevron...`);
+    for (let step = 1; step <= maxChevronMoves; step++) {
       const previousSlide = getActiveSlide();
       const previousIndex = await previousSlide.getAttribute('data-swiper-slide-index').catch(() => null);
       const previousText = await getActiveSlideText();
@@ -651,6 +652,13 @@ export class LandingPage extends BasePage {
         await saveActiveSlideIndex(currentSlide, step);
         return currentSlide;
       }
+    }
+
+    const renderedMatch = await this.reacquireBannerSlideForClick();
+    if (renderedMatch) {
+      console.log('✅ [Banner] PPV found by activating rendered slide after chevron scan');
+      await saveActiveSlideIndex(renderedMatch, totalSlideCount);
+      return renderedMatch;
     }
 
     failPpvNotConfigured(`Checked ${totalSlideCount} active banner slide(s) without a matching PPV title.`);
@@ -677,10 +685,10 @@ export class LandingPage extends BasePage {
 
     // Build multiple name parts for verification
     const nameParts = ppvName.split(/[:\-–]/).map(p => p.trim()).filter(p => p.length > 3);
-    const cleanStr = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+    const cleanStr = (s: string) => (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
 
     // Extract fighter names for image alt-text matching (e.g., "Fury vs. Hall")
-    const vsMatch = ppvName.match(/(\w+)\s+vs\.?\s+(\w+)/i);
+    const vsMatch = ppvName.match(/([\w\u00C0-\u024F]+)\s+vs\.?\s+([\w\u00C0-\u024F]+)/i);
     const fighter1 = vsMatch ? vsMatch[1] : '';
     const fighter2 = vsMatch ? vsMatch[2] : '';
     if (fighter1) console.log(`🔍 [Tile] Fighter names: "${fighter1}" vs "${fighter2}"`);

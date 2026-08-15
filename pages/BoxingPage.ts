@@ -46,7 +46,7 @@ export class BoxingPage extends LandingPage {
   // ─────────────────────────────
   async findUpcomingFightsPPV(eventData: Record<string, string>): Promise<any> {
     const ppvName = eventData.PPV_NAME || '';
-    const vsMatch = ppvName.match(/(\w+)\s+vs\.?\s+(\w+)/i);
+    const vsMatch = ppvName.match(/([\w\u00C0-\u024F]+)\s+vs\.?\s+([\w\u00C0-\u024F]+)/i);
     const fighter1 = vsMatch ? vsMatch[1] : '';
     const fighter2 = vsMatch ? vsMatch[2] : '';
 
@@ -124,7 +124,7 @@ export class BoxingPage extends LandingPage {
 
     // ── STEP 4: Build name matchers (same pattern as SportsLandingPage) ─
     const cleanStr = (s: string) =>
-      (s || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+      (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
 
     const nameParts = ppvName.split(/[:\-–]/).map(p => p.trim()).filter(p => p.length > 3);
     const partsWordLists = nameParts
@@ -331,14 +331,14 @@ export class BoxingPage extends LandingPage {
   // ─────────────────────────────────────────────────────────────────────────────
   async findBoxingTileAndOpenPopup(eventData: Record<string, string>): Promise<any> {
     const ppvName = eventData.PPV_NAME || '';
-    const vsMatch = ppvName.match(/(\w+)\s+vs\.?\s+(\w+)/i);
+    const vsMatch = ppvName.match(/([\w\u00C0-\u024F]+)\s+vs\.?\s+([\w\u00C0-\u024F]+)/i);
     const fighter1 = vsMatch ? vsMatch[1].toLowerCase() : '';
     const fighter2 = vsMatch ? vsMatch[2].toLowerCase() : '';
 
     console.log(`🔍 [home-boxing-tile] Looking for PPV tile "${ppvName}" on boxing page...`);
 
     const cleanStr = (s: string) =>
-      (s || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+      (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
 
     const matchesTile = (text: string): boolean => {
       const ct = cleanStr(text);
