@@ -40,7 +40,7 @@ runs:
         reports_root="${PPV_REPORTS_ROOT:-/tmp/ppv-reports}"
         run_reports_dir="${reports_root}/${GITHUB_RUN_ID}"
         if [ -d "$run_reports_dir" ]; then
-          find "$run_reports_dir" -mindepth 1 -maxdepth 1 -type d -name "$ARTIFACT_PATTERN" -exec cp -R {} "$report_dir/job-artifacts/" \;
+          find "$run_reports_dir" -mindepth 1 -maxdepth 1 -type d -name "$ARTIFACT_PATTERN" ! -name "*workflow-summary*" -exec cp -R {} "$report_dir/job-artifacts/" \;
         else
           echo "No local PPV report directory found at $run_reports_dir"
         fi
@@ -60,10 +60,13 @@ runs:
     - name: Clean up run temp reports
       if: ${{ always() }}
       shell: bash
+      env:
+        ARTIFACT_NAME: ${{ inputs.artifact_name }}
       run: |
+        set -euo pipefail
         reports_root="${PPV_REPORTS_ROOT:-/tmp/ppv-reports}"
         run_dir="${reports_root}/${GITHUB_RUN_ID}"
         if [ -d "$run_dir" ]; then
-          rm -rf "$run_dir"
-          echo "🧹 Cleaned up temp reports at $run_dir"
+          find "$run_dir" -mindepth 1 -maxdepth 1 ! -name "$ARTIFACT_NAME" -exec rm -rf {} +
+          echo "🧹 Cleaned up temp reports at $run_dir, preserving $ARTIFACT_NAME"
         fi
