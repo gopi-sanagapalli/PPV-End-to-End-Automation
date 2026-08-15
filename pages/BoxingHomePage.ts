@@ -716,7 +716,20 @@ export class BoxingHomePage extends HomePage {
     }
 
     if (src.includes('banner')) {
-      return this.findPPVInBanner(eventData, src);
+      const banner = await this.findPPVInBanner(eventData, src);
+      if (src === 'home-boxing-banner' && banner) {
+        const renderedIndex = await banner.evaluate((node: HTMLElement) => {
+          const slide = node.classList.contains('swiper-slide') ? node : node.closest('.swiper-slide');
+          const slides = Array.from(
+            slide?.parentElement?.querySelectorAll('.swiper-slide:not(.swiper-slide-duplicate)') || []
+          );
+          return slide ? slides.indexOf(slide) : -1;
+        }).catch(() => -1);
+        if (renderedIndex >= 0) {
+          eventData._ppvBannerSlideIndex = String(renderedIndex);
+        }
+      }
+      return banner;
     }
 
     return null;
