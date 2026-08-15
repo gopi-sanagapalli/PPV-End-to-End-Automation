@@ -162,7 +162,7 @@ export async function startIOSRecording(driver: any): Promise<void> {
 }
 
 export async function stopIOSRecording(driver: any): Promise<string | null> {
-  if (!recordingActive) return lastRecordingPath;
+  if (!recordingActive) return lastRecordingPath && fs.existsSync(lastRecordingPath) ? lastRecordingPath : null;
   const isRealDevice = (process.env.IOS_DEVICE_MODE || 'simulator').toLowerCase() === 'real';
   console.log('🎥 Stopping screen recording on iOS device...');
   try {
