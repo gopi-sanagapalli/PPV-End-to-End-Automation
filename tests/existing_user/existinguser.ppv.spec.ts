@@ -1648,7 +1648,11 @@ for (const stateKey of userStatesToRun) {
                     : sheetName === 'Home of Sport'
                       ? getHomeOfSportData(flowParam)
                     : readSheet(sheetName);
-                if (SOURCE.toLowerCase() === 'home-page-dont-miss') {
+                const shouldValidateDontMissPopup =
+                  LOGIN_FIRST &&
+                  ['active_standard_monthly', 'active_standard_apm'].includes(userStateKey.toLowerCase()) &&
+                  SOURCE.toLowerCase() === 'home-page-dont-miss';
+                if (SOURCE.toLowerCase() === 'home-page-dont-miss' && !shouldValidateDontMissPopup) {
                   landingData = landingData.filter((row: any) =>
                     !String(row.Field || '').trim().toLowerCase().startsWith('popup')
                   );

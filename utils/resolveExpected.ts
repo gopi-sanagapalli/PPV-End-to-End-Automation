@@ -285,6 +285,26 @@ export function resolveExpected(
 
 
   const currentSource = (eventData.SOURCE || eventData.source || '').trim().toLowerCase();
+  const isLoginFirst = String(eventData.LOGIN_FIRST ?? process.env.LOGIN_FIRST ?? process.env.LOGIN ?? '').toLowerCase() === 'true';
+
+  if (
+    field === 'popup - event description' &&
+    isLoginFirst &&
+    ['active_standard_monthly', 'active_standard_apm'].includes(currentUserState)
+  ) {
+    return ACTIVE_STANDARD_PPV_POPUP_DESCRIPTION;
+  }
+
+  if (
+    (field === 'cta button' || field === 'cta button text') &&
+    isPlanPage &&
+    tier === 'ultimate' &&
+    isLoginFirst &&
+    ['active_standard_monthly', 'active_standard_apm'].includes(currentUserState) &&
+    ['boxing-banner-ultimate', 'boxing-ultimate-subscription', 'boxing-join-the-club'].includes(currentSource)
+  ) {
+    return eventData.PLAN_CTA_BUTTON_ULTIMATE || 'Continue with DAZN Ultimate';
+  }
 
   if (
     field === 'biggest fights section' &&
