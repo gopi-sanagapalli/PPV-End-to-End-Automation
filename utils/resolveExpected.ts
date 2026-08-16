@@ -1,4 +1,4 @@
-import { getDynamicDateBadge, getDynamicDateTimeBadge } from './dateUtils';
+import { getDynamicDateBadge, getDynamicDateTimeBadge, getNowForRegion, parseConfigDate } from './dateUtils';
 
 const DEFAULT_PPV_POPUP_DESCRIPTION = 'Catch the biggest moment of the year. Select a DAZN plan to pair with your pay-per-view.';
 const ACTIVE_STANDARD_PPV_POPUP_DESCRIPTION = 'Catch the biggest moment of the year. Add this pay-per-view to your DAZN plan.';
@@ -53,6 +53,54 @@ function hasExplicitDateAndTime(value: string): boolean {
   const timePattern = /\b(?:[01]?\d|2[0-3]):[0-5]\d\s*(?:a\.?m\.?|p\.?m\.?)?\b/i;
 
   return value.split('|').some(candidate => datePattern.test(candidate) && timePattern.test(candidate));
+}
+
+function withUpcomingWeekdayCandidates(value: string, eventData: Record<string, string>): string {
+  const raw = String(value || '').trim();
+  if (!raw || raw.toUpperCase() === 'N/A') return raw;
+
+  const regionFromBaseUrl = String(eventData.BASE_URL || '').match(/\/en-([A-Z]{2})\b/i)?.[1];
+  const region = eventData.DAZN_REGION || eventData.REGION || regionFromBaseUrl || process.env.DAZN_REGION;
+  const referenceDate = getNowForRegion(region);
+  const eventDate = parseConfigDate(raw, referenceDate);
+  const refDateStart = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), referenceDate.getDate());
+  const eventDateStart = new Date(eventDate.getFullYear(), eventDate.getMonth(), eventDate.getDate());
+  const diffDays = Math.round((eventDateStart.getTime() - refDateStart.getTime()) / (1000 * 60 * 60 * 24));
+
+  if (diffDays < 0 || diffDays > 7) return raw;
+
+  const shortDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const fullDays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const shortDay = shortDays[eventDate.getDay()];
+  const fullDay = fullDays[eventDate.getDay()];
+  const hours = eventDate.getHours();
+  const relativeLabels: string[] = [];
+
+  if (diffDays === 0) {
+    relativeLabels.push('Today');
+    if (hours >= 5 && hours <= 11) {
+      relativeLabels.push('This morning');
+    } else if (hours >= 12 && hours <= 16) {
+      relativeLabels.push('This afternoon');
+    } else if (hours >= 17 && hours <= 20) {
+      relativeLabels.push('This evening', 'Tonight');
+    } else {
+      relativeLabels.push('Tonight', 'This night');
+    }
+  } else if (diffDays === 1) {
+    relativeLabels.push('Tomorrow');
+  }
+
+  return Array.from(new Set([
+    raw,
+    ...relativeLabels.flatMap(label => [label, label.toUpperCase(), label.toLowerCase()]),
+    fullDay,
+    fullDay.toUpperCase(),
+    fullDay.toLowerCase(),
+    shortDay,
+    shortDay.toUpperCase(),
+    shortDay.toLowerCase(),
+  ])).join('|');
 }
 
 export function resolveExpected(
@@ -305,7 +353,7 @@ export function resolveExpected(
 
   // Boxing banner date (tag chip above event title on /boxing page)
   if (field === 'boxing banner date' && eventData.BOXING_BANNER_DATE) {
-    return String(eventData.BOXING_BANNER_DATE);
+    return withUpcomingWeekdayCandidates(String(eventData.BOXING_BANNER_DATE), eventData);
   }
 
 
