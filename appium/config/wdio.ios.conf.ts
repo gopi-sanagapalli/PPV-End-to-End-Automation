@@ -123,7 +123,7 @@ export const config = {
   hostname: '127.0.0.1',
   port: Number(process.env.APPIUM_PORT || 4723),
 
-  specs: ['./tests/ios/*.spec.ts'],
+  specs: ['../tests/ios/*.spec.ts'],
   exclude: [],
   maxInstances: 1,
 

@@ -803,12 +803,12 @@ export class MyAccountPage {
     if (!row) return 'N/A';
     const readDate = (text: string): string => {
       const shortDateMatch = text.match(
-        /\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)(?:\s+at\s+\d{1,2}:\d{2})?\b/i
+        /\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)(?:\s+at\s+\d{1,2}:\d{2}(?:\s*(?:AM|PM))?)?\b/i
       );
       if (shortDateMatch) return shortDateMatch[0].trim();
 
       const weekdayTimeMatch = text.match(
-        /\b(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s+at\s+\d{1,2}:\d{2}\b/i
+        /\b(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s+at\s+\d{1,2}:\d{2}(?:\s*(?:AM|PM))?\b/i
       );
       return weekdayTimeMatch?.[0].trim() || '';
     };
