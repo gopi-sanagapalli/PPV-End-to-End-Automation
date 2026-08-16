@@ -222,25 +222,40 @@ export class IOSSchedulePage extends IOSBasePage {
 
   async scrollToPPVTile(ppvName = this.ppvName): Promise<WdElement | null> {
     console.log(`  Target PPV: ${ppvName}`);
-    const normaliseTitle = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
-    const predicateValue = (value: string) => value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-    const titleTerms = normaliseTitle(ppvName)
-      .split(/[^a-z0-9]+/)
-      .filter(term => term.length > 2 && !['the', 'and', 'vs'].includes(term))
+    const expectedTitle = this.normalisePpvMatchText(ppvName);
+    const isAncillaryTitle = (value: string) =>
+      /press conference|weigh.?in|prelims?|workout|replay|highlights?|preview|promo|interview|behind the|episode|documentary|face off/i.test(value);
+    const isMainEventTitle = (value: string) => {
+      const normalised = this.normalisePpvMatchText(value)
+        .replace(/\b(?:article|epg|list)\b.*$/i, '')
+        .trim();
+      return normalised === expectedTitle && !isAncillaryTitle(value);
+    };
+    const titleTermVariants = this.ppvTitleTermVariants(ppvName)
       .slice(0, 2);
     const zayasMainEvent = [
       `~${ppvName}`,
       `-ios predicate string:name == "${ppvName}" OR label == "${ppvName}"`,
-      titleTerms.length
-        ? `-ios predicate string:type == "XCUIElementTypeStaticText" AND ${titleTerms
-          .map(term => `(name CONTAINS[c] "${predicateValue(term)}" OR label CONTAINS[c] "${predicateValue(term)}")`)
+      titleTermVariants.length
+        ? `-ios predicate string:type == "XCUIElementTypeStaticText" AND ${titleTermVariants
+          .map(variants => `(${variants
+            .map(term => `name CONTAINS[c] "${this.iosPredicateValue(term)}" OR label CONTAINS[c] "${this.iosPredicateValue(term)}"`)
+            .join(' OR ')})`)
           .join(' AND ')}`
         : '',
     ];
     const findPPVTile = async (): Promise<WdElement | null> => {
       for (const selector of zayasMainEvent.filter(Boolean)) {
-        const el = await this.driver.$(selector).catch(() => null);
-        if (el && await el.isDisplayed().catch(() => false)) return el;
+        const elements = await this.driver.$$(selector).catch(() => []);
+        for (const el of elements) {
+          if (!(await el.isDisplayed().catch(() => false))) continue;
+          const text = [
+            await el.getAttribute('label').catch(() => ''),
+            await el.getAttribute('name').catch(() => ''),
+            await el.getText().catch(() => ''),
+          ].find(Boolean) || '';
+          if (isMainEventTitle(text)) return el;
+        }
       }
       return null;
     };

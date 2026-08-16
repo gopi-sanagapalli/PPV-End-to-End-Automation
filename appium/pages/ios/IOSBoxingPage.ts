@@ -78,16 +78,28 @@ export class IOSBoxingPage extends IOSBasePage {
 
   /** Finds only the configured PPV title, then verifies its own date column. */
   private async findUpcomingPpvCard(dateParts: IOSPPVDateParts): Promise<any | null> {
-    const escapedName = this.ppvName.replace(/'/g, "\\'");
-    const titleSelector = `-ios predicate string:label CONTAINS[c] '${escapedName}' OR name CONTAINS[c] '${escapedName}'`;
-    const titleElements = await this.driver.$$(titleSelector).catch(() => []);
-    for (const titleElement of titleElements) {
-      if (!(await titleElement.isDisplayed().catch(() => false))) continue;
-      const titleLocation = await titleElement.getLocation().catch(() => null);
-      if (!titleLocation) continue;
-      if (await this.isDateBesideTitle(titleLocation, dateParts)) {
-        console.log(`  Matched PPV card by title and date: "${this.ppvName}" (${dateParts.day} ${dateParts.monthShort})`);
-        return titleElement;
+    const escapedName = this.iosPredicateValue(this.ppvName);
+    const titleTermVariants = this.ppvTitleTermVariants(this.ppvName).slice(0, 2);
+    const titleSelectors = [
+      `-ios predicate string:label CONTAINS[c] '${escapedName}' OR name CONTAINS[c] '${escapedName}'`,
+      titleTermVariants.length
+        ? `-ios predicate string:${titleTermVariants
+          .map(variants => `(${variants
+            .map(term => `label CONTAINS[c] '${this.iosPredicateValue(term)}' OR name CONTAINS[c] '${this.iosPredicateValue(term)}'`)
+            .join(' OR ')})`)
+          .join(' AND ')}`
+        : '',
+    ];
+    for (const titleSelector of titleSelectors.filter(Boolean)) {
+      const titleElements = await this.driver.$$(titleSelector).catch(() => []);
+      for (const titleElement of titleElements) {
+        if (!(await titleElement.isDisplayed().catch(() => false))) continue;
+        const titleLocation = await titleElement.getLocation().catch(() => null);
+        if (!titleLocation) continue;
+        if (await this.isDateBesideTitle(titleLocation, dateParts)) {
+          console.log(`  Matched PPV card by title and date: "${this.ppvName}" (${dateParts.day} ${dateParts.monthShort})`);
+          return titleElement;
+        }
       }
     }
     return null;
@@ -95,11 +107,23 @@ export class IOSBoxingPage extends IOSBasePage {
 
   /** Fresh exact title query used after a controlled scroll of an already verified card. */
   private async findVisibleUpcomingPpvTitle(): Promise<any | null> {
-    const escapedName = this.ppvName.replace(/'/g, "\\'");
-    const selector = `-ios predicate string:label == '${escapedName}' OR name == '${escapedName}'`;
-    const titles = await this.driver.$$(selector).catch(() => []);
-    for (const title of titles) {
-      if (await title.isDisplayed().catch(() => false) && await this.isInViewport(title)) return title;
+    const escapedName = this.iosPredicateValue(this.ppvName);
+    const titleTermVariants = this.ppvTitleTermVariants(this.ppvName).slice(0, 2);
+    const selectors = [
+      `-ios predicate string:label == '${escapedName}' OR name == '${escapedName}'`,
+      titleTermVariants.length
+        ? `-ios predicate string:${titleTermVariants
+          .map(variants => `(${variants
+            .map(term => `label CONTAINS[c] '${this.iosPredicateValue(term)}' OR name CONTAINS[c] '${this.iosPredicateValue(term)}'`)
+            .join(' OR ')})`)
+          .join(' AND ')}`
+        : '',
+    ];
+    for (const selector of selectors.filter(Boolean)) {
+      const titles = await this.driver.$$(selector).catch(() => []);
+      for (const title of titles) {
+        if (await title.isDisplayed().catch(() => false) && await this.isInViewport(title)) return title;
+      }
     }
     return null;
   }
@@ -243,13 +267,8 @@ export class IOSBoxingPage extends IOSBasePage {
       throw new Error(`Configured sport "${configuredSport}" was not found in the All Sports picker. See test-results/ios_configured_sport_not_found.png`);
     }
 
-    const pickerAndHomeSportIds = new Set<string>([
-      ...homeBoxingElementIds,
-      getElementId(sport),
-    ].filter(Boolean));
     const pageSportSelector = `-ios predicate string:name CONTAINS[c] "${escapedSport}" OR label CONTAINS[c] "${escapedSport}" OR value CONTAINS[c] "${escapedSport}"`;
     const loadedPageControls = [
-      '-ios predicate string:(name == "Home" OR label == "Home") AND type == "XCUIElementTypeButton"',
       '-ios predicate string:name CONTAINS[c] "Upcoming Fights" OR label CONTAINS[c] "Upcoming Fights"',
       '-ios predicate string:name CONTAINS[c] "Buy now" OR label CONTAINS[c] "Buy now"',
       '-ios predicate string:name CONTAINS[c] "Fight Card" OR label CONTAINS[c] "Fight Card"',
@@ -267,10 +286,9 @@ export class IOSBoxingPage extends IOSBasePage {
       // the destination hierarchy replaces the picker.
       const candidates = await this.driver.$$(pageSportSelector).catch(() => []);
       for (const candidate of candidates) {
-        const candidateId = getElementId(candidate);
-        if (!candidateId || pickerAndHomeSportIds.has(candidateId)) continue;
         if (!(await candidate.isDisplayed().catch(() => false))) continue;
-        if (await this.isInViewport(candidate) && await isSportContentReady()) return true;
+        if (!(await this.isInViewport(candidate))) continue;
+        if (await isSportContentReady()) return true;
       }
       return false;
     };

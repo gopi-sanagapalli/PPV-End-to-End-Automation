@@ -31,6 +31,37 @@ export class IOSBasePage {
 
   constructor(protected driver: WdBrowser, protected ppvName = process.env.PPV_NAME || 'Joshua') { }
 
+  protected normalisePpvMatchText(value: string): string {
+    return String(value || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  protected ppvTitleTerms(value = this.ppvName): string[] {
+    return this.normalisePpvMatchText(value)
+      .split(/\s+/)
+      .filter(term => term.length >= 3 && !['the', 'and', 'vs'].includes(term));
+  }
+
+  protected ppvTitleTermVariants(value = this.ppvName): string[][] {
+    const rawTerms = String(value || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9\u00c0-\u024f]+/g, ' ')
+      .split(/\s+/)
+      .filter(term => term.length >= 3 && !['the', 'and', 'vs'].includes(term));
+    return this.ppvTitleTerms(value).map((term, index) =>
+      [...new Set([rawTerms[index], term].filter(Boolean))]
+    );
+  }
+
+  protected iosPredicateValue(value: string): string {
+    return String(value || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/'/g, "\\'");
+  }
+
   /** Finds the rendered Continue label when the App Store sheet has no XCUITest node. */
   private async findRenderedAppStoreContinue(): Promise<{ x: number; y: number } | null> {
     let screenshotPath = '';
@@ -357,15 +388,16 @@ export class IOSBasePage {
 
   async findPPVBanner(ppvName = this.ppvName): Promise<boolean> {
     const simplifiedName = ppvName.split(/ vs/i)[0].trim().replace(/\./g, '');
-    if (await this.isVisible(simplifiedName, 4000)) return true;
+    const normalisedName = this.normalisePpvMatchText(simplifiedName);
+    if (await this.isVisible(simplifiedName, 4000) || await this.isVisible(normalisedName, 400)) return true;
     for (let i = 0; i < 5; i++) {
       await this.swipeLeft();
-      if (await this.isVisible(simplifiedName, 1500)) return true;
+      if (await this.isVisible(simplifiedName, 1500) || await this.isVisible(normalisedName, 200)) return true;
     }
-    if (await this.scrollToText(simplifiedName)) return true;
+    if (await this.scrollToText(simplifiedName) || await this.scrollToText(normalisedName)) return true;
     for (let i = 0; i < 8; i++) {
       await this.scrollDown();
-      if (await this.isVisible(simplifiedName, 1500)) return true;
+      if (await this.isVisible(simplifiedName, 1500) || await this.isVisible(normalisedName, 200)) return true;
     }
     return false;
   }
@@ -384,15 +416,21 @@ export class IOSBasePage {
       : ctaTexts;
 
     const simplifiedName = ppvName.split(/ vs/i)[0].trim().replace(/\./g, '');
-    const titleTerms = ppvName
-      .split(/\s+vs\.?\s+|[^a-z0-9]+/i)
-      .filter(term => term.length >= 3);
+    const normalisedName = this.normalisePpvMatchText(simplifiedName);
+    const titleTermVariants = this.ppvTitleTermVariants(ppvName);
 
     const isCurrentBannerPPV = async (timeoutMs: number): Promise<boolean> => {
-      const titleVisible = await this.isVisible(simplifiedName, timeoutMs);
+      const titleVisible = await this.isVisible(simplifiedName, timeoutMs) || await this.isVisible(normalisedName, 200);
       if (!titleVisible) return false;
-      for (const term of titleTerms) {
-        if (!await this.isVisible(term, 200)) return false;
+      for (const variants of titleTermVariants) {
+        let termVisible = false;
+        for (const term of variants) {
+          if (await this.isVisible(term, 200)) {
+            termVisible = true;
+            break;
+          }
+        }
+        if (!termVisible) return false;
       }
       for (const cta of activeBannerCtas) {
         if (await this.isVisible(cta, 200)) return true;

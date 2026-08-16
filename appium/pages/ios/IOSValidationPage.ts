@@ -641,6 +641,42 @@ export class IOSValidationPage extends IOSBasePage {
         return expectedDateTerms.every(term => cleanText.includes(term.slice(0, 3)) || cleanText.includes(term));
       }) || '';
     };
+    const getTargetTileTexts = (): string[] => {
+      if (surface !== 'PPV Tile' || !['schedule', 'home-boxing-upcoming'].includes(normalizedSource)) {
+        return texts;
+      }
+
+      const titleCandidates = [
+        titleExpected,
+        eventData.PPV_CARD_TITLE,
+        eventData.PPV_DISPLAY_NAME,
+        eventData.PPV_NAME,
+        eventData.MOBILE_BANNER_TITLE,
+      ].map(cleanStr).filter(Boolean);
+      const titleIndex = texts.findIndex(text => {
+        const cleanText = cleanStr(text);
+        const cleanListText = cleanText.replace(/-list:.+$/i, '').trim();
+        return titleCandidates.some(title => cleanText === title || cleanListText === title);
+      });
+      if (titleIndex < 0) return texts;
+
+      const isArticleMarker = (text: string) => /^\d{1,2},\s*article$/i.test(text.trim());
+      let start = Math.max(0, titleIndex - 6);
+      let end = Math.min(texts.length, titleIndex + 8);
+      for (let i = titleIndex; i >= 0; i--) {
+        if (isArticleMarker(texts[i])) {
+          start = i;
+          break;
+        }
+      }
+      for (let i = titleIndex + 1; i < texts.length; i++) {
+        if (isArticleMarker(texts[i])) {
+          end = i;
+          break;
+        }
+      }
+      return texts.slice(start, end);
+    };
     const pushSurfaceResult = async (fieldName: string, expected: string, actual: string, isMatch: boolean) => {
       if (results.some(r => r.page === surface && r.field === fieldName)) return;
       const status: 'PASS' | 'FAIL' = isMatch ? 'PASS' : 'FAIL';
@@ -870,13 +906,13 @@ export class IOSValidationPage extends IOSBasePage {
             ? cleanStr(expectedValue).split('|')[0]
             : (fieldName.toLowerCase().includes('fight card') ? 'fight card' : '');
           if (requiredCta) {
-            const exactCta = texts.find(text => cleanStr(text).includes(requiredCta));
+            const exactCta = getTargetTileTexts().find(text => cleanStr(text).includes(requiredCta));
             actualValue = exactCta || 'Not found';
             isMatch = Boolean(exactCta);
           } else {
             const ctaKeywords = ['buy now', 'buy', 'get ppv', 'get', 'watch', 'fight card', 'ppv', 'subscribe', 'go to'];
             let foundCta = '';
-            for (const t of texts) {
+            for (const t of getTargetTileTexts()) {
               const tLower = t.toLowerCase();
               for (const kw of ctaKeywords) {
                 if (tLower.includes(kw)) {
@@ -901,8 +937,7 @@ export class IOSValidationPage extends IOSBasePage {
           // Use the WATCH LIVE copy immediately after this PPV's own title.
           // The page also contains neighbouring fight cards with their own
           // times, so a global time lookup can validate the wrong card.
-          const titleIndex = texts.findIndex(text => cleanStr(text) === cleanStr(titleExpected));
-          const targetCardTexts = titleIndex >= 0 ? texts.slice(titleIndex + 1, titleIndex + 5) : [];
+          const targetCardTexts = getTargetTileTexts();
           const description = targetCardTexts.find(text => /watch\s+live/i.test(text));
           const time = description?.match(/\b\d{1,2}:\d{2}\s*(?:a\.?m\.?|p\.?m\.?)?\b/i)?.[0];
           actualValue = time || 'Not found';
@@ -912,29 +947,14 @@ export class IOSValidationPage extends IOSBasePage {
           surface === 'PPV Tile' &&
           fieldName.trim().toLowerCase() === 'time'
         ) {
-          const titleTokens = cleanStr(titleExpected).split(/[^a-z0-9]+/).filter(token => token.length > 2);
-          const titleIndexes = texts
-            .map((text, index) => ({ text, index }))
-            .filter(({ text }) => titleTokens.every(token => cleanStr(text).includes(token)))
-            .map(({ index }) => index);
           const timePattern = /\b\d{1,2}:\d{2}\s*(?:a\.?m\.?|p\.?m\.?)?\b/i;
-          const nearbyTexts = titleIndexes.flatMap(index => texts.slice(Math.max(0, index - 4), index + 5));
+          const nearbyTexts = getTargetTileTexts();
           const normalizeTime = (value: string) => value.toLowerCase()
             .replace(/a\.\s*m\.?/g, 'am')
             .replace(/p\.\s*m\.?/g, 'pm')
             .replace(/\s+/g, '')
             .replace(/\b0(\d:)/, '$1');
-          const expectedTime = normalizeTime(expectedValue);
-          const time = nearbyTexts.find(text => timePattern.test(text))?.match(timePattern)?.[0] ||
-            (titleIndexes.length
-              ? texts
-                .flatMap(text => Array.from(text.matchAll(new RegExp(timePattern, 'gi')), match => match[0]))
-                .find(candidate =>
-                  normalizeTime(candidate) === expectedTime ||
-                  normalizeTime(candidate).replace(/am|pm/g, '') === expectedTime.replace(/am|pm/g, ''),
-                )
-              : '') ||
-            '';
+          const time = nearbyTexts.find(text => timePattern.test(text))?.match(timePattern)?.[0] || '';
           actualValue = time || 'Not found';
           isMatch = Boolean(time && (
             compare(actualValue, expectedValue) ||

@@ -93,12 +93,7 @@ export class IOSSearchPage extends IOSBasePage {
 
   async findCorrectPPVTile(keywords: string[]): Promise<WdElement | null> {
     console.log(`Scanning XCUIElementTypeStaticText elements for keywords: ${JSON.stringify(keywords)}`);
-    const expectedPpvName = this.ppvName
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, ' ')
-      .trim();
+    const expectedPpvName = this.normalisePpvMatchText(this.ppvName);
     try {
       const elements = await this.driver.$$('//XCUIElementTypeStaticText');
       for (const el of elements) {
@@ -106,7 +101,9 @@ export class IOSSearchPage extends IOSBasePage {
         if (!text) continue;
 
         const textLower = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-        const normalisedText = textLower.replace(/[^a-z0-9]+/g, ' ').trim();
+        const normalisedText = this.normalisePpvMatchText(text)
+          .replace(/\b(?:article|epg|list)\b.*$/i, '')
+          .trim();
         const matchesQuery = expectedPpvName
           ? normalisedText === expectedPpvName
           : keywords.every(kw => textLower.includes(kw));

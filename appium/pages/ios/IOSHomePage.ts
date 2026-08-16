@@ -307,8 +307,8 @@ export class IOSHomePage extends IOSLandingPage {
     // keep the actual matching element so it can be tapped immediately.
     const ppvTerms = Array.from(new Set([
       this.ppvName,
-      this.ppvName.replace(/[^a-z0-9 ]/gi, ' ').replace(/\s+/g, ' ').trim(),
       ...this.ppvName.split(/\s+vs\.?\s+/i).map(name => name.trim()),
+      ...this.ppvTitleTermVariants(this.ppvName).flat(),
     ].filter(term => term.length >= 3)));
     const railBottom = railY + Math.round(height * 0.45);
     const findVisiblePpvTile = async (): Promise<any | undefined> => {
@@ -616,7 +616,11 @@ async function locateIOSPpvTileByImage(
       timeout: 30000,
     });
     const observations = JSON.parse(output) as Array<{ text: string; xPercent: number; yPercent: number }>;
-    const terms = ppvName.toLowerCase()
+    const normalise = (value: string) => String(value || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
+    const terms = normalise(ppvName)
       .split(/\s+vs\.?\s+|[^a-z0-9]+/)
       .map(term => term.trim())
       .filter(term => term.length >= 3);
@@ -632,7 +636,7 @@ async function locateIOSPpvTileByImage(
     const match = railObservations
       .map(observation => ({
         observation,
-        matchedTerms: terms.filter(term => observation.text.toLowerCase().includes(term)).length,
+        matchedTerms: terms.filter(term => normalise(observation.text).includes(term)).length,
       }))
       .filter(candidate => candidate.matchedTerms > 0)
       .sort((left, right) => right.matchedTerms - left.matchedTerms)[0]?.observation;
