@@ -1110,8 +1110,11 @@ export class IOSSafariValidationPage extends IOSBasePage {
       // For existing/frozen users, the payment page always shows "Choose how to pay"
       // regardless of the plan's offer type — they're not entering a trial.
       const userStateForTitle = String(eventData.USER_STATE || process.env.USER_STATE || 'new').toLowerCase();
-      const isExistingUserForTitle = !userStateForTitle.startsWith('new');
-      if (isExistingUserForTitle) {
+      const isTrialPaymentTitle = /^\d+_day_trial$/.test(offerType) && planTier === 'standard' && ratePlan === 'monthly' && userStateForTitle === 'freemium';
+      const isExistingUserForTitle = !userStateForTitle.startsWith('new') && userStateForTitle !== 'freemium';
+      if (isTrialPaymentTitle) {
+        eventData.PAYMENT_PAGE_TITLE = eventData.PAYMENT_PAGE_TITLE_TRIAL || 'Choose how to pay after your free trial';
+      } else if (isExistingUserForTitle) {
         eventData.PAYMENT_PAGE_TITLE = eventData.PAYMENT_PAGE_TITLE_STANDARD || 'Choose how to pay';
       } else if (!eventData.PAYMENT_PAGE_TITLE) {
         if (/^\d+_day_trial$/.test(offerType) && planTier === 'standard' && ratePlan === 'monthly') {
