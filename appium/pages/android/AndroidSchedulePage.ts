@@ -2,6 +2,7 @@ import { AndroidBasePage, AndroidFlowHooks, WdBrowser, WdElement, adbSwipe, adbT
 import { navigateToPPVTile } from '../../utils/scheduleNavigator';
 import { sendTvKeyevent, TV_KEYCODES } from '../../utils/androidTvControls';
 import { parsePPVDate } from '../../utils/eventLoader';
+import { normalizeAndroidTitle } from '../../utils/androidTitleNormalizer';
 
 type ScheduleBounds = { x1: number; y1: number; x2: number; y2: number };
 type ScheduleTile = ScheduleBounds & { label: string };
@@ -914,7 +915,7 @@ export class AndroidSchedulePage extends AndroidBasePage {
 
   async scrollToPPVTile(ppvName = this.ppvName): Promise<WdElement | null> {
     console.log(`  Target PPV: ${ppvName}`);
-    const normaliseTitle = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+    const normaliseTitle = (value: string) => normalizeAndroidTitle(value, ' ').replace(/\s+/g, ' ').trim();
     const expectedTitle = normaliseTitle(ppvName);
     console.log('  Step 1: Fast scroll to July...');
 
