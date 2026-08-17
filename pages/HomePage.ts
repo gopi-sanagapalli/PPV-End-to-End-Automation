@@ -551,7 +551,7 @@ export class HomePage extends LandingPage {
       // Do not assume API response order equals homepage render order.
       // Scan the rendered homepage from top to bottom and click the first
       // visible tile whose Rails payload has the required entitlement.
-      const clicked = await railsInterceptor.clickFirstVisibleEntitlementTile(matches);
+      const clicked = await railsInterceptor.clickFirstVisibleEntitlementTile(matches, false);
 
       if (!clicked) {
         throw new Error(
