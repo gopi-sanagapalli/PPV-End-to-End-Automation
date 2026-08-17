@@ -1,4 +1,5 @@
 import { AndroidBasePage, AndroidFlowHooks, WdBrowser, WdElement, adb, adbTap, getScreenSize } from './AndroidBasePage';
+import { normalizeAndroidTitle } from '../../utils/androidTitleNormalizer';
 
 export class AndroidSearchPage extends AndroidBasePage {
   async navigate(): Promise<void> {
@@ -63,7 +64,8 @@ export class AndroidSearchPage extends AndroidBasePage {
     const candidates: string[] = [];
     for (const word of words) {
       if (!word) continue;
-      const cleanWord = word.toLowerCase().replace(/[:\-–\.]/g, ' ');
+      // Strip diacritics so "Teófimo" and "Teofimo" both produce the same keyword
+      const cleanWord = normalizeAndroidTitle(word, ' ').replace(/[:\-–\.]/g, ' ');
       if (cleanWord.includes('vs')) {
         const parts = cleanWord.split(/\bvs\b/).map(p => p.trim());
         candidates.push(...parts);
@@ -83,7 +85,7 @@ export class AndroidSearchPage extends AndroidBasePage {
     }
 
     const result = Array.from(keywordsSet);
-    return result.length > 0 ? result : [searchQuery.toLowerCase()];
+    return result.length > 0 ? result : [normalizeAndroidTitle(searchQuery, ' ') || searchQuery.toLowerCase()];
   }
 
   async findCorrectPPVTile(keywords: string[]): Promise<WdElement | null> {
@@ -91,19 +93,20 @@ export class AndroidSearchPage extends AndroidBasePage {
     try {
       const elements = await this.driver.$$('android=new UiSelector().className("android.widget.TextView")');
       for (const el of elements) {
-        const text = await el.getText().catch(() => '');
-        if (!text) continue;
+        const rawText = await el.getText().catch(() => '');
+        if (!rawText) continue;
 
-        const textLower = text.toLowerCase();
-        const matchesQuery = keywords.every(kw => textLower.includes(kw));
+        // Normalize diacritics so "Teófimo" tile matches keyword "teofimo"
+        const textNorm = normalizeAndroidTitle(rawText, ' ');
+        const matchesQuery = keywords.every(kw => textNorm.includes(kw));
         const isAncillary = [
           'press', 'weigh', 'workout', 'replay', 'highlights',
           'preview', 'promo', 'interview', 'behind the', 'episode',
           'documentary', 'face off', 'kickboxing',
-        ].some(term => textLower.includes(term));
+        ].some(term => textNorm.includes(term));
 
         if (matchesQuery && !isAncillary) {
-          console.log(`  Found matching main event tile: "${text}"`);
+          console.log(`  Found matching main event tile: "${rawText}"`);
           return el;
         }
       }

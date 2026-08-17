@@ -6,6 +6,7 @@ import {
   getScreenSize,
 } from './AndroidBasePage';
 import { getAndroidValidationSheet } from './AndroidSurfacingPoint';
+import { normalizeAndroidTitle } from '../../utils/androidTitleNormalizer';
 
 // Timezone-aware date utilities loaded dynamically to avoid tsconfig rootDir restrictions
 let getDynamicDateTimeBadge: ((template: string, referenceDate?: Date) => string) | undefined;
@@ -278,7 +279,11 @@ export class AndroidValidationPage extends AndroidBasePage {
         let tileCenterY = -1;
         let containerTopY = -1;
         let containerBottomY = -1;
-        const titleEscaped = titleExpected.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+        const titleStripped = titleExpected.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        const escRegex = (s: string) => s.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+        const titleEscaped = titleExpected === titleStripped
+          ? escRegex(titleExpected)
+          : `(?:${escRegex(titleExpected)}|${escRegex(titleStripped)})`;
         const titleElementRegex = new RegExp(`<[^>]*text="${titleEscaped}"[^>]*bounds="([^"]+)"`);
         const titleMatch = pageSource.match(titleElementRegex);
         if (titleMatch) {
@@ -338,7 +343,9 @@ export class AndroidValidationPage extends AndroidBasePage {
             targetXml = foundGroup;
             console.log(`🎯 Successfully isolated target ViewGroup container for PPV Tile [${titleExpected}] (length: ${targetXml.length})`);
           } else {
-            const titleIndex = pageSource.indexOf(titleExpected);
+            const titleIndex = pageSource.indexOf(titleExpected) !== -1
+              ? pageSource.indexOf(titleExpected)
+              : pageSource.indexOf(titleStripped);
             if (titleIndex !== -1) {
               targetXml = pageSource.substring(Math.max(0, titleIndex - 5000), Math.min(pageSource.length, titleIndex + 6000));
               console.log(`✂️ Sliced XML page source around PPV Title [${titleExpected}] (length: ${targetXml.length}) as fallback`);
@@ -483,9 +490,13 @@ export class AndroidValidationPage extends AndroidBasePage {
           let matched = texts.find(t => {
             const cleanT = t.toLowerCase().trim();
             const cleanExp = expectedValue.replace(/[\u200b\u200c\u200d\ufeff]/g, '').trim().toLowerCase();
+            // Also try diacritic-stripped comparison (e.g. "Teofimo" matches "Teófimo")
+            const normT = normalizeAndroidTitle(t, ' ');
+            const normExp = normalizeAndroidTitle(expectedValue, ' ');
             return compare(t, expectedValue) ||
               cleanT.includes(cleanExp) ||
-              (cleanT.length > 10 && cleanExp.includes(cleanT));
+              (cleanT.length > 10 && cleanExp.includes(cleanT)) ||
+              (normExp && normT && (normT.includes(normExp) || normExp.includes(normT)));
           });
           if (!matched && expectedValue.toLowerCase().includes('how to watch')) {
             const foundHeader = texts.find(t => t.toLowerCase().includes('how to watch'));
@@ -876,6 +887,7 @@ export class AndroidValidationPage extends AndroidBasePage {
 
       const cleanStr = (s: string) =>
         (s || '').replace(/[\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]/g, ' ')
+          .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
           .replace(/\s+/g, ' ').trim().toLowerCase();
 
       const pushResult = async (fieldName: string, expected: string, actual: string, isMatch: boolean) => {
@@ -1097,6 +1109,7 @@ export class AndroidValidationPage extends AndroidBasePage {
 
     const cleanStr = (s: string) =>
       (s || '').replace(/[\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]/g, ' ')
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
         .replace(/\s+/g, ' ').trim().toLowerCase();
     const isPresent = texts.some(
       t => cleanStr(t).includes(cleanStr(titleExpected)) || cleanStr(titleExpected).includes(cleanStr(t))

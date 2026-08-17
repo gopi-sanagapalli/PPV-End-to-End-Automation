@@ -1,4 +1,5 @@
-import { AndroidBasePage, AndroidFlowHooks, WdBrowser, adbSwipe, adbTap, getScreenSize } from './AndroidBasePage';
+import { AndroidBasePage, AndroidFlowHooks, WdBrowser, WdElement, adbSwipe, adbTap, getScreenSize } from './AndroidBasePage';
+import { normalizeAndroidTitle } from '../../utils/androidTitleNormalizer';
 import { AndroidRailsFetcher } from '../../utils/androidRailsFetcher';
 import { DynamicPpvTileLocator } from '../../utils/dynamicPpvTileLocator';
 import https from 'https';
@@ -33,6 +34,50 @@ export function getPPVDateParts(eventConfig?: any): AndroidPPVDateParts {
 }
 
 export class AndroidBoxingPage extends AndroidBasePage {
+
+  /**
+   * Returns all visible elements whose text matches ppvName, tolerating diacritics.
+   * e.g. "Rolly vs. Teófimo" matches "Rolly vs. Teofimo" on-screen and vice-versa.
+   */
+  private async findVisiblePpvTitleElements(ppvName = this.ppvName): Promise<WdElement[]> {
+    // 1. Try exact XPath first (fast path — works when accents match)
+    const exactMatches = await this.driver.$$(`//*[contains(@text, "${ppvName}")]`).catch(() => []);
+    const visibleExact: WdElement[] = [];
+    for (const el of exactMatches) {
+      if (await el.isDisplayed().catch(() => false)) visibleExact.push(el);
+    }
+    if (visibleExact.length > 0) return visibleExact;
+
+    // 2. Diacritic-stripped fallback scan (covers "Teofimo" ↔ "Teófimo")
+    const target = normalizeAndroidTitle(ppvName);
+    if (!target) return [];
+    const allEls = await this.driver.$$('//*[@text or @content-desc]').catch(() => []);
+    const normalized: WdElement[] = [];
+    for (const el of allEls) {
+      if (!await el.isDisplayed().catch(() => false)) continue;
+      const text = String(
+        await el.getText().catch(() => '') ||
+        await el.getAttribute('contentDescription').catch(() => '') || ''
+      );
+      const cleanText = normalizeAndroidTitle(text);
+      if (cleanText && (cleanText.includes(target) || target.includes(cleanText))) {
+        normalized.push(el);
+      }
+    }
+    return normalized;
+  }
+
+  /** Boolean wrapper around findVisiblePpvTitleElements — respects timeoutMs. */
+  private async isPpvTitleVisible(ppvName = this.ppvName, timeoutMs = 3000): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    do {
+      const els = await this.findVisiblePpvTitleElements(ppvName);
+      if (els.length > 0) return true;
+      if (Date.now() < deadline) await this.driver.pause(300);
+    } while (Date.now() < deadline);
+    return false;
+  }
+
   async navigateViaSports(): Promise<void> {
     console.log('Navigating to Boxing page via Sports tab...');
     const sportsTapped = await this.tapByText('Sports', 5000) || await this.tapByText('Sport', 4000);
@@ -235,11 +280,11 @@ export class AndroidBoxingPage extends AndroidBasePage {
       console.log(`  PPV date "${dateParts.day}" not found - trying Buy now from current position`);
     }
 
-    let ppvFound = await this.isVisible(this.ppvName, 3000);
+    let ppvFound = await this.isPpvTitleVisible(this.ppvName, 3000);
     for (let i = 0; i < 5 && !ppvFound; i++) {
       adbSwipe(cx, Math.round(screen.height * 0.60), cx, Math.round(screen.height * 0.40));
       await this.driver.pause(600);
-      ppvFound = await this.isVisible(this.ppvName, 1000);
+      ppvFound = await this.isPpvTitleVisible(this.ppvName, 1000);
     }
 
     if (ppvFound) {
@@ -258,7 +303,7 @@ export class AndroidBoxingPage extends AndroidBasePage {
 
     if (isUltimateUser && isLoginFirst) {
       console.log(`✨ [Ultimate Active User with LOGIN_FIRST=true] Clicking the PPV tile itself for "${this.ppvName}"...`);
-      const ppvEls = await this.driver.$$(`//*[contains(@text, "${this.ppvName}")]`);
+      const ppvEls = await this.findVisiblePpvTitleElements();
       for (const el of ppvEls) {
         if (await el.isDisplayed().catch(() => false)) {
           await el.click();
@@ -277,7 +322,7 @@ export class AndroidBoxingPage extends AndroidBasePage {
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         console.log(`  Looking for Buy Now button belonging to "${this.ppvName}" (attempt ${attempt + 1})...`);
-        const ppvEls = await this.driver.$$(`//*[contains(@text, "${this.ppvName}")]`);
+        const ppvEls = await this.findVisiblePpvTitleElements();
         let ppvLoc = null;
         for (const el of ppvEls) {
           if (await el.isDisplayed().catch(() => false)) {
