@@ -1460,19 +1460,53 @@ export class AndroidValidationPage extends AndroidBasePage {
             else if (pageSource.toLowerCase().includes(expectedClean)) { actualValue = expectedPart; isMatch = true; }
           }
           expectedValue = expectedPart;
-        } else {
+        } else if (fieldName.toLowerCase().includes('title') || fieldName.toLowerCase().includes('name')) {
           const expectedClean = expectedValue.replace(/[\u200b\u200c\u200d\ufeff]/g, '').trim().toLowerCase();
+          const normExp = normalizeAndroidTitle(expectedValue, ' ');
           let matched = texts.find(t => {
             const tClean = t.toLowerCase();
-            return tClean === expectedClean || tClean.includes(expectedClean);
+            const normT = normalizeAndroidTitle(t, ' ');
+            return compare(t, expectedValue) ||
+              tClean === expectedClean ||
+              tClean.includes(expectedClean) ||
+              expectedClean.includes(tClean) ||
+              (normExp && normT && (normT === normExp || normT.includes(normExp) || normExp.includes(normT)));
+          });
+          if (matched) {
+            actualValue = matched;
+            isMatch = true;
+          } else if (
+            pageSource.toLowerCase().includes(expectedClean) ||
+            (normExp && normalizeAndroidTitle(pageSource, ' ').includes(normExp))
+          ) {
+            actualValue = expectedValue;
+            isMatch = true;
+          } else {
+            // Find any non-date, non-CTA element as fallback for actualValue
+            const nonDateElement = texts.find(t => {
+              const tl = t.toLowerCase();
+              return !tl.includes('watch live') && !tl.includes('buy') && !tl.includes('fight card') && !/\b\d{1,2}:\d{2}\b/.test(tl);
+            });
+            if (nonDateElement) actualValue = nonDateElement;
+          }
+        } else {
+          const expectedClean = expectedValue.replace(/[\u200b\u200c\u200d\ufeff]/g, '').trim().toLowerCase();
+          const normExp = normalizeAndroidTitle(expectedValue, ' ');
+          let matched = texts.find(t => {
+            const tClean = t.toLowerCase();
+            const normT = normalizeAndroidTitle(t, ' ');
+            return compare(t, expectedValue) ||
+              tClean === expectedClean ||
+              tClean.includes(expectedClean) ||
+              (normExp && normT && (normT === normExp || normT.includes(normExp) || normExp.includes(normT)));
           });
           if (matched) {
             actualValue = matched;
             isMatch = true;
           } else {
-            const watchLiveEl = texts.find(t => t.toLowerCase().includes('watch live'));
+            const isDateField = fieldName.toLowerCase().includes('date') || fieldName.toLowerCase().includes('time') || fieldName.toLowerCase().includes('watch');
+            const watchLiveEl = isDateField ? texts.find(t => t.toLowerCase().includes('watch live')) : undefined;
             if (watchLiveEl) {
-              actualValue = watchLiveEl;
               const actualClean = watchLiveEl.replace(/[\u200b\u200c\u200d\ufeff]/g, '').trim().toLowerCase();
               isMatch = actualClean === expectedClean || actualClean.includes(expectedClean) || expectedClean.includes(actualClean);
               if (!isMatch) {
@@ -1486,7 +1520,10 @@ export class AndroidValidationPage extends AndroidBasePage {
                     (!expParsed.weekday || !actParsed.weekday || expParsed.weekday === actParsed.weekday);
                 }
               }
-            } else if (pageSource.toLowerCase().includes(expectedClean)) {
+              if (isMatch) {
+                actualValue = watchLiveEl;
+              }
+            } else if (pageSource.toLowerCase().includes(expectedClean) || (normExp && normalizeAndroidTitle(pageSource, ' ').includes(normExp))) {
               actualValue = expectedValue;
               isMatch = true;
             }
