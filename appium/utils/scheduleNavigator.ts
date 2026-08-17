@@ -174,7 +174,12 @@ export async function getElementCenter(el: WdElement): Promise<{ x: number; y: n
 }
 
 function normalizeTileText(text: string): string {
-  return text.replace(/\s+/g, ' ').trim().toLowerCase();
+  return String(text || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')  // strip diacritics (ó → o, é → e, etc.)
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
 }
 
 function isExactPPVTileText(text: string, ppvName: string): boolean {
@@ -428,10 +433,23 @@ export async function findPPVTileInMonth(
   const nextMonthFull  = MONTH_FULL[(targetMonthIndex + 1) % 12];
   const nextMonthShort = MONTH_SHORT[(targetMonthIndex + 1) % 12];
 
-  const escapedName  = ppvName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  // Strict regex matches name exactly (ignoring case, optional surrounding spaces)
-  // to avoid matching weigh-ins or press conferences.
-  const strictTileSelector = `android=new UiSelector().textMatches("(?i)^\\\\s*${escapedName}\\\\s*$")`;
+  // Build both the original and diacritic-stripped versions so that
+  // "Rolly vs. Teófimo" (config) matches "Rolly vs. Teofimo" (on screen)
+  // and vice-versa in all three matching paths below.
+  const ppvNameStripped = String(ppvName)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+
+  const escapeForRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const escapedName         = escapeForRegex(ppvName);
+  const escapedNameStripped = escapeForRegex(ppvNameStripped);
+
+  // Accept either the accented or the diacritic-stripped form
+  const combinedPattern = escapedName === escapedNameStripped
+    ? `(?i)^\\s*(${escapedName})\\s*$`
+    : `(?i)^\\s*(${escapedName}|${escapedNameStripped})\\s*$`;
+
+  const strictTileSelector = `android=new UiSelector().textMatches("${combinedPattern}")`;
 
   let overshotOnce = false;
 
@@ -495,7 +513,7 @@ export async function findPPVTileInMonth(
   try {
     const fallbackSel =
       `android=new UiScrollable(new UiSelector().scrollable(true))` +
-      `.scrollIntoView(new UiSelector().textMatches("(?i)^\\\\s*${escapedName}\\\\s*$"))`;
+      `.scrollIntoView(new UiSelector().textMatches("${combinedPattern}"))`;
     const el = await driver.$(fallbackSel);
     await el.waitForDisplayed({ timeout: 10000 });
     console.log(`✅ Phase 3 (UiScrollable): Found strict tile.`);
