@@ -435,6 +435,34 @@ for (const stateKey of userStatesToRun) {
 
     const userStateKey = process.env.USER_STATE || 'freemium';
 
+    // home-page-subscribe only shows a "Subscribe" CTA in the header for
+    // logged-in freemium/frozen users. Non-logged-in users see "Get Started".
+    if (SOURCE.toLowerCase() === 'home-page-subscribe' && !LOGIN_FIRST) {
+      throwLogged(new Error(
+        `❌ SOURCE "home-page-subscribe" requires LOGIN_FIRST=true. ` +
+        `The Subscribe CTA is only visible in the header for logged-in users. ` +
+        `Use LOGIN_FIRST=true or choose SOURCE=home-page-get-started for new users.`
+      ));
+    }
+
+    // home-page-dazntile (and subscribe-without-pay-per-view which resolves to
+    // it) expects a subscription modal after clicking a DAZN entitlement tile.
+    // Active standard/ultimate users already have a subscription, so the tile
+    // opens the content directly — no subscription modal appears.
+    const DAZNTILE_SOURCES = new Set(['home-page-dazntile', 'subscribe-without-pay-per-view']);
+    const ACTIVE_SUBSCRIBED_STATES = new Set([
+      'active_standard_monthly', 'active_standard_apm', 'active_standard_upfront',
+      'active_ultimate_apm', 'active_ultimate_upfront',
+    ]);
+    if (DAZNTILE_SOURCES.has(SOURCE.toLowerCase()) && ACTIVE_SUBSCRIBED_STATES.has(userStateKey.toLowerCase())) {
+      throwLogged(new Error(
+        `❌ SOURCE "${SOURCE}" is not applicable for USER_STATE="${userStateKey}". ` +
+        `Active standard/ultimate users already have a subscription — clicking a ` +
+        `DAZN tile opens content directly without a subscription modal. ` +
+        `Use a different source (e.g. home-boxing-tile, search) for this user state.`
+      ));
+    }
+
     // Compute dynamic future date variables
     const futureDate = new Date();
     futureDate.setDate(futureDate.getDate() + 7);

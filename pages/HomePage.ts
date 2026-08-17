@@ -1098,8 +1098,39 @@ export class HomePage extends LandingPage {
       if (!container) {
         throw new Error('❌ [HomePage] Get Started container is null');
       }
+      const beforeUrl = this.page.url();
       await container.scrollIntoViewIfNeeded().catch(() => { });
       await container.click({ force: true, timeout: 10000 });
+      let navigated = await this.page.waitForFunction((url) => {
+        const href = window.location.href;
+        const body = document.body?.innerText?.toLowerCase() || '';
+        return href !== url ||
+          href.toLowerCase().includes('signup') ||
+          href.toLowerCase().includes('plandetails') ||
+          href.toLowerCase().includes('tierplans') ||
+          body.includes('choose a plan') ||
+          body.includes('create an account');
+      }, beforeUrl, { timeout: 5000 }).then(() => true).catch(() => false);
+
+      if (!navigated) {
+        console.log('⚠️ [HomePage] Get Started CTA click did not navigate; retrying with DOM click.');
+        await container.evaluate((el: HTMLElement) => el.click()).catch(() => { });
+        navigated = await this.page.waitForFunction((url) => window.location.href !== url, beforeUrl, { timeout: 3000 })
+          .then(() => true)
+          .catch(() => false);
+      }
+
+      if (!navigated) {
+        const href = await container.evaluate((el: HTMLElement) => {
+          const link = el.closest('a') as HTMLAnchorElement | null;
+          return link?.href || '';
+        }).catch(() => '');
+        if (href) {
+          console.log(`🧭 [HomePage] Navigating via Get Started href fallback: ${href}`);
+          await this.page.goto(href, { waitUntil: 'domcontentloaded' });
+        }
+      }
+
       console.log('✅ [HomePage] Clicked "Get Started" CTA');
       return;
     }
