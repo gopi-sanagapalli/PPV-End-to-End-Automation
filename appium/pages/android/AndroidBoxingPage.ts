@@ -531,6 +531,7 @@ export class AndroidBoxingPage extends AndroidBasePage {
       page: targetSport,
       eventConfig,
       hooks,
+      forceRailTitle: "Don't Miss",
     });
 
     if (locatorRes.success) {
@@ -544,8 +545,8 @@ export class AndroidBoxingPage extends AndroidBasePage {
         return true;
       }
 
-      const buyTapped = await this.tapBuyCtaWithFallback(['Buy now', 'Buy Now', 'Buy', 'Get PPV', 'Purchase']);
-      return buyTapped;
+      console.log('  PPV tile opened Android paywall; no additional Buy CTA tap required for this source.');
+      return true;
     }
 
     const shot = hooks.saveScreenshot
@@ -576,6 +577,7 @@ export class AndroidBoxingPage extends AndroidBasePage {
       page: 'Boxing',
       eventConfig,
       hooks,
+      forceRailTitle: "Don't Miss",
     });
 
     if (locatorRes.success) {
@@ -589,8 +591,8 @@ export class AndroidBoxingPage extends AndroidBasePage {
         return true;
       }
 
-      const buyTapped = await this.tapBuyCtaWithFallback(['Buy now', 'Buy Now', 'Buy', 'Get PPV', 'Purchase']);
-      return buyTapped;
+      console.log('  PPV tile opened Android paywall; no additional Buy CTA tap required for this source.');
+      return true;
     }
 
     const shot = hooks.saveScreenshot

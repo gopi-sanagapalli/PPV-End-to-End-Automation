@@ -553,7 +553,7 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
 
       // ── home-boxing-tile ──────────────────────────────────────────────────
       else if (SOURCE === 'home-boxing-tile') {
-        buyTapped = await openHomeBoxingDontMissTilePaywall(driver, PPV_NAME, androidFlowHooks);
+        buyTapped = await openHomeBoxingDontMissTilePaywall(driver, PPV_NAME, androidFlowHooks, event);
       }
 
       // ── home-page-banner ──────────────────────────────────────────────────
@@ -572,7 +572,7 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
 
       // ── home-page-dont-miss ───────────────────────────────────────────────
       else if (SOURCE === 'home-page-dont-miss') {
-        buyTapped = await openHomePageDontMissPaywall(driver, PPV_NAME, androidFlowHooks);
+        buyTapped = await openHomePageDontMissPaywall(driver, PPV_NAME, androidFlowHooks, event);
       }
 
       // ── fallback ──────────────────────────────────────────────────────────

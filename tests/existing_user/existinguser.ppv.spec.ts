@@ -4042,6 +4042,19 @@ for (const stateKey of userStatesToRun) {
                   : isMyAccount ? 'myaccount' : (isReturning ? 'returning' : undefined);
                 console.log(`📊 Plan rows: ${planData.length}`);
 
+                if (targetTier === 'ultimate' && ratePlan === 'annual pay monthly' && planFlow === 'boxing-ultimate-direct') {
+                  const annualCard = page.locator(
+                    'label:has-text("Annual - pay over time"), ' +
+                    'label:has-text("Annual - Pay Monthly")'
+                  ).first();
+                  if (await annualCard.isVisible({ timeout: 3000 }).catch(() => false)) {
+                    await safeScrollToElement(page, annualCard);
+                    await annualCard.click({ force: true }).catch(() => { });
+                    await page.waitForTimeout(500);
+                    console.log('✅ Selected Annual Pay Monthly before plan validation');
+                  }
+                }
+
                 await validateVariant(
                   page, 'plan', planData, results, eventData, 'DAZN Plan', planFlow
                 );
@@ -4428,6 +4441,18 @@ for (const stateKey of userStatesToRun) {
           // NOTE: For ultimate_upfront, defer validateVariant to after APU card click.
           const shouldDeferFlowBPlanValidation = ratePlan === 'annual pay upfront';
           if (!shouldDeferFlowBPlanValidation) {
+            if (ratePlan === 'annual pay monthly' && planFlow === 'boxing-ultimate-direct') {
+              const annualCard = page.locator(
+                'label:has-text("Annual - pay over time"), ' +
+                'label:has-text("Annual - Pay Monthly")'
+              ).first();
+              if (await annualCard.isVisible({ timeout: 3000 }).catch(() => false)) {
+                await safeScrollToElement(page, annualCard);
+                await annualCard.click({ force: true }).catch(() => { });
+                await page.waitForTimeout(500);
+                console.log('✅ Selected Annual Pay Monthly before plan validation');
+              }
+            }
             await validateVariant(
               page, 'plan', planData, results, eventData, 'DAZN Plan', planFlow
             );
