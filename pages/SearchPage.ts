@@ -29,7 +29,32 @@ export class SearchPage extends BasePage {
   }
 
   private async clickVisibleEntitledTile(eventName: string): Promise<void> {
+    const resolvedTile = await resolveSearchPPVTile(this.page, eventName);
+    if (resolvedTile) {
+      const rawText = (await resolvedTile.textContent().catch(() => '')) || '';
+      console.log(`🖱️ [Search] Clicking resolved entitled PPV tile: "${rawText.replace(/\s+/g, ' ').trim().substring(0, 100)}"`);
+      await resolvedTile.scrollIntoViewIfNeeded().catch(() => { });
+      try {
+        const eventLink = resolvedTile.locator('a[href*="/fixture/"], a[href*="/event/"], a[href*="/stream/"], a[href*="/player/"]').first();
+        const clickTarget = await eventLink.count().catch(() => 0) ? eventLink : resolvedTile;
+        await clickTarget.click({ force: true, timeout: 5000 });
+        const reachedEventPage = await this.page
+          .waitForURL((url: URL) => this.isFixtureOrPreviewUrl(url.href), { timeout: 10000 })
+          .then(() => true)
+          .catch(() => false);
+        if (reachedEventPage) {
+          await this.page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => { });
+          return;
+        }
+        console.log('⚠️ [Search] Resolved tile did not navigate to an event page; trying strict tile selector fallback.');
+      } catch (error: any) {
+        console.log(`⚠️ [Search] Could not click resolved event tile: ${error.message}`);
+      }
+    }
+
     const normalise = (value: string) => value
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, ' ')
       .replace(/\s+/g, ' ')
@@ -304,13 +329,13 @@ export class SearchPage extends BasePage {
       await searchInput.waitFor({ state: 'visible', timeout: 30000 });
 
       // Dismiss any marketing/promotion popup that is already visible
-      await dismissMarketingPopup(this.page, 0, options).catch(() => {});
+      await dismissMarketingPopup(this.page, 0, options).catch(() => { });
 
       try {
         await searchInput.click({ timeout: 5000 });
       } catch (clickError) {
         console.log('⚠️ Search input click was intercepted or failed. Attempting to dismiss popup and retry...');
-        await dismissMarketingPopup(this.page, 4000, options).catch(() => {});
+        await dismissMarketingPopup(this.page, 4000, options).catch(() => { });
         await searchInput.click({ timeout: 10000, force: true }).catch((retryError) => {
           console.log(`⚠️ Forced search input click failed, continuing with direct fill: ${retryError.message}`);
         });

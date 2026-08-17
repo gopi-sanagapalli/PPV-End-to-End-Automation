@@ -119,7 +119,9 @@
           },
           "prod": {
             "USER_EMAIL": "2usa@m.com",
-            "USER_PASSWORD": "55555eE"
+            "USER_PASSWORD": "55555eE",
+            "FIRST_NAME": "df",
+            "LAST_NAME": "f"
           }
         }
       },

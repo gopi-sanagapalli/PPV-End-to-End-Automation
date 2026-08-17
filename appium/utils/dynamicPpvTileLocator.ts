@@ -74,7 +74,7 @@ export class DynamicPpvTileLocator {
 
     // 2. Scroll vertically until expected rail header is located in content viewport
     console.log(`Scrolling to rail...`);
-    const railHeaderRect = await this.scrollToRail(railTitle, targetPpvTitle, entitlementId);
+    const railHeaderRect = await this.scrollToRail(railTitle, targetPpvTitle, entitlementId, !forcedRailTitle);
     if (!railHeaderRect) {
       console.log(`❌ Rail "${railTitle}" not visible after scrolling.`);
       return {
@@ -91,7 +91,10 @@ export class DynamicPpvTileLocator {
 
     // 3. Derive tile index dynamically from backend API response or UI DOM scan (no hardcoded numbers)
     let expectedTileIndex: number;
-    if (apiMatch?.tileIndex !== undefined) {
+    if (forcedRailTitle && apiMatch?.globalTileIndex !== undefined) {
+      expectedTileIndex = apiMatch.globalTileIndex;
+      console.log(`  ✓ Dynamic Tile Index calculated from forced rail API order for ${pageName} page: ${expectedTileIndex}`);
+    } else if (apiMatch?.tileIndex !== undefined) {
       expectedTileIndex = apiMatch.tileIndex;
       console.log(`  ✓ Dynamic Tile Index calculated from Rails API response for ${pageName} page: ${expectedTileIndex}`);
     } else {
@@ -163,7 +166,9 @@ export class DynamicPpvTileLocator {
     }
 
     // 5. Direct Swiping to Expected Tile Index & Neighbor Recovery Sequence
-    const searchOrderIndices = this.generateNeighborSearchSequence(expectedTileIndex);
+    const searchOrderIndices = forcedRailTitle
+      ? [expectedTileIndex]
+      : this.generateNeighborSearchSequence(expectedTileIndex);
     let totalSwipesPerformed = 0;
     let currentTilePositionOnScreen = 0;
     let openedPpvTitle = '<none>';
@@ -377,7 +382,7 @@ export class DynamicPpvTileLocator {
   /**
    * Scroll vertically down until target rail title header or visible PPV tile text is located in viewport.
    */
-  private async scrollToRail(railTitle: string, targetPpvTitle?: string, entitlementId?: string): Promise<{ x: number; y: number; width: number; height: number } | null> {
+  private async scrollToRail(railTitle: string, targetPpvTitle?: string, entitlementId?: string, allowDynamicFallback = true): Promise<{ x: number; y: number; width: number; height: number } | null> {
     await this.waitForFirstRailLoaded(25000);
     const cleanTitle = railTitle.replace(/['’]/g, '');
     const candidateSelectors = [
@@ -435,7 +440,7 @@ export class DynamicPpvTileLocator {
       }
 
       // Dynamic Fallback: Check if target PPV title or entitlement ID is visible under any rail on screen
-      if (targetPpvTitle || entitlementId) {
+      if (allowDynamicFallback && (targetPpvTitle || entitlementId)) {
         const detectedRect = await this.findRailHeaderAboveVisibleText(targetPpvTitle || '', entitlementId || '', height);
         if (detectedRect) {
           console.log(`🎯 [Dynamic Rail Header] Located rail container header above visible tile text on screen at y=${detectedRect.y}`);

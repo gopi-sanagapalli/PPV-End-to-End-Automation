@@ -52,8 +52,8 @@ export class AndroidHomePage extends AndroidLandingPage {
         return true;
       }
 
-      const buyTapped = await this.tapBuyCtaWithFallback(['Buy now', 'Buy Now', 'Buy', 'Get PPV', 'Purchase']);
-      return buyTapped;
+      console.log('  PPV tile opened Android paywall; no additional Buy CTA tap required for this source.');
+      return true;
     }
     return false;
   }
@@ -206,8 +206,9 @@ export async function openHomePageDontMissPaywall(
   driver: WdBrowser,
   ppvName: string,
   hooks: AndroidFlowHooks = {},
+  eventConfig?: any,
 ): Promise<boolean> {
-  return new AndroidHomePage(driver, ppvName).openHomePageDontMissPaywall(hooks);
+  return new AndroidHomePage(driver, ppvName).openHomePageDontMissPaywall(hooks, {}, eventConfig);
 }
 
 

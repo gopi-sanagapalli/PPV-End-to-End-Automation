@@ -435,6 +435,34 @@ for (const stateKey of userStatesToRun) {
 
     const userStateKey = process.env.USER_STATE || 'freemium';
 
+    // home-page-subscribe only shows a "Subscribe" CTA in the header for
+    // logged-in freemium/frozen users. Non-logged-in users see "Get Started".
+    if (SOURCE.toLowerCase() === 'home-page-subscribe' && !LOGIN_FIRST) {
+      throwLogged(new Error(
+        `❌ SOURCE "home-page-subscribe" requires LOGIN_FIRST=true. ` +
+        `The Subscribe CTA is only visible in the header for logged-in users. ` +
+        `Use LOGIN_FIRST=true or choose SOURCE=home-page-get-started for new users.`
+      ));
+    }
+
+    // home-page-dazntile (and subscribe-without-pay-per-view which resolves to
+    // it) expects a subscription modal after clicking a DAZN entitlement tile.
+    // Active standard/ultimate users already have a subscription, so the tile
+    // opens the content directly — no subscription modal appears.
+    const DAZNTILE_SOURCES = new Set(['home-page-dazntile', 'subscribe-without-pay-per-view']);
+    const ACTIVE_SUBSCRIBED_STATES = new Set([
+      'active_standard_monthly', 'active_standard_apm', 'active_standard_upfront',
+      'active_ultimate_apm', 'active_ultimate_upfront',
+    ]);
+    if (DAZNTILE_SOURCES.has(SOURCE.toLowerCase()) && ACTIVE_SUBSCRIBED_STATES.has(userStateKey.toLowerCase())) {
+      throwLogged(new Error(
+        `❌ SOURCE "${SOURCE}" is not applicable for USER_STATE="${userStateKey}". ` +
+        `Active standard/ultimate users already have a subscription — clicking a ` +
+        `DAZN tile opens content directly without a subscription modal. ` +
+        `Use a different source (e.g. home-boxing-tile, search) for this user state.`
+      ));
+    }
+
     // Compute dynamic future date variables
     const futureDate = new Date();
     futureDate.setDate(futureDate.getDate() + 7);
@@ -4042,6 +4070,19 @@ for (const stateKey of userStatesToRun) {
                   : isMyAccount ? 'myaccount' : (isReturning ? 'returning' : undefined);
                 console.log(`📊 Plan rows: ${planData.length}`);
 
+                if (targetTier === 'ultimate' && ratePlan === 'annual pay monthly' && planFlow === 'boxing-ultimate-direct') {
+                  const annualCard = page.locator(
+                    'label:has-text("Annual - pay over time"), ' +
+                    'label:has-text("Annual - Pay Monthly")'
+                  ).first();
+                  if (await annualCard.isVisible({ timeout: 3000 }).catch(() => false)) {
+                    await safeScrollToElement(page, annualCard);
+                    await annualCard.click({ force: true }).catch(() => { });
+                    await page.waitForTimeout(500);
+                    console.log('✅ Selected Annual Pay Monthly before plan validation');
+                  }
+                }
+
                 await validateVariant(
                   page, 'plan', planData, results, eventData, 'DAZN Plan', planFlow
                 );
@@ -4428,6 +4469,18 @@ for (const stateKey of userStatesToRun) {
           // NOTE: For ultimate_upfront, defer validateVariant to after APU card click.
           const shouldDeferFlowBPlanValidation = ratePlan === 'annual pay upfront';
           if (!shouldDeferFlowBPlanValidation) {
+            if (ratePlan === 'annual pay monthly' && planFlow === 'boxing-ultimate-direct') {
+              const annualCard = page.locator(
+                'label:has-text("Annual - pay over time"), ' +
+                'label:has-text("Annual - Pay Monthly")'
+              ).first();
+              if (await annualCard.isVisible({ timeout: 3000 }).catch(() => false)) {
+                await safeScrollToElement(page, annualCard);
+                await annualCard.click({ force: true }).catch(() => { });
+                await page.waitForTimeout(500);
+                console.log('✅ Selected Annual Pay Monthly before plan validation');
+              }
+            }
             await validateVariant(
               page, 'plan', planData, results, eventData, 'DAZN Plan', planFlow
             );
