@@ -183,7 +183,7 @@ export class RailsInterceptor {
           railId,
           tileIndex,
           tileTitle: this.readString(rawTile, ['Title', 'title', 'Name', 'name', 'Heading', 'heading']) || `Tile ${tileIndex}`,
-          tileId: this.readString(rawTile, ['Id', 'id', 'TileId', 'tileId', 'ContentId', 'contentId', 'AssetId', 'assetId']),
+          tileId: this.readTileId(rawTile),
           entitlementIds,
           imageUrl: this.findImageUrl(rawTile),
         });
@@ -195,16 +195,19 @@ export class RailsInterceptor {
   }
 
   async clickFirstVisibleEntitlementTile(
-    matches: RailTileMatch[]
+    matches: RailTileMatch[],
+    excludeSchedulingRails = true
   ): Promise<RailTileMatch | undefined> {
     if (matches.length === 0) return undefined;
 
     // Exclude tiles from scheduling/live rails — these open event-detail cards,
     // not subscription modals, when clicked on the home page.
     const schedulingRailPattern = /upcoming\s*fights?|live\s*(and|&|\+)?\s*coming|coming\s*up|live\s*now|dazn\s*48|live\s*event/i;
-    const filtered = matches.filter(m => !schedulingRailPattern.test(m.railTitle));
+    const filtered = excludeSchedulingRails
+      ? matches.filter(m => !schedulingRailPattern.test(m.railTitle))
+      : matches;
     const effective = filtered.length > 0 ? filtered : matches; // fall back if all filtered
-    if (filtered.length < matches.length) {
+    if (excludeSchedulingRails && filtered.length < matches.length) {
       console.log(
         `🔎 [RailsInterceptor] Excluded ${matches.length - filtered.length} scheduling-rail tile(s) ` +
         `(Upcoming Fights / Live & Coming Up). Using ${effective.length} candidate(s).`
@@ -275,6 +278,17 @@ export class RailsInterceptor {
                 clickable = imgEl;
               }
             }
+          }
+        }
+
+        if ((!clickable || !(await clickable.count().catch(() => 0))) && match.tileId) {
+          const safeId = match.tileId.replace(/"/g, '\\"');
+          const link = this.page
+            .locator(`a[href*="ContentId:${safeId}"], a[href*="/${safeId}"]`)
+            .filter({ visible: true })
+            .first();
+          if (await link.isVisible().catch(() => false)) {
+            clickable = link;
           }
         }
 
@@ -416,9 +430,7 @@ export class RailsInterceptor {
           railId: this.readString(rail, ['Id', 'id', 'RailId', 'railId']),
           tileIndex,
           tileTitle,
-          tileId: this.readString(rawTile, [
-            'Id', 'id', 'TileId', 'tileId', 'ContentId', 'contentId', 'AssetId', 'assetId',
-          ]),
+          tileId: this.readTileId(rawTile),
           entitlementIds: this.extractEntitlementIds(rawTile),
           imageUrl: this.findImageUrl(rawTile),
         });
@@ -647,6 +659,12 @@ export class RailsInterceptor {
     return visit(tile, 0);
   }
 
+  private readTileId(tile: AnyRecord): string {
+    const navParams = this.readString(tile, ['ArticleNavParams', 'articleNavParams', 'NavParams', 'navParams']);
+    const contentId = navParams.match(/ContentId:([^;]+)/i)?.[1];
+    return contentId || this.readString(tile, ['Id', 'id', 'TileId', 'tileId', 'ContentId', 'contentId', 'AssetId', 'assetId']);
+  }
+
   private readArray(record: AnyRecord, keys: string[]): unknown[] {
     for (const key of keys) {
       const value = record[key];
@@ -702,6 +720,16 @@ export class RailsInterceptor {
           return (await target.count().catch(() => 0)) > 0 ? target : imgEl;
         }
       }
+    }
+
+    // Strategy C: rendered card URL contains the Rails content ID.
+    if (match.tileId) {
+      const safeId = match.tileId.replace(/"/g, '\\"');
+      const link = this.page
+        .locator(`a[href*="ContentId:${safeId}"], a[href*="/${safeId}"]`)
+        .filter({ visible: true })
+        .first();
+      if (await link.isVisible().catch(() => false)) return link;
     }
 
     return null;
