@@ -113,7 +113,7 @@ export class AndroidRailsFetcher {
     const country = (options.country || 'GB').toLowerCase();
     const brand = (options.brand || 'dazn').toLowerCase();
 
-    let pageGroup = isHome ? 'home' : 'home';
+    let pageGroup = 'home';
 
     const targetAssetId = (options.assetId || '').trim().toLowerCase();
     const targetEventId = (options.eventId || '').trim().toLowerCase();
