@@ -91,9 +91,16 @@ export class DynamicPpvTileLocator {
 
     // 3. Derive tile index dynamically from backend API response or UI DOM scan (no hardcoded numbers)
     let expectedTileIndex: number;
-    if (forcedRailTitle && apiMatch?.globalTileIndex !== undefined) {
-      expectedTileIndex = apiMatch.globalTileIndex;
+    const isHomePage = pageName.toLowerCase() === 'home';
+    if (forcedRailTitle && isHomePage && apiMatch?.tileIndex !== undefined) {
+      expectedTileIndex = apiMatch.tileIndex;
       console.log(`  ✓ Dynamic Tile Index calculated from forced rail API order for ${pageName} page: ${expectedTileIndex}`);
+    } else if (forcedRailTitle && !isHomePage) {
+      // Non-Home pages (e.g. Boxing) have different rail content than the Home API returns.
+      // The API index is unreliable; prefer UI DOM detection with recovery sequence fallback.
+      const detectedUiIndex = await this.detectTileIndexFromUiDom(railHeaderRect.y, targetPpvTitle, entitlementId);
+      expectedTileIndex = detectedUiIndex !== null ? detectedUiIndex : 0;
+      console.log(`  ✓ Dynamic Tile Index for ${pageName} page (non-Home): ${expectedTileIndex} (UI DOM detection, recovery sequence enabled)`);
     } else if (apiMatch?.tileIndex !== undefined) {
       expectedTileIndex = apiMatch.tileIndex;
       console.log(`  ✓ Dynamic Tile Index calculated from Rails API response for ${pageName} page: ${expectedTileIndex}`);
@@ -167,7 +174,7 @@ export class DynamicPpvTileLocator {
 
     // 5. Direct Swiping to Expected Tile Index & Neighbor Recovery Sequence
     const searchOrderIndices = forcedRailTitle
-      ? [expectedTileIndex]
+      ? (pageName.toLowerCase() === 'boxing' ? this.generateForcedRailRecoverySequence(expectedTileIndex, apiMatch?.totalTilesInRail) : [expectedTileIndex])
       : this.generateNeighborSearchSequence(expectedTileIndex);
     let totalSwipesPerformed = 0;
     let currentTilePositionOnScreen = 0;
@@ -618,6 +625,22 @@ export class DynamicPpvTileLocator {
         sequence.push(expectedIndex - offset);
       }
       sequence.push(expectedIndex + offset);
+    }
+
+    return sequence;
+  }
+
+  private generateForcedRailRecoverySequence(expectedIndex: number, totalTiles?: number): number[] {
+    const sequence = [expectedIndex];
+    const maxIndex = Math.max(expectedIndex + 6, (totalTiles || 0) - 1);
+
+    for (let offset = 1; offset <= maxIndex; offset++) {
+      if (expectedIndex - offset >= 0) {
+        sequence.push(expectedIndex - offset);
+      }
+      if (expectedIndex + offset <= maxIndex) {
+        sequence.push(expectedIndex + offset);
+      }
     }
 
     return sequence;
