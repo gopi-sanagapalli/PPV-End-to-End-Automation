@@ -42,8 +42,6 @@ jobs:
       - ARM64
     timeout-minutes: 30
 
-    timeout-minutes: 10
-
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
 
