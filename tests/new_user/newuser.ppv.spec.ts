@@ -762,10 +762,10 @@ async function runFlow(
               const queryFlow = isNonBoxingSportTile
                 ? 'home-sport-tile'
                 : source.includes('banner')
-                ? 'home-boxing-banner'
-                : source === 'home-boxing-upcoming'
-                  ? 'home-boxing-upcoming'
-                  : 'home-boxing-tile';
+                  ? 'home-boxing-banner'
+                  : source === 'home-boxing-upcoming'
+                    ? 'home-boxing-upcoming'
+                    : 'home-boxing-tile';
               const homeSportData = isNonBoxingSportTile
                 ? getHomeOfSportData(queryFlow)
                 : getHomeOfBoxingData(queryFlow);
@@ -1455,12 +1455,12 @@ async function runFlow(
             'button:has-text("Ok"), button:has-text("OK"), button:has-text("Okay"), [role="button"]:has-text("Ok")'
           ).first();
           if (await okBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
-            await okBtn.click({ force: true }).catch(() => {});
-            await page.waitForLoadState('domcontentloaded').catch(() => {});
+            await okBtn.click({ force: true }).catch(() => { });
+            await page.waitForLoadState('domcontentloaded').catch(() => { });
           }
           emailProcessedCount--;
-          await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => {});
-          await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
+          await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => { });
+          await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => { });
           console.warn(`♻️  [Signup Error] Reload complete — retrying from: ${page.url()}`);
           continue;
         }
@@ -2318,8 +2318,8 @@ const isCanadaRun = REGION === 'CA' || !!process.env.CANADA_PLAN || !!process.en
 const plansToRun = isCanadaRun
   ? ['standard_monthly']
   : (process.env.PLAN || 'standard_monthly,standard_apm,ultimate_upfront,ultimate_apm')
-      .split(',')
-      .map(p => p.trim());
+    .split(',')
+    .map(p => p.trim());
 
 // Configure tests to run in parallel using configured workers
 test.describe.configure({ mode: 'parallel' });
@@ -2454,6 +2454,13 @@ for (const planKey of plansToRun) {
       const failed = results.filter(r => r.status === 'FAIL').length;
       const skippedCount = results.filter(r => String(r.status).toUpperCase() === 'SKIP').length;
       const total = passed + failed + skippedCount;
+
+      if (passed === 0 && failed === 0 && skippedCount > 0) {
+        const skipReason = results.find(r => String(r.status).toUpperCase() === 'SKIP')?.actual || 'PPV not configured for this source';
+        console.log(`⏭️ Flow "${flowConfig.name}" skipped: ${skipReason}`);
+        test.skip(true, skipReason);
+        return;
+      }
 
       console.log(`\n✅ Flow "${flowConfig.name}" complete: ${passed}/${total} passed (${total > 0 ? ((passed / total) * 100).toFixed(1) : 0}%)`);
       console.log(`${'─'.repeat(55)}`);
