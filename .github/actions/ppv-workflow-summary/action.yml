@@ -40,7 +40,23 @@ runs:
         reports_root="${PPV_REPORTS_ROOT:-/tmp/ppv-reports}"
         run_reports_dir="${reports_root}/${GITHUB_RUN_ID}"
         if [ -d "$run_reports_dir" ]; then
+          # Copy fresh job reports from this attempt (may overwrite prior-attempt ones below)
           find "$run_reports_dir" -mindepth 1 -maxdepth 1 -type d -name "$ARTIFACT_PATTERN" ! -name "*workflow-summary*" -exec cp -R {} "$report_dir/job-artifacts/" \;
+          # On re-runs: merge job-artifacts from prior attempt workflow-summary directories
+          # so all jobs (not just re-run ones) appear in the consolidated report.
+          # -n (no-clobber) ensures fresh attempt reports win over prior-attempt ones.
+          find "$run_reports_dir" -mindepth 1 -maxdepth 1 -type d -name "*workflow-summary*" | sort | while read -r prior_summary; do
+            prior_artifacts="${prior_summary}/job-artifacts"
+            if [ -d "$prior_artifacts" ]; then
+              echo "Merging prior-attempt job artifacts from: $prior_summary"
+              find "$prior_artifacts" -mindepth 1 -maxdepth 1 -type d | while read -r prior_job_dir; do
+                job_name="$(basename "$prior_job_dir")"
+                if [ ! -d "$report_dir/job-artifacts/$job_name" ]; then
+                  cp -R "$prior_job_dir" "$report_dir/job-artifacts/"
+                fi
+              done
+            fi
+          done
         else
           echo "No local PPV report directory found at $run_reports_dir"
         fi
