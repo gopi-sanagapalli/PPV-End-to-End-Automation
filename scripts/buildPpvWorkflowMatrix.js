@@ -119,6 +119,10 @@ const regularProfiles = [
 ].filter((profile) => standardPlans.includes(profile.split('/')[1]));
 const ultimateOnly = new Set(['boxing-banner-ultimate', 'boxing-ultimate-subscription', 'boxing-join-the-club']);
 const validUltimateProfiles = new Set(['active_standard_monthly/ultimate_apm', 'active_standard_monthly/ultimate_upfront', 'active_standard_apm/ultimate_apm']);
+// Sources that open a subscription modal — active users already have a subscription so
+// no modal appears and the flow gets stuck. Only freemium/frozen profiles are valid.
+const activeSubscribedExcludedSources = new Set(['home-page-dazntile', 'home-page-get-started', 'boxing-standard-subscription']);
+const isActiveSubscribed = (profile) => profile.startsWith('active_standard_') || profile.startsWith('active_ultimate_');
 // Boxing PPVs are surfaced through the complete set of boxing-specific entry
 // points. Other sports use the sport tile, the home-page Don't Miss tile,
 // Search, Schedule, and (for authenticated users) My Account.
@@ -293,7 +297,10 @@ switch (mode) {
       matrix = sources.map((source, index) => ({ source, profile: canadaProfiles[index % canadaProfiles.length] }));
     } else {
       matrix = sources.map((source, index) => {
-        const profiles = regularProfiles.filter((profile) => !ultimateOnly.has(source) || validUltimateProfiles.has(profile));
+        let profiles = regularProfiles.filter((profile) => !ultimateOnly.has(source) || validUltimateProfiles.has(profile));
+        if (activeSubscribedExcludedSources.has(source)) {
+          profiles = profiles.filter((p) => !isActiveSubscribed(p));
+        }
         const ultimateProfile = source === 'schedule'
           ? 'active_ultimate_apm/ultimate_apm'
           : source === 'myaccount'
@@ -312,8 +319,8 @@ switch (mode) {
     } else {
       matrix = sources.map((source, index) => {
         let profiles = regularProfiles.filter((profile) => !ultimateOnly.has(source) || validUltimateProfiles.has(profile));
-        if (source === 'boxing-standard-subscription') {
-          profiles = profiles.filter((p) => p.startsWith('freemium/') || p.startsWith('frozen/'));
+        if (activeSubscribedExcludedSources.has(source)) {
+          profiles = profiles.filter((p) => !isActiveSubscribed(p));
         }
         const ultimateProfile = source === 'schedule'
           ? 'active_ultimate_apm/ultimate_apm'
@@ -342,6 +349,7 @@ switch (mode) {
     matrix.push({ source: 'subscribe-without-pay-per-view', plan: 'standard_monthly' });
     break;
   case 'default-signin': {
+    const signinFreemiumFrozen = regularProfiles.filter((p) => !isActiveSubscribed(p));
     matrix = ['boxing-standard-subscription', 'home-page-get-started', 'home-page-dazntile'].flatMap((source) =>
       standardPlans.flatMap((plan, pi) => {
         const i = pi * 2;
@@ -350,27 +358,37 @@ switch (mode) {
         return [{ source, profile: p0 }, { source, profile: p1 }];
       })
     );
+    // myaccount-subscription-status: freemium/frozen only for sign-in-during-flow
+    standardPlans.forEach((plan, pi) => {
+      matrix.push({ source: 'myaccount-subscription-status', profile: signinFreemiumFrozen[pi % signinFreemiumFrozen.length], scenario: 'resubscribe' });
+    });
     matrix.push({ source: 'subscribe-without-pay-per-view', profile: 'freemium/standard_monthly' });
     break;
   }
-  case 'default-signed':
+  case 'default-signed': {
+    const signedFreemiumFrozen = regularProfiles.filter((p) => !isActiveSubscribed(p));
+    const signedFreemiumOnly = regularProfiles.filter((p) => p.startsWith('freemium/'));
     matrix = [
       ...standardPlans.flatMap((plan) => [
         { source: 'boxing-standard-subscription', profile: `freemium/${plan}` },
         { source: 'boxing-standard-subscription', profile: `frozen/${plan}` },
       ]),
+      // home-page-dazntile: freemium/frozen only
       ...standardPlans.flatMap((plan, pi) => {
         const i = pi * 2;
-        const p0 = regularProfiles[i % regularProfiles.length];
-        const p1 = regularProfiles[(i + 1) % regularProfiles.length];
+        const p0 = signedFreemiumFrozen[i % signedFreemiumFrozen.length];
+        const p1 = signedFreemiumFrozen[(i + 1) % signedFreemiumFrozen.length];
         return [{ source: 'home-page-dazntile', profile: p0 }, { source: 'home-page-dazntile', profile: p1 }];
       }),
-      ...standardPlans.map((plan, pi) => ({ source: 'home-page-subscribe', profile: regularProfiles[pi % regularProfiles.length] })),
+      // home-page-subscribe: freemium only
+      ...standardPlans.map((plan, pi) => ({ source: 'home-page-subscribe', profile: signedFreemiumOnly[pi % signedFreemiumOnly.length] })),
       ...standardPlans.map((plan, pi) => ({ source: 'myaccount', profile: regularProfiles[(pi + 2) % regularProfiles.length], scenario: 'upgrade' })),
-      ...standardPlans.map((plan, pi) => ({ source: 'myaccount-subscription-status', profile: regularProfiles[(pi + 4) % regularProfiles.length], scenario: 'resubscribe' })),
+      // myaccount-subscription-status: freemium/frozen only
+      ...standardPlans.map((plan, pi) => ({ source: 'myaccount-subscription-status', profile: signedFreemiumFrozen[pi % signedFreemiumFrozen.length], scenario: 'resubscribe' })),
       { source: 'subscribe-without-pay-per-view', profile: 'freemium/standard_monthly' },
     ];
     break;
+  }
   case 'removal-new': {
     const sources = applicable(liveSources.new, true);
     matrix = sources.map((source) => ({ source, plan: standardPlans[0] }));
