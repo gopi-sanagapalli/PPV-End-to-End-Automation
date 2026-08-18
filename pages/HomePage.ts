@@ -551,7 +551,17 @@ export class HomePage extends LandingPage {
       // Do not assume API response order equals homepage render order.
       // Scan the rendered homepage from top to bottom and click the first
       // visible tile whose Rails payload has the required entitlement.
-      const clicked = await railsInterceptor.clickFirstVisibleEntitlementTile(matches, false);
+      let clicked = await railsInterceptor.clickFirstVisibleEntitlementTile(matches, false);
+
+      // Transient network errors (e.g. net::ERR_NAME_NOT_RESOLVED) can cause the
+      // home page to partially render, making tiles undiscoverable. Retry once
+      // with a full reload before failing hard.
+      if (!clicked) {
+        console.warn('⚠️ [home-page-dazntile] No tile found on first attempt — reloading and retrying once.');
+        await this.page.reload({ waitUntil: 'networkidle', timeout: 30000 }).catch(() => { });
+        await this.page.waitForTimeout(1500);
+        clicked = await railsInterceptor.clickFirstVisibleEntitlementTile(matches, false);
+      }
 
       if (!clicked) {
         throw new Error(

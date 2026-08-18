@@ -101,11 +101,21 @@ const canadaProfiles = canadaPlans ? [
 ] : null;
 
 const regularProfiles = [
-  'freemium/standard_monthly', 'freemium/standard_apm', 'freemium/ultimate_apm', 'freemium/ultimate_upfront',
-  'frozen/standard_monthly', 'frozen/standard_apm', 'frozen/ultimate_apm', 'frozen/ultimate_upfront',
-  'active_standard_monthly/standard_monthly', 'active_standard_monthly/ultimate_apm', 'active_standard_monthly/ultimate_upfront',
-  'active_standard_apm/standard_apm', 'active_standard_apm/ultimate_apm',
-  'active_ultimate_apm/ultimate_apm', 'active_ultimate_upfront/ultimate_upfront',
+  'freemium/standard_monthly',
+  'active_standard_monthly/standard_monthly',
+  'frozen/standard_monthly',
+  'active_ultimate_apm/ultimate_apm',
+  'freemium/standard_apm',
+  'active_standard_apm/standard_apm',
+  'frozen/standard_apm',
+  'active_ultimate_upfront/ultimate_upfront',
+  'freemium/ultimate_apm',
+  'active_standard_monthly/ultimate_apm',
+  'frozen/ultimate_apm',
+  'active_standard_apm/ultimate_apm',
+  'freemium/ultimate_upfront',
+  'active_standard_monthly/ultimate_upfront',
+  'frozen/ultimate_upfront',
 ].filter((profile) => standardPlans.includes(profile.split('/')[1]));
 const ultimateOnly = new Set(['boxing-banner-ultimate', 'boxing-ultimate-subscription', 'boxing-join-the-club']);
 const validUltimateProfiles = new Set(['active_standard_monthly/ultimate_apm', 'active_standard_monthly/ultimate_upfront', 'active_standard_apm/ultimate_apm']);
@@ -262,59 +272,16 @@ switch (mode) {
     }
     break;
   }
-  case 'web-sanity-new': {
-    const sources = applicable(liveSources.new, false);
-    matrix = sources.map((source, index) => {
-      const plans = standardPlans.filter((plan) => !ultimateOnly.has(source) || plan.startsWith('ultimate_'));
-      return { source, plan: plans[index % plans.length] };
-    });
-    break;
-  }
-  case 'web-sanity-signin': {
-    const sources = applicable(liveSources.existing, false);
-    matrix = sources.map((source, index) => {
-      const profiles = regularProfiles.filter((profile) => !ultimateOnly.has(source) || validUltimateProfiles.has(profile));
-      const ultimateProfile = source === 'schedule'
-        ? 'active_ultimate_apm/ultimate_apm'
-        : source === 'myaccount'
-          ? 'active_ultimate_upfront/ultimate_upfront'
-          : undefined;
-      return { source, profile: ultimateProfile && profiles.includes(ultimateProfile) ? ultimateProfile : profiles[index % profiles.length] };
-    });
-    break;
-  }
-  case 'web-sanity-signed': {
-    const sources = applicable(liveSources.signed, false);
-    matrix = sources.map((source, index) => {
-      const profiles = regularProfiles.filter((profile) => !ultimateOnly.has(source) || validUltimateProfiles.has(profile));
-      const ultimateProfile = source === 'schedule'
-        ? 'active_ultimate_apm/ultimate_apm'
-        : source === 'myaccount'
-          ? 'active_ultimate_upfront/ultimate_upfront'
-          : undefined;
-      return { source, profile: ultimateProfile && profiles.includes(ultimateProfile) ? ultimateProfile : profiles[index % profiles.length] };
-    });
-    break;
-  }
-  case 'android-full-new': matrix = assignAndroidDevices(androidNewSources.flatMap(source => standardPlans.map(plan => ({ source, plan })))); break;
-  case 'android-full-signin': matrix = assignAndroidDevices(androidNewSources.flatMap(source => androidProfiles.map(profile => ({ source, profile })))); break;
-  case 'android-full-signed': matrix = assignAndroidDevices(androidExistingSources.flatMap(source => androidProfiles.map(profile => ({ source, profile })))); break;
-  case 'android-sanity-new': matrix = assignAndroidDevices(androidNewSources.map((source, index) => ({ source, plan: standardPlans[index % standardPlans.length] }))); break;
-  case 'android-sanity-signin': matrix = assignAndroidDevices(androidNewSources.map((source, index) => ({ source, profile: androidProfiles[index] }))); break;
-  case 'android-sanity-signed': matrix = assignAndroidDevices(androidExistingSources.map((source, index) => ({ source, profile: androidProfiles[(index + androidNewSources.length) % androidProfiles.length] }))); break;
-  case 'ios-full-new': matrix = assignIosDevices(iosNewSources.flatMap(source => standardPlans.map(plan => ({ source, plan })))); break;
-  case 'ios-full-signin': matrix = assignIosDevices(iosNewSources.flatMap(source => iosProfiles.map(profile => ({ source, profile })))); break;
-  case 'ios-full-signed': matrix = assignIosDevices(iosExistingSources.flatMap(source => iosProfiles.map(profile => ({ source, profile })))); break;
-  case 'ios-sanity-new': matrix = assignIosDevices(iosNewSources.map((source, index) => ({ source, plan: standardPlans[index % standardPlans.length] }))); break;
-  case 'ios-sanity-signin': matrix = assignIosDevices(iosNewSources.map((source, index) => ({ source, profile: iosProfiles[index] }))); break;
-  case 'ios-sanity-signed': matrix = assignIosDevices(iosExistingSources.map((source, index) => ({ source, profile: iosProfiles[index + iosNewSources.length] }))); break;
   case 'ufc-sanity-new':
   case 'web-sanity-new': {
     const sources = applicable(liveSources.new, false);
     if (canadaPlans) {
       matrix = sources.map((source, index) => ({ source, plan: canadaPlans[index % canadaPlans.length] }));
     } else {
-      matrix = sources.map((source, index) => ({ source, plan: standardPlans[index % standardPlans.length] }));
+      matrix = sources.map((source, index) => {
+        const plans = standardPlans.filter((plan) => !ultimateOnly.has(source) || plan.startsWith('ultimate_'));
+        return { source, plan: plans[index % plans.length] };
+      });
     }
     break;
   }
@@ -325,7 +292,15 @@ switch (mode) {
     if (canadaProfiles) {
       matrix = sources.map((source, index) => ({ source, profile: canadaProfiles[index % canadaProfiles.length] }));
     } else {
-      matrix = sources.map((source, index) => ({ source, profile: regularProfiles[index % regularProfiles.length] }));
+      matrix = sources.map((source, index) => {
+        const profiles = regularProfiles.filter((profile) => !ultimateOnly.has(source) || validUltimateProfiles.has(profile));
+        const ultimateProfile = source === 'schedule'
+          ? 'active_ultimate_apm/ultimate_apm'
+          : source === 'myaccount'
+            ? 'active_ultimate_upfront/ultimate_upfront'
+            : undefined;
+        return { source, profile: ultimateProfile && profiles.includes(ultimateProfile) ? ultimateProfile : profiles[index % profiles.length] };
+      });
     }
     break;
   }
@@ -335,24 +310,64 @@ switch (mode) {
     if (canadaProfiles) {
       matrix = sources.map((source, index) => ({ source, profile: canadaProfiles[(index + sources.length) % canadaProfiles.length] }));
     } else {
-      matrix = sources.map((source, index) => ({ source, profile: regularProfiles[(index + sources.length) % regularProfiles.length] }));
+      matrix = sources.map((source, index) => {
+        let profiles = regularProfiles.filter((profile) => !ultimateOnly.has(source) || validUltimateProfiles.has(profile));
+        if (source === 'boxing-standard-subscription') {
+          profiles = profiles.filter((p) => p.startsWith('freemium/') || p.startsWith('frozen/'));
+        }
+        const ultimateProfile = source === 'schedule'
+          ? 'active_ultimate_apm/ultimate_apm'
+          : source === 'myaccount'
+            ? 'active_ultimate_upfront/ultimate_upfront'
+            : undefined;
+        return { source, profile: ultimateProfile && profiles.includes(ultimateProfile) ? ultimateProfile : profiles[index % profiles.length] };
+      });
     }
     break;
   }
+  case 'android-full-new': matrix = assignAndroidDevices(androidNewSources.flatMap(source => standardPlans.map(plan => ({ source, plan })))); break;
+  case 'android-full-signin': matrix = assignAndroidDevices(androidNewSources.flatMap(source => androidProfiles.map(profile => ({ source, profile })))); break;
+  case 'android-full-signed': matrix = assignAndroidDevices(androidExistingSources.flatMap(source => androidProfiles.map(profile => ({ source, profile })))); break;
+  case 'android-sanity-new': matrix = assignAndroidDevices(androidNewSources.map((source, index) => ({ source, plan: standardPlans[index % standardPlans.length] }))); break;
+  case 'android-sanity-signin': matrix = assignAndroidDevices(androidNewSources.map((source, index) => ({ source, profile: androidProfiles[index % androidProfiles.length] }))); break;
+  case 'android-sanity-signed': matrix = assignAndroidDevices(androidExistingSources.map((source, index) => ({ source, profile: androidProfiles[(index + 3) % androidProfiles.length] }))); break;
+  case 'ios-full-new': matrix = assignIosDevices(iosNewSources.flatMap(source => standardPlans.map(plan => ({ source, plan })))); break;
+  case 'ios-full-signin': matrix = assignIosDevices(iosNewSources.flatMap(source => iosProfiles.map(profile => ({ source, profile })))); break;
+  case 'ios-full-signed': matrix = assignIosDevices(iosExistingSources.flatMap(source => iosProfiles.map(profile => ({ source, profile })))); break;
+  case 'ios-sanity-new': matrix = assignIosDevices(iosNewSources.map((source, index) => ({ source, plan: standardPlans[index % standardPlans.length] }))); break;
+  case 'ios-sanity-signin': matrix = assignIosDevices(iosNewSources.map((source, index) => ({ source, profile: iosProfiles[index % iosProfiles.length] }))); break;
+  case 'ios-sanity-signed': matrix = assignIosDevices(iosExistingSources.map((source, index) => ({ source, profile: iosProfiles[(index + 3) % iosProfiles.length] }))); break;
   case 'default-new':
     matrix = ['boxing-standard-subscription', 'home-page-get-started', 'home-page-dazntile'].flatMap((source) => standardPlans.map((plan) => ({ source, plan })));
     matrix.push({ source: 'subscribe-without-pay-per-view', plan: 'standard_monthly' });
     break;
-  case 'default-signin':
-    matrix = ['boxing-standard-subscription', 'home-page-get-started', 'home-page-dazntile'].flatMap((source) => standardPlans.flatMap((plan) => [{ source, profile: `freemium/${plan}` }, { source, profile: `frozen/${plan}` }]));
+  case 'default-signin': {
+    matrix = ['boxing-standard-subscription', 'home-page-get-started', 'home-page-dazntile'].flatMap((source) =>
+      standardPlans.flatMap((plan, pi) => {
+        const i = pi * 2;
+        const p0 = regularProfiles[i % regularProfiles.length];
+        const p1 = regularProfiles[(i + 1) % regularProfiles.length];
+        return [{ source, profile: p0 }, { source, profile: p1 }];
+      })
+    );
     matrix.push({ source: 'subscribe-without-pay-per-view', profile: 'freemium/standard_monthly' });
     break;
+  }
   case 'default-signed':
     matrix = [
-      ...['boxing-standard-subscription', 'home-page-dazntile'].flatMap((source) => standardPlans.flatMap((plan) => [{ source, profile: `freemium/${plan}` }, { source, profile: `frozen/${plan}` }])),
-      ...standardPlans.map((plan) => ({ source: 'home-page-subscribe', profile: `freemium/${plan}` })),
-      ...standardPlans.map((plan) => ({ source: 'myaccount', profile: `freemium/${plan}`, scenario: 'upgrade' })),
-      ...standardPlans.map((plan) => ({ source: 'myaccount-subscription-status', profile: `frozen/${plan}`, scenario: 'resubscribe' })),
+      ...standardPlans.flatMap((plan) => [
+        { source: 'boxing-standard-subscription', profile: `freemium/${plan}` },
+        { source: 'boxing-standard-subscription', profile: `frozen/${plan}` },
+      ]),
+      ...standardPlans.flatMap((plan, pi) => {
+        const i = pi * 2;
+        const p0 = regularProfiles[i % regularProfiles.length];
+        const p1 = regularProfiles[(i + 1) % regularProfiles.length];
+        return [{ source: 'home-page-dazntile', profile: p0 }, { source: 'home-page-dazntile', profile: p1 }];
+      }),
+      ...standardPlans.map((plan, pi) => ({ source: 'home-page-subscribe', profile: regularProfiles[pi % regularProfiles.length] })),
+      ...standardPlans.map((plan, pi) => ({ source: 'myaccount', profile: regularProfiles[(pi + 2) % regularProfiles.length], scenario: 'upgrade' })),
+      ...standardPlans.map((plan, pi) => ({ source: 'myaccount-subscription-status', profile: regularProfiles[(pi + 4) % regularProfiles.length], scenario: 'resubscribe' })),
       { source: 'subscribe-without-pay-per-view', profile: 'freemium/standard_monthly' },
     ];
     break;

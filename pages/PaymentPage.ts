@@ -890,7 +890,10 @@ export class PaymentPage extends BasePage {
         source === 'boxing-ultimate-subscription' ||
         source === 'boxing-standard-subscription' ||
         source === 'boxing-join-the-club';
-      if (isDefaultSignup) return 'N/A';
+      const hasPPVEvent = !!(eventData.PPV_NAME && eventData.PPV_NAME !== 'N/A' && eventData.PPV_NAME !== 'none');
+      const isUltimateTier = (eventData.TIER || '').toLowerCase() === 'ultimate';
+      // Default signup + no PPV event, or default signup + ultimate tier (PPV included — not shown separately)
+      if (isDefaultSignup && (!hasPPVEvent || isUltimateTier)) return 'N/A';
 
       const ppvName = eventData.PPV_NAME || '';
       const regex = new RegExp(ppvName.split(/\s+/).join('.*'), 'i');
@@ -996,7 +999,10 @@ export class PaymentPage extends BasePage {
         source === 'boxing-ultimate-subscription' ||
         source === 'boxing-standard-subscription' ||
         source === 'boxing-join-the-club';
-      if (isDefaultSignup) return 'N/A';
+      const hasPPVEvent = !!(eventData.PPV_NAME && eventData.PPV_NAME !== 'N/A' && eventData.PPV_NAME !== 'none');
+      const isUltimateTier = (eventData.TIER || '').toLowerCase() === 'ultimate';
+      // Default signup + no PPV event, or default signup + ultimate tier (PPV included — not shown separately)
+      if (isDefaultSignup && (!hasPPVEvent || isUltimateTier)) return 'N/A';
 
       const ppvName = eventData.PPV_NAME || '';
       let ppvIndex = -1;

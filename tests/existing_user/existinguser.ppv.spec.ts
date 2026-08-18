@@ -4769,6 +4769,13 @@ for (const stateKey of userStatesToRun) {
       const skippedCount = results.filter(r => String(r.status).toUpperCase() === 'SKIP').length;
       const total = passed + failed + skippedCount;
 
+      if (passed === 0 && failed === 0 && skippedCount > 0) {
+        const skipReason = results.find(r => String(r.status).toUpperCase() === 'SKIP')?.actual || 'PPV not configured for this source';
+        console.log(`⏭️ Flow "${SOURCE} (${stateKey})" skipped: ${skipReason}`);
+        test.skip(true, skipReason);
+        return;
+      }
+
       console.log(`\n✅ Flow "${SOURCE} (${stateKey})" complete: ${passed}/${total} passed (${total > 0 ? ((passed / total) * 100).toFixed(1) : 0}%)`);
       console.log(`${'─'.repeat(55)}`);
       console.log('__DEMO_FLOW_COMPLETE__');

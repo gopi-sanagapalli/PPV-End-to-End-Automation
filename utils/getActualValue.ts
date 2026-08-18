@@ -2877,7 +2877,8 @@ export async function getActualValue(
         source === 'boxing-ultimate-subscription' ||
         source === 'boxing-standard-subscription' ||
         source === 'boxing-join-the-club';
-      if (isDefaultSignup) {
+      const hasPPVEvent = !!(eventData?.PPV_NAME && eventData.PPV_NAME !== 'N/A' && eventData.PPV_NAME !== 'none');
+      if (isDefaultSignup && !hasPPVEvent) {
         return 'N/A';
       }
       const url = page.url();
@@ -3730,7 +3731,8 @@ export async function getActualValue(
         source === 'boxing-ultimate-subscription' ||
         source === 'boxing-standard-subscription' ||
         source === 'boxing-join-the-club';
-      if (isDefaultSignup) {
+      const hasPPVEvent = !!(eventData?.PPV_NAME && eventData.PPV_NAME !== 'N/A' && eventData.PPV_NAME !== 'none');
+      if (isDefaultSignup && !hasPPVEvent) {
         return 'N/A';
       }
       const expectedPrice = eventData?.PPV_PRICE || '';
