@@ -180,7 +180,7 @@ async function runFlow(
     return { results, reachedEndPage: false, skipped: true, skipReason };
   }
 
-  if (requiresDefaultSignup && json?.HAS_DEFAULT_SIGNUP_PPV !== true) {
+  if (requiresDefaultSignup && json?.HAS_DEFAULT_SIGNUP_PPV !== true && !isDefaultSignupDevMode) {
     const skipReason = `SOURCE "${source}" requires HAS_DEFAULT_SIGNUP_PPV: true; selected event does not enable PPV in the default signup journey.`;
     console.log(`INFO: ${skipReason} Skipping flow.`);
     return { results, reachedEndPage: false, skipped: true, skipReason };
