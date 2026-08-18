@@ -20,7 +20,9 @@ on:
         type: choice
         default: "false"
         options: ["true", "false"]
-permissions: { contents: read }
+permissions:
+  contents: read
+  actions: write
 env:
   DEFAULT_SIGNUP_DEVMODE: ${{ inputs.DEFAULT_SIGNUP_DEVMODE }}
   JIRA_REGION: ${{ inputs.COUNTRY }}
@@ -63,7 +65,7 @@ jobs:
     environment: prod
     strategy:
       fail-fast: false
-      max-parallel: 10
+      max-parallel: 12
       matrix:
         include: ${{ fromJSON(needs.prepare.outputs.new_matrix) }}
     name: New user | ${{ matrix.source }} | ${{ matrix.plan }}

@@ -20,7 +20,9 @@ on:
         type: choice
         default: "true"
         options: ["true", "false"]
-permissions: { contents: read }
+permissions:
+  contents: read
+  actions: write
 env:
   PPV_DEV_MODE: ${{ inputs.PPV_DEV_MODE }}
   JIRA_REGION: ${{ inputs.COUNTRY }}
