@@ -266,45 +266,49 @@ export class AndroidBasePage {
     ppvName = this.ppvName,
     options: { horizontalSwipes?: number; verticalScrolls?: number } = {},
   ): Promise<boolean> {
-    const horizontalSwipes = options.horizontalSwipes ?? 8;
-    const verticalScrolls = options.verticalScrolls ?? 5;
+    const horizontalSwipes = options.horizontalSwipes ?? 10;
     const normalizedPpvName = ppvName.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
     const ppvNameCandidates = Array.from(new Set([ppvName, normalizedPpvName]));
 
-    const isCurrentBannerPPV = async (timeoutMs: number): Promise<boolean> => {
+    const isCurrentBannerVisibleOnScreen = async (): Promise<boolean> => {
       for (const candidate of ppvNameCandidates) {
-        if (await this.isVisible(candidate, timeoutMs)) return true;
+        try {
+          const els = await this.driver.$$(`android=new UiSelector().textContains("${candidate}")`);
+          for (const el of els) {
+            if (await el.isDisplayed().catch(() => false)) {
+              return true;
+            }
+          }
+        } catch { }
+        try {
+          const descEls = await this.driver.$$(`android=new UiSelector().descriptionContains("${candidate}")`);
+          for (const el of descEls) {
+            if (await el.isDisplayed().catch(() => false)) {
+              return true;
+            }
+          }
+        } catch { }
       }
-
-      // Compose carousel text is sometimes available in the UI hierarchy a
-      // fraction before UiSelector reports it as displayed. Checking it here
-      // prevents a visible PPV card being skipped while the carousel moves.
-      try {
-        const pageSource = (await this.driver.getPageSource()).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-        return pageSource.includes(normalizedPpvName.toLowerCase());
-      } catch {
-        return false;
-      }
+      return false;
     };
 
-    // Let the auto-advancing card render naturally first. This is faster and
-    // more reliable than swiping away the PPV card while it is entering view.
-    console.log(`  Waiting for "${ppvName}" to become the current banner...`);
-    for (let attempt = 0; attempt < 16; attempt++) {
-      if (await isCurrentBannerPPV(500)) return true;
-      await this.driver.pause(250);
+    console.log(`  Checking if "${ppvName}" is the active banner on screen...`);
+    for (let attempt = 0; attempt < 6; attempt++) {
+      if (await isCurrentBannerVisibleOnScreen()) {
+        console.log(`  ✓ Banner "${ppvName}" is currently active on screen!`);
+        return true;
+      }
+      await this.driver.pause(500);
     }
 
-    console.log(`  PPV banner not immediately visible. Swiping left to find "${ppvName}"...`);
+    console.log(`  PPV banner "${ppvName}" not active on screen. Swiping banner carousel horizontally to find "${ppvName}"...`);
     for (let i = 0; i < horizontalSwipes; i++) {
       await this.swipeLeft();
-      if (await isCurrentBannerPPV(750)) return true;
-    }
-
-    console.log('  Swiping left exhausted. Trying vertical scroll down...');
-    for (let i = 0; i < verticalScrolls; i++) {
-      await this.scrollDown();
-      if (await isCurrentBannerPPV(750)) return true;
+      await this.driver.pause(1200);
+      if (await isCurrentBannerVisibleOnScreen()) {
+        console.log(`  ✓ Found and centered banner "${ppvName}" on horizontal swipe ${i + 1}!`);
+        return true;
+      }
     }
 
     return false;

@@ -365,7 +365,7 @@ describe('DAZN Android PPV → Web Handoff', () => {
 
     // ── home-boxing-upcoming ────────────────────────────────────────────
     else if (SOURCE === 'home-boxing-upcoming') {
-      buyTapped = await openHomeBoxingUpcomingPaywall(driver, PPV_NAME, json, androidFlowHooks);
+      buyTapped = await openHomeBoxingUpcomingPaywall(driver, PPV_NAME, eventData, androidFlowHooks);
     }
 
     // ── home-boxing-banner ────────────────────────────────────────────────
@@ -375,7 +375,7 @@ describe('DAZN Android PPV → Web Handoff', () => {
 
     // ── home-boxing-tile ──────────────────────────────────────────────────
     else if (SOURCE === 'home-boxing-tile') {
-      buyTapped = await openHomeBoxingDontMissTilePaywall(driver, PPV_NAME, androidFlowHooks, json);
+      buyTapped = await openHomeBoxingDontMissTilePaywall(driver, PPV_NAME, androidFlowHooks, eventData);
     }
 
     // ── landing-page-banner ───────────────────────────────────────────────
@@ -460,11 +460,12 @@ describe('DAZN Android PPV → Web Handoff', () => {
       throw new Error(`❌ Could not tap Buy CTA. SOURCE="${SOURCE}". See test-results/android_buy_not_found.png`);
     }
 
-    const isUltimateUserHandoff = ['active_ultimate_apm', 'active_ultimate_upfront'].includes(String(process.env.USER_STATE || '').toLowerCase().trim());
+    const cleanUserState = String(process.env.USER_STATE || '').toLowerCase().trim().replace('-', '_');
+    const isUltimateUserHandoff = ['active_ultimate_upfront', 'active_ultimate_apm'].includes(cleanUserState);
     const isLoginFirst = String(process.env.LOGIN_FIRST || '').toLowerCase() === 'true';
     if (isUltimateUserHandoff && isLoginFirst) {
       console.log(`\n✨ [Ultimate Active User with LOGIN_FIRST=true] Navigated to fixture page after PIN Protection validation for SOURCE="${SOURCE}".`);
-      console.log('   Ending flow and closing the app as expected for Ultimate active user.');
+      console.log('   Ending flow and closing the app as expected for Ultimate active user (no paywall expected).');
       console.log('📱 Closing DAZN app...');
       adb("shell am force-stop " + APP_PACKAGE);
       return;

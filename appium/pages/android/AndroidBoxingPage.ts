@@ -17,6 +17,53 @@ export interface AndroidPPVDateParts {
 
 export function getPPVDateParts(eventConfig?: any): AndroidPPVDateParts {
   try {
+    // 1. Check regional date fields first (e.g. US: Sat 22nd August)
+    const regionalDateStr =
+      eventConfig?.HOME_BOXING_UPCOMING_DATE ||
+      eventConfig?.MOBILE_SCHEDULE_DAY_DATE ||
+      eventConfig?.MOBILE_BANNER_DATE_TIME ||
+      eventConfig?.LANDING_PAGE_PPV_DATE ||
+      eventConfig?.PPV_DATE ||
+      eventConfig?.MOBILE_PPV_DATE ||
+      '';
+
+    if (regionalDateStr) {
+      const monthsFull = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+      const monthsShort = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+
+      const monthMatch = regionalDateStr.match(/\b(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b/i);
+      const dayMatch = regionalDateStr.match(/\b(\d{1,2})(?:st|nd|rd|th)?\b/);
+
+      if (monthMatch && dayMatch) {
+        const mStr = monthMatch[1].toLowerCase();
+        const mIdx = monthsShort.findIndex(s => s.toLowerCase() === mStr.substring(0, 3));
+        if (mIdx !== -1) {
+          return {
+            month: monthsFull[mIdx],
+            monthShort: monthsShort[mIdx],
+            day: dayMatch[1].replace(/\D/g, ''),
+          };
+        }
+      }
+    }
+
+    // Direct day / month overrides from event JSON
+    if (eventConfig?.MOBILE_SCHEDULE_DATE || eventConfig?.MOBILE_BANNER_DATE) {
+      const rawDay = String(eventConfig.MOBILE_SCHEDULE_DATE || eventConfig.MOBILE_BANNER_DATE || '').replace(/\D/g, '');
+      const rawMonthShort = String(eventConfig.MOBILE_SCHEDULE_MONTH || '').toUpperCase().substring(0, 3);
+      if (rawDay && rawMonthShort) {
+        const monthsFull = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+        const monthsShort = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+        const mIdx = monthsShort.indexOf(rawMonthShort);
+        return {
+          month: mIdx !== -1 ? monthsFull[mIdx] : rawMonthShort,
+          monthShort: rawMonthShort,
+          day: rawDay,
+        };
+      }
+    }
+
+    // 2. Fallback to UTC date if no regional date is specified
     const utcDate = eventConfig?.global?.PPV_UTC_DATE || eventConfig?.PPV_UTC_DATE || '';
     if (utcDate) {
       const d = new Date(utcDate);
@@ -298,7 +345,8 @@ export class AndroidBoxingPage extends AndroidBasePage {
   }
 
   async tapBuyNowNearPPV(): Promise<boolean> {
-    const isUltimateUser = ['active_ultimate_apm', 'active_ultimate_upfront'].includes(String(process.env.USER_STATE || '').toLowerCase().trim());
+    const cleanUserState = String(process.env.USER_STATE || '').toLowerCase().trim().replace('-', '_');
+    const isUltimateUser = ['active_ultimate_upfront', 'active_ultimate_apm'].includes(cleanUserState);
     const isLoginFirst = String(process.env.LOGIN_FIRST || '').toLowerCase() === 'true';
 
     if (isUltimateUser && isLoginFirst) {
@@ -309,7 +357,7 @@ export class AndroidBoxingPage extends AndroidBasePage {
           await el.click();
           console.log(`  Tapped PPV tile text: "${this.ppvName}"`);
           await this.handlePinProtectionIfPresent();
-          console.log('✨ [Ultimate Active User with LOGIN_FIRST=true] Navigated to fixture page. Ending flow.');
+          console.log('✨ [Ultimate Active User with LOGIN_FIRST=true] Navigated to fixture page. Ending flow (no paywall expected).');
           return true;
         }
       }
@@ -428,7 +476,7 @@ export class AndroidBoxingPage extends AndroidBasePage {
     await this.navigateViaSports();
     await this.driver.pause(1500);
 
-    const found = await this.findPPVBanner(this.ppvName);
+    const found = await this.findBannerOnCurrentPage(this.ppvName);
     if (!found && options.requireBanner) {
       const shot = hooks.saveScreenshot
         ? await hooks.saveScreenshot('./test-results/android_boxing_page_ppv_banner_not_found.png')
@@ -440,7 +488,17 @@ export class AndroidBoxingPage extends AndroidBasePage {
 
     if (found) {
       hooks.recordAvailability?.(true, undefined, 'Home of Boxing');
+      console.log(`  Verified banner title: "${this.ppvName}"`);
       await this.runSurfaceValidation(hooks, 'PPV Banner');
+    }
+
+    const cleanUserState = String(process.env.USER_STATE || '').toLowerCase().trim().replace('-', '_');
+    const isUltimateUser = ['active_ultimate_upfront', 'active_ultimate_apm'].includes(cleanUserState);
+    const isLoginFirst = String(process.env.LOGIN_FIRST || '').toLowerCase() === 'true';
+
+    if (isUltimateUser && isLoginFirst) {
+      console.log('✨ [Ultimate Active User with LOGIN_FIRST=true] PPV banner verified (boxing). Ending banner flow (no fixture / checkout expected).');
+      return true;
     }
 
     return this.tapBuyCtaWithFallback(['Buy this fight', 'Buy now', 'Buy Now', 'Buy'], {
@@ -454,12 +512,8 @@ export class AndroidBoxingPage extends AndroidBasePage {
     await this.clickHomeBoxingFilter();
     await this.driver.saveScreenshot('./test-results/android_boxing_page.png');
 
-    let found = await this.findPPVBanner(this.ppvName);
-    for (let i = 0; i < 8 && !found; i++) {
-      await this.scrollDown();
-      found = await this.isVisible(this.ppvName, 1500);
-    }
-
+    console.log(`  Finding PPV banner for "${this.ppvName}" on Boxing page...`);
+    const found = await this.findBannerOnCurrentPage(this.ppvName);
     if (!found) {
       const shot = hooks.saveScreenshot
         ? await hooks.saveScreenshot('./test-results/android_ppv_banner_not_found.png')
@@ -470,16 +524,16 @@ export class AndroidBoxingPage extends AndroidBasePage {
     }
 
     hooks.recordAvailability?.(true, undefined, 'Home of Boxing');
+    console.log(`  Verified banner title: "${this.ppvName}"`);
     await this.driver.saveScreenshot('./test-results/android_ppv_banner_found.png');
     await this.runSurfaceValidation(hooks, 'PPV Banner');
 
-    const isUltimateUser = ['active_ultimate_apm', 'active_ultimate_upfront'].includes(String(process.env.USER_STATE || '').toLowerCase().trim());
+    const cleanUserState = String(process.env.USER_STATE || '').toLowerCase().trim().replace('-', '_');
+    const isUltimateUser = ['active_ultimate_upfront', 'active_ultimate_apm'].includes(cleanUserState);
     const isLoginFirst = String(process.env.LOGIN_FIRST || '').toLowerCase() === 'true';
 
     if (isUltimateUser && isLoginFirst) {
-      console.log('✨ [Ultimate Active User with LOGIN_FIRST=true] PPV banner verified (boxing). Checking for PIN Protection screen...');
-      await this.handlePinProtectionIfPresent();
-      console.log('✨ [Ultimate Active User with LOGIN_FIRST=true] Navigated to fixture page. Ending flow.');
+      console.log('✨ [Ultimate Active User with LOGIN_FIRST=true] PPV banner verified (boxing). Ending banner flow (no fixture / checkout expected).');
       return true;
     }
 
@@ -581,10 +635,11 @@ export class AndroidBoxingPage extends AndroidBasePage {
 
     if (locatorRes.success) {
       const userState = String(process.env.USER_STATE || '').toLowerCase().trim().replace('-', '_');
-      const isUltimateUser = ['active_ultimate_apm', 'active_ultimate_upfront'].includes(userState);
+      const isUltimateUser = ['active_ultimate_upfront', 'active_ultimate_apm'].includes(userState);
+      const isLoginFirst = String(process.env.LOGIN_FIRST || '').toLowerCase() === 'true';
 
-      if (isUltimateUser) {
-        console.log('  Active Ultimate User: Checking for PIN protection or WATCH NOW CTA on fixture screen...');
+      if (isUltimateUser && isLoginFirst) {
+        console.log('  Active Ultimate User with LOGIN_FIRST=true: Checking for PIN protection or WATCH NOW CTA on fixture screen...');
         await this.handlePinProtectionIfPresent();
         await this.driver.pause(2000);
         return true;
@@ -627,10 +682,11 @@ export class AndroidBoxingPage extends AndroidBasePage {
 
     if (locatorRes.success) {
       const userState = String(process.env.USER_STATE || '').toLowerCase().trim().replace('-', '_');
-      const isUltimateUser = ['active_ultimate_apm', 'active_ultimate_upfront'].includes(userState);
+      const isUltimateUser = ['active_ultimate_upfront', 'active_ultimate_apm'].includes(userState);
+      const isLoginFirst = String(process.env.LOGIN_FIRST || '').toLowerCase() === 'true';
 
-      if (isUltimateUser) {
-        console.log('  Active Ultimate User: Checking for PIN protection or WATCH NOW CTA on fixture screen...');
+      if (isUltimateUser && isLoginFirst) {
+        console.log('  Active Ultimate User with LOGIN_FIRST=true: Checking for PIN protection or WATCH NOW CTA on fixture screen...');
         await this.handlePinProtectionIfPresent();
         await this.driver.pause(2000);
         return true;

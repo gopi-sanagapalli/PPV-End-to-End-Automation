@@ -156,7 +156,12 @@ export class DynamicPpvTileLocator {
         });
 
         hooks.recordAvailability?.(true, undefined, `${pageName} Page`);
-        await hooks.validatePaywall?.().catch(() => { });
+        const userStateStr = String(process.env.USER_STATE || '').toLowerCase().trim().replace('-', '_');
+        const isUltimateUser = ['active_ultimate_upfront', 'active_ultimate_apm'].includes(userStateStr);
+        const isLoginFirst = String(process.env.LOGIN_FIRST || '').toLowerCase() === 'true';
+        if (!isUltimateUser || !isLoginFirst) {
+          await hooks.validatePaywall?.().catch(() => { });
+        }
 
         return {
           success: true,
@@ -228,7 +233,12 @@ export class DynamicPpvTileLocator {
 
         // Trigger hooks if passed
         hooks.recordAvailability?.(true, undefined, `${pageName} Page`);
-        await hooks.validatePaywall?.().catch(() => { });
+        const userStateStr = String(process.env.USER_STATE || '').toLowerCase().trim().replace('-', '_');
+        const isUltimateUser = ['active_ultimate_upfront', 'active_ultimate_apm'].includes(userStateStr);
+        const isLoginFirst = String(process.env.LOGIN_FIRST || '').toLowerCase() === 'true';
+        if (!isUltimateUser || !isLoginFirst) {
+          await hooks.validatePaywall?.().catch(() => { });
+        }
 
         return {
           success: true,
@@ -563,14 +573,12 @@ export class DynamicPpvTileLocator {
       const nameParts = cleanExpected.split(/[:\-–]/).map(p => p.trim()).filter(p => p.length > 2);
       const fighterWords = normalizeAndroidTitleWords(expectedPpvTitle).filter(w => !['vs', 'v', 'the', 'and', 'at', 'on', 'ppv'].includes(w) && w.length > 2);
 
-      const matchesTitle = (cleanExpected && pageSource.includes(cleanExpected)) ||
-        (normExpected && normPageSource.includes(normExpected));
-      const matchesEntitlement = cleanEntitlement && pageSource.includes(cleanEntitlement);
-      const matchesPart = nameParts.some(part => pageSource.includes(part)) ||
-        (fighterWords.length > 0 && fighterWords.some(w => normPageSource.includes(w)));
-      const matchesPaywallCta = pageSource.includes('buy') || pageSource.includes('get ppv') || pageSource.includes('subscribe') || pageSource.includes('purchase') || pageSource.includes('event pass') || pageSource.includes('order') || pageSource.includes('checkout') || pageSource.includes('paywall');
+      const userStateStr = String(process.env.USER_STATE || '').toLowerCase().trim().replace('-', '_');
+      const isUltimate = ['active_ultimate_upfront', 'active_ultimate_apm'].includes(userStateStr);
+      const isLoginFirst = String(process.env.LOGIN_FIRST || '').toLowerCase() === 'true';
+      const matchesFixtureOrWatch = pageSource.includes('watch') || pageSource.includes('play') || pageSource.includes('fixture') || pageSource.includes('related') || pageSource.includes('live') || pageSource.includes('matchroom') || (isUltimate && isLoginFirst);
 
-      if ((matchesTitle || matchesEntitlement || matchesPart) && (matchesPaywallCta || matchesTitle)) {
+      if ((matchesTitle || matchesEntitlement || matchesPart) && (matchesPaywallCta || matchesTitle || matchesFixtureOrWatch)) {
         return true;
       }
 

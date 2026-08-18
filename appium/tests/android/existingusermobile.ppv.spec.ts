@@ -322,8 +322,8 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
       const planTier = (planData.TIER || 'standard').toLowerCase();
       const ratePlan = (planData.RATE_PLAN || 'monthly').toLowerCase();
 
-      // Merge mobile overrides
-      let mobileRegional: any = {};
+      // Merge mobile overrides before buildEventData (aligned with ppv.handoff.spec.ts)
+      let mobileRegional = {};
       try {
         let mobileConfigPath = path.resolve(__dirname, '../../config/events', EVENT_CONFIG);
         if (!fs.existsSync(mobileConfigPath) && json.eventKey) {
@@ -549,7 +549,7 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
 
       // ── home-boxing-upcoming ──────────────────────────────────────────────
       else if (SOURCE === 'home-boxing-upcoming') {
-        buyTapped = await openHomeBoxingUpcomingPaywall(driver, PPV_NAME, event, androidFlowHooks);
+        buyTapped = await openHomeBoxingUpcomingPaywall(driver, PPV_NAME, eventData, androidFlowHooks);
       }
 
       // ── home-boxing-banner ────────────────────────────────────────────────
@@ -559,7 +559,7 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
 
       // ── home-boxing-tile ──────────────────────────────────────────────────
       else if (SOURCE === 'home-boxing-tile') {
-        buyTapped = await openHomeBoxingDontMissTilePaywall(driver, PPV_NAME, androidFlowHooks, event);
+        buyTapped = await openHomeBoxingDontMissTilePaywall(driver, PPV_NAME, androidFlowHooks, eventData);
       }
 
       // ── home-page-banner ──────────────────────────────────────────────────
@@ -592,15 +592,27 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
         throw new Error(`❌ Could not tap Buy CTA. SOURCE="${SOURCE}". See test-results/android_buy_not_found.png`);
       }
 
-      const isUltimateUserSpec = ['active_ultimate_apm', 'active_ultimate_upfront'].includes(String(process.env.USER_STATE || '').toLowerCase().trim());
-      if (isUltimateUserSpec && LOGIN_FIRST) {
-        console.log(`\n╔══════════════════════════════════════════════════════════════════════════════════╗`);
-        console.log(`║ 💎 [Active Ultimate User - Existing PPV Entitlement]                              ║`);
-        console.log(`║    User "${USER_STATE}" is logged in and already has active access / entitlement.║`);
-        console.log(`║    Tile "${SOURCE}" clicked -> PIN Protection ("WATCH NOW") -> Navigated to Fixture. ║`);
-        console.log(`╚══════════════════════════════════════════════════════════════════════════════════╝\n`);
+      const cleanUserState = String(process.env.USER_STATE || USER_STATE || '').toLowerCase().trim().replace('-', '_');
+      const isUltimateUserSpec = ['active_ultimate_upfront', 'active_ultimate_apm'].includes(cleanUserState);
+      const isLoginFirst = String(process.env.LOGIN_FIRST || LOGIN_FIRST || '').toLowerCase() === 'true';
+      if (isUltimateUserSpec && isLoginFirst) {
+        const isFixtureTileFlow = ['search', 'schedule', 'home-page-dont-miss', 'home-boxing-tile'].includes(SOURCE);
 
-        await validateAndroidFixturePage(driver, PPV_NAME, appiumResults, eventData);
+        if (isFixtureTileFlow) {
+          console.log(`\n╔══════════════════════════════════════════════════════════════════════════════════╗`);
+          console.log(`║ 💎 [Active Ultimate User - Existing PPV Entitlement]                              ║`);
+          console.log(`║    User "${USER_STATE}" (${isLoginFirst ? 'LOGIN_FIRST=true' : 'Already Signed In'}) has active PPV entitlement.  ║`);
+          console.log(`║    Tile "${SOURCE}" clicked -> PIN Protection / Fixture -> Navigated to Fixture.  ║`);
+          console.log(`╚══════════════════════════════════════════════════════════════════════════════════╝\n`);
+
+          await validateAndroidFixturePage(driver, PPV_NAME, appiumResults, eventData);
+        } else {
+          console.log(`\n╔══════════════════════════════════════════════════════════════════════════════════╗`);
+          console.log(`║ 💎 [Active Ultimate User - Purchased Status Verified]                              ║`);
+          console.log(`║    User "${USER_STATE}" (${isLoginFirst ? 'LOGIN_FIRST=true' : 'Already Signed In'}) has active PPV entitlement.  ║`);
+          console.log(`║    Surface "${SOURCE}" verified with "Purchased" label (no buy flow / fixture).     ║`);
+          console.log(`╚══════════════════════════════════════════════════════════════════════════════════╝\n`);
+        }
 
         const formattedUserState = USER_STATE
           .split('_')
@@ -608,6 +620,7 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
           .join(' ');
         const srcLabel = SOURCE.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
         const flowName = `Android ${formattedUserState}: ${srcLabel}`;
+        const resolvedRatePlan = cleanUserState.includes('apm') ? 'apm' : (ratePlan || 'upfront');
 
         const finalResultsRows = [
           ...androidAvailabilityResults.map(r => ({
@@ -615,7 +628,7 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
             flowName,
             source: SOURCE,
             tier: 'ultimate',
-            ratePlan: 'upfront',
+            ratePlan: resolvedRatePlan,
             userStatus: USER_STATE,
           })),
           ...appiumResults.map(r => ({
@@ -623,7 +636,7 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
             flowName,
             source: SOURCE,
             tier: 'ultimate',
-            ratePlan: 'upfront',
+            ratePlan: resolvedRatePlan,
             userStatus: USER_STATE,
           })),
         ];
@@ -648,7 +661,7 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
             event: PPV_NAME,
             region: REGION,
             source: SOURCE,
-            ratePlan: 'upfront',
+            ratePlan: resolvedRatePlan,
             tier: 'ultimate',
             env: (process.env.DAZN_ENV || 'stag').toLowerCase(),
             flowName,

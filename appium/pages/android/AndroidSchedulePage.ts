@@ -1217,11 +1217,12 @@ export class AndroidSchedulePage extends AndroidBasePage {
 
     const cleanUserState = String(process.env.USER_STATE || '').toLowerCase().trim().replace('-', '_');
     const isUltimateUser = ['active_ultimate_upfront', 'active_ultimate_apm'].includes(cleanUserState);
+    const isLoginFirst = String(process.env.LOGIN_FIRST || '').toLowerCase() === 'true';
 
-    if (isUltimateUser) {
-      console.log('✨ [Ultimate Active User] Schedule tile clicked. Checking for PIN Protection screen...');
+    if (isUltimateUser && isLoginFirst) {
+      console.log('✨ [Ultimate Active User with LOGIN_FIRST=true] Schedule tile clicked. Checking for PIN Protection screen...');
       await this.handlePinProtectionIfPresent();
-      console.log('✨ [Ultimate Active User] Navigated to fixture page. Ending schedule flow (no paywall expected).');
+      console.log('✨ [Ultimate Active User with LOGIN_FIRST=true] Navigated to fixture page. Ending schedule flow (no paywall expected).');
       return true;
     }
 

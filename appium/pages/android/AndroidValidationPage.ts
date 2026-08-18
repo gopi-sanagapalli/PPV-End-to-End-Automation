@@ -883,7 +883,8 @@ export class AndroidValidationPage extends AndroidBasePage {
 
     if (surface === 'PPV Banner') {
       const userState = String(process.env.USER_STATE || '').toLowerCase().trim().replace('-', '_');
-      const isUltimateUser = ['active_ultimate_apm', 'active_ultimate_upfront'].includes(userState);
+      const isLoginFirst = String(process.env.LOGIN_FIRST || '').toLowerCase() === 'true';
+      const isUltimateUser = ['active_ultimate_apm', 'active_ultimate_upfront'].includes(userState) && isLoginFirst;
 
       const cleanStr = (s: string) =>
         (s || '').replace(/[\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]/g, ' ')
@@ -1658,6 +1659,34 @@ export async function validateAndroidFixturePage(
   console.log(`\n📺 Validating Android Fixture Page & Player Screen for "${ppvName}"...`);
   await driver.pause(3000);
 
+  // Check if we landed on the native Paywall screen instead of the Fixture page
+  const paywallIndicators = [
+    'android=new UiSelector().textContains("How to watch")',
+    'android=new UiSelector().textContains("Paste this link")',
+    'android=new UiSelector().textMatches("(?i)^copy$")',
+  ];
+  let onPaywallScreen = false;
+  for (const pSel of paywallIndicators) {
+    try {
+      if (await (await driver.$(pSel)).isDisplayed().catch(() => false)) {
+        onPaywallScreen = true;
+        break;
+      }
+    } catch { }
+  }
+
+  if (onPaywallScreen) {
+    console.error(`❌ Expected Fixture Page for Active Ultimate user, but Native Paywall screen was displayed.`);
+    results.push({
+      page: 'Fixture Page',
+      field: 'Fixture Page Displayed',
+      expected: 'Fixture Page / Player Screen',
+      actual: 'Native Paywall Screen Displayed (Unexpected Paywall for Active Ultimate User)',
+      status: 'FAIL',
+    });
+    return false;
+  }
+
   // 1. Check Video Player Surface View / TextureView or Pre-live Player Screen
   const playerSelectors = [
     '//android.view.TextureView',
@@ -1720,28 +1749,28 @@ export async function validateAndroidFixturePage(
     page: 'Fixture Page',
     field: 'Player / Video Screen',
     expected: 'Yes',
-    actual: playerScreenFound ? 'Yes (Pre-live Player Screen / Video Active)' : 'Present',
-    status: 'PASS',
+    actual: playerScreenFound ? 'Yes (Pre-live Player Screen / Video Active)' : 'Not Found',
+    status: playerScreenFound ? 'PASS' : 'FAIL',
   });
 
   results.push({
     page: 'Fixture Page',
     field: 'Fixture Title',
     expected: fullTitleExpected,
-    actual: titleFound ? titleRead : fullTitleExpected,
-    status: 'PASS',
+    actual: titleFound ? titleRead : 'Not Found',
+    status: titleFound ? 'PASS' : 'FAIL',
   });
 
   results.push({
     page: 'Fixture Page',
     field: 'Related Content Section',
     expected: 'Present',
-    actual: relatedSectionFound ? 'Present' : 'Present',
-    status: 'PASS',
+    actual: relatedSectionFound ? 'Present' : 'Not Present',
+    status: relatedSectionFound ? 'PASS' : 'FAIL',
   });
 
   await driver.saveScreenshot('./test-results/android_fixture_page_validated.png').catch(() => { });
-  return true;
+  return playerScreenFound && titleFound;
 }
 export async function validateMobilePaywallPage(
   driver: WdBrowser,

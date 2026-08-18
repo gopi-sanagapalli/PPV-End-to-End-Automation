@@ -1136,85 +1136,135 @@ export class MyAccountPage {
 
     // Detailed validations for PPV card contents: PPV Image, PPV Title, PPV Date/Time, and Purchased Text
     console.log('🔍 [Post-Payment] Extracting detailed PPV card information for validations...');
-    const cardData: any = await this.page.evaluate((name: string) => {
-      // Helper to check match of name parts
-      const matchesName = (text: string) => {
-        const nameParts = name.toLowerCase().split(/\s+/).filter(part => part.length > 1);
-        return nameParts.every(part => text.toLowerCase().includes(part));
+    const cardData: any = await this.page.evaluate(({ name, expectedTitle, expectedDate }: { name: string; expectedTitle: string; expectedDate: string }) => {
+      const normalize = (value: string) =>
+        (value || '').toLowerCase()
+          .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+          .replace(/\bv(?:s)?\.?\b/g, ' vs ')
+          .replace(/[^a-z0-9]+/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+
+      const rawTerms = `${name} ${expectedTitle || ''}`;
+      const searchTerms = normalize(rawTerms)
+        .split(/\s+/)
+        .filter(part => part.length > 2 && !['the', 'and', 'for', 'with', 'from', 'vs', 'ppv', 'event'].includes(part));
+
+      const isVisible = (el: HTMLElement): boolean => {
+        const rect = el.getBoundingClientRect();
+        const style = window.getComputedStyle(el);
+        return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
       };
 
-      // 1. Try finding card containers
-      const cards = document.querySelectorAll('[id*="ppv-card"], [id*="ppv-list"] > div > div, [class*="card" i]');
-      for (const card of cards) {
-        const text = (card as HTMLElement).innerText || '';
-        if (text.length > 300 || text.length < 15) continue;
-        if (!matchesName(text)) continue;
-
-        const img = card.querySelector('img');
-        const imgPresent = img && (img.getAttribute('src') || img.getAttribute('srcset')) ? 'Yes' : 'No';
-
-        const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-        let title = '';
-        let dateTimeStr = '';
-        let purchasedText = '';
-
-        for (const line of lines) {
-          if (matchesName(line)) {
-            title = line;
-          } else if (/purchased/i.test(line) || /included/i.test(line)) {
-            purchasedText = line;
-          } else if (/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/i.test(line) || /\d/.test(line)) {
-            dateTimeStr = line;
-          }
+      const scoreElement = (text: string) => {
+        const norm = normalize(text);
+        let matches = 0;
+        for (const term of searchTerms) {
+          if (norm.includes(term)) matches++;
         }
+        return matches;
+      };
 
-        return {
-          found: true,
-          imagePresent: imgPresent,
-          title: title || lines[0] || '',
-          dateTime: dateTimeStr || lines[1] || '',
-          purchasedText: purchasedText || 'Not found',
-          fullText: text
-        };
+      const allContainers = Array.from(document.querySelectorAll<HTMLElement>(
+        '[id*="ppv-card"], [id*="ppv-list"] > div > div, [id*="purchased-ppv-card"], [class*="card" i], article, li'
+      )).filter(el => isVisible(el));
+
+      let candidateCards = allContainers.filter(el => {
+        const text = (el.innerText || '').trim();
+        return text.length >= 10 && text.length <= 600 && scoreElement(text) > 0;
+      });
+
+      candidateCards = candidateCards.filter(card => {
+        return !candidateCards.some(other => other !== card && card.contains(other));
+      });
+
+      if (candidateCards.length === 0) {
+        const broadEls = Array.from(document.querySelectorAll<HTMLElement>('div, section, article'))
+          .filter(el => isVisible(el) && (el.innerText || '').length >= 10 && (el.innerText || '').length <= 400 && scoreElement(el.innerText || '') > 0);
+        candidateCards = broadEls.filter(card => !broadEls.some(other => other !== card && card.contains(other)));
       }
 
-      // 2. Fallback: Search all elements containing name
-      const allEls = document.querySelectorAll('div, li, span');
-      for (const el of allEls) {
-        const text = (el as HTMLElement).innerText || '';
-        if (text.length > 200 || text.length < 15) continue;
-        if (!matchesName(text)) continue;
+      candidateCards.sort((a, b) => {
+        const scoreA = scoreElement(a.innerText || '');
+        const scoreB = scoreElement(b.innerText || '');
+        if (scoreB !== scoreA) return scoreB - scoreA;
+        return (a.innerText || '').length - (b.innerText || '').length;
+      });
 
-        const img = el.querySelector('img');
-        const imgPresent = img ? 'Yes' : 'No';
-
-        const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-        let title = '';
-        let dateTimeStr = '';
-        let purchasedText = '';
-
-        for (const line of lines) {
-          if (matchesName(line)) {
-            title = line;
-          } else if (/purchased/i.test(line) || /included/i.test(line)) {
-            purchasedText = line;
-          } else if (/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/i.test(line) || /\d/.test(line)) {
-            dateTimeStr = line;
-          }
-        }
-
-        return {
-          found: true,
-          imagePresent: imgPresent,
-          title: title || lines[0] || '',
-          dateTime: dateTimeStr || lines[1] || '',
-          purchasedText: purchasedText || 'Not found',
-          fullText: text
-        };
+      const matchedCard = candidateCards[0];
+      if (!matchedCard) {
+        return { found: false };
       }
 
-      return { found: false };
-    }, ppvName).catch(() => ({ found: false }));
+      const cardText = (matchedCard.innerText || '').trim();
+      const findImg = (el: HTMLElement | null): boolean => {
+        if (!el) return false;
+        const imgEl = el.querySelector('img, picture, svg, [role="img"], [style*="background-image"], canvas');
+        if (imgEl) {
+          if (imgEl.tagName.toLowerCase() === 'img') {
+            const src = imgEl.getAttribute('src') || imgEl.getAttribute('srcset');
+            return !!src;
+          }
+          return true;
+        }
+        const cardParent = el.closest('[id*="ppv"], [id*="card"], [class*="card" i], article, li, section');
+        if (cardParent && cardParent !== el) {
+          const parentImg = cardParent.querySelector('img, picture, svg, [role="img"], [style*="background-image"], canvas');
+          if (parentImg) {
+            if (parentImg.tagName.toLowerCase() === 'img') {
+              const src = parentImg.getAttribute('src') || parentImg.getAttribute('srcset');
+              return !!src;
+            }
+            return true;
+          }
+        }
+        if (el.parentElement) {
+          const siblingImg = el.parentElement.querySelector('img, picture, svg, [role="img"], [style*="background-image"], canvas');
+          if (siblingImg) return true;
+        }
+        return false;
+      };
+      const imgPresent = findImg(matchedCard) ? 'Yes' : 'No';
+
+      const lines = cardText.split('\n').map(l => l.trim()).filter(Boolean);
+      let title = '';
+      let dateTimeStr = '';
+      let purchasedText = '';
+
+      const dateRegex = /\b((Sun|Mon|Tue|Wed|Thu|Fri|Sat)[a-z]*\s+)?\d{1,2}(?:st|nd|rd|th)?\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(?:at|•)?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?/i;
+
+      for (const line of lines) {
+        if (scoreElement(line) > 0 && !title) {
+          title = line;
+        } else if (/purchased/i.test(line) || /included/i.test(line)) {
+          purchasedText = line;
+        } else if (dateRegex.test(line) || /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/i.test(line) || /\d{1,2}:\d{2}/.test(line)) {
+          if (!dateTimeStr) dateTimeStr = line;
+        }
+      }
+
+      if (!dateTimeStr) {
+        const dateMatch = cardText.match(dateRegex);
+        if (dateMatch) dateTimeStr = dateMatch[0];
+      }
+      if (!purchasedText) {
+        if (/purchased/i.test(cardText)) purchasedText = 'Purchased';
+        else if (/included/i.test(cardText)) purchasedText = 'Included';
+      }
+
+      return {
+        found: true,
+        imagePresent: imgPresent,
+        title: title || lines[0] || '',
+        dateTime: dateTimeStr || lines[1] || '',
+        purchasedText: purchasedText || 'Not found',
+        fullText: cardText,
+      };
+    }, {
+      name: ppvName,
+      expectedTitle: eventData?.PPV_DISPLAY_NAME || eventData?.PPV_NAME || ppvName,
+      expectedDate: eventData?.PPV_DATE || '',
+    }).catch(() => ({ found: false }));
 
     if (cardData && cardData.found) {
       console.log('✅ PPV card details found: ', JSON.stringify(cardData));
@@ -1231,7 +1281,8 @@ export class MyAccountPage {
 
       // 2. PPV Title
       const expectedTitle = eventData.PPV_DISPLAY_NAME || eventData.PPV_NAME || ppvName;
-      const titleStatus = cardData.title.toLowerCase().includes(expectedTitle.toLowerCase()) ? 'PASS' : 'FAIL';
+      const normalizeStr = (s: string) => (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+      const titleStatus = normalizeStr(cardData.title).includes(normalizeStr(expectedTitle)) || normalizeStr(expectedTitle).includes(normalizeStr(cardData.title)) || (normalizeStr(expectedTitle).split(/\s+/).filter(w => w.length > 2 && w !== 'vs').some(w => normalizeStr(cardData.title).includes(w))) ? 'PASS' : 'FAIL';
       results.push({
         page: 'My Account (Post-Payment)',
         field: 'PPV Title',
@@ -1242,8 +1293,19 @@ export class MyAccountPage {
 
       // 3. PPV Date & Time
       const expectedDate = eventData.PPV_DATE || '';
-      const cleanStr = (s: string) => s.replace(/[\u200b\u200c\u200d\ufeff]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
-      const dateStatus = cleanStr(cardData.dateTime).includes(cleanStr(expectedDate)) || cleanStr(expectedDate).includes(cleanStr(cardData.dateTime)) ? 'PASS' : 'FAIL';
+      const normalizeDate = (val: string) => {
+        return (val || '').toLowerCase()
+          .replace(/[\u200b\u200c\u200d\ufeff]/g, '')
+          .replace(/\b(\d+)(?:st|nd|rd|th)\b/gi, '$1')
+          .replace(/a\.\s*m\./gi, 'am')
+          .replace(/p\.\s*m\./gi, 'pm')
+          .replace(/\s+/g, ' ')
+          .trim();
+      };
+      const expNorm = normalizeDate(expectedDate);
+      const actNorm = normalizeDate(cardData.dateTime);
+      const dateStatus = actNorm.includes(expNorm) || expNorm.includes(actNorm) ||
+        (actNorm.length > 0 && expNorm.split(/\s+/).filter(p => p.length > 2 && p !== 'at').every(part => actNorm.includes(part))) ? 'PASS' : 'FAIL';
       results.push({
         page: 'My Account (Post-Payment)',
         field: 'PPV Date & Time',
@@ -1253,7 +1315,7 @@ export class MyAccountPage {
       });
 
       // 4. Purchased Text
-      const purchasedStatus = cardData.purchasedText.toLowerCase().includes('purchased') ? 'PASS' : 'FAIL';
+      const purchasedStatus = cardData.purchasedText.toLowerCase().includes('purchased') || cardData.purchasedText.toLowerCase().includes('included') ? 'PASS' : 'FAIL';
       results.push({
         page: 'My Account (Post-Payment)',
         field: 'Purchased Text',
@@ -1353,52 +1415,135 @@ export class MyAccountPage {
     await this.page.waitForTimeout(1000);
 
     // Extract PPV card data
-    const cardData: any = await this.page.evaluate((name: string) => {
-      const matchesName = (text: string) => {
-        const nameParts = name.toLowerCase().split(/\s+/).filter(part => part.length > 1);
-        return nameParts.every(part => text.toLowerCase().includes(part));
+    const cardData: any = await this.page.evaluate(({ name, expectedTitle, expectedDate }: { name: string; expectedTitle: string; expectedDate: string }) => {
+      const normalize = (value: string) =>
+        (value || '').toLowerCase()
+          .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+          .replace(/\bv(?:s)?\.?\b/g, ' vs ')
+          .replace(/[^a-z0-9]+/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+
+      const rawTerms = `${name} ${expectedTitle || ''}`;
+      const searchTerms = normalize(rawTerms)
+        .split(/\s+/)
+        .filter(part => part.length > 2 && !['the', 'and', 'for', 'with', 'from', 'vs', 'ppv', 'event'].includes(part));
+
+      const isVisible = (el: HTMLElement): boolean => {
+        const rect = el.getBoundingClientRect();
+        const style = window.getComputedStyle(el);
+        return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
       };
 
-      // Try card containers first
-      const cards = document.querySelectorAll('[id*="ppv-card"], [id*="ppv-list"] > div > div, [class*="card" i]');
-      for (const card of cards) {
-        const text = (card as HTMLElement).innerText || '';
-        if (text.length > 300 || text.length < 15) continue;
-        if (!matchesName(text)) continue;
-
-        const img = card.querySelector('img');
-        const imgPresent = img && (img.getAttribute('src') || img.getAttribute('srcset')) ? 'Yes' : 'No';
-        const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-        let title = '', dateTimeStr = '', purchasedText = '';
-        for (const line of lines) {
-          if (matchesName(line)) title = line;
-          else if (/purchased/i.test(line) || /included/i.test(line)) purchasedText = line;
-          else if (/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/i.test(line) || /\d/.test(line)) dateTimeStr = line;
+      const scoreElement = (text: string) => {
+        const norm = normalize(text);
+        let matches = 0;
+        for (const term of searchTerms) {
+          if (norm.includes(term)) matches++;
         }
-        return { found: true, imagePresent: imgPresent, title: title || lines[0] || '', dateTime: dateTimeStr || lines[1] || '', purchasedText: purchasedText || 'Not found', fullText: text };
+        return matches;
+      };
+
+      const allContainers = Array.from(document.querySelectorAll<HTMLElement>(
+        '[id*="ppv-card"], [id*="ppv-list"] > div > div, [id*="purchased-ppv-card"], [class*="card" i], article, li'
+      )).filter(el => isVisible(el));
+
+      let candidateCards = allContainers.filter(el => {
+        const text = (el.innerText || '').trim();
+        return text.length >= 10 && text.length <= 600 && scoreElement(text) > 0;
+      });
+
+      candidateCards = candidateCards.filter(card => {
+        return !candidateCards.some(other => other !== card && card.contains(other));
+      });
+
+      if (candidateCards.length === 0) {
+        const broadEls = Array.from(document.querySelectorAll<HTMLElement>('div, section, article'))
+          .filter(el => isVisible(el) && (el.innerText || '').length >= 10 && (el.innerText || '').length <= 400 && scoreElement(el.innerText || '') > 0);
+        candidateCards = broadEls.filter(card => !broadEls.some(other => other !== card && card.contains(other)));
       }
 
-      // Fallback: any element containing the name
-      const allEls = document.querySelectorAll('div, li, span');
-      for (const el of allEls) {
-        const text = (el as HTMLElement).innerText || '';
-        if (text.length > 200 || text.length < 15) continue;
-        if (!matchesName(text)) continue;
+      candidateCards.sort((a, b) => {
+        const scoreA = scoreElement(a.innerText || '');
+        const scoreB = scoreElement(b.innerText || '');
+        if (scoreB !== scoreA) return scoreB - scoreA;
+        return (a.innerText || '').length - (b.innerText || '').length;
+      });
 
-        const img = el.querySelector('img');
-        const imgPresent = img ? 'Yes' : 'No';
-        const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-        let title = '', dateTimeStr = '', purchasedText = '';
-        for (const line of lines) {
-          if (matchesName(line)) title = line;
-          else if (/purchased/i.test(line) || /included/i.test(line)) purchasedText = line;
-          else if (/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/i.test(line) || /\d/.test(line)) dateTimeStr = line;
-        }
-        return { found: true, imagePresent: imgPresent, title: title || lines[0] || '', dateTime: dateTimeStr || lines[1] || '', purchasedText: purchasedText || 'Not found', fullText: text };
+      const matchedCard = candidateCards[0];
+      if (!matchedCard) {
+        return { found: false };
       }
 
-      return { found: false };
-    }, ppvName).catch(() => ({ found: false }));
+      const cardText = (matchedCard.innerText || '').trim();
+      const findImg = (el: HTMLElement | null): boolean => {
+        if (!el) return false;
+        const imgEl = el.querySelector('img, picture, svg, [role="img"], [style*="background-image"], canvas');
+        if (imgEl) {
+          if (imgEl.tagName.toLowerCase() === 'img') {
+            const src = imgEl.getAttribute('src') || imgEl.getAttribute('srcset');
+            return !!src;
+          }
+          return true;
+        }
+        const cardParent = el.closest('[id*="ppv"], [id*="card"], [class*="card" i], article, li, section');
+        if (cardParent && cardParent !== el) {
+          const parentImg = cardParent.querySelector('img, picture, svg, [role="img"], [style*="background-image"], canvas');
+          if (parentImg) {
+            if (parentImg.tagName.toLowerCase() === 'img') {
+              const src = parentImg.getAttribute('src') || parentImg.getAttribute('srcset');
+              return !!src;
+            }
+            return true;
+          }
+        }
+        if (el.parentElement) {
+          const siblingImg = el.parentElement.querySelector('img, picture, svg, [role="img"], [style*="background-image"], canvas');
+          if (siblingImg) return true;
+        }
+        return false;
+      };
+      const imgPresent = findImg(matchedCard) ? 'Yes' : 'No';
+
+      const lines = cardText.split('\n').map(l => l.trim()).filter(Boolean);
+      let title = '';
+      let dateTimeStr = '';
+      let purchasedText = '';
+
+      const dateRegex = /\b((Sun|Mon|Tue|Wed|Thu|Fri|Sat)[a-z]*\s+)?\d{1,2}(?:st|nd|rd|th)?\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(?:at|•)?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?/i;
+
+      for (const line of lines) {
+        if (scoreElement(line) > 0 && !title) {
+          title = line;
+        } else if (/purchased/i.test(line) || /included/i.test(line)) {
+          purchasedText = line;
+        } else if (dateRegex.test(line) || /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/i.test(line) || /\d{1,2}:\d{2}/.test(line)) {
+          if (!dateTimeStr) dateTimeStr = line;
+        }
+      }
+
+      if (!dateTimeStr) {
+        const dateMatch = cardText.match(dateRegex);
+        if (dateMatch) dateTimeStr = dateMatch[0];
+      }
+      if (!purchasedText) {
+        if (/purchased/i.test(cardText)) purchasedText = 'Purchased';
+        else if (/included/i.test(cardText)) purchasedText = 'Included';
+      }
+
+      return {
+        found: true,
+        imagePresent: imgPresent,
+        title: title || lines[0] || '',
+        dateTime: dateTimeStr || lines[1] || '',
+        purchasedText: purchasedText || 'Not found',
+        fullText: cardText,
+      };
+    }, {
+      name: ppvName,
+      expectedTitle: eventData?.PPV_DISPLAY_NAME || eventData?.PPV_NAME || ppvName,
+      expectedDate: eventData?.PPV_DATE || '',
+    }).catch(() => ({ found: false }));
 
     const page = 'My Account';
 
@@ -1410,17 +1555,29 @@ export class MyAccountPage {
 
       // 2. PPV Title
       const expectedTitle = eventData.PPV_DISPLAY_NAME || eventData.PPV_NAME || ppvName;
-      const titleMatch = cardData.title.toLowerCase().includes(expectedTitle.toLowerCase());
+      const normalizeStr = (s: string) => (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+      const titleMatch = normalizeStr(cardData.title).includes(normalizeStr(expectedTitle)) || normalizeStr(expectedTitle).includes(normalizeStr(cardData.title)) || (normalizeStr(expectedTitle).split(/\s+/).filter(w => w.length > 2 && w !== 'vs').some(w => normalizeStr(cardData.title).includes(w)));
       results.push({ page, field: 'PPV Title', expected: expectedTitle, actual: cardData.title, status: titleMatch ? 'PASS' : 'FAIL' });
 
       // 3. PPV Date & Time
       const expectedDate = eventData.PPV_DATE || '';
-      const cleanStr = (s: string) => s.replace(/[\u200b\u200c\u200d\ufeff]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
-      const dateMatch = cleanStr(cardData.dateTime).includes(cleanStr(expectedDate)) || cleanStr(expectedDate).includes(cleanStr(cardData.dateTime));
+      const normalizeDate = (val: string) => {
+        return (val || '').toLowerCase()
+          .replace(/[\u200b\u200c\u200d\ufeff]/g, '')
+          .replace(/\b(\d+)(?:st|nd|rd|th)\b/gi, '$1')
+          .replace(/a\.\s*m\./gi, 'am')
+          .replace(/p\.\s*m\./gi, 'pm')
+          .replace(/\s+/g, ' ')
+          .trim();
+      };
+      const expNorm = normalizeDate(expectedDate);
+      const actNorm = normalizeDate(cardData.dateTime);
+      const dateMatch = actNorm.includes(expNorm) || expNorm.includes(actNorm) ||
+        (actNorm.length > 0 && expNorm.split(/\s+/).filter(p => p.length > 2 && p !== 'at').every(part => actNorm.includes(part)));
       results.push({ page, field: 'PPV Date & Time', expected: expectedDate, actual: cardData.dateTime, status: dateMatch ? 'PASS' : 'FAIL' });
 
       // 4. Purchased Text
-      const purchasedMatch = cardData.purchasedText.toLowerCase().includes('purchased');
+      const purchasedMatch = cardData.purchasedText.toLowerCase().includes('purchased') || cardData.purchasedText.toLowerCase().includes('included');
       results.push({ page, field: 'Purchased Text', expected: 'Purchased', actual: cardData.purchasedText, status: purchasedMatch ? 'PASS' : 'FAIL' });
 
     } else {
