@@ -20,7 +20,9 @@ on:
         type: choice
         default: "all"
         options: ["all", "true", "false"]
-permissions: { contents: read }
+permissions:
+  contents: read
+  actions: write
 env:
   JIRA_REGION: ${{ inputs.COUNTRY }}
   JIRA_REGION_FIELD_NAME: Region

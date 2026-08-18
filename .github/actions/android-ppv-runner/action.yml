@@ -57,6 +57,7 @@ runs:
           npx wdio run config/wdio.android.conf.ts --spec tests/android/existingusermobile.ppv.spec.ts
         fi
     - name: Store Android test results locally
+      id: store-report
       if: ${{ always() }}
       shell: bash
       run: |
@@ -81,3 +82,15 @@ runs:
           echo "No Android report folders found for $report_name"
         fi
         echo "Stored Android test results locally at $report_dir"
+        echo "REPORT_NAME=$report_name" >> "$GITHUB_ENV"
+        echo "report_name=$report_name" >> "$GITHUB_OUTPUT"
+    - name: Upload job report as GitHub artifact
+      if: ${{ always() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ steps.store-report.outputs.report_name }}
+        path: |
+          appium/test-results/
+          appium/reports/
+        if-no-files-found: ignore
+        retention-days: 1

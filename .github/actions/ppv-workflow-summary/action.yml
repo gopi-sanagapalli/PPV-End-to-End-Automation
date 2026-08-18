@@ -23,6 +23,13 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Download all job reports from GitHub artifacts
+      uses: actions/download-artifact@v4
+      with:
+        pattern: ${{ inputs.artifact_pattern }}
+        path: downloaded-job-artifacts
+        merge-multiple: false
+      continue-on-error: true
     - name: Build workflow summary
       shell: bash
       env:
@@ -37,12 +44,37 @@ runs:
         set -euo pipefail
         report_dir=ppv-workflow-summary
         mkdir -p "$report_dir/job-artifacts"
+        # 1. Copy any job reports that ran on THIS same machine (fast path)
         reports_root="${PPV_REPORTS_ROOT:-/tmp/ppv-reports}"
         run_reports_dir="${reports_root}/${GITHUB_RUN_ID}"
         if [ -d "$run_reports_dir" ]; then
+          # Copy fresh job reports from this attempt
           find "$run_reports_dir" -mindepth 1 -maxdepth 1 -type d -name "$ARTIFACT_PATTERN" ! -name "*workflow-summary*" -exec cp -R {} "$report_dir/job-artifacts/" \;
+          # On re-runs: merge job-artifacts from prior attempt workflow-summary directories
+          find "$run_reports_dir" -mindepth 1 -maxdepth 1 -type d -name "*workflow-summary*" | sort | while read -r prior_summary; do
+            prior_artifacts="${prior_summary}/job-artifacts"
+            if [ -d "$prior_artifacts" ]; then
+              echo "Merging prior-attempt job artifacts from: $prior_summary"
+              find "$prior_artifacts" -mindepth 1 -maxdepth 1 -type d | while read -r prior_job_dir; do
+                job_name="$(basename "$prior_job_dir")"
+                if [ ! -d "$report_dir/job-artifacts/$job_name" ]; then
+                  cp -R "$prior_job_dir" "$report_dir/job-artifacts/"
+                fi
+              done
+            fi
+          done
         else
           echo "No local PPV report directory found at $run_reports_dir"
+        fi
+        # 2. Merge reports downloaded from GitHub artifacts (jobs that ran on other machines)
+        # These are placed by the download-artifact step below into downloaded-job-artifacts/
+        if [ -d downloaded-job-artifacts ]; then
+          find downloaded-job-artifacts -mindepth 1 -maxdepth 1 -type d | while read -r dl_job_dir; do
+            job_name="$(basename "$dl_job_dir")"
+            if [ ! -d "$report_dir/job-artifacts/$job_name" ]; then
+              cp -R "$dl_job_dir" "$report_dir/job-artifacts/"
+            fi
+          done
         fi
         node "$GITHUB_ACTION_PATH/compile.js"
     - name: Store consolidated workflow report locally
@@ -57,6 +89,92 @@ runs:
         mkdir -p "$summary_dir"
         cp -R ppv-workflow-summary/. "$summary_dir/"
         echo "Stored consolidated workflow report locally at $summary_dir"
+    - name: Upload consolidated report as GitHub artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.artifact_name }}
+        path: ppv-workflow-summary/
+        retention-days: 30
+      continue-on-error: true
+    - name: Delete temporary job report artifacts
+      if: ${{ always() }}
+      shell: bash
+      env:
+        ARTIFACT_PATTERN: ${{ inputs.artifact_pattern }}
+        ARTIFACT_NAME: ${{ inputs.artifact_name }}
+        GITHUB_TOKEN: ${{ github.token }}
+      run: |
+        set +e
+        node <<'NODE'
+        const https = require('https');
+
+        const token = process.env.GITHUB_TOKEN;
+        const repo = process.env.GITHUB_REPOSITORY;
+        const runId = process.env.GITHUB_RUN_ID;
+        const pattern = process.env.ARTIFACT_PATTERN || '';
+        const keepName = process.env.ARTIFACT_NAME || '';
+
+        if (!token || !repo || !runId || !pattern) {
+          console.log('Skipping temporary artifact cleanup; missing GitHub context.');
+          process.exit(0);
+        }
+
+        const prefix = pattern.endsWith('*') ? pattern.slice(0, -1) : pattern;
+
+        function request(method, path) {
+          return new Promise((resolve, reject) => {
+            const req = https.request({
+              hostname: 'api.github.com',
+              path,
+              method,
+              headers: {
+                Authorization: `Bearer ${token}`,
+                Accept: 'application/vnd.github+json',
+                'User-Agent': 'ppv-workflow-summary',
+                'X-GitHub-Api-Version': '2022-11-28'
+              }
+            }, res => {
+              let body = '';
+              res.on('data', chunk => { body += chunk; });
+              res.on('end', () => {
+                if (res.statusCode >= 200 && res.statusCode < 300) {
+                  resolve(body ? JSON.parse(body) : {});
+                } else {
+                  reject(new Error(`${method} ${path} failed with ${res.statusCode}: ${body}`));
+                }
+              });
+            });
+            req.on('error', reject);
+            req.end();
+          });
+        }
+
+        async function main() {
+          const artifacts = [];
+          for (let page = 1; ; page += 1) {
+            const listPath = `/repos/${repo}/actions/runs/${runId}/artifacts?per_page=100&page=${page}`;
+            const data = await request('GET', listPath);
+            const pageArtifacts = data.artifacts || [];
+            artifacts.push(...pageArtifacts.filter(artifact =>
+              artifact.name !== keepName && artifact.name.startsWith(prefix)
+            ));
+            if (pageArtifacts.length < 100) break;
+          }
+
+          for (const artifact of artifacts) {
+            await request('DELETE', `/repos/${repo}/actions/artifacts/${artifact.id}`);
+            console.log(`Deleted temporary job artifact: ${artifact.name}`);
+          }
+
+          if (artifacts.length === 0) {
+            console.log('No temporary job report artifacts found to delete.');
+          }
+        }
+
+        main().catch(err => {
+          console.log(`Temporary artifact cleanup skipped: ${err.message}`);
+        });
+        NODE
     - name: Clean up run temp reports
       if: ${{ always() }}
       shell: bash

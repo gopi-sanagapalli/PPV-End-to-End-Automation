@@ -241,17 +241,17 @@ function customHtmlReportHasFailure(htmlContent) {
  */
 function getStage(dirName) {
   const name = dirName.toLowerCase();
-  if (/^ppv-(web|android)-new-user-/.test(name) || name.includes('new-user') || name.includes('new_user')) {
+  if (/^ppv-(web|android|ios)-new-user-/.test(name) || name.includes('new-user') || name.includes('new_user')) {
     return 'new-user';
   }
   if (
-    /^ppv-(web|android)-(already-signed-in|dev-mode-my-account)-/.test(name) ||
+    /^ppv-(web|android|ios)-(already-signed-in|dev-mode-my-account)-/.test(name) ||
     name.includes('already-signed') ||
     name.includes('already_signed')
   ) {
     return 'already-signed';
   }
-  if (/^ppv-(web|android)-sign-in-during-flow-/.test(name) || name.includes('signin') || name.includes('sign-in')) {
+  if (/^ppv-(web|android|ios)-sign-in-during-flow-/.test(name) || name.includes('signin') || name.includes('sign-in')) {
     return 'signin-during';
   }
 
@@ -261,7 +261,7 @@ function getStage(dirName) {
 
 function getMatrixIdentity(dirName) {
   const reportId = dirName.replace(
-    /^ppv-(web|android)-(new-user|sign-in-during-flow|already-signed-in|dev-mode-my-account)-/i,
+    /^ppv-(web|android|ios)-(new-user|sign-in-during-flow|already-signed-in|dev-mode-my-account)-/i,
     ''
   );
   const profileMatch = reportId.match(
