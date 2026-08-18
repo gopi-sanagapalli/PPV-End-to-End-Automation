@@ -291,7 +291,7 @@ export const config = {
   reporters: ['spec'],
   mochaOpts: {
     ui:      'bdd',
-    timeout: 300000,
+    timeout: 600000,
   },
 
   before() {

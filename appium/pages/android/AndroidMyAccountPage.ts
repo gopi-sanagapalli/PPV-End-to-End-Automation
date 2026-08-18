@@ -353,6 +353,7 @@ export class AndroidMyAccountPage extends AndroidBasePage {
 
     // 1. Check & click Notification Accept / Permission Allow popup after navigation from login screen
     await this.handleNotificationPermissionPopup(8000);
+    await this.handleUpdatePaymentMethodPopup(4000);
 
     // 2. Only navigate to Home if requested (skip for myaccount flow which navigates directly to My Account)
     if (credentials.navigateToHomeAfterLogin !== false) {
@@ -369,8 +370,9 @@ export class AndroidMyAccountPage extends AndroidBasePage {
       const maxWaitMs = 15000;
 
       while (Date.now() - startTime < maxWaitMs) {
-        // Re-check notification popup if it appears late during page render
+        // Re-check notification popup & payment popup if they appear late during page render
         await this.handleNotificationPermissionPopup(1500);
+        await this.handleUpdatePaymentMethodPopup(1500);
 
         for (const selector of homeSelectorsAfterLogin) {
           try {
@@ -433,6 +435,89 @@ export class AndroidMyAccountPage extends AndroidBasePage {
       await this.driver.pause(1000);
     }
     console.log('  ℹ️ No notification popup detected within timeout.');
+    return false;
+  }
+
+  async handleUpdatePaymentMethodPopup(timeoutMs = 6000): Promise<boolean> {
+    console.log('💳 Checking for "Update Your Payment Method" popup...');
+    const popupHeaderSelectors = [
+      'android=new UiSelector().textMatches("(?i).*update (your )?payment method.*")',
+      'android=new UiSelector().textContains("UPDATE YOUR PAYMENT METHOD")',
+      'android=new UiSelector().textContains("Update your payment method")',
+      '//android.widget.TextView[contains(translate(@text, "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "update your payment method")]',
+      'android=new UiSelector().textMatches("(?i).*your latest payment for dazn.*")',
+    ];
+
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeoutMs) {
+      let headerEl: any = null;
+      for (const sel of popupHeaderSelectors) {
+        try {
+          const el = await this.driver.$(sel);
+          if (await el.isDisplayed().catch(() => false)) {
+            headerEl = el;
+            break;
+          }
+        } catch {}
+      }
+
+      if (headerEl) {
+        console.log('  💳 "Update Your Payment Method" popup detected. Dismissing via X close icon...');
+
+        // 1. Try finding X close button selector
+        const closeSelectors = [
+          '//android.widget.ImageView[contains(@content-desc, "Close") or contains(@content-desc, "close") or contains(@resource-id, "close") or contains(@resource-id, "dismiss")]',
+          '//android.widget.ImageButton[contains(@content-desc, "Close") or contains(@content-desc, "close") or contains(@resource-id, "close") or contains(@resource-id, "dismiss")]',
+          'android=new UiSelector().descriptionMatches("(?i).*(close|dismiss).*")',
+          'android=new UiSelector().resourceIdMatches("(?i).*(close|dismiss).*")',
+          '//*[@content-desc="Close" or @content-desc="close" or @content-desc="Dismiss" or @content-desc="dismiss"]',
+        ];
+
+        for (const sel of closeSelectors) {
+          try {
+            const btn = await this.driver.$(sel);
+            if (await btn.isDisplayed().catch(() => false)) {
+              await btn.click();
+              console.log(`  ✓ Clicked X close icon via selector: ${sel}`);
+              await this.driver.pause(2000);
+              return true;
+            }
+          } catch {}
+        }
+
+        // 2. Coordinate fallback: tap top-right 'X' area of the popup modal
+        try {
+          const { width, height } = await this.driver.getWindowRect();
+          const loc = await headerEl.getLocation().catch(() => null);
+          const tapY = loc && loc.y > 150 ? Math.max(loc.y - 70, Math.round(loc.y * 0.90)) : Math.round(height * 0.42);
+          const tapX = Math.round(width * 0.92);
+          console.log(`  Tapping X icon at coordinates (${tapX}, ${tapY})...`);
+          adbTap(tapX, tapY);
+          await this.driver.pause(2000);
+
+          const stillVisible = await headerEl.isDisplayed().catch(() => false);
+          if (!stillVisible) {
+            console.log('  ✓ "Update Your Payment Method" popup dismissed via coordinate tap.');
+            return true;
+          }
+        } catch {}
+
+        // 3. Fallback to "Remind Me Later"
+        try {
+          const remindLaterBtn = await this.driver.$('android=new UiSelector().textMatches("(?i)^Remind Me Later$")');
+          if (await remindLaterBtn.isDisplayed().catch(() => false)) {
+            console.log('  Clicking "Remind Me Later" button...');
+            await remindLaterBtn.click();
+            await this.driver.pause(2000);
+            return true;
+          }
+        } catch {}
+      }
+
+      await this.driver.pause(1000);
+    }
+
+    console.log('  ℹ️ No "Update Your Payment Method" popup detected within timeout.');
     return false;
   }
 
