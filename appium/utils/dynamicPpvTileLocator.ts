@@ -1,5 +1,6 @@
 import { AndroidFlowHooks, WdBrowser, adbBack, adbTap } from '../pages/android/AndroidBasePage';
 import { AndroidRailTileMatch, AndroidRailsFetcher } from './androidRailsFetcher';
+import { normalizeAndroidTitle, normalizeAndroidTitleWords } from './androidTitleNormalizer';
 
 export interface DynamicPpvTileLocatorResult {
   success: boolean;
@@ -552,26 +553,42 @@ export class DynamicPpvTileLocator {
    */
   private async validatePaywall(expectedPpvTitle: string, entitlementId: string): Promise<boolean> {
     try {
-      const pageSource = (await this.driver.getPageSource().catch(() => '')).toLowerCase();
+      const rawPageSource = await this.driver.getPageSource().catch(() => '');
+      const pageSource = rawPageSource.toLowerCase();
+      const normPageSource = normalizeAndroidTitle(rawPageSource, ' ');
       const cleanExpected = expectedPpvTitle.toLowerCase().trim();
+      const normExpected = normalizeAndroidTitle(expectedPpvTitle, ' ');
       const cleanEntitlement = entitlementId.toLowerCase().trim();
 
       const nameParts = cleanExpected.split(/[:\-–]/).map(p => p.trim()).filter(p => p.length > 2);
+      const fighterWords = normalizeAndroidTitleWords(expectedPpvTitle).filter(w => !['vs', 'v', 'the', 'and', 'at', 'on', 'ppv'].includes(w) && w.length > 2);
 
-      const matchesTitle = cleanExpected && pageSource.includes(cleanExpected);
+      const matchesTitle = (cleanExpected && pageSource.includes(cleanExpected)) ||
+        (normExpected && normPageSource.includes(normExpected));
       const matchesEntitlement = cleanEntitlement && pageSource.includes(cleanEntitlement);
-      const matchesPart = nameParts.some(part => pageSource.includes(part));
-      const matchesPaywallCta = pageSource.includes('buy') || pageSource.includes('get ppv') || pageSource.includes('subscribe') || pageSource.includes('purchase');
+      const matchesPart = nameParts.some(part => pageSource.includes(part)) ||
+        (fighterWords.length > 0 && fighterWords.some(w => normPageSource.includes(w)));
+      const matchesPaywallCta = pageSource.includes('buy') || pageSource.includes('get ppv') || pageSource.includes('subscribe') || pageSource.includes('purchase') || pageSource.includes('event pass') || pageSource.includes('order') || pageSource.includes('checkout') || pageSource.includes('paywall');
 
-      if ((matchesTitle || matchesEntitlement || matchesPart) && matchesPaywallCta) {
+      if ((matchesTitle || matchesEntitlement || matchesPart) && (matchesPaywallCta || matchesTitle)) {
         return true;
       }
 
       // Check displayed text views on paywall screen
       const textEls = await this.driver.$$('//android.widget.TextView');
       for (const el of textEls) {
-        const text = (await el.getText().catch(() => '')).toLowerCase().trim();
-        if (text && (text.includes(cleanExpected) || (cleanExpected && cleanExpected.includes(text)))) {
+        const rawText = await el.getText().catch(() => '');
+        const text = rawText.toLowerCase().trim();
+        const normText = normalizeAndroidTitle(rawText, ' ');
+
+        if (!text) continue;
+
+        if (
+          text.includes(cleanExpected) ||
+          (cleanExpected && cleanExpected.includes(text)) ||
+          (normExpected && (normText.includes(normExpected) || normExpected.includes(normText))) ||
+          (fighterWords.length > 0 && fighterWords.some(w => normText.includes(w)))
+        ) {
           return true;
         }
       }

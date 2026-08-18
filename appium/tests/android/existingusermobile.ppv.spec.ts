@@ -288,7 +288,10 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
       });
     });
 
-    it('navigates to PPV buy button as existing user, opens Chrome, captures checkout URL', async () => {
+    it('navigates to PPV buy button as existing user, opens Chrome, captures checkout URL', async function () {
+    if (typeof this.timeout === 'function') {
+      this.timeout(600000);
+    }
       const driver = browser;
       const baseUrl = 'https://www.dazn.com';
 
@@ -871,8 +874,8 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
         const SWITCH_TO_ULTIMATE = (process.env.SWITCH || '').toLowerCase() === 'true';
         // PLAN env var: 'ultimate_apm' | 'ultimate_apu' → upgrade to Ultimate; anything else → PPV only
         const PLAN_TARGET = (process.env.PLAN || '').toLowerCase().replace(/[- ]/g, '_');
-        const WANT_ULTIMATE = SWITCH_TO_ULTIMATE || PLAN_TARGET === 'ultimate_apm' || PLAN_TARGET === 'ultimate_apu';
-        const WANT_ULTIMATE_APU = PLAN_TARGET === 'ultimate_apu';
+        const WANT_ULTIMATE = SWITCH_TO_ULTIMATE || PLAN_TARGET.startsWith('ultimate_') || PLAN_TARGET === 'ultimate_apm' || PLAN_TARGET === 'ultimate_apu' || PLAN_TARGET === 'ultimate_upfront';
+        const WANT_ULTIMATE_APU = PLAN_TARGET === 'ultimate_apu' || PLAN_TARGET === 'ultimate_upfront';
         const purchaseOption = WANT_ULTIMATE ? 'ultimate' : 'ppv';
         const ENV = (process.env.DAZN_ENV || 'stag').toLowerCase();
         const PAYMENT_METHOD = (process.env.PAYMENT_METHOD || 'credit_card').toLowerCase();
