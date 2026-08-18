@@ -30,7 +30,7 @@ env:
   JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
 jobs:
   prepare:
-    runs-on: [self-hosted, macOS, ARM64, sridevi-runners]
+    runs-on: [self-hosted, macOS, ARM64]
     timeout-minutes: 30
     env:
       ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
@@ -44,7 +44,7 @@ jobs:
     needs: prepare
     environment: prod
     name: Existing user · Dev mode My Account | ${{ matrix.profile }}
-    runs-on: [self-hosted, macOS, ARM64, sridevi-runners]
+    runs-on: [self-hosted, macOS, ARM64]
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -71,7 +71,7 @@ jobs:
     needs: [prepare, my-account]
     if: ${{ always() }}
     name: Consolidated workflow report · CA
-    runs-on: [self-hosted, macOS, ARM64, sridevi-runners]
+    runs-on: [self-hosted, macOS, ARM64]
     timeout-minutes: 30
     env:
       ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
