@@ -976,6 +976,20 @@ export class IOSSafariValidationPage extends IOSBasePage {
       return ['Google Pay', 'Credit & Debit Card', 'Apple Pay', 'PayPal'].every(method => methods[method]);
     };
 
+    // The PPV payment page can finish rendering its order summary before its
+    // payment-method disclosure replaces the loading skeleton. Wait for the
+    // disclosure or a rendered method before trying the existing expansion.
+    await this.driver.waitUntil(async () => Boolean(await this.driver.execute(() => {
+      const text = (document.body?.innerText || '').replace(/\s+/g, ' ').toLowerCase();
+      return /more payment methods|apple pay|google pay|paypal|credit.*(?:debit.*)?card/.test(text);
+    }).catch(() => false)), {
+      timeout: 20000,
+      interval: 500,
+      timeoutMsg: 'Payment-method disclosure did not render before validation.',
+    }).catch(() => {
+      console.log(`⚠️ [${pageName}] Payment-method disclosure did not render before validation.`);
+    });
+
     const expanded = await this.driver.execute(() => {
         const control = Array.from(document.querySelectorAll<HTMLElement>('button, [role="button"], summary, a, div'))
           .find(element => /^more payment methods$/i.test((element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim()));
@@ -1393,14 +1407,33 @@ export class IOSSafariValidationPage extends IOSBasePage {
         async () => {
           const t: string = await this.driver.execute(() => document.body?.innerText || '').catch(() => '');
           const lower = t.toLowerCase();
-          return /one time payment|pay now/i.test(lower) &&
-            /payment method|visa|mastercard|amex|\*{4}|saved card/i.test(lower);
+          return !/choose how to buy/i.test(lower) &&
+            /today you pay|one time payment|pay now/.test(lower);
         },
         { timeout: 20000, timeoutMsg: 'PPV Payment page did not appear within 20s.' },
       );
 
       await this.waitForSafariPageContentToSettle(PAGE);
       await this.validateApplePayPaymentMethod(PAGE, results, true);
+
+      // Expanding More payment methods re-renders the selected saved-card
+      // panel. Wait for that panel to finish before reading Pay Now, Secure
+      // checkout, and the legal text below it.
+      await this.driver.waitUntil(async () => Boolean(await this.driver.execute(() => {
+        const text = (document.body?.innerText || '').replace(/\s+/g, ' ').toLowerCase();
+        const hasSavedCard = /visa|mastercard|amex|\*{4}/.test(text);
+        return !hasSavedCard || (
+          /pay now/.test(text) &&
+          /secure checkout/.test(text) &&
+          /by purchasing|by completing|you agree|terms of use|non-refundable/.test(text)
+        );
+      }).catch(() => false)), {
+        timeout: 15000,
+        interval: 250,
+        timeoutMsg: 'Saved-card payment details did not finish rendering after expanding payment methods.',
+      }).catch(() => {
+        console.log('⚠️ [PPV Payment Page (Safari)] Saved-card payment details did not finish rendering before validation.');
+      });
 
       const { getPPVPaymentData } = lazyExcelReader();
       const rows = getPPVPaymentData();
@@ -1461,7 +1494,7 @@ export class IOSSafariValidationPage extends IOSBasePage {
           actual = lines.find(line => expectedWords.length > 0 && expectedWords.every(word => line.toLowerCase().includes(word))) || 'N/A';
 
         } else if (key === 'ppv date and time') {
-          actual = lines.find(line => /\b(?:today|tomorrow|tonight)\s+at\s+\d{1,2}:\d{2}\b|\b(?:mon|tue|wed|thu|fri|sat|sun)\w*\s+\d{1,2}(?:st|nd|rd|th)?\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\s+at\s+\d{1,2}:\d{2}\b/i.test(line)) || 'N/A';
+          actual = lines.find(line => /\b(?:today|tomorrow|tonight)\s+at\s+\d{1,2}:\d{2}\b|\b(?:mon|tue|wed|thu|fri|sat|sun)\w*\s+(?:(?:\d{1,2}(?:st|nd|rd|th)?\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*)(?:\s+at)?|at)\s+\d{1,2}:\d{2}\b/i.test(line)) || 'N/A';
 
         } else if (key === 'order summary ppv name') {
           actual = lines.find(line => ppvWords.length > 0 && ppvWords.every(word => line.toLowerCase().includes(word))) || 'N/A';
