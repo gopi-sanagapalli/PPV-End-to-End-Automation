@@ -97,6 +97,33 @@ export async function ensureLoggedOut(driver: WdBrowser): Promise<void> {
     }).catch(() => { });
 
     if (!logoutBtn) {
+      // "Log out" may be below the fold (e.g. profile completion card visible).
+      // Scroll down once to reveal it.
+      console.log('🔓 [Logout] "Log out" not visible — scrolling down to reveal it...');
+      const { width, height } = await driver.getWindowSize();
+      await driver.performActions([{
+        type: 'pointer', id: 'logoutScroll', parameters: { pointerType: 'touch' },
+        actions: [
+          { type: 'pointerMove', duration: 0, x: Math.round(width / 2), y: Math.round(height * 0.8) },
+          { type: 'pointerDown', button: 0 },
+          { type: 'pause', duration: 80 },
+          { type: 'pointerMove', duration: 250, x: Math.round(width / 2), y: Math.round(height * 0.3) },
+          { type: 'pointerUp', button: 0 },
+        ],
+      }]).catch(() => { });
+      await driver.releaseActions().catch(() => { });
+      await driver.pause(500);
+      await driver.waitUntil(async () => {
+        logoutBtn = await firstVisible(driver, LOGOUT_BUTTON_SELECTORS);
+        return Boolean(logoutBtn);
+      }, {
+        timeout: 5_000,
+        interval: 500,
+        timeoutMsg: '"Log out" button not visible after scrolling.',
+      }).catch(() => { });
+    }
+
+    if (!logoutBtn) {
       await driver.saveScreenshot('./test-results/ios_logout_no_button.png').catch(() => { });
       throw new Error('Could not find the Profile sign-out button.');
     }
