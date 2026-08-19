@@ -112,13 +112,17 @@ export class IOSLandingPage extends IOSBasePage {
   }
 
   async openLandingBannerPaywall(hooks: IOSFlowHooks = {}): Promise<boolean> {
+    const region = String(process.env.DAZN_REGION || '').toUpperCase();
+    const ctaTexts = region === 'US'
+      ? ['Buy now', 'Buy Now', 'Buy', 'Go to dazn.com/start', 'Go to DAZN.com/start', 'dazn.com/start']
+      : ['Go to dazn.com/start', 'Go to DAZN.com/start', 'dazn.com/start'];
     return this.openBannerPaywall({
       label: 'Landing Page',
       pageName: 'Landing page',
       missingScreenshot: './test-results/ios_landing_ppv_banner_not_found.png',
       foundScreenshot: './test-results/ios_landing_ppv_banner_found.png',
       buyMissingScreenshot: './test-results/ios_landing_buy_cta_not_found.png',
-      ctaTexts: ['Go to dazn.com/start', 'Go to DAZN.com/start', 'dazn.com/start'],
+      ctaTexts,
       validateSurface: 'PPV Banner',
       immediatePaywall: true,
       recordPage: 'Landing',

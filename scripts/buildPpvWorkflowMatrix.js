@@ -121,7 +121,7 @@ const ultimateOnly = new Set(['boxing-banner-ultimate', 'boxing-ultimate-subscri
 const validUltimateProfiles = new Set(['active_standard_monthly/ultimate_apm', 'active_standard_monthly/ultimate_upfront', 'active_standard_apm/ultimate_apm']);
 // Sources that open a subscription modal — active users already have a subscription so
 // no modal appears and the flow gets stuck. Only freemium/frozen profiles are valid.
-const activeSubscribedExcludedSources = new Set(['home-page-dazntile', 'home-page-get-started', 'boxing-standard-subscription']);
+const activeSubscribedExcludedSources = new Set(['home-page-dazntile', 'home-page-get-started', 'boxing-standard-subscription', 'boxing-ultimate-subscription']);
 const isActiveSubscribed = (profile) => profile.startsWith('active_standard_') || profile.startsWith('active_ultimate_');
 // Boxing PPVs are surfaced through the complete set of boxing-specific entry
 // points. Other sports use the sport tile, the home-page Don't Miss tile,

@@ -404,6 +404,13 @@ export class IOSSafariCheckoutPage extends IOSBasePage {
     console.log('🎭 Enabling Safari dev mode for Ultimate checkout...');
     await this.openSafariSearchFromLanding();
     await this.refreshSafariOpeningProblemPageIfPresent();
+    await this.driver.waitUntil(async () => this.browserDocumentReady(), {
+      timeout: Number(process.env.IOS_SAFARI_SETTLE_TIMEOUT_MS || 35000),
+      interval: Number(process.env.IOS_SAFARI_SETTLE_POLL_MS || 2000),
+      timeoutMsg: 'Safari search page did not render before dev mode activation.',
+    });
+    this.resetCookieConsentCache();
+    await this.handleSafariCookies();
 
     const hasDevIndicator = async () => {
       if (await this.browserFirstVisible([
@@ -429,6 +436,7 @@ export class IOSSafariCheckoutPage extends IOSBasePage {
     // method resumes. The visible yellow dot is the same success signal used
     // by the web flow, so continue instead of trying to enter the command.
     if (await hasDevIndicator()) {
+      await this.driver.pause(Number(process.env.IOS_DEV_MODE_CONFIRMED_SETTLE_MS || 1000));
       console.log('✅ Safari dev mode is already active (yellow indicator visible).');
       return;
     }
@@ -600,6 +608,12 @@ export class IOSSafariCheckoutPage extends IOSBasePage {
       }
     }
     if (!enabled) throw new Error('Safari dev mode was not confirmed by its yellow indicator.');
+    await this.driver.waitUntil(async () => await hasDevIndicator(), {
+      timeout: 5000,
+      interval: 500,
+      timeoutMsg: 'Safari dev-mode yellow indicator disappeared immediately after confirmation.',
+    });
+    await this.driver.pause(Number(process.env.IOS_DEV_MODE_CONFIRMED_SETTLE_MS || 1000));
     console.log('✅ Safari dev mode confirmed.');
   }
 
@@ -692,12 +706,30 @@ export class IOSSafariCheckoutPage extends IOSBasePage {
       const devModeForced = String(process.env.DEV_MODE_ON || '').toLowerCase() === 'on' || ppvDevMode;
       if (devModeForced || (tier === 'ultimate' && isUSorGB) || (isUltimateUser && isLoginFirst)) {
         console.log('🎭 Ultimate tier detected on account checkout — enabling dev mode first...');
-        const baseUrl = settledUrl.replace(/\/account\/.*/, '');
-        await this.driver.url(`${baseUrl}/en-${region}/search`);
+        const searchUrl = new URL(`/en-${region}/search`, settledUrl).toString();
+        await this.driver.url(searchUrl);
         await this.driver.pause(2000);
         await this.enableSafariDevMode();
-        // Navigate back to the checkout URL with dev mode active
-        await this.driver.url(settledUrl);
+        if (region === 'US') {
+          console.log('🇺🇸 [US Ultimate] Returning to contextual checkout with Safari Back, then refreshing...');
+          await this.driver.back().catch(() => { });
+          const returnedToCheckout = await this.driver.waitUntil(async () => {
+            const url = await this.driver.getUrl().catch(() => '');
+            return this.isAccountCheckoutUrl(url);
+          }, {
+            timeout: 10000,
+            interval: 500,
+            timeoutMsg: 'Safari Back did not return to the contextual checkout URL.',
+          }).then(() => true).catch(() => false);
+          if (!returnedToCheckout) {
+            console.warn('⚠️ Safari Back did not return to checkout; navigating directly to captured contextual URL.');
+            await this.driver.url(settledUrl);
+          }
+          await this.driver.refresh();
+        } else {
+          // Navigate back to the checkout URL with dev mode active
+          await this.driver.url(settledUrl);
+        }
         await this.waitForSafariStartToSettle();
         this.resetCookieConsentCache();
         await this.handleSafariCookies();

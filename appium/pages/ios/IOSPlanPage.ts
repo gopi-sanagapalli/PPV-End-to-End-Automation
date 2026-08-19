@@ -77,6 +77,23 @@ export class IOSPlanPage extends IOSBasePage {
     }, terms).catch(() => false);
   }
 
+  /** Resolve the real radio control only when its visible plan card is not exposed. */
+  private async findRequestedPlanRadio(terms: string[]): Promise<any | null> {
+    const radios = await this.driver.$$('input[type="radio"], [role="radio"]').catch(() => []);
+    for (const radio of radios) {
+      const belongsToRequestedPlan = await this.driver.execute((control: HTMLElement, requestedTerms: string[]) => {
+        for (let node: HTMLElement | null = control; node && node !== document.body; node = node.parentElement) {
+          if (node.querySelectorAll('input[type="radio"], [role="radio"]').length > 1) continue;
+          const text = (node.innerText || node.textContent || '').toLowerCase();
+          if (requestedTerms.every(term => text.includes(term))) return true;
+        }
+        return false;
+      }, radio, terms).catch(() => false);
+      if (belongsToRequestedPlan) return radio;
+    }
+    return null;
+  }
+
   /**
    * Click the plan card matching the test's requested tier/ratePlan.
    */
@@ -85,9 +102,12 @@ export class IOSPlanPage extends IOSBasePage {
     const predicates = requested.terms.map(term =>
       `contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "${term}")`
     ).join(' and ');
+    // Prefer the visible card label. It is the control a user actually taps;
+    // the nested radio is often visually hidden in Safari's checkout UI.
     let option = await this.firstVisible([
-      `//*[self::label or self::button or @role="radio" or @role="button" or @role="option"][${predicates}]`,
-    ]);
+      `//label[${predicates}]`,
+      `//*[@role="radio" or @role="option"][${predicates}]`,
+    ]) ?? await this.findRequestedPlanRadio(requested.terms);
 
     // Safari can expose a plan card as a generic container with only the
     // inner radio input accessible. In that tree the wrapper selector above
@@ -119,18 +139,15 @@ export class IOSPlanPage extends IOSBasePage {
 
     await option.scrollIntoView().catch(() => { });
 
-    // ── Step 1: JS-click the inner radio input directly ───────────────────────
-    // React-based radio groups often require the <input> itself to be clicked,
-    // not the wrapper card. A native click on the card div can fail silently.
-    const clickMethod = await this.driver.execute((el: HTMLElement) => {
-      const radio = (el.matches('input[type="radio"]') ? el as HTMLInputElement : null)
-        ?? el.querySelector<HTMLInputElement>('input[type="radio"]')
-        ?? el.closest<HTMLElement>('label')?.querySelector<HTMLInputElement>('input[type="radio"]');
-      if (radio) { radio.click(); return 'radio-input'; }
-      (el as HTMLElement).click();
-      return 'element-js';
-    }, option).catch(() => null as string | null);
-    console.log(`🖱️ Plan selection click via: ${clickMethod ?? 'native-fallback'}`);
+    const targetKind = await this.driver.execute((el: HTMLElement) => {
+      if (el.matches('label')) return 'label';
+      if (el.matches('[role="radio"], [role="option"]')) return 'aria-control';
+      return 'radio-input';
+    }, option).catch(() => 'plan-control');
+    const clickMethod = await option.click()
+      .then(() => `native-${targetKind}`)
+      .catch(() => null as string | null);
+    console.log(`🖱️ Plan selection click via: ${clickMethod ?? 'screen-tap-fallback'}`);
 
     // ── Step 2: Verify a fresh post-click document state ────────────────────
     let isNowSelected = await this.driver.waitUntil(
@@ -138,14 +155,33 @@ export class IOSPlanPage extends IOSBasePage {
       { timeout: 3000, interval: 250, timeoutMsg: `Requested plan "${requested.plan}" did not become selected.` },
     ).then(() => true).catch(() => false);
 
+    // A controlled Safari card can briefly show the clicked styling before a
+    // React render restores the default. Do not allow Continue unless the
+    // requested radio remains selected after that render has completed.
+    if (isNowSelected) {
+      await this.driver.pause(1500);
+      isNowSelected = await this.isRequestedPlanSelected(requested.terms);
+    }
+
     if (!isNowSelected) {
-      // Fallback: native WdIO click (triggers real pointer events via Appium)
-      console.log('⚠️ JS click did not update radio state — retrying with native click.');
-      await option.click();
+      // The card can be covered by a WebKit layer even though it is exposed to
+      // the accessibility tree. Retry inside this exact card's bounds so Safari
+      // receives the same tap as a real user.
+      console.log('⚠️ Native plan-card click did not update radio state — retrying with an exact Safari tap.');
+      const location = await option.getLocation();
+      const size = await option.getSize();
+      await this.driver.execute('mobile: tap', {
+        x: Math.round(location.x + size.width / 2),
+        y: Math.round(location.y + size.height / 2),
+      });
       isNowSelected = await this.driver.waitUntil(
         () => this.isRequestedPlanSelected(requested.terms),
-        { timeout: 3000, interval: 250, timeoutMsg: `Requested plan "${requested.plan}" did not become selected after native click.` },
+        { timeout: 3000, interval: 250, timeoutMsg: `Requested plan "${requested.plan}" did not become selected after the Safari tap.` },
       ).then(() => true).catch(() => false);
+      if (isNowSelected) {
+        await this.driver.pause(1500);
+        isNowSelected = await this.isRequestedPlanSelected(requested.terms);
+      }
       if (!isNowSelected) {
         throw new Error(`Requested Safari plan "${requested.plan}" did not become selected after clicking ${requested.label}.`);
       }

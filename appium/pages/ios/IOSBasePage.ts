@@ -1117,33 +1117,6 @@ export class IOSBasePage {
       }
     };
 
-    if ((process.env.DAZN_REGION || '').toUpperCase() === 'US') {
-      console.log('🇺🇸 [US] Continuing in the current SFSafariViewController context; skipping new private tab.');
-      let safariContext = '';
-      await this.driver.waitUntil(async () => {
-        const contexts = await this.driver.getContexts().catch(() => []) as string[];
-        for (const context of contexts.filter(value => value !== 'NATIVE_APP').reverse()) {
-          try {
-            await this.driver.switchContext(context);
-            const url = await this.driver.getUrl();
-            if (hasExpectedSafariUrl(url)) {
-              safariContext = context;
-              return true;
-            }
-          } catch { }
-        }
-        await this.driver.switchContext('NATIVE_APP').catch(() => { });
-        return false;
-      }, {
-        timeout: 30000,
-        interval: 500,
-        timeoutMsg: `US in-app browser did not expose a WebKit context for ${capturedUrl}.`,
-      });
-      await this.driver.switchContext('NATIVE_APP').catch(() => { });
-      console.log(`✅ [US] Reusing in-app browser context (${safariContext}).`);
-      return safariContext;
-    }
-
     const findVisibleNativeControl = async (selectors: string[]): Promise<WdElement | null> => {
       for (const selector of selectors) {
         try {
@@ -1170,6 +1143,40 @@ export class IOSBasePage {
       return control!;
     };
 
+    const region = (process.env.DAZN_REGION || '').toUpperCase();
+    const plan = String(process.env.PLAN || '').toLowerCase();
+    const tier = String(process.env.TIER || '').toLowerCase();
+    const ppvDevMode = String(process.env.PPV_DEV_MODE || '').toLowerCase() === 'true';
+    const devModeForced = String(process.env.DEV_MODE_ON || '').toLowerCase() === 'on' || ppvDevMode;
+    const needsExternalSafariForDevMode = region === 'US' && (devModeForced || tier === 'ultimate' || plan.includes('ultimate'));
+
+    if (region === 'US' && !needsExternalSafariForDevMode) {
+      console.log('🇺🇸 [US] Continuing in the current SFSafariViewController context; skipping new private tab.');
+      let safariContext = '';
+      await this.driver.waitUntil(async () => {
+        const contexts = await this.driver.getContexts().catch(() => []) as string[];
+        for (const context of contexts.filter(value => value !== 'NATIVE_APP').reverse()) {
+          try {
+            await this.driver.switchContext(context);
+            const url = await this.driver.getUrl();
+            if (hasExpectedSafariUrl(url)) {
+              safariContext = context;
+              return true;
+            }
+          } catch { }
+        }
+        await this.driver.switchContext('NATIVE_APP').catch(() => { });
+        return false;
+      }, {
+        timeout: 30000,
+        interval: 500,
+        timeoutMsg: `US in-app browser did not expose a WebKit context for ${capturedUrl}.`,
+      });
+      await this.driver.switchContext('NATIVE_APP').catch(() => { });
+      console.log(`✅ [US] Reusing in-app browser context (${safariContext}).`);
+      return safariContext;
+    }
+
     const moreButtonSelectors = [
       '-ios predicate string:type == "XCUIElementTypeButton" AND (name == "More" OR label == "More")',
       '-ios predicate string:type == "XCUIElementTypeButton" AND (name == "More Actions" OR label == "More Actions")',
@@ -1185,6 +1192,35 @@ export class IOSBasePage {
     const addressButtonSelectors = [
       '-ios predicate string:type == "XCUIElementTypeButton" AND (name CONTAINS[c] "address" OR label CONTAINS[c] "address" OR name CONTAINS[c] "search" OR label CONTAINS[c] "search")',
     ];
+
+    if (needsExternalSafariForDevMode) {
+      console.log('🇺🇸 [US Ultimate] Opening SFSafariViewController page in external Safari for dev mode...');
+      await this.driver.switchContext('NATIVE_APP').catch(() => { });
+      const openInSafariSelectors = [
+        '-ios predicate string:type == "XCUIElementTypeButton" AND (name == "Open in Safari" OR label == "Open in Safari")',
+        '-ios predicate string:type == "XCUIElementTypeButton" AND (name CONTAINS[c] "Safari" OR label CONTAINS[c] "Safari")',
+        '~Open in Safari',
+        '~OpenInSafari',
+      ];
+      const openInSafariButton = await findVisibleNativeControl(openInSafariSelectors);
+      if (openInSafariButton) {
+        await openInSafariButton.click();
+      } else {
+        const { width, height } = await this.driver.getWindowSize();
+        await this.driver.performActions([{
+          type: 'pointer', id: 'ios-open-in-safari', parameters: { pointerType: 'touch' },
+          actions: [
+            { type: 'pointerMove', duration: 0, x: Math.round(width * 0.88), y: Math.round(height * 0.935) },
+            { type: 'pointerDown', button: 0 },
+            { type: 'pause', duration: 80 },
+            { type: 'pointerUp', button: 0 },
+          ],
+        }]);
+        await this.driver.releaseActions();
+        console.log('🇺🇸 [US Ultimate] Tapped Open in Safari by toolbar coordinate fallback.');
+      }
+      await this.driver.pause(Number(process.env.IOS_US_EXTERNAL_SAFARI_SETTLE_MS || 3000));
+    }
 
     console.log('🧭 Opening captured handoff URL in a new Safari private tab...');
     await this.driver.switchContext('NATIVE_APP').catch(() => { });
@@ -1211,6 +1247,12 @@ export class IOSBasePage {
     await addressField.setValue(capturedUrl);
 
     await this.driver.keys(['Enter']);
+
+    if (needsExternalSafariForDevMode) {
+      console.log('🇺🇸 [US Ultimate] Submitted captured URL in external Safari; continuing with Safari WebView polling.');
+      await this.driver.pause(Number(process.env.IOS_US_PRIVATE_TAB_SETTLE_MS || 3000));
+      return '';
+    }
 
     let safariContext = '';
     await this.driver.waitUntil(async () => {
