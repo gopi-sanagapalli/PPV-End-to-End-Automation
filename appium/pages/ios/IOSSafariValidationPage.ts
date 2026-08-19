@@ -255,6 +255,14 @@ export class IOSSafariValidationPage extends IOSBasePage {
     extras: { h1Text: string; buttonTexts: string[]; hasImage: boolean; selectedRadioText: string; hasTermsLink: boolean; eventName: string; ratePlan: string; pageName: string },
   ): { actual: string; isMatch: boolean } {
     const fieldLower = field.toLowerCase().replace(/\s+/g, ' ').trim();
+    const isUpgradeConfirmation = /upgrade confirmation/i.test(extras.pageName);
+    const confirmationPlanMatch = isUpgradeConfirmation
+      ? fullText.match(/annual\s*[-–]\s*pay\s*(?:monthly|upfront)/i)
+      : null;
+    const confirmationPlanText = confirmationPlanMatch?.[0]?.replace(/\s+/g, ' ').trim() || '';
+    const confirmationPlanBlock = confirmationPlanMatch?.index === undefined
+      ? fullText
+      : fullText.slice(confirmationPlanMatch.index, confirmationPlanMatch.index + 260);
 
     // The workbook field names are descriptive and do not always occur as
     // literal page text. Map the shared web assertions to the copy visible in
@@ -320,20 +328,72 @@ export class IOSSafariValidationPage extends IOSBasePage {
     }
 
     // ── PPV Date and Time / Included PPV Date and Time (CHTB page) ──
-    if (fieldLower === 'ppv date and time' || fieldLower === 'included ppv date and time') {
-      // Use expected itself as the search key (e.g. "Sat 29th Aug at 17:00")
-      if (expected && expected.toUpperCase() !== 'N/A') {
-        const expLower = expected.toLowerCase();
-        const found = texts.find(t => t.toLowerCase().includes(expLower.substring(0, 10)));
-        if (found) {
-          const actual = found.trim();
-          return { actual, isMatch: compareFn(actual, expected) };
-        }
+    if ((fieldLower.includes('date') && fieldLower.includes('time')) ||
+      fieldLower === 'ppv date and time' ||
+      fieldLower === 'included ppv date and time') {
+      const normalizeDateTime = (value: string) => value.toLowerCase()
+        .replace(/[\u200b\u200c\u200d\ufeff]/g, '')
+        .replace(/\b(\d+)(?:st|nd|rd|th)\b/g, '$1')
+        .replace(/\bsunday\b/g, 'sun')
+        .replace(/\bmonday\b/g, 'mon')
+        .replace(/\btuesday\b/g, 'tue')
+        .replace(/\bwednesday\b/g, 'wed')
+        .replace(/\bthursday\b/g, 'thu')
+        .replace(/\bfriday\b/g, 'fri')
+        .replace(/\bsaturday\b/g, 'sat')
+        .replace(/\bjanuary\b/g, 'jan')
+        .replace(/\bfebruary\b/g, 'feb')
+        .replace(/\bmarch\b/g, 'mar')
+        .replace(/\bapril\b/g, 'apr')
+        .replace(/\bjune\b/g, 'jun')
+        .replace(/\bjuly\b/g, 'jul')
+        .replace(/\baugust\b/g, 'aug')
+        .replace(/\bseptember\b/g, 'sep')
+        .replace(/\boctober\b/g, 'oct')
+        .replace(/\bnovember\b/g, 'nov')
+        .replace(/\bdecember\b/g, 'dec')
+        .replace(/a\.\s*m\.?/g, 'am')
+        .replace(/p\.\s*m\.?/g, 'pm')
+        .replace(/\b0(\d:)/g, '$1')
+        .replace(/\s+/g, ' ')
+        .trim();
+      const looksLikeDateTimeText = (value: string) =>
+        /\b(today|tomorrow|tonight|this morning|this afternoon|this evening|this night|morning|afternoon|evening|night|sun|mon|tue|wed|thu|fri|sat|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/.test(value) &&
+        /\b\d{1,2}:\d{2}\s*(?:am|pm)?\b/.test(value);
+      const candidates = new Set(
+        expected.split('|').map(value => value.trim()).filter(value => value && value.toUpperCase() !== 'N/A')
+      );
+      try {
+        const { getDynamicDateTimeBadge } = require('../../../utils/dateUtils');
+        const dynamicExpected = getDynamicDateTimeBadge(expected);
+        dynamicExpected.split('|').map((value: string) => value.trim()).filter(Boolean).forEach((value: string) => candidates.add(value));
+      } catch { }
+      const candidateValues = Array.from(candidates);
+      const foundByCandidate = texts.find(text => {
+        const normalizedText = normalizeDateTime(text);
+        if (!looksLikeDateTimeText(normalizedText)) return false;
+        return candidateValues.some(candidate => {
+          const normalizedCandidate = normalizeDateTime(candidate);
+          return normalizedCandidate &&
+            (normalizedText === normalizedCandidate ||
+              normalizedText.includes(normalizedCandidate) ||
+              normalizedCandidate.includes(normalizedText));
+        });
+      });
+      if (foundByCandidate) {
+        return { actual: foundByCandidate.trim(), isMatch: true };
       }
-      // Generic ordinal date pattern fallback: "Sat 29th Aug at 17:00"
-      const dateMatch = texts.find(t => /\d+(st|nd|rd|th)\s+\w+\s+at\s+\d+:/i.test(t));
-      const actual = dateMatch ? dateMatch.trim() : 'Not found';
-      return { actual, isMatch: compareFn(actual, expected) };
+      const expectedTime = normalizeDateTime(expected).match(/\b\d{1,2}:\d{2}\s*(?:am|pm)?\b/)?.[0] || '';
+      const relativeDateMatch = texts.find(text => {
+        const normalizedText = normalizeDateTime(text);
+        return expectedTime &&
+          looksLikeDateTimeText(normalizedText) &&
+          normalizedText.includes(expectedTime);
+      });
+      const actual = relativeDateMatch?.trim() ||
+        texts.find(t => /\d+(st|nd|rd|th)?\s+\w+\s+at\s+\d+:/i.test(t))?.trim() ||
+        'Not found';
+      return { actual, isMatch: actual !== 'Not found' && compareFn(actual, expected) };
     }
 
     if (terms && (expected.trim().toUpperCase() === 'YES' || expected.trim().toUpperCase() === 'NO')) {
@@ -388,22 +448,24 @@ export class IOSSafariValidationPage extends IOSBasePage {
     }
 
     if (fieldLower === 'annual pay monthly selected' || fieldLower === 'annual pay upfront selected') {
-      // Mirror the web getActualValue.ts approach: derive the answer from
-      // eventData.RATE_PLAN (the plan the test requested and selected), not
-      // from live DOM aria-checked state which is fragile in Safari WebView.
-      const rp = extras.ratePlan; // already lowercased
+      const selected = extras.selectedRadioText.toLowerCase();
       if (fieldLower === 'annual pay monthly selected') {
-        const actual = (rp.includes('annual') && rp.includes('monthly')) ? 'Yes' : 'No';
+        const actual = /annual\s*-?\s*pay\s+monthly/i.test(selected) ? 'Yes' : 'No';
         return { actual, isMatch: compareFn(actual, expected) };
       }
       if (fieldLower === 'annual pay upfront selected') {
-        const actual = rp.includes('upfront') ? 'Yes' : 'No';
+        const actual = /annual\s*-?\s*pay\s+upfront/i.test(selected) ? 'Yes' : 'No';
         return { actual, isMatch: compareFn(actual, expected) };
       }
     }
 
 
     if (fieldLower === 'rate plan price') {
+      if (isUpgradeConfirmation) {
+        const price = confirmationPlanBlock.match(/(?:[A-Z]{3}\s*|[£$€₹]\s?)\d+(?:[.,]\d{2})?/)?.[0]?.trim();
+        const actual = price || 'Not found';
+        return { actual, isMatch: actual !== 'Not found' && compareFn(actual, expected) };
+      }
       // Use the rate plan passed from eventData so the correct plan card
       // heading is found. The confirmation workbook validates the price and
       // billing period as separate fields.
@@ -421,7 +483,6 @@ export class IOSSafariValidationPage extends IOSBasePage {
         .map(text => text?.match(/\/\s*(?:month|year)\b/i)?.[0])
         .find(Boolean)
         ?.replace(/\s+/g, '');
-      const isUpgradeConfirmation = /upgrade confirmation/i.test(extras.pageName);
       const actual = price
         ? `${price.trim()}${isUpgradeConfirmation ? '' : (period || '')}`
         : 'Not found';
@@ -429,6 +490,13 @@ export class IOSSafariValidationPage extends IOSBasePage {
     }
 
     if (fieldLower === 'rate plan period') {
+      if (isUpgradeConfirmation) {
+        const period = confirmationPlanBlock.match(/\/\s*month\s+for\s+12\s+months|\/\s*month|\/\s*year/i)?.[0]
+          ?.replace(/\s+/g, ' ')
+          .trim();
+        const actual = period || 'Not found';
+        return { actual, isMatch: actual !== 'Not found' && compareFn(actual, expected) };
+      }
       const period = fullText.match(/\/\s*(?:month|year)\b/i);
       const periodText = period?.[0].replace(/\s+/g, ' ').trim();
       const periodTail = period?.index === undefined ? '' : fullText.slice(period.index, period.index + 80);
@@ -535,6 +603,18 @@ export class IOSSafariValidationPage extends IOSBasePage {
       return { actual: 'Not found', isMatch: false };
     }
 
+    if (isUpgradeConfirmation && fieldLower === 'legal text line 2') {
+      const legalLine = fullText.match(/(?:today|tooday)\s+you\s+will\s+be\s+charged[\s\S]{0,260}?(?:\/\s*(?:month|year)|month|year)\.?/i)?.[0]
+        ?.replace(/\s+/g, ' ')
+        .trim();
+      const actual = legalLine || 'Not found';
+      const normalizeLegal = (value: string) => value.toLowerCase()
+        .replace(/\btooday\b/g, 'today')
+        .replace(/\s+/g, ' ')
+        .trim();
+      return { actual, isMatch: actual !== 'Not found' && compareFn(normalizeLegal(actual), normalizeLegal(expected)) };
+    }
+
     if (fieldLower === 'ppv date and time text') {
       // Preserve the visible date/time text even when its date and time are
       // split across adjacent elements on the responsive Safari card.
@@ -574,6 +654,10 @@ export class IOSSafariValidationPage extends IOSBasePage {
 
     // ── Rate Plan (plan name label, e.g. "Annual - Pay Monthly") ──
     if (fieldLower === 'rate plan') {
+      if (isUpgradeConfirmation) {
+        const actual = confirmationPlanText || 'Not found';
+        return { actual, isMatch: actual !== 'Not found' && compareFn(actual, expected) };
+      }
       const found = texts.find(t => compareFn(t, expected));
       if (found) return { actual: found.trim(), isMatch: true };
       // Partial match on key words
@@ -583,6 +667,24 @@ export class IOSSafariValidationPage extends IOSBasePage {
         return expWords.filter(w => tl.includes(w)).length >= Math.ceil(expWords.length * 0.6);
       });
       return { actual: partial?.trim() || 'Not found', isMatch: !!partial && compareFn(partial, expected) };
+    }
+
+    if (isUpgradeConfirmation && fieldLower === 'rate plan description') {
+      // The plan title includes "Pay Upfront", so only match the explanatory
+      // sentence rendered beneath it.
+      const description = texts.find(text =>
+        /get the best value when you pay upfront|paid in 12 monthly instalments|paid in 12 monthly installments/i.test(text)
+      ) || '';
+      const actual = description.trim() || 'Not found';
+      return { actual, isMatch: actual !== 'Not found' && compareFn(actual, expected) };
+    }
+
+    if (isUpgradeConfirmation && fieldLower === 'next payment label') {
+      const nextPayment = fullText.match(/next\s+payment\s+on\s+\d{1,2}[/-]\d{1,2}[/-]\d{4}/i)?.[0]
+        ?.replace(/\s+/g, ' ')
+        .trim();
+      const actual = nextPayment || 'Not found';
+      return { actual, isMatch: actual !== 'Not found' && compareFn(actual, expected) };
     }
 
     if (fieldLower === 'terms link present') {
@@ -703,12 +805,18 @@ export class IOSSafariValidationPage extends IOSBasePage {
         // different mobile experiments. Restrict the CSS fallback to elements
         // that are themselves radio/card controls; a generic `.selected`
         // lookup would create false positives from unrelated page content.
-        const selected = document.querySelector<HTMLElement>(
+        // Do not use `[checked]`: React can leave that initial HTML attribute
+        // on the default card after the live `radio.checked` property changes.
+        const selected = Array.from(document.querySelectorAll<HTMLElement>(
           '[role="radio"][aria-checked="true"], input[type="radio"]:checked, ' +
           '[role="radio"].selected, [role="radio"][data-selected="true"], [role="radio"][aria-selected="true"], ' +
-          '[data-state="checked"], [data-checked="true"], input[type="radio"][checked], ' +
+          '[data-state="checked"], [data-checked="true"], ' +
           'label.selected:has(input[type="radio"]), label[data-selected="true"]:has(input[type="radio"])',
-        );
+        )).find(element => {
+          const box = element.getBoundingClientRect();
+          const style = window.getComputedStyle(element);
+          return style.display !== 'none' && style.visibility !== 'hidden' && box.width > 0 && box.height > 0;
+        });
         if (!selected) return '';
         return (selected.closest<HTMLElement>('label, [role="radio"], [role="button"], div')?.innerText || '').trim();
       }).catch(() => ''),

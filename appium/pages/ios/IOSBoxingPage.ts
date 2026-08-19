@@ -78,6 +78,21 @@ export class IOSBoxingPage extends IOSBasePage {
 
   /** Finds only the configured PPV title, then verifies its own date column. */
   private async findUpcomingPpvCard(dateParts: IOSPPVDateParts): Promise<any | null> {
+    // The Upcoming list is virtualized and re-created during scrolling. Its
+    // stable page-source marker distinguishes the target list entry from the
+    // same event title in the promotional carousel, avoiding stale-element
+    // requests until the actual list card has been rendered.
+    const normalize = (value: string) => value.normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
+    const pageSource = normalize(await this.driver.getPageSource().catch(() => ''));
+    const listMarker = `${normalize(this.ppvName)}-list:`;
+    const targetListIndex = pageSource.indexOf(listMarker);
+    const dateMarker = `${dateParts.day}, article`;
+    const hasTargetListCard = targetListIndex >= 0 &&
+      pageSource.lastIndexOf(dateMarker, targetListIndex) >= Math.max(0, targetListIndex - 3000);
+    if (!hasTargetListCard) return null;
+
     const escapedName = this.iosPredicateValue(this.ppvName);
     const titleTermVariants = this.ppvTitleTermVariants(this.ppvName).slice(0, 2);
     const titleSelectors = [
@@ -348,6 +363,10 @@ export class IOSBoxingPage extends IOSBasePage {
     }
 
     await upcomingFilter.click();
+    // The tab tap replaces the virtualized accessibility hierarchy. Let that
+    // replacement finish before the scoped title/date lookup creates element
+    // references, otherwise each stale reference incurs a WDA retry delay.
+    await this.driver.pause(1200);
     console.log('  "Upcoming Fights" filter clicked; continuing with its scoped PPV list.');
   }
 
