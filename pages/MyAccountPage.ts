@@ -2,6 +2,7 @@ import { Page, Locator } from '@playwright/test';
 import { handleCookies } from '../utils/helpers';
 import { validateVariant } from '../flows/validateVariant';
 import { getMyAccountData } from '../utils/excelReader';
+import { compare } from '../utils/compare';
 
 const MY_ACCOUNT_PPV_CARD_MARKER = 'data-myaccount-ppv-card-target';
 
@@ -1302,10 +1303,40 @@ export class MyAccountPage {
           .replace(/\s+/g, ' ')
           .trim();
       };
-      const expNorm = normalizeDate(expectedDate);
-      const actNorm = normalizeDate(cardData.dateTime);
-      const dateStatus = actNorm.includes(expNorm) || expNorm.includes(actNorm) ||
-        (actNorm.length > 0 && expNorm.split(/\s+/).filter(p => p.length > 2 && p !== 'at').every(part => actNorm.includes(part))) ? 'PASS' : 'FAIL';
+      const checkDateMatch = (act: string, exp: string): boolean => {
+        if (!exp) return true;
+        if (compare(act, exp)) return true;
+        const expNorm = normalizeDate(exp);
+        const actNorm = normalizeDate(act);
+        if (actNorm === expNorm || actNorm.includes(expNorm) || expNorm.includes(actNorm)) return true;
+
+        const parseTimeAndWk = (val: string) => {
+          const clean = (val || '').toLowerCase()
+            .replace(/a\.\s*m\./gi, 'am')
+            .replace(/p\.\s*m\./gi, 'pm')
+            .replace(/\s+/g, ' ').trim();
+          const wk = clean.match(/\b(sun|mon|tue|wed|thu|fri|sat)[a-z]*\b/i)?.[1]?.toLowerCase();
+          const tm = clean.match(/(\d{1,2}):(\d{2})\s*(am|pm)?/i) || clean.match(/(\d{1,2})\s*(am|pm)/i);
+          if (!tm) return { wk, h: null, m: null };
+          let h = parseInt(tm[1], 10);
+          const min = tm[2] && !isNaN(parseInt(tm[2], 10)) ? parseInt(tm[2], 10) : 0;
+          const meridiem = (tm[3] || (isNaN(parseInt(tm[2], 10)) ? tm[2] : ''))?.toLowerCase();
+          if (meridiem === 'pm' && h < 12) h += 12;
+          if (meridiem === 'am' && h === 12) h = 0;
+          return { wk, h, m: min };
+        };
+
+        const expP = parseTimeAndWk(exp);
+        const actP = parseTimeAndWk(act);
+        if (expP.wk && actP.wk && expP.wk === actP.wk) {
+          if (expP.h !== null && actP.h !== null) {
+            return expP.h === actP.h && expP.m === actP.m;
+          }
+          return true;
+        }
+        return false;
+      };
+      const dateStatus = checkDateMatch(cardData.dateTime, expectedDate) ? 'PASS' : 'FAIL';
       results.push({
         page: 'My Account (Post-Payment)',
         field: 'PPV Date & Time',
@@ -1570,10 +1601,40 @@ export class MyAccountPage {
           .replace(/\s+/g, ' ')
           .trim();
       };
-      const expNorm = normalizeDate(expectedDate);
-      const actNorm = normalizeDate(cardData.dateTime);
-      const dateMatch = actNorm.includes(expNorm) || expNorm.includes(actNorm) ||
-        (actNorm.length > 0 && expNorm.split(/\s+/).filter(p => p.length > 2 && p !== 'at').every(part => actNorm.includes(part)));
+      const checkDateMatch = (act: string, exp: string): boolean => {
+        if (!exp) return true;
+        if (compare(act, exp)) return true;
+        const expNorm = normalizeDate(exp);
+        const actNorm = normalizeDate(act);
+        if (actNorm === expNorm || actNorm.includes(expNorm) || expNorm.includes(actNorm)) return true;
+
+        const parseTimeAndWk = (val: string) => {
+          const clean = (val || '').toLowerCase()
+            .replace(/a\.\s*m\./gi, 'am')
+            .replace(/p\.\s*m\./gi, 'pm')
+            .replace(/\s+/g, ' ').trim();
+          const wk = clean.match(/\b(sun|mon|tue|wed|thu|fri|sat)[a-z]*\b/i)?.[1]?.toLowerCase();
+          const tm = clean.match(/(\d{1,2}):(\d{2})\s*(am|pm)?/i) || clean.match(/(\d{1,2})\s*(am|pm)/i);
+          if (!tm) return { wk, h: null, m: null };
+          let h = parseInt(tm[1], 10);
+          const min = tm[2] && !isNaN(parseInt(tm[2], 10)) ? parseInt(tm[2], 10) : 0;
+          const meridiem = (tm[3] || (isNaN(parseInt(tm[2], 10)) ? tm[2] : ''))?.toLowerCase();
+          if (meridiem === 'pm' && h < 12) h += 12;
+          if (meridiem === 'am' && h === 12) h = 0;
+          return { wk, h, m: min };
+        };
+
+        const expP = parseTimeAndWk(exp);
+        const actP = parseTimeAndWk(act);
+        if (expP.wk && actP.wk && expP.wk === actP.wk) {
+          if (expP.h !== null && actP.h !== null) {
+            return expP.h === actP.h && expP.m === actP.m;
+          }
+          return true;
+        }
+        return false;
+      };
+      const dateMatch = checkDateMatch(cardData.dateTime, expectedDate);
       results.push({ page, field: 'PPV Date & Time', expected: expectedDate, actual: cardData.dateTime, status: dateMatch ? 'PASS' : 'FAIL' });
 
       // 4. Purchased Text

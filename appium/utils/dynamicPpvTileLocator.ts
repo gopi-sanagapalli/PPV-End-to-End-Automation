@@ -578,6 +578,26 @@ export class DynamicPpvTileLocator {
       const isLoginFirst = String(process.env.LOGIN_FIRST || '').toLowerCase() === 'true';
       const matchesFixtureOrWatch = pageSource.includes('watch') || pageSource.includes('play') || pageSource.includes('fixture') || pageSource.includes('related') || pageSource.includes('live') || pageSource.includes('matchroom') || (isUltimate && isLoginFirst);
 
+      const matchesTitle = Boolean((cleanExpected && pageSource.includes(cleanExpected)) ||
+        (normExpected && normPageSource.includes(normExpected)));
+      const matchesEntitlement = Boolean(cleanEntitlement && pageSource.includes(cleanEntitlement));
+      const matchesPart = Boolean(nameParts.some(part => pageSource.includes(part)) ||
+        (fighterWords.length > 0 && fighterWords.some(w => normPageSource.includes(w))));
+      const matchesPaywallCta = Boolean(
+        pageSource.includes('buy') ||
+        pageSource.includes('get ppv') ||
+        pageSource.includes('subscribe') ||
+        pageSource.includes('purchase') ||
+        pageSource.includes('event pass') ||
+        pageSource.includes('order') ||
+        pageSource.includes('checkout') ||
+        pageSource.includes('paywall') ||
+        pageSource.includes('copy') ||
+        pageSource.includes('paste this link') ||
+        pageSource.includes('how to watch') ||
+        pageSource.includes('choose the plan')
+      );
+
       if ((matchesTitle || matchesEntitlement || matchesPart) && (matchesPaywallCta || matchesTitle || matchesFixtureOrWatch)) {
         return true;
       }

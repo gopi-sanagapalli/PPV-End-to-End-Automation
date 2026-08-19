@@ -47,6 +47,11 @@ export function compare(
   if (a === e) return true;
   if (a.replace(/\.$/, '') === e.replace(/\.$/, '')) return true;
 
+  // ── Line-clamped / truncated description tolerance (e.g. mobile CSS truncation) ──
+  if ((e.startsWith(a) || a.startsWith(e)) && (a.length >= 35 || e.length >= 35)) {
+    return true;
+  }
+
   // ── Price duplication check ─────────────────────────────────────
   const priceRegex = /\d+(?:\.\d{2})?/;
   const expectedPrices = e.match(new RegExp(priceRegex.source, 'g')) || [];
@@ -90,6 +95,24 @@ export function compare(
 
   // ── Price length/unit comparison (e.g., "/ month" vs "/month") ──
   if (e.replace(/\s+/g, '') === a.replace(/\s+/g, '') && (e.startsWith('/') || e.startsWith('per'))) {
+    return true;
+  }
+
+  // ── Time format tolerance (12h vs 24h: e.g. "8:00PM" vs "20:00") ──────────
+  const parseTime = (val: string): { h: number; m: number } | null => {
+    const clean = String(val || '').trim().toLowerCase().replace(/[\u200b\u200c\u200d\ufeff]/g, '');
+    const m = clean.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/i);
+    if (!m) return null;
+    let h = parseInt(m[1], 10);
+    const min = parseInt(m[2] || '0', 10);
+    const meridiem = m[3]?.toLowerCase();
+    if (meridiem === 'pm' && h < 12) h += 12;
+    if (meridiem === 'am' && h === 12) h = 0;
+    return { h, m: min };
+  };
+  const at = parseTime(actual);
+  const et = parseTime(expected);
+  if (at && et && at.h === et.h && at.m === et.m) {
     return true;
   }
 

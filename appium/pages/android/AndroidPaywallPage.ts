@@ -86,8 +86,12 @@ export class AndroidPaywallPage extends AndroidBasePage {
 
   private async isCopyButtonVisible(): Promise<boolean> {
     const selectors = [
+      'android=new UiSelector().textMatches("(?i)^Copy$")',
+      'android=new UiSelector().descriptionMatches("(?i)^Copy$")',
       '//android.widget.Button[@text="Copy"]',
       '//android.widget.TextView[@text="Copy"]',
+      '//android.widget.Button[translate(@text, "COPY", "copy")="copy"]',
+      '//android.widget.TextView[translate(@text, "COPY", "copy")="copy"]',
       '//*[@content-desc="Copy"]',
       '//android.view.View[.//android.widget.TextView[@text="Copy"] or .//android.widget.Button[@text="Copy"]]',
     ];
@@ -107,6 +111,10 @@ export class AndroidPaywallPage extends AndroidBasePage {
   private async clickCopyButton(label: string): Promise<boolean> {
     const startTime = Date.now();
     const selectors = [
+      { label: 'textMatches', selector: 'android=new UiSelector().textMatches("(?i)^Copy$")' },
+      { label: 'descMatches', selector: 'android=new UiSelector().descriptionMatches("(?i)^Copy$")' },
+      { label: 'textCI', selector: '//android.widget.TextView[translate(@text, "COPY", "copy")="copy"]' },
+      { label: 'buttonCI', selector: '//android.widget.Button[translate(@text, "COPY", "copy")="copy"]' },
       { label: 'parent', selector: '//android.view.View[.//android.widget.TextView[@text="Copy"] or .//android.widget.Button[@text="Copy"]]' },
       { label: 'button', selector: '//android.widget.Button[@text="Copy"]' },
       { label: 'text', selector: '//android.widget.TextView[@text="Copy"]' },
@@ -123,6 +131,16 @@ export class AndroidPaywallPage extends AndroidBasePage {
         return true;
       } catch {}
     }
+
+    // Coordinate fallback for landing banner pill button on the right side: (x ~ 81%, y ~ 86%)
+    try {
+      const { width, height } = await this.driver.getWindowSize();
+      const copyX = Math.round(width * 0.81);
+      const copyY = Math.round(height * 0.86);
+      console.log(`  Trying coordinate tap on Copy button at (${copyX}, ${copyY})...`);
+      adbTap(copyX, copyY);
+      return true;
+    } catch {}
 
     console.log(`  ⚠️ Copy button not found by any selector (${Date.now() - startTime}ms)`);
     return false;

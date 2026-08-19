@@ -119,10 +119,15 @@ export class AndroidMyAccountPage extends AndroidBasePage {
         'android=new UiSelector().resourceIdMatches(".*(email|username).*")',
         'android=new UiSelector().descriptionContains("Email")',
         'android=new UiSelector().textContains("Email")',
+        '//android.widget.EditText',
       ];
-      for (const selector of emailSelectors) {
-        emailInput = await this.findEl(selector, 2500);
+      for (let attempt = 0; attempt < 5; attempt++) {
+        for (const selector of emailSelectors) {
+          emailInput = await this.findEl(selector, 2000);
+          if (emailInput) break;
+        }
         if (emailInput) break;
+        await this.driver.pause(1000);
       }
       if (!emailInput) {
         throw new Error('Login screen opened but no email input was found');
