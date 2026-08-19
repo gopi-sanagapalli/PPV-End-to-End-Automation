@@ -77,6 +77,15 @@ runs:
           done
         fi
         node "$GITHUB_ACTION_PATH/compile.js"
+    - name: Remove Playwright trace blobs from consolidated bundle
+      shell: bash
+      run: |
+        set -euo pipefail
+        # Remove Playwright trace data bundles (not read by compile.js)
+        find ppv-workflow-summary/job-artifacts -type d -name data -path "*/playwright-report/data" -exec rm -rf {} + 2>/dev/null || true
+        # Remove Playwright raw trace zips from test-results
+        find ppv-workflow-summary/job-artifacts -name "trace.zip" -path "*/test-results/*" -delete 2>/dev/null || true
+        echo "🧹 Removed Playwright trace blobs from consolidated bundle"
     - name: Store consolidated workflow report locally
       shell: bash
       env:

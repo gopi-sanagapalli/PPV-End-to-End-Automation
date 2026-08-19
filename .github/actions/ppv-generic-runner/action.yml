@@ -64,6 +64,14 @@ runs:
         echo "Stored Playwright reports locally at $report_dir"
         echo "REPORT_NAME=$report_name" >> "$GITHUB_ENV"
         echo "report_name=$report_name" >> "$GITHUB_OUTPUT"
+    - name: Remove trace blobs before artifact upload
+      if: ${{ always() }}
+      shell: bash
+      run: |
+        # Remove Playwright trace data bundles (large, not needed in GitHub artifact)
+        rm -rf playwright-report/data 2>/dev/null || true
+        # Remove raw trace zips from test-results
+        find test-results -name "trace.zip" -delete 2>/dev/null || true
     - name: Upload job report as GitHub artifact
       if: ${{ always() }}
       uses: actions/upload-artifact@v4

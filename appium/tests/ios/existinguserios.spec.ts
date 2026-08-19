@@ -289,10 +289,11 @@ describe('DAZN iOS PPV — Existing User Flow', () => {
 
     await startIOSRecording(browser);
 
+    const isLandingPageBanner = SOURCE === 'landing-page-banner';
     await prepareIosApp(browser, {
       clearAppData: false, // iOS simulator/real devices preserve cache
-      acceptCookiesOnly: LOGIN_FIRST || undefined,
-      waitForHome: !LOGIN_FIRST,
+      acceptCookiesOnly: LOGIN_FIRST || isLandingPageBanner || undefined,
+      waitForHome: !LOGIN_FIRST && !isLandingPageBanner,
     });
   });
 
@@ -321,6 +322,8 @@ describe('DAZN iOS PPV — Existing User Flow', () => {
     const planData = plans[PLAN] || { TIER: 'standard', RATE_PLAN: 'monthly' };
     const planTier = (planData.TIER || 'standard').toLowerCase();
     const ratePlan = (planData.RATE_PLAN || 'monthly').toLowerCase();
+    process.env.TIER = planTier;
+    process.env.RATE_PLAN = ratePlan;
 
     const eventData = buildEventData(json, REGION, planTier, ratePlan.replace(/-/g, ' '), SOURCE);
 
