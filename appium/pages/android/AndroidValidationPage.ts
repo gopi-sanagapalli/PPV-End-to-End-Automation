@@ -376,12 +376,35 @@ export class AndroidValidationPage extends AndroidBasePage {
           console.warn('⚠️ Failed to save XML dumps:', err.message);
         }
       } else {
-        // Banner: extract all texts from full page source
-        const regex = /(?:text|content-desc)="([^"]+)"/g;
-        let match;
-        while ((match = regex.exec(targetXml)) !== null) {
-          const val = match[1].trim();
-          if (val) textsSet.add(val);
+        // Banner: extract texts from hero banner region (top 68% of screen) to exclude content rails below
+        const isLanding = targetXml.includes('resource-id="CarouselBox"') || !targetXml.includes('id/bottom_navigation');
+        const elementRegex = /<([a-zA-Z0-9.]+)\b[^>]*(?:text|content-desc)="([^"]+)"[^>]*bounds="([^"]+)"/g;
+        let elMatch;
+        let boundsFound = false;
+        const screenSz = getScreenSize();
+        const maxBannerY = Math.round(screenSz.height * (isLanding ? 0.95 : 0.68));
+
+        while ((elMatch = elementRegex.exec(targetXml)) !== null) {
+          const textVal = elMatch[2].trim();
+          const boundsStr = elMatch[3];
+          if (!textVal) continue;
+          const bm = boundsStr.match(/\[(\d+),(\d+)\]\[(\d+),(\d+)\]/);
+          if (bm) {
+            boundsFound = true;
+            const topY = parseInt(bm[2], 10);
+            if (topY <= maxBannerY) {
+              textsSet.add(textVal);
+            }
+          }
+        }
+
+        if (!boundsFound) {
+          const regex = /(?:text|content-desc)="([^"]+)"/g;
+          let match;
+          while ((match = regex.exec(targetXml)) !== null) {
+            const val = match[1].trim();
+            if (val) textsSet.add(val);
+          }
         }
 
         // Save XML dump for banner debugging
@@ -1079,17 +1102,12 @@ export class AndroidValidationPage extends AndroidBasePage {
       await pushResult('Description', expectedDesc, isDescPresent ? expectedDesc : 'Not found', isDescPresent);
 
       // 5. Fight Card Button
-      const isBoxingPage = String(source || '').trim().toLowerCase().includes('boxing');
       const hasFightCard = texts.some(t => {
         const tl = t.toLowerCase().replace(/\s+/g, '');
         return tl.includes('fightcard') || tl.includes('fightcards');
       }) || pageSource.toLowerCase().replace(/\s+/g, '').includes('fightcard');
 
-      if (isBoxingPage || isUltimateUser) {
-        await pushResult('Fight Card Button', 'Fight Card', hasFightCard ? 'Fight Card' : 'Not found', hasFightCard);
-      } else {
-        await pushResult('Fight Card Button', 'Absent', hasFightCard ? 'Present' : 'Absent', !hasFightCard);
-      }
+      await pushResult('Fight Card Button', 'Fight Card', hasFightCard ? 'Fight Card' : 'Not found', hasFightCard);
 
       // Conditional validations based on user type:
       if (!isUltimateUser) {

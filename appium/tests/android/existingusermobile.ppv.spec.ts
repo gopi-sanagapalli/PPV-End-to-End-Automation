@@ -71,6 +71,7 @@ import {
   scrollToText as sharedScrollToText,
   swipeLeft as sharedSwipeLeft,
   tapByText as sharedTapByText,
+  dismissBoxingPromoPopup,
 } from '../../pages/android/AndroidBasePage';
 import { getAndroidSurfacingPoint, getAndroidValidationSheet } from '../../pages/android/AndroidSurfacingPoint';
 import {
@@ -417,6 +418,7 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
           await driver.pause(1000);
         }
         console.log('✅ Post-login cleanup complete');
+        await dismissBoxingPromoPopup(driver);
 
         // Ensure we navigate to the Home page if redirected to NFL Game Pass page
         console.log('🏠 Ensuring we are on the Home page...');
@@ -439,6 +441,7 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
             }
           } catch {}
         }
+        await dismissBoxingPromoPopup(driver);
       }
 
       // Split recording removed to record in a single video

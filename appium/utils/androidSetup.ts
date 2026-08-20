@@ -99,17 +99,25 @@ async function acceptCookiesIfPresent(driver: WdBrowser): Promise<boolean> {
 
 async function dismissOneStartupDialog(driver: WdBrowser): Promise<boolean> {
   return tapFirstVisible(driver, [
+    '//android.widget.ImageView[contains(@content-desc, "close") or contains(@content-desc, "Close") or contains(@content-desc, "dismiss") or contains(@content-desc, "Dismiss")]',
+    '//android.widget.ImageButton[contains(@content-desc, "close") or contains(@content-desc, "Close") or contains(@content-desc, "dismiss") or contains(@content-desc, "Dismiss")]',
+    '//android.widget.Button[contains(@content-desc, "close") or contains(@content-desc, "Close") or contains(@content-desc, "dismiss") or contains(@content-desc, "Dismiss")]',
+    '//android.widget.ImageView[contains(@resource-id, "close") or contains(@resource-id, "dismiss") or contains(@resource-id, "btn_close") or contains(@resource-id, "close_button") or contains(@resource-id, "iv_close")]',
+    '//android.widget.ImageButton[contains(@resource-id, "close") or contains(@resource-id, "dismiss") or contains(@resource-id, "btn_close") or contains(@resource-id, "close_button")]',
     '//android.widget.Button[@resource-id="com.android.permissioncontroller:id/permission_allow_button"]',
     'android=new UiSelector().resourceId("com.android.permissioncontroller:id/permission_allow_button")',
     'android=new UiSelector().resourceId("com.android.permissioncontroller:id/permission_allow_foreground_only_button")',
     'android=new UiSelector().resourceId("android:id/button1")',
+    'android=new UiSelector().resourceIdMatches("(?i).*(btn_close|close_button|iv_close|dismiss_button|close_dialog|modal_close).*")',
     'android=new UiSelector().resourceIdMatches("(?i).*close.*")',
     'android=new UiSelector().resourceIdMatches("(?i).*dismiss.*")',
+    'android=new UiSelector().descriptionMatches("(?i)^(close|dismiss|close dialog|dismiss dialog|x)$")',
     'android=new UiSelector().descriptionContains("Close")',
     'android=new UiSelector().descriptionContains("Dismiss")',
-    'android=new UiSelector().textMatches("(?i)^(Close|Dismiss)$")',
+    'android=new UiSelector().textMatches("(?i)^(✕|×|x|Close|Dismiss)$")',
     'android=new UiSelector().textMatches("(?i)^(Continue|Start watching|Done|OK|Allow)$")',
     'android=new UiSelector().textMatches("(?i)^(Not now|No thanks|Maybe later|Skip|Cancel|Remind me later)$")',
+    '//*[@content-desc="Close" or @content-desc="close" or @content-desc="Dismiss" or @content-desc="dismiss"]',
   ], 'Startup dialog dismissed');
 }
 

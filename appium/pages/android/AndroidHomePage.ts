@@ -61,6 +61,7 @@ export class AndroidHomePage extends AndroidLandingPage {
 
   async waitForContentRailsToLoad(timeoutMs = 15000): Promise<boolean> {
     console.log('⏳ Checking that Home / Boxing content rails are fully loaded and visible...');
+    await this.dismissPromoPopup();
     const startTime = Date.now();
     while (Date.now() - startTime < timeoutMs) {
       try {
@@ -78,6 +79,7 @@ export class AndroidHomePage extends AndroidLandingPage {
         }
       } catch {}
       console.log('  Waiting for content rails network feed to render...');
+      await this.dismissPromoPopup();
       await this.driver.pause(2000);
     }
     return false;
@@ -85,6 +87,7 @@ export class AndroidHomePage extends AndroidLandingPage {
 
   async ensureOnHome(): Promise<void> {
     console.log('  Ensuring navigation to Home tab...');
+    await this.dismissPromoPopup();
     const homeSelectors = [
       'android=new UiSelector().text("Home")',
       'android=new UiSelector().descriptionContains("Home")',

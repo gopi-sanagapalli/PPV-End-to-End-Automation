@@ -146,6 +146,7 @@ export class AndroidBoxingPage extends AndroidBasePage {
   async clickHomeSportFilter(sportName: string = 'Boxing'): Promise<void> {
     const targetSport = sportName.trim() || 'Boxing';
     console.log(`  Selecting "${targetSport}" from Sports / All Sports on home page...`);
+    await this.dismissPromoPopup();
 
     const sportSelectors = [
       `android=new UiSelector().text("${targetSport}")`,

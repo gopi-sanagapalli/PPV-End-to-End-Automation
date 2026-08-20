@@ -285,7 +285,7 @@ export class AndroidBasePage {
 
     const isCurrentBannerVisibleOnScreen = async (): Promise<boolean> => {
       const windowSize = await this.driver.getWindowSize().catch(() => ({ width: 1080, height: 2400 }));
-      const bannerMaxY = Math.round(windowSize.height * (isLandingPage ? 0.90 : 0.52));
+      const bannerMaxY = Math.round(windowSize.height * (isLandingPage ? 0.90 : 0.55));
 
       // 1. Exclude generic schedule/promo slides (e.g. "Your Boxing Schedule" / "See schedule")
       if (!isLandingPage) {
@@ -303,20 +303,38 @@ export class AndroidBasePage {
         } catch { }
       }
 
+      // 1b. Exclude ancillary / preview slides (e.g. "LOCKED IN: Rolly vs. Teofimo | Official Preview")
+      const ancillaryBlocklist = [
+        'official preview', 'preview', 'locked in', 'press conference', 'press conf',
+        'weigh-in', 'weigh in', 'highlights', 'prelims', 'the making of', 're-live',
+        'relive', 'countdown', 'all access', 'rewind', 'behind the scenes', 'workout',
+        'open workout', 'grand arrivals', 'documentary', 'episode',
+      ];
+
+      const isAncillaryText = (txt: string) => {
+        const lower = (txt || '').toLowerCase();
+        return ancillaryBlocklist.some(term => lower.includes(term));
+      };
+
       // Extract individual fighter words for multi-line banner cards (e.g. "Rolly vs. Teófimo" -> ["Rolly", "Teófimo"])
       const fighterParts = ppvName.split(/\s+vs\.?\s+/i)
         .map(p => p.trim())
         .filter(p => p.length > 2);
 
-      // 2. Check for full title candidates in the top banner region
+      // 2. Check for exact/clean title candidates in the top banner region
       for (const candidate of ppvNameCandidates) {
         try {
           const els = await this.driver.$$(`android=new UiSelector().textContains("${candidate}")`);
           for (const el of els) {
             if (await el.isDisplayed().catch(() => false)) {
+              const elText = await el.getText().catch(() => '');
+              if (isAncillaryText(elText)) {
+                console.log(`  ℹ️ Ignored ancillary preview slide title: "${elText}"`);
+                continue;
+              }
               const loc = await el.getLocation().catch(() => null);
               if (loc && loc.y < bannerMaxY) {
-                console.log(`  🎯 Found PPV banner title "${candidate}" in hero banner region (y=${loc.y} < ${bannerMaxY})`);
+                console.log(`  🎯 Found PPV banner title "${elText || candidate}" in hero banner region (y=${loc.y} < ${bannerMaxY})`);
                 return true;
               } else if (loc) {
                 console.log(`  ℹ️ Ignored "${candidate}" in content rail below banner (y=${loc.y} >= ${bannerMaxY})`);
@@ -328,9 +346,14 @@ export class AndroidBasePage {
           const descEls = await this.driver.$$(`android=new UiSelector().descriptionContains("${candidate}")`);
           for (const el of descEls) {
             if (await el.isDisplayed().catch(() => false)) {
+              const elDesc = await el.getAttribute('content-desc').catch(() => '');
+              if (isAncillaryText(elDesc)) {
+                console.log(`  ℹ️ Ignored ancillary preview slide description: "${elDesc}"`);
+                continue;
+              }
               const loc = await el.getLocation().catch(() => null);
               if (loc && loc.y < bannerMaxY) {
-                console.log(`  🎯 Found PPV banner description "${candidate}" in hero banner region (y=${loc.y} < ${bannerMaxY})`);
+                console.log(`  🎯 Found PPV banner description "${elDesc || candidate}" in hero banner region (y=${loc.y} < ${bannerMaxY})`);
                 return true;
               } else if (loc) {
                 console.log(`  ℹ️ Ignored description "${candidate}" in content rail below banner (y=${loc.y} >= ${bannerMaxY})`);
@@ -353,6 +376,8 @@ export class AndroidBasePage {
               const els = await this.driver.$$(`android=new UiSelector().textContains("${pc}")`);
               for (const el of els) {
                 if (await el.isDisplayed().catch(() => false)) {
+                  const elText = await el.getText().catch(() => '');
+                  if (isAncillaryText(elText)) continue;
                   const loc = await el.getLocation().catch(() => null);
                   if (loc && loc.y < bannerMaxY) {
                     partFoundInBanner = true;
@@ -367,7 +392,7 @@ export class AndroidBasePage {
 
           if (foundCount >= fighterParts.length) {
             // Verify there is also a PPV/CTA button or badge in the banner region
-            const ctaEls = await this.driver.$$('android=new UiSelector().textMatches("(?i).*(buy|fight card|watch now|get ppv|set reminder|pay-per-view|copy).*")');
+            const ctaEls = await this.driver.$$('android=new UiSelector().textMatches("(?i).*(buy|fight card|get ppv|set reminder|pay-per-view|copy).*")');
             let hasBannerCta = false;
             for (const el of ctaEls) {
               if (await el.isDisplayed().catch(() => false)) {
@@ -379,7 +404,7 @@ export class AndroidBasePage {
               }
             }
             if (hasBannerCta || isLandingPage) {
-              console.log(`  🎯 Found all fighters (${fighterParts.join(', ')}) in hero banner region`);
+              console.log(`  🎯 Found all fighters (${fighterParts.join(', ')}) in hero banner region with valid CTA`);
               return true;
             }
           }
@@ -571,6 +596,40 @@ export class AndroidBasePage {
     }
     return getChromeUrl();
   }
+
+  async dismissPromoPopup(): Promise<boolean> {
+    const closeSelectors = [
+      '//android.widget.ImageView[contains(@content-desc, "close") or contains(@content-desc, "Close") or contains(@content-desc, "dismiss") or contains(@content-desc, "Dismiss")]',
+      '//android.widget.ImageButton[contains(@content-desc, "close") or contains(@content-desc, "Close") or contains(@content-desc, "dismiss") or contains(@content-desc, "Dismiss")]',
+      '//android.widget.Button[contains(@content-desc, "close") or contains(@content-desc, "Close") or contains(@content-desc, "dismiss") or contains(@content-desc, "Dismiss")]',
+      '//android.widget.ImageView[contains(@resource-id, "close") or contains(@resource-id, "dismiss") or contains(@resource-id, "btn_close") or contains(@resource-id, "close_button") or contains(@resource-id, "iv_close")]',
+      '//android.widget.ImageButton[contains(@resource-id, "close") or contains(@resource-id, "dismiss") or contains(@resource-id, "btn_close") or contains(@resource-id, "close_button")]',
+      '//android.widget.Button[contains(@resource-id, "close") or contains(@resource-id, "dismiss") or contains(@resource-id, "btn_close") or contains(@resource-id, "close_button")]',
+      'android=new UiSelector().resourceIdMatches("(?i).*(btn_close|close_button|iv_close|dismiss_button|close_dialog|modal_close).*")',
+      'android=new UiSelector().descriptionMatches("(?i)^(close|dismiss|close dialog|dismiss dialog|x)$")',
+      'android=new UiSelector().textMatches("(?i)^(✕|×|x|close|dismiss|not now|no thanks|maybe later)$")',
+      '//*[@content-desc="Close" or @content-desc="close" or @content-desc="Dismiss" or @content-desc="dismiss"]',
+    ];
+
+    for (const selector of closeSelectors) {
+      try {
+        const el = await this.driver.$(selector);
+        if (await el.isDisplayed().catch(() => false)) {
+          console.log(`  ✓ Found boxing / PPV promo popup close button ("${selector}"). Clicking close...`);
+          try {
+            await el.click();
+          } catch (clickErr: any) {
+            console.warn(`  Native click failed: ${clickErr.message}. Trying ADB tap fallback...`);
+            const rect = await el.getRect();
+            adbTap(Math.round(rect.x + rect.width / 2), Math.round(rect.y + rect.height / 2));
+          }
+          await this.driver.pause(1500);
+          return true;
+        }
+      } catch {}
+    }
+    return false;
+  }
 }
 
 export async function findEl(driver: WdBrowser, sel: string, timeoutMs = 10000): Promise<WdElement> {
@@ -603,4 +662,8 @@ export async function findPPVBanner(driver: WdBrowser, ppvName: string): Promise
 
 export async function captureCheckoutUrl(driver: WdBrowser): Promise<string> {
   return new AndroidBasePage(driver).captureCheckoutUrl();
+}
+
+export async function dismissBoxingPromoPopup(driver: WdBrowser): Promise<boolean> {
+  return new AndroidBasePage(driver).dismissPromoPopup();
 }
