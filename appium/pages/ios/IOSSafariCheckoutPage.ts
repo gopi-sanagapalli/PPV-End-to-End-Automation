@@ -1,6 +1,7 @@
 import { IOSBasePage, WdElement } from './IOSBasePage';
 import { IOSPPVPage } from './IOSPPVPage';
 import { IOSSignupPage } from './IOSSignupPage';
+import { IOSMyAccountPage } from './IOSMyAccountPage';
 import { IOSValidationResult } from './IOSValidationPage';
 
 export interface IOSSafariCheckoutOptions {
@@ -232,6 +233,24 @@ export class IOSSafariCheckoutPage extends IOSBasePage {
       await this.navigateToWelcomePage();
       await this.refreshSafariOpeningProblemPageIfPresent();
       return false;
+    }
+
+    const isUltimateUser = String(process.env.USER_STATE || '').toLowerCase().trim().startsWith('active_ultimate');
+    if (isUltimateUser) {
+      const myAccountPage = new IOSMyAccountPage(this.driver);
+      await this.driver.waitUntil(async () => {
+        const url = await this.driver.getUrl().catch(() => '');
+        return myAccountPage.isSafariPurchasedPPVPage('', url);
+      }, {
+        timeout: 45000,
+        interval: 1000,
+        timeoutMsg: 'Safari web login for an active Ultimate user did not redirect to the My Account PPV page.',
+      }).catch(async (error: Error) => {
+        await this.driver.saveScreenshot('./test-results/ios_ultimate_myaccount_redirect_failed.png').catch(() => {});
+        throw error;
+      });
+      console.log(`✅ Active Ultimate user Safari login redirected to My Account PPV for "${eventName}".`);
+      return true;
     }
 
     const redirectedToCheckout = await this.driver.waitUntil(async () => isContextualCheckout(), {

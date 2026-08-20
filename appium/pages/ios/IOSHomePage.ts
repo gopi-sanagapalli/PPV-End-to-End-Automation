@@ -179,7 +179,7 @@ export class IOSHomePage extends IOSLandingPage {
     // After an existing-user login, the Home tab is visible before its feed
     // has rendered. Wait for the actual rail condition before any vertical
     // movement; otherwise the scroll can outrun the late-arriving feed.
-    await this.driver.waitUntil(async () => {
+    railFound = await this.driver.waitUntil(async () => {
       const rail = await findVisibleDontMissRail();
       if (!rail) return false;
       const location = await rail.getLocation().catch(() => null);
@@ -191,11 +191,12 @@ export class IOSHomePage extends IOSLandingPage {
       timeout: 10000,
       interval: 500,
       timeoutMsg: "Don't Miss rail did not appear in the initial Home feed.",
-    }).catch(() => { });
+    }).then(() => true).catch(() => false);
     // Some real-device builds render the heading in the screenshot before it
     // becomes an accessibility element. Preserve the OCR fallback, but only
     // after the native rail wait so it is not repeatedly invoked while the
     // feed is still mounting.
+    let lastRailOcrAttempt = 0;
     if (!railFound) railFound = await findRailByRenderedHeading();
     // Keep the vertical movement deliberately small. The generic scrollDown
     // gesture moves roughly 40% of the screen and can take this rail from
@@ -222,8 +223,9 @@ export class IOSHomePage extends IOSLandingPage {
         railY = location.y;
         railFound = true;
         console.log(`  Found visible Don't Miss rail at y=${railY}; stopping vertical scroll.`);
-      } else if (await findRailByRenderedHeading()) {
-        railFound = true;
+      } else if (attempt - lastRailOcrAttempt >= 2) {
+        lastRailOcrAttempt = attempt;
+        railFound = await findRailByRenderedHeading();
       }
       if (!railFound) {
         console.log(`  Don't Miss rail is not in the viewport; making short vertical swipe ${attempt + 1}/20.`);
