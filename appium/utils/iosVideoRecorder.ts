@@ -73,6 +73,7 @@ async function startRealDeviceRecording(): Promise<void> {
     '-f', 'mjpeg',
     '-framerate', '10',
     '-i', `http://localhost:${MJPEG_PORT}`,
+    '-stdin',
     '-vcodec', 'libx264',
     '-preset', 'ultrafast',
     '-crf', '28',
@@ -105,25 +106,15 @@ async function stopRealDeviceRecording(): Promise<string | null> {
     recordingOutputPath = null;
     let settled = false;
 
-    // Send 'q' to ffmpeg stdin to trigger graceful stop (finalize MP4 moov atom)
-    try { proc.stdin?.write('q'); } catch { /* ignore */ }
-
-    const timeout = setTimeout(() => {
-      try { proc.kill('SIGTERM'); } catch { /* ignore */ }
-    }, 5000);
-
-    const forceTimeout = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      try { proc.kill('SIGKILL'); } catch { /* ignore */ }
-      console.warn('⚠️ ffmpeg did not stop after SIGTERM; force-stopped recording cleanup.');
-      resolve(null);
-    }, 10000);
+    const discardIncompleteVideo = () => {
+      if (fs.existsSync(outPath)) fs.unlinkSync(outPath);
+    };
 
     proc.on('close', () => {
       if (settled) return;
       settled = true;
-      clearTimeout(timeout);
+      clearTimeout(interruptTimeout);
+      clearTimeout(terminateTimeout);
       clearTimeout(forceTimeout);
       if (fs.existsSync(outPath)) {
         const size = fs.statSync(outPath).size;
@@ -139,6 +130,29 @@ async function stopRealDeviceRecording(): Promise<string | null> {
         resolve(null);
       }
     });
+
+    // Close ffmpeg's command input after requesting a graceful quit so it
+    // writes the MP4 trailer (including the moov atom) before exiting.
+    try {
+      proc.stdin?.end('q');
+    } catch {
+      proc.kill('SIGINT');
+    }
+
+    const interruptTimeout = setTimeout(() => {
+      proc.kill('SIGINT');
+    }, 5000);
+    const terminateTimeout = setTimeout(() => {
+      proc.kill('SIGTERM');
+    }, 10000);
+    const forceTimeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      proc.kill('SIGKILL');
+      discardIncompleteVideo();
+      console.warn('⚠️ ffmpeg did not finalize the iOS recording; discarded incomplete video.');
+      resolve(null);
+    }, 15000);
   });
 }
 

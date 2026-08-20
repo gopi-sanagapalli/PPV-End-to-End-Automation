@@ -2685,7 +2685,6 @@ for (const stateKey of userStatesToRun) {
           console.log(`\n💳 Clicking Subscription Status CTA for default signup`);
           await myAccountPage.clickSubscriptionStatusCTA(userStateKey);
         } else {
-          console.log(`\n💳 Clicking Buy Now for: ${eventData.PPV_NAME}`);
           await myAccountPage.clickBuyNow(eventData.PPV_NAME);
         }
 

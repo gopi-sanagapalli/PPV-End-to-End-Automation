@@ -5,7 +5,7 @@
   "SPORT": "Kickboxing",
   "PPV_TYPE": "standalone",
   "HAS_BUNDLE": false,
-  "PPV_DEV_MODE": false,
+  "PPV_DEV_MODE": true,
   "DEFAULT_SIGNUP_DEVMODE": false,
   "HAS_DEFAULT_SIGNUP_PPV": false,
   "global": {

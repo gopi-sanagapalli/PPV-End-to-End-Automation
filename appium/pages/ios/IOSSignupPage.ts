@@ -95,6 +95,8 @@ export class IOSSignupPage extends IOSBasePage {
     this.resetCookieConsentCache();
     await this.handleSafariCookies(5000);
     const userState = (process.env.USER_STATE || 'new').toLowerCase();
+    const isUltimateSignInDuringFlow = userState.startsWith('active_ultimate') &&
+      String(process.env.LOGIN_FIRST || process.env.LOGIN || '').toLowerCase() !== 'true';
     const isExistingUser = !userState.startsWith('new') || !!process.env.USER_EMAIL;
     const email = isExistingUser
       ? (process.env.USER_EMAIL || '')
@@ -218,6 +220,31 @@ export class IOSSignupPage extends IOSBasePage {
       if (passwordInput && isExistingUser) {
         await passwordInput.setValue(password);
         if (!await this.clickContinue()) throw new Error('Safari sign-in Continue button was not available.');
+        if (isUltimateSignInDuringFlow) {
+          const myAccountPage = new IOSMyAccountPage(this.driver);
+          await this.driver.waitUntil(async () => {
+            const postLoginUrl = await this.driver.getUrl().catch(() => '');
+            if (myAccountPage.isSafariPurchasedPPVPage('', postLoginUrl)) return true;
+            return /\/(?:signup|payment|checkout|purchase|choose)(?:[/?#]|$)/i.test(postLoginUrl);
+          }, {
+            timeout: 45000,
+            interval: 1000,
+            timeoutMsg: 'Active Ultimate user sign-in did not redirect to the My Account PPV page.',
+          });
+
+          const postLoginUrl = await this.driver.getUrl().catch(() => '');
+          if (!myAccountPage.isSafariPurchasedPPVPage('', postLoginUrl)) {
+            await this.driver.saveScreenshot('./test-results/ios_ultimate_myaccount_redirect_failed.png').catch(() => {});
+            throw new Error(
+              `❌ [iOS Sign In During Flow Ultimate] Post-login redirection failed: expected My Account PPV page ` +
+              `but landed on "${postLoginUrl || 'unknown'}". The configured user is not an active Ultimate user ` +
+              `or does not own this PPV. See test-results/ios_ultimate_myaccount_redirect_failed.png`,
+            );
+          }
+
+          await myAccountPage.validateSafariPurchasedPPV(results as any, eventName);
+          return;
+        }
         continue;
       }
 

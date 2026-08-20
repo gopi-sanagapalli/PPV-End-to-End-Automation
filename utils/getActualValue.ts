@@ -3478,6 +3478,12 @@ export async function getActualValue(
       if ((source === 'home-boxing-tile' || source === 'home-boxing-upcoming') && eventData?.__HOME_BOXING_IMAGE_PRESENT) {
         return eventData.__HOME_BOXING_IMAGE_PRESENT;
       }
+      if (url.includes('/myaccount') || (eventData?.CURRENT_PAGE && eventData.CURRENT_PAGE.toLowerCase() === 'my account')) {
+        const { MyAccountPage } = require('../pages/MyAccountPage');
+        const myAccountPage = new MyAccountPage(page);
+        const hasImg = await myAccountPage.hasPPVImage(eventData?.PPV_NAME || '');
+        return hasImg ? 'Yes' : 'No';
+      }
       if (await waitForLoadedPPVImage()) return 'Yes';
 
       if (isSearchContext()) {
@@ -3511,12 +3517,6 @@ export async function getActualValue(
         return hasMediaBlock ? 'Yes' : 'No';
       }
 
-      if (url.includes('/myaccount') || (eventData?.CURRENT_PAGE && eventData.CURRENT_PAGE.toLowerCase() === 'my account')) {
-        const { MyAccountPage } = require('../pages/MyAccountPage');
-        const myAccountPage = new MyAccountPage(page);
-        const hasImg = await myAccountPage.hasPPVImage(eventData?.PPV_NAME || '');
-        return hasImg ? 'Yes' : 'No';
-      }
       if (isLandingOrHomeContext()) {
         const container = await getScopedLandingPPVContainer(page, eventData);
         if (container) {

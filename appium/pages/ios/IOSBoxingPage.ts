@@ -338,11 +338,24 @@ export class IOSBoxingPage extends IOSBasePage {
       throw new Error('Upcoming Fights filter did not appear on the configured sport page.');
     }
 
+    const sourceBeforeTabClick = await this.driver.getPageSource().catch(() => '');
     await upcomingFilter.click();
-    // The tab tap replaces the virtualized accessibility hierarchy. Let that
-    // replacement finish before the scoped title/date lookup creates element
-    // references, otherwise each stale reference incurs a WDA retry delay.
-    await this.driver.pause(1200);
+    // The tab tap replaces the virtualized accessibility hierarchy. Wait for
+    // the new tree to settle before the scoped title/date lookup creates
+    // element references, otherwise every lookup incurs a WDA stale retry.
+    let previousSource = '';
+    let stableReads = 0;
+    await this.driver.waitUntil(async () => {
+      const currentSource = await this.driver.getPageSource().catch(() => '');
+      if (!currentSource || currentSource === sourceBeforeTabClick) return false;
+      stableReads = currentSource === previousSource ? stableReads + 1 : 0;
+      previousSource = currentSource;
+      return stableReads >= 2;
+    }, {
+      timeout: 10000,
+      interval: 300,
+      timeoutMsg: 'Upcoming Fights list did not settle after selecting its filter.',
+    });
     console.log('  "Upcoming Fights" filter clicked; continuing with its scoped PPV list.');
   }
 
