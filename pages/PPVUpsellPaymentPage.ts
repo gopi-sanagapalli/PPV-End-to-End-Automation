@@ -3,6 +3,7 @@ import { BasePage } from './BasePage';
 import { compare } from '../utils/compare';
 import { resolveExpected } from '../utils/resolveExpected';
 import { captureFailures } from '../utils/failureCapture';
+import { expandMorePaymentMethods, hasLoadedPPVArtwork } from '../utils/helpers';
 
 function matchesSavedCardDateTime(actual: string, expected: string): boolean {
   const weekday = (value: string) => {
@@ -106,6 +107,7 @@ export class PPVUpsellPaymentPage extends BasePage {
     });
     await this.page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => { });
     await this.page.waitForTimeout(500); // Small settle delay
+    const paymentMethodsExpanded = await expandMorePaymentMethods(this.page, pageName);
 
     const bodyText = await this.page.locator('body').innerText({ timeout: 5000 }).catch(() => '');
     const bodyLower = bodyText.toLowerCase();
@@ -172,8 +174,18 @@ export class PPVUpsellPaymentPage extends BasePage {
 
         // ── PPV Image Present ──
       } else if (key === 'ppv image present' || key.includes('ppv image') || key.includes('image present')) {
-        const imgs = this.page.locator('img');
-        actual = (await imgs.count().catch(() => 0)) > 0 ? 'Yes' : 'No';
+        const title = this.page.getByText(eventData.PPV_NAME || '', { exact: true }).first();
+        const eventScope = title.locator(
+          'xpath=ancestor::*[.//img or .//*[@role="img"] or .//*[contains(@style,"background-image")]][1]'
+        );
+        const hasEventScope = await eventScope.count().catch(() => 0) > 0;
+        const hasArtwork = await hasLoadedPPVArtwork(
+          hasEventScope ? eventScope : this.page,
+          eventData.PPV_NAME || '',
+          eventData.PPV_ENTITLEMENT_ID || '',
+          !hasEventScope
+        );
+        actual = hasArtwork ? 'Yes' : 'No';
 
         // ── PPV Date and Time ──
       } else if (key === 'ppv date and time' || key.includes('date badge') || key.includes('event date')) {
@@ -327,10 +339,7 @@ export class PPVUpsellPaymentPage extends BasePage {
 
         // ── More Payment Methods ──
       } else if (key === 'more payment methods' || key.includes('more payment')) {
-        const hasMore = bodyLower.includes('more payment methods') ||
-          await this.page.locator('text=/more payment/i').first()
-            .isVisible({ timeout: 1500 }).catch(() => false);
-        actual = hasMore ? 'Yes' : 'No';
+        actual = paymentMethodsExpanded ? 'Yes' : 'No';
 
         // ── Legal Text Present ──
       } else if (key === 'legal text present') {

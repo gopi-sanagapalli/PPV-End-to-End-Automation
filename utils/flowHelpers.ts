@@ -6,7 +6,8 @@ import { Page } from '@playwright/test';
 export async function detectPageType(
   p: any,
   pc: Record<string, { detection: string }>,
-  planClickCount: number
+  planClickCount: number,
+  isStandalonePPV: boolean = false
 ): Promise<'ppv' | 'plan' | 'email' | 'payment' | 'phone' | 'otp' | 'unknown' | 'standalone-ppv' | 'success-upsell' | 'saved-card-payment' | 'bet-upsell' | 'default-signup' | 'choose-how-to-buy' | 'confirmation' | 'myaccount-ppv' | 'welcome'> {
   if (!p || p.isClosed()) return 'unknown';
 
@@ -197,7 +198,7 @@ export async function detectPageType(
   // Standalone/Glory PPV page detection (must be before general page=PlanDetails check)
   // Relies on structural indicators (checkbox/toggle) rather than event-name keywords
   // which could appear on ANY page (e.g., "GLORY Collision 9" in headers/breadcrumbs).
-  if (urlLower.includes('page=plandetails') && (
+  if (isStandalonePPV && urlLower.includes('page=plandetails') && (
     urlLower.includes('standalone') || 
     body.toLowerCase().includes('standalone') ||
     (await p.locator('input[type="checkbox"], button[class*="ni7RX"]').count().catch(() => 0)) > 0
