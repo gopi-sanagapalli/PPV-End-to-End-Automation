@@ -700,7 +700,11 @@ export function buildEventData(
       : formatNextPaymentDateYearly();
   }
 
-  if (base.ANNUAL_PAY_MONTHLY_PRICE && base.ANNUAL_UPFRONT_PRICE) {
+  if (
+    (base.PPV_TYPE !== 'standalone' || !base.UPFRONT_SAVE_AMOUNT) &&
+    base.ANNUAL_PAY_MONTHLY_PRICE &&
+    base.ANNUAL_UPFRONT_PRICE
+  ) {
     const monthly = parseFloat(base.ANNUAL_PAY_MONTHLY_PRICE.replace(/[^0-9.]/g, ''));
     const upfront = parseFloat(base.ANNUAL_UPFRONT_PRICE.replace(/[^0-9.]/g, ''));
     if (!isNaN(monthly) && !isNaN(upfront)) {
@@ -743,6 +747,10 @@ export function buildEventData(
     const month = futureDate.toLocaleString('en-GB', { month: 'long' });
     const year = futureDate.getFullYear();
     base.FLEX_FUTURE_DATE = `In 1 month • ${day} ${month} ${year}`;
+  }
+
+  if (base.PPV_TYPE === 'standalone') {
+    base.STANDALONE_FLEX_FUTURE_DATE = formatFlexFutureDate(trialDays);
   }
 
   // ── Dynamic calculations for non-1-month-free plans ──

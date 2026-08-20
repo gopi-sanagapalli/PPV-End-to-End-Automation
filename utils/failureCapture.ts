@@ -294,6 +294,7 @@ async function findPpvTitleTarget(page: any, field: string, candidates: string[]
         if (fieldKey === 'event name' && /\b(?:sun|mon|tue|wed|thu|fri|sat)day?\b|\b\d{1,2}:\d{2}\b/i.test(surroundingText)) {
           score += 25;
         }
+
       }
 
       if (score > bestScore) {
@@ -311,6 +312,54 @@ async function findPpvTitleTarget(page: any, field: string, candidates: string[]
   const target = page.locator(`[${FAILURE_FIELD_MARKER}="true"]`).first();
   await target.waitFor({ state: 'visible', timeout: 1000 }).catch(() => { });
   return target;
+}
+
+async function findStandalonePageHeadingTarget(
+  page: any,
+  field: string,
+  context?: Record<string, any>
+): Promise<any | null> {
+  const fieldKey = String(field || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  if (fieldKey !== 'page heading') return null;
+
+  const titlePrefix = String(
+    context?.PPV_DISPLAY_NAME || context?.PPV_CARD_TITLE || context?.PPV_NAME || ''
+  ).split(/[:\-–]/)[0].trim();
+
+  const marked = await page.evaluate(({ marker, titlePrefix }: { marker: string; titlePrefix: string }) => {
+    document.querySelectorAll(`[${marker}]`).forEach(element => element.removeAttribute(marker));
+    const normalizedPrefix = titlePrefix.toLowerCase();
+    const candidates = Array.from(document.querySelectorAll<HTMLElement>('h1, h2, h3, p, span, div'))
+      .filter(element => {
+        const rect = element.getBoundingClientRect();
+        const style = window.getComputedStyle(element);
+        const text = (element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+        return rect.width > 0 &&
+          rect.height > 0 &&
+          style.display !== 'none' &&
+          style.visibility !== 'hidden' &&
+          (!normalizedPrefix || text.includes(normalizedPrefix)) &&
+          /free trial|free with an annual plan/i.test(text);
+      })
+      .map(element => {
+        const rect = element.getBoundingClientRect();
+        const fontSize = Number.parseFloat(window.getComputedStyle(element).fontSize) || 0;
+        return { element, fontSize, area: rect.width * rect.height, textLength: (element.innerText || '').trim().length };
+      })
+      .sort((a, b) =>
+        b.fontSize - a.fontSize ||
+        a.textLength - b.textLength ||
+        b.area - a.area
+      );
+
+    if (!candidates.length) return false;
+    candidates[0].element.setAttribute(marker, 'true');
+    return true;
+  }, { marker: FAILURE_FIELD_MARKER, titlePrefix }).catch(() => false);
+
+  if (!marked) return null;
+  const heading = page.locator(`[${FAILURE_FIELD_MARKER}="true"]`).first();
+  return await heading.isVisible({ timeout: 1000 }).catch(() => false) ? heading : null;
 }
 
 async function findHomeBoxingUpcomingCtaTarget(
@@ -626,6 +675,7 @@ export async function captureFailures(
           await findBoxingUpcomingDateTarget(page, field, candidates, context) ||
           (isPopupField ? await findPopupTarget(page, candidates) : null) ||
           (isPopupField && popup ? await findTarget(popup, candidates) : null) ||
+          await findStandalonePageHeadingTarget(page, field, context) ||
           await findPpvTitleTarget(page, field, candidates) ||
           (banner ? await findTarget(banner, candidates) : null) ||
           await findTarget(page, candidates);

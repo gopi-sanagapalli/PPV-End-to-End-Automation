@@ -90,6 +90,22 @@ const addPPVPaymentMethodRows = (data: any[]) => {
     )),
   ];
 };
+const frozenIdentityFields = new Set([
+  'signed in as text',
+  'log out present',
+]);
+const getAddonPPVPaymentData = (includeFrozenIdentity: boolean) => {
+  const addonData = getPPVPaymentData().filter((row: any) => ![
+    'signed in as text',
+    'log out present',
+  ].includes(String(row.Field || '').trim().toLowerCase()));
+  if (!includeFrozenIdentity) return addonData;
+
+  const frozenIdentityData = getPaymentDataByTierAndPlan('standard', 'monthly')
+    .filter((row: any) => frozenIdentityFields.has(String(row.Field || '').trim().toLowerCase()))
+    .map((row: any) => ({ ...row, Flow: '' }));
+  return [...addonData, ...frozenIdentityData];
+};
 const SWITCH_TO_ULTIMATE = (process.env.SWITCH || '').toLowerCase() === 'true';
 const LOGIN_FIRST = (process.env.LOGIN || process.env.LOGIN_FIRST || '').toLowerCase() === 'true';
 const HOME_SPORT_DROPDOWN_SOURCES = new Set([
@@ -394,10 +410,14 @@ for (const stateKey of userStatesToRun) {
       test.skip(true, skipReason);
       return;
     }
-    const PPV_TYPE = (process.env.PPV_TYPE || json.PPV_TYPE || 'normal').toLowerCase();
+    const PPV_TYPE = String(json.PPV_TYPE || process.env.PPV_TYPE || 'normal').trim().toLowerCase();
+    const isStandalonePPV = PPV_TYPE === 'standalone';
     const specStartTime = new Date();
     configureExcelPathForEvent(json.eventKey || '');
     const eventData = buildEventData(json, REGION);
+    if (isStandalonePPV) {
+      eventData.PPV_STATUS = 'Buy now';
+    }
     eventData.USER_STATE = stateKey;
     eventData['USER_STATE'] = stateKey;
     eventData.source = SOURCE;
@@ -454,7 +474,7 @@ for (const stateKey of userStatesToRun) {
       'active_standard_monthly', 'active_standard_apm', 'active_standard_upfront',
       'active_ultimate_apm', 'active_ultimate_upfront',
     ]);
-    if (DAZNTILE_SOURCES.has(SOURCE.toLowerCase()) && ACTIVE_SUBSCRIBED_STATES.has(userStateKey.toLowerCase())) {
+    if (!isStandalonePPV && DAZNTILE_SOURCES.has(SOURCE.toLowerCase()) && ACTIVE_SUBSCRIBED_STATES.has(userStateKey.toLowerCase())) {
       throwLogged(new Error(
         `❌ SOURCE "${SOURCE}" is not applicable for USER_STATE="${userStateKey}". ` +
         `Active standard/ultimate users already have a subscription — clicking a ` +
@@ -511,6 +531,13 @@ for (const stateKey of userStatesToRun) {
       purchaseOption = 'ultimate';
     }
 
+    if (isStandalonePPV && (requestedPlan.startsWith('ultimate_') || tier === 'ultimate')) {
+      throw new Error('❌ Standalone PPV does not support Ultimate plans. Use a Standard monthly or Annual Pay Monthly plan.');
+    }
+    if (isStandalonePPV && !['monthly', 'annual pay monthly'].includes(ratePlan)) {
+      throw new Error(`❌ Standalone PPV does not support rate plan "${ratePlan}". Use monthly or annual pay monthly.`);
+    }
+
     // The PPV config tier describes the source offer. Active Standard users can
     // deliberately enter an Ultimate upgrade journey via PLAN, so expectations
     // must follow the journey actually selected.
@@ -524,6 +551,7 @@ for (const stateKey of userStatesToRun) {
     eventData['RATE_PLAN'] = ratePlan;
     const isUltimateLoginFirstUser = LOGIN_FIRST && isActiveUltimateState(userStateKey);
     const isUltimateLoginFirstBoxingMyAccountFlow =
+      !isStandalonePPV &&
       isUltimateLoginFirstUser &&
       ULTIMATE_LOGIN_FIRST_BOXING_MY_ACCOUNT_SOURCES.has(SOURCE.toLowerCase());
 
@@ -858,6 +886,13 @@ for (const stateKey of userStatesToRun) {
           .then((t: string) => t.toLowerCase())
           .catch(() => '');
 
+        if (isStandalonePPV) {
+          const hasStandaloneControls =
+            (await p.locator('input[type="checkbox"], button[class*="ni7RX"]').count().catch(() => 0)) > 0 &&
+            (await p.locator('input[type="radio"], [role="radio"]').count().catch(() => 0)) > 0;
+          if (hasStandaloneControls) return 'standalone-ppv';
+        }
+
         if (addonBody.includes('choose your plan') ||
           addonBody.includes('choose a plan') ||
           addonBody.includes('choose the right plan') ||
@@ -900,6 +935,12 @@ for (const stateKey of userStatesToRun) {
             .innerText({ timeout: 3000 })
             .then((t: string) => t.toLowerCase())
             .catch(() => '');
+          if (isStandalonePPV) {
+            const hasStandaloneControls =
+              (await p.locator('input[type="checkbox"], button[class*="ni7RX"]').count().catch(() => 0)) > 0 &&
+              (await p.locator('input[type="radio"], [role="radio"]').count().catch(() => 0)) > 0;
+            if (hasStandaloneControls) return 'standalone-ppv';
+          }
           if (routedBody.includes('pay-per-view') || routedBody.includes('choose how to buy') ||
             routedBody.includes('subscribe without a pay-per-view')) {
             return 'ppv';
@@ -975,7 +1016,7 @@ for (const stateKey of userStatesToRun) {
       }
 
       // Standalone check before general plan/skipped checks
-      if (urlLower.includes('page=plandetails') && (
+      if (isStandalonePPV && urlLower.includes('page=plandetails') && (
         urlLower.includes('standalone') ||
         lower.includes('standalone') ||
         lower.includes('collision') ||
@@ -984,7 +1025,7 @@ for (const stateKey of userStatesToRun) {
         return 'standalone-ppv';
       }
 
-      if (lower.includes("choose a plan") && lower.includes("choose your subscription")) {
+      if (isStandalonePPV && lower.includes("choose a plan") && lower.includes("choose your subscription")) {
         const checkboxCount = await p.locator('input[type="checkbox"]').count().catch(() => 0);
         if (checkboxCount > 0) return 'standalone-ppv';
       }
@@ -1094,7 +1135,7 @@ for (const stateKey of userStatesToRun) {
           console.log(`ℹ️ [Login First] Existing-user landing page source enabled: ${SOURCE}`);
         }
 
-        if (LOGIN_FIRST && isActiveUltimateState(userStateKey) && !isMyAccount && !isUltimateLoginFirstBoxingMyAccountFlow) {
+        if (!isStandalonePPV && LOGIN_FIRST && isActiveUltimateState(userStateKey) && !isMyAccount && !isUltimateLoginFirstBoxingMyAccountFlow) {
           console.log('\n💎 [Login First Ultimate] Validating My Account purchased status before source click...');
           const myAccountPage = new MyAccountPage(page);
           await myAccountPage.navigateAndValidatePurchasedPPVStatus(baseUrl, results, eventData);
@@ -1193,7 +1234,7 @@ for (const stateKey of userStatesToRun) {
           // Step 1: Apply sport filter and locate event tile (no click yet)
           try {
             await schedule.selectSport(sport);
-            if (LOGIN_FIRST && isActiveUltimateState(userStateKey)) {
+            if (!isStandalonePPV && LOGIN_FIRST && isActiveUltimateState(userStateKey)) {
               const eventCard = await schedule.findEvent(eventData.PPV_NAME);
               await schedule.clickEntitledEventAndValidate(eventCard, results, eventData);
               await finishRun('ultimate', userStateKey);
@@ -1305,7 +1346,7 @@ for (const stateKey of userStatesToRun) {
             await searchPage.enableDevMode();
           }
 
-          if (LOGIN_FIRST && isActiveUltimateState(userStateKey)) {
+          if (!isStandalonePPV && LOGIN_FIRST && isActiveUltimateState(userStateKey)) {
             await searchPage.searchAndClickEntitledPPV(eventData.PPV_NAME, results, eventData);
             await finishRun('ultimate', userStateKey);
             return;
@@ -1535,6 +1576,7 @@ for (const stateKey of userStatesToRun) {
             SOURCE === 'boxing-standard-subscription' ||
             SOURCE === 'boxing-join-the-club';
           const isUltimateLoginFirstEntitlement =
+            !isStandalonePPV &&
             LOGIN_FIRST &&
             isActiveUltimateState(userStateKey) &&
             !isBoxingSubscriptionSource;
@@ -1788,7 +1830,7 @@ for (const stateKey of userStatesToRun) {
         }
 
         // ── STRICT VALIDATION FOR ULTIMATE USER PRE-LOGGED IN ──
-        if (isActiveUltimateState(userStateKey) && requiresPreLogin) {
+        if (!isStandalonePPV && isActiveUltimateState(userStateKey) && requiresPreLogin) {
           // These boxing subscription sources redirect ultimate users to /home,
           // not to a fixture/preview page — accept /home as a valid destination.
           const ULTIMATE_HOME_REDIRECT_SOURCES = new Set<string>([
@@ -2145,9 +2187,9 @@ for (const stateKey of userStatesToRun) {
     if (isActiveUltimateState(userStateKey)) {
       const ppvType = eventData.PPV_TYPE || json.PPV_TYPE;
       const isCanada = (process.env.DAZN_REGION || '').toUpperCase() === 'CA';
-      if (isCanada) {
-        // CA ultimate users always buy PPV explicitly — force Buy now regardless of
-        // what userstatus.json set earlier.
+      if (isStandalonePPV || isCanada) {
+        // Standalone PPVs and CA PPVs are never included with an Ultimate
+        // subscription, so purchase must continue from My Account.
         ppvStatus = 'Buy now';
       } else if (ppvType === 'included') {
         ppvStatus = 'Purchased';
@@ -2499,7 +2541,7 @@ for (const stateKey of userStatesToRun) {
           return;
         }
 
-        if (tier === 'ultimate' && isActiveUltimateState(userStateKey)) {
+        if (!isStandalonePPV && tier === 'ultimate' && isActiveUltimateState(userStateKey)) {
           console.log('\n💎 Ultimate tier — checking PPV status...');
 
           const ppvStatus = await myAccountPage.isPPVPurchased(eventData.PPV_NAME);
@@ -2908,10 +2950,16 @@ for (const stateKey of userStatesToRun) {
 
           // ── MY ACCOUNT PPV (Purchased) ─────────────────────────────
           // Ultimate users can redirect to My Account after sign-in when PPV is already purchased.
-          if (pageType === 'myaccount-ppv' && isActiveUltimateState(userStateKey)) {
+          if (pageType === 'myaccount-ppv' && !isStandalonePPV && isActiveUltimateState(userStateKey)) {
             await validateUltimateMyAccountRedirect();
             await finishRun('ultimate', userStateKey);
             return;
+          }
+
+          if (pageType === 'myaccount-ppv' && isStandalonePPV) {
+            throw new Error(
+              '❌ Standalone PPV must continue to add-on checkout after sign-in; it must not redirect to My Account as purchased content.'
+            );
           }
 
           // Legacy fallback for non-Ultimate states that still land on /myaccount/ppv.
@@ -3184,7 +3232,7 @@ for (const stateKey of userStatesToRun) {
               await clickAndWaitForNav(page, continueBtn, 'Email Continue');
             }
 
-            if (signedIn && isActiveUltimateState(userStateKey)) {
+            if (signedIn && !isStandalonePPV && isActiveUltimateState(userStateKey)) {
               console.log('⏳ [Ultimate User Login] Waiting for post-login redirection to fixture page...');
               await page.waitForURL(
                 (url: URL) =>
@@ -3251,7 +3299,9 @@ for (const stateKey of userStatesToRun) {
             reachedEndPage = true;
             console.log('\n📋 Validating Payment page...');
 
-            const targetTier = (tier === 'ultimate' || purchaseOption === 'ultimate') ? 'ultimate' : 'standard';
+            const targetTier = isStandalonePPV
+              ? 'standard'
+              : (tier === 'ultimate' || purchaseOption === 'ultimate') ? 'ultimate' : 'standard';
             const isBundle = SOURCE.includes('bundle');
             const planKey = isBundle ? `${ratePlan} bundle` : ratePlan;
             const paymentData = getPaymentDataByTierAndPlan(targetTier, planKey);
@@ -3278,6 +3328,36 @@ for (const stateKey of userStatesToRun) {
               } else {
                 await paymentPage.validate(paymentData, results, eventData, undefined);
               }
+
+              if (userStateKey === 'frozen') {
+                const savedCardControlFields = new Set([
+                  'payment method present',
+                  'pay now button',
+                  'secure checkout',
+                  'more payment methods',
+                ]);
+                const savedCardControlData = getAddonPPVPaymentData(userStateKey === 'frozen').filter((row: any) =>
+                  savedCardControlFields.has(String(row.Field || '').trim().toLowerCase())
+                );
+                const savedCardPage = new PPVUpsellPaymentPage(page);
+
+                if (await savedCardPage.isPPVUpsellPaymentPage()) {
+                  await savedCardPage.validateSavedCardPayment(
+                    savedCardControlData,
+                    results,
+                    eventData,
+                    'Payment'
+                  );
+                } else {
+                  results.push({
+                    page: 'Payment',
+                    field: 'Frozen Saved Card Payment Controls',
+                    expected: 'Present',
+                    actual: 'Not present',
+                    status: 'FAIL',
+                  });
+                }
+              }
             }
 
             // ── SCENARIO 2: Ultimate Upsell Banner — validate before click,
@@ -3285,7 +3365,7 @@ for (const stateKey of userStatesToRun) {
             const isStandardTierForUpsell = (tier || '').toLowerCase() === 'standard';
             const isMonthlyOrAPMForUpsell = ratePlan === 'monthly' || ratePlan === 'annual pay monthly';
 
-            if (isStandardTierForUpsell && isMonthlyOrAPMForUpsell) {
+            if (!isStandalonePPV && isStandardTierForUpsell && isMonthlyOrAPMForUpsell) {
               try {
                 // STEP A: Always validate banner text BEFORE click (both prod and stag)
                 await paymentPage.validateUltimateUpsellBannerText(results, eventData);
@@ -3446,11 +3526,12 @@ for (const stateKey of userStatesToRun) {
           }
 
           // ── STANDALONE PPV PAGE ───────────────────────────────────
-          if (pageType === 'standalone-ppv') {
+          if (pageType === 'standalone-ppv' && isStandalonePPV) {
             console.log('👉 Standalone PPV page');
             stuckCount = 0;
 
             const standalonePPVPage = new StandalonePPVPage(page);
+            await standalonePPVPage.waitUntilPPVPageReady();
 
             if (!ppvValidated) {
               try {
@@ -3468,7 +3549,9 @@ for (const stateKey of userStatesToRun) {
             }
 
             // Select plan
-            await standalonePPVPage.selectPlan(ratePlan === 'monthly' ? 'flex' : 'annual');
+            await standalonePPVPage.selectPlan(
+              ratePlan === 'monthly' ? 'flex' : 'annual_monthly'
+            );
             // Click Continue
             await standalonePPVPage.clickContinue();
 
@@ -3536,7 +3619,7 @@ for (const stateKey of userStatesToRun) {
             if (await shouldSkipCardEntryChecks(page)) {
               console.log('ℹ️ No saved card is shown — validating the PPV payment-options page.');
               await expandMorePaymentMethods(page, 'PPV Payment');
-              const ppvPaymentData = addPPVPaymentMethodRows(getPPVPaymentData())
+              const ppvPaymentData = addPPVPaymentMethodRows(getAddonPPVPaymentData(userStateKey === 'frozen'))
                 .filter((row: any) => !['pay now button', 'secure checkout'].includes(
                   String(row.Field || '').trim().toLowerCase()
                 ));
@@ -3546,7 +3629,7 @@ for (const stateKey of userStatesToRun) {
             } else {
               // Validate the addon purchase page only when a saved card is present.
               try {
-                const ppvPaymentData = getPPVPaymentData();
+                const ppvPaymentData = getAddonPPVPaymentData(userStateKey === 'frozen');
                 await savedCardPage.validateSavedCardPayment(ppvPaymentData, results, eventData, 'PPV Payment (Saved Card)');
               } catch (err: any) {
                 console.warn(`⚠️ Saved Card PPV Payment validation error: ${err.message}`);
@@ -4697,7 +4780,7 @@ for (const stateKey of userStatesToRun) {
             console.log('⏭️  Skipping card-entry checks on PPV Payment — no card checkout form is shown');
           }
 
-          const ppvPaymentData = addPPVPaymentMethodRows(getPPVPaymentData());
+          const ppvPaymentData = addPPVPaymentMethodRows(getAddonPPVPaymentData(false));
           const effectivePpvPaymentData = skipCardEntryChecks
             ? ppvPaymentData.filter((row: any) => {
               const field = String(row.Field || '').trim().toLowerCase();

@@ -337,42 +337,195 @@ export async function expandMorePaymentMethods(page: Page, pageName = 'Payment P
     const isVisible = (element: HTMLElement) => {
       const rect = element.getBoundingClientRect();
       const style = window.getComputedStyle(element);
-      return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+      return rect.width > 0 &&
+        rect.height > 0 &&
+        style.display !== 'none' &&
+        style.visibility !== 'hidden' &&
+        style.opacity !== '0' &&
+        element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true });
     };
-    const alternativesVisible = Array.from(document.querySelectorAll<HTMLElement>('button, [role="button"], label, div, span'))
-      .some(element => isVisible(element) && /google pay|paypal|apple pay/i.test((element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim()));
+    const alternativesVisible = Array.from(document.querySelectorAll<HTMLElement>(
+      'section[id], button, [role="button"], label, [class*="accordion" i]'
+    )).some(element => {
+      const text = (element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim();
+      return isVisible(element) && /^(?:google pay|paypal|apple pay)\b/i.test(text);
+    });
     const control = Array.from(document.querySelectorAll<HTMLElement>('button, [role="button"], summary, a, div'))
       .find(element => /^more payment methods$/i.test((element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim()));
-    if (!control) return null;
+    if (!control) {
+      return { expanded: alternativesVisible, hasControl: false, x: 0, y: 0 };
+    }
     control.scrollIntoView({ block: 'center' });
     const rect = control.getBoundingClientRect();
+    const ariaExpanded = control.getAttribute('aria-expanded');
     return {
-      expanded: control.getAttribute('aria-expanded') === 'true' || alternativesVisible,
+      expanded: ariaExpanded === 'true',
+      hasControl: true,
       x: rect.left + rect.width / 2,
       y: rect.top + rect.height / 2,
     };
-  }).catch((): { expanded: boolean; x: number; y: number } | null => null);
+  }).catch((): { expanded: boolean; hasControl: boolean; x: number; y: number } | null => null);
 
-  if (disclosure && !disclosure.expanded) {
+  if (disclosure?.hasControl && !disclosure.expanded) {
     console.log(`👇 [${pageName}] Clicking "More payment methods" to expand payment options...`);
     await page.mouse.click(disclosure.x, disclosure.y);
-    await page.waitForFunction(() => {
+    const expanded = await page.waitForFunction(() => {
       const isVisible = (element: HTMLElement) => {
         const rect = element.getBoundingClientRect();
         const style = window.getComputedStyle(element);
-        return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+        return rect.width > 0 &&
+          rect.height > 0 &&
+          style.display !== 'none' &&
+          style.visibility !== 'hidden' &&
+          style.opacity !== '0' &&
+          element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true });
       };
       const controlExpanded = Array.from(document.querySelectorAll<HTMLElement>('button, [role="button"], summary, a, div'))
         .some(element =>
           /^more payment methods$/i.test((element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim()) &&
           element.getAttribute('aria-expanded') === 'true'
         );
-      const alternativesVisible = Array.from(document.querySelectorAll<HTMLElement>('button, [role="button"], label, div, span'))
-        .some(element => isVisible(element) && /google pay|paypal|apple pay/i.test((element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim()));
+      const alternativesVisible = Array.from(document.querySelectorAll<HTMLElement>(
+        'section[id], button, [role="button"], label, [class*="accordion" i]'
+      )).some(element => {
+        const text = (element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim();
+        return isVisible(element) && /^(?:google pay|paypal|apple pay)\b/i.test(text);
+      });
       return controlExpanded || alternativesVisible;
-    }, { timeout: 8000 }).catch(() => {
+    }, { timeout: 8000 }).then(() => true).catch(() => {
       console.warn(`⚠️ [${pageName}] "More payment methods" did not report as expanded after clicking it.`);
+      return false;
     });
+    return expanded;
+  }
+
+  return disclosure?.expanded ?? false;
+}
+
+export async function hasLoadedPPVArtwork(
+  scope: any,
+  ppvName = '',
+  entitlementId = '',
+  requireEventMetadata = false
+): Promise<boolean> {
+  const nameTerms = ppvName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .split(/\s+/)
+    .filter(term => term.length > 3);
+  const normalizedEntitlementId = entitlementId
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ');
+  const media = scope.locator('img, picture, [role="img"], [style*="background-image"]');
+  const count = await media.count().catch(() => 0);
+
+  for (let index = 0; index < count; index++) {
+    const candidate = media.nth(index);
+    const validCandidate = await candidate.evaluate(
+      (
+        node: HTMLElement,
+        args: { nameTerms: string[]; entitlementId: string; requireEventMetadata: boolean }
+      ) => {
+        const image = node instanceof HTMLImageElement
+          ? node
+          : node.querySelector<HTMLImageElement>('img');
+        const rect = node.getBoundingClientRect();
+        const style = window.getComputedStyle(node);
+        const source = [
+          image?.currentSrc,
+          image?.src,
+          node.getAttribute('src'),
+          node.getAttribute('srcset'),
+          style.backgroundImage,
+        ].filter(Boolean).join(' ').toLowerCase();
+        const label = [
+          image?.alt,
+          node instanceof HTMLImageElement ? null : node.getAttribute('alt'),
+          node.getAttribute('aria-label'),
+          node.getAttribute('title'),
+        ].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim().toLowerCase();
+        const searchable = [
+          source,
+          label,
+          node.getAttribute('data-testid'),
+          node.getAttribute('data-test-id'),
+          node.className,
+        ].filter(Boolean).join(' ').toLowerCase().replace(/[^a-z0-9]+/g, ' ');
+
+        const isDaznPlaceholder =
+          /^(?:dazn|dazn logo|placeholder|default image|image unavailable|no image)$/i.test(label) ||
+          /(?:^|[\/_.-])(?:dazn[-_ ]?(?:logo|placeholder|default)|(?:placeholder|default|no[-_ ]image)[-_ ]?(?:image|artwork)?)(?:[\/_.-]|$)/i.test(source);
+        if (isDaznPlaceholder) return false;
+
+        const hasLoadedImage = image
+          ? image.complete && image.naturalWidth > 0 && image.naturalHeight > 0
+          : !!style.backgroundImage && style.backgroundImage !== 'none';
+        if (
+          !hasLoadedImage ||
+          rect.width < 80 ||
+          rect.height < 45 ||
+          style.display === 'none' ||
+          style.visibility === 'hidden' ||
+          style.opacity === '0'
+        ) {
+          return false;
+        }
+
+        if (!args.requireEventMetadata) return true;
+        return (
+          (!!args.entitlementId && searchable.includes(args.entitlementId)) ||
+          args.nameTerms.some(term => searchable.includes(term)) ||
+          /(?:^|\s)ppv(?:\s|$)/.test(searchable)
+        );
+      },
+      {
+        nameTerms,
+        entitlementId: normalizedEntitlementId,
+        requireEventMetadata,
+      }
+    ).catch(() => false);
+    if (!validCandidate) continue;
+
+    const screenshot = await candidate.screenshot({ type: 'png' }).catch((error: Error) => {
+      console.warn(`⚠️ Unable to inspect PPV artwork pixels: ${error.message}`);
+      return null;
+    });
+    if (screenshot) {
+      try {
+        const jimpModule = require('jimp');
+        const Jimp = jimpModule.Jimp || jimpModule;
+        const image = await Jimp.read(screenshot);
+        const pixels = image.bitmap.data;
+        let whitePixels = 0;
+        let neutralPixels = 0;
+        let saturatedPixels = 0;
+        let darkPixels = 0;
+        const totalPixels = image.bitmap.width * image.bitmap.height;
+
+        for (let offset = 0; offset < pixels.length; offset += 4) {
+          const red = pixels[offset];
+          const green = pixels[offset + 1];
+          const blue = pixels[offset + 2];
+          const max = Math.max(red, green, blue);
+          const min = Math.min(red, green, blue);
+          if (red >= 235 && green >= 235 && blue >= 235) whitePixels++;
+          if (max - min <= 18) neutralPixels++;
+          if (max - min >= 45) saturatedPixels++;
+          if (red <= 60 && green <= 60 && blue <= 60) darkPixels++;
+        }
+
+        const isMonochromeDaznPlaceholder =
+          totalPixels > 0 &&
+          whitePixels / totalPixels >= 0.45 &&
+          neutralPixels / totalPixels >= 0.92 &&
+          saturatedPixels / totalPixels <= 0.03 &&
+          darkPixels / totalPixels >= 0.02;
+        if (isMonochromeDaznPlaceholder) continue;
+      } catch (error: any) {
+        console.warn(`⚠️ Unable to analyse PPV artwork pixels: ${error.message}`);
+      }
+    }
+
     return true;
   }
 

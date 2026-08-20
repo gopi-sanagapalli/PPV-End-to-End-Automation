@@ -2,7 +2,7 @@ import { Page } from '@playwright/test';
 import { LandingPage } from './LandingPage';
 import { RailsInterceptor } from '../utils/railsInterceptor';
 import { pollForHomePagePopup, logoutForPopupRetry, clickAndWaitForNav } from '../utils/testHelpers';
-import { assertDaznPageAvailable, dismissMarketingPopup, handleCookies, stabilisePage } from '../utils/helpers';
+import { assertDaznPageAvailable, dismissMarketingPopup, handleCookies, hasLoadedPPVArtwork, stabilisePage } from '../utils/helpers';
 import { validateVariant } from '../flows/validateVariant';
 import { getHomePageData } from '../utils/excelReader';
 
@@ -821,6 +821,7 @@ export class HomePage extends LandingPage {
       }
 
       const sectionHeadingText = ((await railHeader.textContent().catch(() => '')) || '').replace(/\s+/g, ' ').trim();
+      const tileImageLoaded = await hasLoadedPPVArtwork(found, ppvName);
       const tileCapture = await found.evaluate((el: HTMLElement, expectedTitle: string) => {
         const clean = (value: string | null | undefined) =>
           String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -874,7 +875,7 @@ export class HomePage extends LandingPage {
       eventData.__HOME_DONT_MISS_TILE_TEXT = tileCapture.text || '';
       eventData.__HOME_DONT_MISS_TILE_TITLE = tileCapture.title || '';
       eventData.__HOME_DONT_MISS_TILE_DATE = tileCapture.dateText || eventData.LANDING_PAGE_PPV_DATE || '';
-      eventData.__HOME_DONT_MISS_IMAGE_PRESENT = tileCapture.hasImage ? 'Yes' : 'No';
+      eventData.__HOME_DONT_MISS_IMAGE_PRESENT = tileImageLoaded ? 'Yes' : 'No';
       console.log(
         `[HomePage Tile] Pre-captured Don't Miss validation data: ` +
         `section="${eventData.__HOME_DONT_MISS_SECTION_HEADING}", title="${eventData.__HOME_DONT_MISS_TILE_TITLE}", ` +

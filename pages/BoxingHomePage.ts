@@ -1,7 +1,7 @@
 import { Page } from '@playwright/test';
 import { HomePage } from './HomePage';
 import selectors from '../config/selectors.json';
-import { assertDaznPageAvailable } from '../utils/helpers';
+import { assertDaznPageAvailable, hasLoadedPPVArtwork } from '../utils/helpers';
 
 /**
  * BoxingHomePage — Page object to dynamically handle navigation and checkout flow
@@ -50,17 +50,9 @@ export class BoxingHomePage extends HomePage {
   /** Wait for the selected PPV tile's artwork to be visible and decoded. */
   private async waitForLoadedTileImage(tile: any, timeoutMs = 8000): Promise<boolean> {
     const deadline = Date.now() + timeoutMs;
-    const images = tile.locator('img');
 
     while (Date.now() < deadline) {
-      const isLoaded = await images.evaluateAll((nodes: HTMLImageElement[]) =>
-        nodes.some((image) => {
-          const rect = image.getBoundingClientRect();
-          return rect.width > 0 && rect.height > 0 && image.complete && image.naturalWidth > 0;
-        })
-      ).catch(() => false);
-
-      if (isLoaded) return true;
+      if (await hasLoadedPPVArtwork(tile)) return true;
       await this.page.waitForTimeout(200);
     }
 
@@ -458,7 +450,7 @@ export class BoxingHomePage extends HomePage {
         eventData.__HOME_BOXING_TILE_TEXT = tileCapture.text || '';
         eventData.__HOME_BOXING_TILE_TITLE = tileCapture.titleText || '';
         eventData.__HOME_BOXING_TILE_DATE = tileCapture.dateText || eventData.LANDING_PAGE_PPV_DATE || '';
-        eventData.__HOME_BOXING_IMAGE_PRESENT = (tileImageLoaded || tileCapture.hasImage) ? 'Yes' : 'No';
+        eventData.__HOME_BOXING_IMAGE_PRESENT = tileImageLoaded ? 'Yes' : 'No';
         console.log(
           `[Home Sport Tile] Pre-captured tile validation data: ` +
           `date="${eventData.__HOME_BOXING_TILE_DATE}", ` +

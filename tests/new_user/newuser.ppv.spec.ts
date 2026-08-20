@@ -158,6 +158,13 @@ async function runFlow(
   const { name, source, tier, ratePlan: rawRatePlan, enableDevMode: devModeEnabled, noPpvClick: noPpvClickConfig, requiresDefaultSignup } = flowConfig;
   let noPpvClick = !!(noPpvClickConfig);
   const ratePlan = (rawRatePlan || '').replace(/-/g, ' ').toLowerCase();
+  const isStandalonePPV = String(json?.PPV_TYPE || process.env.PPV_TYPE || 'normal').trim().toLowerCase() === 'standalone';
+  if (isStandalonePPV && tier === 'ultimate') {
+    throw new Error('❌ Standalone PPV does not support Ultimate plans. Use a Standard monthly or Annual Pay Monthly plan.');
+  }
+  if (isStandalonePPV && !['monthly', 'annual pay monthly'].includes(ratePlan)) {
+    throw new Error(`❌ Standalone PPV does not support rate plan "${rawRatePlan}". Use monthly or annual pay monthly.`);
+  }
   if ((SOURCE === 'boxing-banner-ultimate' || SOURCE === 'boxing-ultimate-subscription' || SOURCE === 'boxing-join-the-club') && tier !== 'ultimate') {
     throw new Error(`❌ SOURCE "${SOURCE}" requires an Ultimate plan (e.g., PLAN=ultimate_apm).`);
   }
@@ -1007,7 +1014,7 @@ async function runFlow(
     for (let step = 0; step < 15; step++) {
       if (page.isClosed()) throw new Error('❌ Page closed unexpectedly');
 
-      const pageType = await detectPageType(page, pagesConfig, planClickCount);
+      const pageType = await detectPageType(page, pagesConfig, planClickCount, isStandalonePPV);
       await handleCookies(page, step === 0 ? 5000 : 500);
       await stabilisePage(page);
       await dismissMarketingPopup(page);
@@ -1230,7 +1237,9 @@ async function runFlow(
         const isStandardTierForUpsell = (tier || '').toLowerCase() === 'standard';
         const isMonthlyOrAPMForUpsell = ratePlan === 'monthly' || ratePlan === 'annual pay monthly';
 
-        if (isStandardTierForUpsell && isMonthlyOrAPMForUpsell) {
+        if (isStandalonePPV) {
+          await payment.validateUltimateUpsellBannerAbsent(results);
+        } else if (isStandardTierForUpsell && isMonthlyOrAPMForUpsell) {
           try {
             // STEP A: Always validate banner text BEFORE click (both prod and stag)
             await payment.validateUltimateUpsellBannerText(results, eventData);
@@ -1616,7 +1625,7 @@ async function runFlow(
       }
 
       if (pageType === 'standalone-ppv') {
-        if (PPV_TYPE !== 'standalone') {
+        if (!isStandalonePPV) {
           console.log('⚠️ standalone-ppv detected but PPV_TYPE is not standalone — treating as ppv');
           // fall through to ppv handler
         } else {
@@ -1642,7 +1651,9 @@ async function runFlow(
             }
           }
 
-          await standalonePPVPage.selectPlan(ratePlan === 'monthly' ? 'flex' : 'annual');
+          await standalonePPVPage.selectPlan(
+            ratePlan === 'monthly' ? 'flex' : 'annual_monthly'
+          );
           await standalonePPVPage.clickContinue();
           await page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => { });
           continue;

@@ -1,5 +1,5 @@
 import { Page, Locator } from '@playwright/test';
-import { handleCookies } from '../utils/helpers';
+import { handleCookies, hasLoadedPPVArtwork } from '../utils/helpers';
 import { validateVariant } from '../flows/validateVariant';
 import { getMyAccountData } from '../utils/excelReader';
 import { compare } from '../utils/compare';
@@ -793,8 +793,17 @@ export class MyAccountPage {
     const titleCandidates = row.locator('span, p, h2, h3, h4, strong, [id*="title" i], [class*="title" i]');
     const count = await titleCandidates.count().catch(() => 0);
     for (let i = 0; i < count; i++) {
-      const text = ((await titleCandidates.nth(i).textContent().catch(() => '')) || '').trim();
-      if (text && text.length <= 120 && this.isEventTitleText(text, ppvName)) {
+      const candidate = titleCandidates.nth(i);
+      const isLeaf = await candidate.evaluate((element: Element) => element.children.length === 0).catch(() => false);
+      if (!isLeaf) continue;
+
+      const text = ((await candidate.textContent().catch(() => '')) || '').trim();
+      if (
+        text &&
+        text.length <= 120 &&
+        !/\b\d{1,2}:\d{2}\b|(?:AED\s?|[£$€₹]\s?)\d|buy now/i.test(text) &&
+        this.isEventTitleText(text, ppvName)
+      ) {
         return text;
       }
     }
@@ -890,15 +899,11 @@ export class MyAccountPage {
       console.log('⚠️ PPV row not found when checking image');
       return false;
     }
-    const media = row.locator('img, picture, [role="img"], [style*="background-image"]').first();
-    const isVisible = await media.isVisible({ timeout: 2000 }).catch(() => false);
-    if (isVisible) {
-      console.log('✅ PPV image is visible in row');
-      return true;
-    }
-    const count = await row.locator('img, picture, [role="img"], [style*="background-image"]').count().catch(() => 0);
-    console.log(`ℹ️ PPV media count in row: ${count}`);
-    return count > 0;
+    const hasArtwork = await hasLoadedPPVArtwork(row, ppvName);
+    console.log(hasArtwork
+      ? '✅ PPV event artwork is loaded in row'
+      : 'ℹ️ PPV row has no loaded event artwork or contains a DAZN placeholder');
+    return hasArtwork;
   }
 
 

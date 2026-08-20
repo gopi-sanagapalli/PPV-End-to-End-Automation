@@ -99,7 +99,7 @@ export class PaymentPage extends BasePage {
       console.log('⚠️ Warning: payment options text did not appear within 10s');
     });
 
-    await expandMorePaymentMethods(this.page, 'Payment Page');
+    const paymentMethodsExpanded = await expandMorePaymentMethods(this.page, 'Payment Page');
     const skipCardEntryChecks = await shouldSkipCardEntryChecks(this.page);
 
     // Dynamically extract name from page — fast targeted selector
@@ -175,7 +175,7 @@ export class PaymentPage extends BasePage {
 
       let actual = 'N/A';
       try {
-        actual = await this.getFieldValue(field, eventData, bodyText);
+        actual = await this.getFieldValue(field, eventData, bodyText, paymentMethodsExpanded);
       } catch (e: any) {
         console.warn(`⚠️  Error getting "${field}": ${e.message}`);
       }
@@ -408,6 +408,29 @@ export class PaymentPage extends BasePage {
         status: textStatus,
       });
     }
+  }
+
+  async validateUltimateUpsellBannerAbsent(results: any[]): Promise<void> {
+    const bannerSelectors = [
+      '[aria-label="Switch to ultimate tier"]',
+      '[aria-label*="Switch to ultimate" i]',
+      '[role="button"]:has-text("Switch to DAZN Ultimate")',
+      'a:has-text("Switch to DAZN Ultimate")',
+      'button:has-text("Switch to DAZN Ultimate")',
+    ];
+    const bannerVisible = await this.page
+      .locator(bannerSelectors.join(', '))
+      .first()
+      .isVisible({ timeout: 3000 })
+      .catch(() => false);
+
+    results.push({
+      page: 'Payment',
+      field: 'Ultimate Upsell Banner Present',
+      expected: 'No',
+      actual: bannerVisible ? 'Yes' : 'No',
+      status: bannerVisible ? 'FAIL' : 'PASS',
+    });
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -686,7 +709,8 @@ export class PaymentPage extends BasePage {
   private async getFieldValue(
     field: string,
     eventData: Record<string, string>,
-    bodyText: string
+    bodyText: string,
+    paymentMethodsExpanded = false
   ): Promise<string> {
     const fieldLower = field.toLowerCase().replace(/\s+/g, ' ').trim();
     const lower = bodyText.toLowerCase();
@@ -1005,6 +1029,52 @@ export class PaymentPage extends BasePage {
       if (isDefaultSignup && (!hasPPVEvent || isUltimateTier)) return 'N/A';
 
       const ppvName = eventData.PPV_NAME || '';
+      const summaryPrice = await this.page.evaluate((name: string) => {
+        const clean = (value: string | null | undefined) =>
+          String(value ?? '').replace(/\s+/g, ' ').trim();
+        const normalize = (value: string) =>
+          clean(value)
+            .toLowerCase()
+            .replace(/\bv(?:s)?\.?\b/g, ' vs ')
+            .replace(/[^a-z0-9]+/g, ' ')
+            .trim();
+        const normalizedName = normalize(name);
+        const pricePattern = /(?:(?<![A-Z])[A-Z]{2,3}\s?|[£$€₹]\s?)\d+(?:\.\d{2})?/;
+        const candidates = Array.from(document.querySelectorAll<HTMLElement>('h1, h2, h3, h4, p, span, div'))
+          .filter(element =>
+            element.children.length === 0 &&
+            normalize(element.innerText || element.textContent) === normalizedName
+          );
+
+        for (const title of candidates) {
+          let container: HTMLElement | null = title.parentElement;
+          for (let depth = 0; depth < 5 && container && container !== document.body; depth++, container = container.parentElement) {
+            const titleRect = title.getBoundingClientRect();
+            const prices = Array.from(container.querySelectorAll<HTMLElement>('p, span, div'))
+              .filter(element => element !== title && element.children.length === 0)
+              .map(element => ({
+                text: clean(element.innerText || element.textContent),
+                rect: element.getBoundingClientRect(),
+              }))
+              .filter(item =>
+                pricePattern.test(item.text) &&
+                item.rect.width > 0 &&
+                item.rect.height > 0
+              )
+              .sort((a, b) => {
+                const aDistance = Math.abs(a.rect.top - titleRect.top) + Math.abs(a.rect.left - titleRect.right);
+                const bDistance = Math.abs(b.rect.top - titleRect.top) + Math.abs(b.rect.left - titleRect.right);
+                return aDistance - bDistance;
+              });
+            if (prices.length > 0) {
+              return prices[0].text.match(pricePattern)?.[0] || '';
+            }
+          }
+        }
+        return '';
+      }, ppvName).catch(() => '');
+      if (summaryPrice) return summaryPrice;
+
       let ppvIndex = -1;
 
       // Try to find matchup part in the text
@@ -1029,7 +1099,11 @@ export class PaymentPage extends BasePage {
 
       if (ppvIndex >= 0) {
         const nearText = bodyText.substring(ppvIndex, ppvIndex + 300);
-        const priceMatch = nearText.match(/(?:[A-Z]{2,3}\s?|[\$£€₹]\s?)\d+(?:\.\d{2})?/);
+        const expectedPrice = eventData.PPV_PRICE || '';
+        if (expectedPrice && nearText.includes(expectedPrice)) {
+          return expectedPrice;
+        }
+        const priceMatch = nearText.match(/[£$€₹]\s?\d+(?:\.\d{2})?/);
         if (priceMatch) return priceMatch[0].trim();
       }
 
@@ -1038,7 +1112,7 @@ export class PaymentPage extends BasePage {
         return expectedPrice;
       }
 
-      const allPrices = bodyText.match(/(?:[A-Z]{2,3}\s?|[\$£€₹]\s?)\d+(?:\.\d{2})?/g) || [];
+      const allPrices = bodyText.match(/(?:(?<![A-Z])[A-Z]{2,3}\s?|[\$£€₹]\s?)\d+(?:\.\d{2})?/g) || [];
       if (allPrices.length > 0) {
         const sorted = allPrices
           .map(p => ({ raw: p, val: parseFloat(p.replace(/[^\d.]/g, '')) }))
@@ -1540,38 +1614,29 @@ export class PaymentPage extends BasePage {
 
    // ── Credit & Debit Card ────────────────────────────────────
     if (fieldLower.includes('credit') && (fieldLower.includes('option') || fieldLower.includes('available'))) {
-      // Check section ID
-      const sectionCount = await this.page.locator('section[id="Credit & Debit Card"]').count().catch(() => 0);
-      if (sectionCount > 0) return 'Yes';
-      // Check accordion text
-      const accCount = await this.page.locator('.accordion-cta-refined___3csKv').filter({ hasText: /Credit/i }).count().catch(() => 0);
-      if (accCount > 0) return 'Yes';
-      // Check any text containing credit & debit
-      const freshBody = await this.page.locator('body').innerText().catch(() => '');
-      if (freshBody.toLowerCase().includes('credit') && freshBody.toLowerCase().includes('debit')) return 'Yes';
-      return 'No';
+      if (!paymentMethodsExpanded) return 'No';
+      const option = this.page.locator(
+        'section[id="Credit & Debit Card"]:visible, .accordion-cta-refined___3csKv:visible'
+      ).filter({ hasText: /Credit\s*&\s*Debit/i }).first();
+      return await option.isVisible({ timeout: 1500 }).catch(() => false) ? 'Yes' : 'No';
     }
 
     // ── PayPal ─────────────────────────────────────────────────
     if (fieldLower.includes('paypal') && (fieldLower.includes('option') || fieldLower.includes('available'))) {
-      const sectionCount = await this.page.locator('section[id="PayPal"]').count().catch(() => 0);
-      if (sectionCount > 0) return 'Yes';
-      const accCount = await this.page.locator('.accordion-cta-refined___3csKv').filter({ hasText: /PayPal/i }).count().catch(() => 0);
-      if (accCount > 0) return 'Yes';
-      const freshBody = await this.page.locator('body').innerText().catch(() => '');
-      if (freshBody.toLowerCase().includes('paypal')) return 'Yes';
-      return 'No';
+      if (!paymentMethodsExpanded) return 'No';
+      const option = this.page.locator(
+        'section[id="PayPal"]:visible, .accordion-cta-refined___3csKv:visible'
+      ).filter({ hasText: /PayPal/i }).first();
+      return await option.isVisible({ timeout: 1500 }).catch(() => false) ? 'Yes' : 'No';
     }
 
     // ── Google Pay ─────────────────────────────────────────────
     if (fieldLower.includes('google') && (fieldLower.includes('option') || fieldLower.includes('available'))) {
-      const sectionCount = await this.page.locator('section[id="Google Pay"]').count().catch(() => 0);
-      if (sectionCount > 0) return 'Yes';
-      const accCount = await this.page.locator('.accordion-cta-refined___3csKv').filter({ hasText: /Google/i }).count().catch(() => 0);
-      if (accCount > 0) return 'Yes';
-      const freshBody = await this.page.locator('body').innerText().catch(() => '');
-      if (freshBody.toLowerCase().includes('google pay')) return 'Yes';
-      return 'No';
+      if (!paymentMethodsExpanded) return 'No';
+      const option = this.page.locator(
+        'section[id="Google Pay"]:visible, .accordion-cta-refined___3csKv:visible'
+      ).filter({ hasText: /Google Pay/i }).first();
+      return await option.isVisible({ timeout: 1500 }).catch(() => false) ? 'Yes' : 'No';
     }
 
     // ── Redeem Promo Code CTA ──────────────────────────────────

@@ -322,7 +322,7 @@ export class GloryPage extends BasePage {
   async completeGloryFlow(
     options?: {
       ppvName?: string;
-      planType?: 'flex' | 'annual';
+      planType?: 'flex' | 'annual_monthly';
       env?: string;
     }
   ): Promise<void> {

@@ -9,40 +9,15 @@ export class StandalonePPVPage extends BasePage {
    * This prevents validation from reading the transition/loading DOM.
    */
   async waitUntilPPVPageReady(): Promise<void> {
-    const title = this.page
-      .getByText(/choose the right plan for you/i)
-      .first();
+    const subscriptionSection = this.page.getByText(/choose your subscription/i).first();
+    const planOption = this.page.locator('input[type="radio"], [role="radio"]').first();
 
-    await title.waitFor({ state: 'visible', timeout: 20000 });
+    await Promise.all([
+      subscriptionSection.waitFor({ state: 'visible', timeout: 20000 }),
+      planOption.waitFor({ state: 'visible', timeout: 20000 }),
+    ]);
 
-    await title.scrollIntoViewIfNeeded().catch(() => {});
-
-    let previousText = '';
-    let stableReads = 0;
-
-    for (let attempt = 0; attempt < 12; attempt++) {
-      const currentText = (
-        await title.innerText({ timeout: 2000 }).catch(() => '')
-      ).replace(/\s+/g, ' ').trim();
-
-      if (currentText && currentText === previousText) {
-        stableReads += 1;
-        if (stableReads >= 3) {
-          console.log(`✅ [PPV Ready] ${currentText}`);
-          await this.page.waitForTimeout(500);
-          return;
-        }
-      } else {
-        stableReads = 0;
-        previousText = currentText;
-      }
-
-      await this.page.waitForTimeout(300);
-    }
-
-    throw new Error(
-      `PPV page did not stabilise. Last title text: "${previousText}"`
-    );
+    console.log('✅ [PPV Ready] Standalone PPV subscription options are visible');
   }
 
   constructor(page: Page) {
@@ -96,7 +71,20 @@ export class StandalonePPVPage extends BasePage {
     }
 
     const checkedRows = data.filter(r => (r.State || '').trim().toLowerCase() === 'checked');
-    await validateVariant(this.page, 'standalone-ppv', checkedRows, results, eventData, 'PPV');
+    const apmCtaRows = checkedRows.filter(
+      r => (r.Field || '').trim().toLowerCase() === 'cta button (apm selected)'
+    );
+    const flexAndCommonRows = checkedRows.filter(
+      r => (r.Field || '').trim().toLowerCase() !== 'cta button (apm selected)'
+    );
+
+    await this.selectPlan('flex');
+    await validateVariant(this.page, 'standalone-ppv', flexAndCommonRows, results, eventData, 'PPV');
+
+    if (apmCtaRows.length > 0) {
+      await this.selectPlan('annual_monthly');
+      await validateVariant(this.page, 'standalone-ppv', apmCtaRows, results, eventData, 'PPV');
+    }
   }
 
   async validatePPVPageUnchecked(data: any[], results: any[], eventData: Record<string, string>): Promise<void> {
@@ -117,9 +105,9 @@ export class StandalonePPVPage extends BasePage {
     await this.togglePPVCheckbox(ppvName);
   }
 
-  async selectPlan(planType: 'flex' | 'annual'): Promise<void> {
+  async selectPlan(planType: 'flex' | 'annual_monthly'): Promise<void> {
     console.log(`💎 Selecting plan: ${planType}...`);
-    const targetLabel = planType === 'flex' ? 'Flex' : 'Annual';
+    const targetLabel = planType === 'flex' ? 'Flex' : 'Annual - Pay Monthly';
 
     // Strategy 1: Find clickable plan card/label by text content
     const cardSelectors = [

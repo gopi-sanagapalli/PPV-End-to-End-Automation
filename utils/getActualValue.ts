@@ -1,4 +1,4 @@
-import { DOMNode } from './helpers';
+import { DOMNode, hasLoadedPPVArtwork } from './helpers';
 import { resolveSearchPPVTile } from './searchPpvTileResolver';
 
 async function getScopedLandingPPVContainer(
@@ -344,49 +344,20 @@ export async function getActualValue(
     return 'No';
   };
 
-  const waitForLoadedPPVImage = async (scope: any = page, timeoutMs = 8000): Promise<boolean> => {
-    const nameTerms = String(eventData?.PPV_NAME || eventData?.PPV_DISPLAY_NAME || '')
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, ' ')
-      .split(/\s+/)
-      .filter(term => term.length > 3);
-    const entitlementId = String(eventData?.PPV_ENTITLEMENT_ID || '')
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, ' ');
+  const waitForLoadedPPVImage = async (
+    scope: any = page,
+    timeoutMs = 8000,
+    requireEventMetadata = false
+  ): Promise<boolean> => {
     const deadline = Date.now() + timeoutMs;
-    const images = scope.locator('img');
 
     while (Date.now() < deadline) {
-      const loaded = await images.evaluateAll(
-        (
-          nodes: HTMLImageElement[],
-          args: { nameTerms: string[]; entitlementId: string }
-        ) => nodes.some(image => {
-          const rect = image.getBoundingClientRect();
-          if (rect.width <= 0 || rect.height <= 0 || !image.complete || image.naturalWidth <= 0) {
-            return false;
-          }
-
-          const searchable = [
-            image.alt,
-            image.currentSrc || image.src,
-            image.getAttribute('data-testid'),
-            image.getAttribute('data-test-id'),
-          ]
-            .join(' ')
-            .toLowerCase()
-            .replace(/[^a-z0-9]+/g, ' ');
-
-          return (
-            (!!args.entitlementId && searchable.includes(args.entitlementId)) ||
-            args.nameTerms.some(term => searchable.includes(term)) ||
-            /(^|\s)ppv(\s|$)/.test(searchable)
-          );
-        }),
-        { nameTerms, entitlementId }
-      ).catch(() => false);
-
-      if (loaded) return true;
+      if (await hasLoadedPPVArtwork(
+        scope,
+        eventData?.PPV_NAME || eventData?.PPV_DISPLAY_NAME || '',
+        eventData?.PPV_ENTITLEMENT_ID || '',
+        requireEventMetadata
+      )) return true;
       await page.waitForTimeout(200);
     }
 
@@ -792,7 +763,10 @@ export async function getActualValue(
         return findLine((_line, lower) => lower.includes('flex') && lower.includes('pay monthly')) || 'N/A';
 
       case 'flex badge':
-        return findLine((_line, lower) => lower.includes('day free trial')) || 'N/A';
+        return findLine((line, lower) =>
+          /^\d+\s+day\s+free\s+trial$/i.test(line.trim()) ||
+          /^\d+\s+day\s+free\s+trial$/i.test(lower.trim())
+        ) || 'N/A';
 
       case 'flex description':
         return findLine((_line, lower) =>
@@ -822,7 +796,16 @@ export async function getActualValue(
         return findLine((_line, lower) => lower.includes('annual') && lower.includes('pay monthly')) || 'N/A';
 
       case 'annual badge':
-        return findLine((_line, lower) => lower.includes('month free')) || 'N/A';
+        if ((eventData?.PPV_TYPE || '').toLowerCase() === 'standalone') {
+          return findLine((line, lower) =>
+            /^save\s+.*a\s+year$/i.test(line.trim()) ||
+            /^save\s+.*a\s+year$/i.test(lower.trim())
+          ) || 'N/A';
+        }
+        return findLine((line, lower) =>
+          /^(?:1|first)\s+month\s+free$/i.test(line.trim()) ||
+          /^(?:1|first)\s+month\s+free$/i.test(lower.trim())
+        ) || 'N/A';
 
       case 'annual price text':
         return findLine((_line, lower) => lower.includes('/month') && lower.includes('months')) || 'N/A';
@@ -1241,7 +1224,8 @@ export async function getActualValue(
           const hasCheckedCheckmark = await btn.locator('svg[class*="checked" i], [class*="checkmark" i]').count().catch(() => 0);
           if (hasCheckedCheckmark > 0) checked = true;
         }
-      } else {
+      }
+      if (!checked) {
         const cbNode = snap.find(n => n.tag === 'input' && n.type === 'checkbox');
         if (cbNode) {
           checked = cbNode.isChecked ?? false;
@@ -1368,6 +1352,16 @@ export async function getActualValue(
     }
 
     case 'apu description (unchecked)': {
+      const exactDescription = snapFind(n =>
+        n.childCount === 0 &&
+        n.text.toLowerCase().includes('annual contract') &&
+        n.text.toLowerCase().includes('auto renews') &&
+        n.text.toLowerCase().includes('pay for a year upfront') &&
+        n.text.toLowerCase().includes('best value deal') &&
+        !/(?:AED\s?|[£$€₹]\s?)\d/.test(n.text)
+      );
+      if (exactDescription !== 'N/A') return exactDescription;
+
       const container = snap.find(n =>
         /annual\s*[-–]\s*pay\s*upfront/i.test(n.text) &&
         n.text.length > 25 &&
@@ -3484,7 +3478,7 @@ export async function getActualValue(
         const hasImg = await myAccountPage.hasPPVImage(eventData?.PPV_NAME || '');
         return hasImg ? 'Yes' : 'No';
       }
-      if (await waitForLoadedPPVImage()) return 'Yes';
+      if (await waitForLoadedPPVImage(page, 8000, true)) return 'Yes';
 
       if (isSearchContext()) {
         const tile = await getSearchPPVTile();
@@ -3492,29 +3486,7 @@ export async function getActualValue(
 
         if (await waitForLoadedPPVImage(tile)) return 'Yes';
 
-        const media = tile.locator('img, picture, [role="img"], [style*="background-image"]').first();
-        if (await media.isVisible({ timeout: 1500 }).catch(() => false)) return 'Yes';
-
-        const hasMediaBlock = await tile.evaluate((el: HTMLElement) => {
-          const root = el.getBoundingClientRect();
-          const nodes = Array.from(el.querySelectorAll<HTMLElement>('img, picture, [role="img"], div, a, span'));
-          return nodes.some(node => {
-            const rect = node.getBoundingClientRect();
-            const style = window.getComputedStyle(node);
-            const hasBg = style.backgroundImage && style.backgroundImage !== 'none';
-            const hasImgLike = node.tagName.toLowerCase() === 'img' ||
-              node.tagName.toLowerCase() === 'picture' ||
-              node.getAttribute('role') === 'img' ||
-              hasBg;
-            const text = (node.innerText || node.textContent || '').trim();
-            const isLargeVisual = rect.width >= 120 &&
-              rect.height >= 80 &&
-              rect.width <= Math.max(root.width + 20, 160) &&
-              !/buy now|fight card|matchroom|boxing|vs\.?/i.test(text);
-            return hasImgLike || isLargeVisual;
-          });
-        }).catch(() => false);
-        return hasMediaBlock ? 'Yes' : 'No';
+        return 'No';
       }
 
       if (isLandingOrHomeContext()) {
@@ -3522,49 +3494,10 @@ export async function getActualValue(
         if (container) {
           if (await waitForLoadedPPVImage(container)) return 'Yes';
 
-          const img = container.locator('img, picture, [role="img"], [style*="background-image"]').first();
-          if (await img.isVisible({ timeout: 2000 }).catch(() => false)) return 'Yes';
-
-          const hasMediaBlock = await container.evaluate((el: HTMLElement) => {
-            const root = el.getBoundingClientRect();
-            const texty = /watch live|buy now|fight card|matchroom|vs\.?/i;
-            const nodes = Array.from(el.querySelectorAll<HTMLElement>('img, picture, [role="img"], div, a, span'));
-            return nodes.some(node => {
-              const rect = node.getBoundingClientRect();
-              const style = window.getComputedStyle(node);
-              const hasBg = style.backgroundImage && style.backgroundImage !== 'none';
-              const hasImgLike = node.tagName.toLowerCase() === 'img' ||
-                node.tagName.toLowerCase() === 'picture' ||
-                node.getAttribute('role') === 'img' ||
-                hasBg;
-              const text = (node.innerText || node.textContent || '').trim();
-              const isLargeRightSide = rect.width >= 220 &&
-                rect.height >= 120 &&
-                rect.left > root.left + root.width * 0.35 &&
-                !texty.test(text);
-              return hasImgLike || isLargeRightSide;
-            });
-          }).catch(() => false);
-          return hasMediaBlock ? 'Yes' : 'No';
+          return 'No';
         }
       }
-      const hasImg = snap.some(n =>
-
-        n.tag === 'img' &&
-        (
-          (n.src && n.src.toLowerCase().includes('ppv')) ||
-          (n.text && n.text.toLowerCase().includes('vs')) ||
-          n.classes.toLowerCase().includes('hero')
-        )
-      ) || snap.some(n => n.tag === 'img');
-      if (hasImg) return 'Yes';
-
-      return firstExists(
-        'img[src*="ppv"]',
-        'img[alt*="vs" i]',
-        'main img',
-        'img'
-      );
+      return 'No';
     }
 
     case 'ppv1 image present on ultimate tier':
