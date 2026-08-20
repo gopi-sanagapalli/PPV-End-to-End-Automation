@@ -608,9 +608,14 @@ export class IOSBasePage {
 
   async validateUltimateFixtureOrPreviewPage(hooks?: IOSFlowHooks): Promise<void> {
     const title = this.ppvName.split(/ vs/i)[0].trim().replace(/\./g, '');
+    let nativePaywallDetected = false;
     await this.driver.waitUntil(async () => {
       const source = await this.driver.getPageSource().catch(() => '');
       const corpus = source.toLowerCase();
+      nativePaywallDetected =
+        /\bhow to watch\b|\bpick a plan on dazn\.com\b/i.test(source) &&
+        /\bbuy now\b/i.test(source);
+      if (nativePaywallDetected) return true;
       return corpus.includes(title.toLowerCase()) &&
         /\brelated\b|\bcompetitors\b|\bevents\b|\bfeatures\b/i.test(source);
     }, {
@@ -618,6 +623,14 @@ export class IOSBasePage {
       interval: 500,
       timeoutMsg: `PPV fixture/preview page did not load for "${this.ppvName}" after tile click.`,
     });
+    if (nativePaywallDetected) {
+      const screenshotPath = './test-results/ios_ultimate_native_paywall_detected.png';
+      await this.driver.saveScreenshot(screenshotPath).catch(() => {});
+      throw new Error(
+        `Active Ultimate user reached a native Buy Now paywall after clicking "${this.ppvName}". ` +
+        `Expected the fixture/preview page. See ${screenshotPath}`,
+      );
+    }
     console.log('✅ [Ultimate Active User with LOGIN_FIRST=true] Fixture/preview page detected after tile click.');
     await hooks?.validateFixtureOrPreview?.();
   }

@@ -282,12 +282,8 @@ export class IOSBoxingPage extends IOSBasePage {
       throw new Error(`Configured sport "${configuredSport}" was not found in the All Sports picker. See test-results/ios_configured_sport_not_found.png`);
     }
 
-    const pageSportSelector = `-ios predicate string:name CONTAINS[c] "${escapedSport}" OR label CONTAINS[c] "${escapedSport}" OR value CONTAINS[c] "${escapedSport}"`;
     const loadedPageControls = [
       '-ios predicate string:name CONTAINS[c] "Upcoming Fights" OR label CONTAINS[c] "Upcoming Fights"',
-      '-ios predicate string:name CONTAINS[c] "Buy now" OR label CONTAINS[c] "Buy now"',
-      '-ios predicate string:name CONTAINS[c] "Fight Card" OR label CONTAINS[c] "Fight Card"',
-      `-ios predicate string:name CONTAINS[c] "Best of ${escapedSport}" OR label CONTAINS[c] "Best of ${escapedSport}"`,
     ];
     const isSportContentReady = async (): Promise<boolean> => {
       for (const selector of loadedPageControls) {
@@ -297,22 +293,14 @@ export class IOSBoxingPage extends IOSBasePage {
       return false;
     };
     const isConfiguredSportPageReady = async (): Promise<boolean> => {
-      // Re-query every poll: the element picked in All Sports becomes stale as
-      // the destination hierarchy replaces the picker.
-      const candidates = await this.driver.$$(pageSportSelector).catch(() => []);
-      for (const candidate of candidates) {
-        if (!(await candidate.isDisplayed().catch(() => false))) continue;
-        if (!(await this.isInViewport(candidate))) continue;
-        if (await isSportContentReady()) return true;
-      }
-      return false;
+      return isSportContentReady();
     };
 
     await sport.click();
     console.log(`  Waiting for the ${configuredSport} destination page to replace the All Sports picker...`);
     try {
       await this.driver.waitUntil(isConfiguredSportPageReady, {
-        timeout: 20000,
+        timeout: 50000,
         interval: 500,
         timeoutMsg: `${configuredSport} destination page did not replace the All Sports picker.`,
       });

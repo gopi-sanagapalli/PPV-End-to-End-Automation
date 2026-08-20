@@ -26,7 +26,9 @@ const passwordFieldSelectors = [
 
 const emailContinueSelectors = [
   '-ios predicate string:type == "XCUIElementTypeButton" AND (name == "Continue" OR label == "Continue")',
+  '-ios predicate string:type == "XCUIElementTypeButton" AND (name == "Next" OR label == "Next")',
   '~Continue',
+  '~Next',
 ];
 
 const passwordSubmitSelectors = [

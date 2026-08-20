@@ -148,7 +148,7 @@ jobs:
           journey: already-signed-in
   workflow-summary:
     needs: [prepare, new-user, existing-sign-in-during-flow, existing-already-signed-in]
-    if: ${{ !cancelled() }}
+    if: ${{ always() }}
     name: Consolidated workflow report · ${{ inputs.COUNTRY }}
     runs-on: [self-hosted, macOS, ARM64]
     timeout-minutes: 10
