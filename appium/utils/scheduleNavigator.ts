@@ -587,14 +587,69 @@ export async function navigateToTargetDay(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // Phase 4 — Center tile if obstructed
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Phase 4 — If the tile Y position is below the bottom-nav threshold,
- * scroll it to CENTER_TARGET_Y with a single precisely-calculated swipe.
+ * Helper to locate and verify the PPV tile element and its real-time screen coordinates.
+ */
+export async function findAndVerifyPPVTileElement(
+  driver: WdBrowser,
+  ppvName: string,
+): Promise<{ element: WdElement | null; text: string; x: number; y: number }> {
+  const ppvNameStripped = String(ppvName).normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const esc1 = ppvName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const esc2 = ppvNameStripped.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = esc1 === esc2 ? `(?i)^\\s*(${esc1})\\s*$` : `(?i)^\\s*(${esc1}|${esc2})\\s*$`;
+
+  // 1. Try strict UiSelector exact match
+  try {
+    const el = await driver.$(`android=new UiSelector().textMatches("${pattern}")`);
+    if (await el.isDisplayed().catch(() => false)) {
+      const loc = await el.getLocation().catch(() => null);
+      const size = await el.getSize().catch(() => null);
+      const txt = await el.getText().catch(() => ppvName);
+      if (loc && size) {
+        return {
+          element: el,
+          text: txt,
+          x: loc.x + Math.round(size.width / 2),
+          y: loc.y + Math.round(size.height / 2),
+        };
+      }
+    }
+  } catch {}
+
+  // 2. Scan all TextView elements to find exact/normalized title match
+  try {
+    const textEls: WdElement[] = await driver.$$('android=new UiSelector().className("android.widget.TextView")').catch(() => []);
+    for (const el of textEls) {
+      if (!await el.isDisplayed().catch(() => false)) continue;
+      const txt = await el.getText().catch(() => '');
+      if (isExactPPVTileText(txt, ppvName) || normalizeTileText(txt) === normalizeTileText(ppvName) || normalizeTileText(txt).includes(normalizeTileText(ppvName))) {
+        const loc = await el.getLocation().catch(() => null);
+        const size = await el.getSize().catch(() => null);
+        if (loc && size) {
+          return {
+            element: el,
+            text: txt,
+            x: loc.x + Math.round(size.width / 2),
+            y: loc.y + Math.round(size.height / 2),
+          };
+        }
+      }
+    }
+  } catch {}
+
+  return { element: null, text: '', x: -1, y: -1 };
+}
+
+/**
+ * Phase 4 — If the tile is near the bottom of the screen (center-Y > 55 % of screen height),
+ * scroll it up until it sits in the safe middle band [35 %, 55 %].
  *
- * Re-acquires the element after the scroll to handle RecyclerView recycling.
+ * Re-acquires the element after each scroll using verified title checks.
  */
 export async function centerTileIfNeeded(
   driver: WdBrowser,
@@ -602,38 +657,46 @@ export async function centerTileIfNeeded(
   tile: WdElement,
   ppvName: string,
 ): Promise<WdElement> {
-  let rect: { x: number; y: number; width: number; height: number } | null = null;
-  try { rect = await tile.getRect(); }
-  catch { return tile; }
-
-  const targetMinY = Math.round(dims.height * 0.35);
   const targetMaxY = Math.round(dims.height * 0.55);
 
-  console.log(`   Phase 4: Centering tile. Current y=${rect.y}, target range=[${targetMinY}, ${targetMaxY}].`);
+  let info = await findAndVerifyPPVTileElement(driver, ppvName);
+  let currentTile = info.element || tile;
+  let currentCenterY = info.y;
 
-  let currentTile = tile;
+  if (currentCenterY <= 0) {
+    try {
+      const loc = await tile.getLocation();
+      const size = await tile.getSize();
+      currentCenterY = loc.y + Math.round(size.height / 2);
+    } catch {
+      try {
+        const rect = await tile.getRect();
+        currentCenterY = rect.y + Math.round(rect.height / 2);
+      } catch {}
+    }
+  }
+
+  console.log(`   Phase 4: Tile position check for "${ppvName}": center-Y=${currentCenterY}, target middle <= ${targetMaxY}, screen-H=${dims.height}`);
+
   let attempts = 0;
-  while (rect && rect.y > targetMaxY && attempts < 5) {
-    console.log(`   Phase 4: Tile is too low (y=${rect.y} > ${targetMaxY}). Performing a gentle scroll up.`);
+  while (currentCenterY > targetMaxY && attempts < 6) {
+    console.log(`   Phase 4 [attempt ${attempts + 1}]: Tile center (${currentCenterY}) > ${targetMaxY} — swiping up to bring tile to middle of screen.`);
     await swipeUp(driver, dims, GENTLE_SWIPE_START_Y, GENTLE_SWIPE_END_Y, 400);
-    await driver.pause(600);
+    await driver.pause(700);
 
-    // Re-acquire element
-    const esc = ppvName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const freshEl = await driver.$(`android=new UiSelector().textMatches("(?i).*${esc}.*")`);
-    const newRect = await freshEl.getRect().catch(() => null);
-    if (!newRect) {
-      console.warn('⚠️ Phase 4: Could not re-acquire tile after scroll.');
+    info = await findAndVerifyPPVTileElement(driver, ppvName);
+    if (info.element && info.y > 0) {
+      currentTile = info.element;
+      currentCenterY = info.y;
+      console.log(`   Phase 4 [attempt ${attempts + 1}]: Re-acquired "${info.text}" at center-Y=${currentCenterY}`);
+    } else {
+      console.warn(`⚠️ Phase 4: Could not re-acquire tile after scroll attempt ${attempts + 1}.`);
       break;
     }
-    rect = newRect;
-    currentTile = freshEl;
     attempts++;
   }
 
-  if (rect) {
-    console.log(`✅ Phase 4: Centering complete. Final y=${rect.y}.`);
-  }
+  console.log(`✅ Phase 4: Centering complete. Final tile center-Y=${currentCenterY}.`);
   return currentTile;
 }
 
@@ -641,19 +704,70 @@ export async function centerTileIfNeeded(
 // Phase 5 — Tap the tile
 // ─────────────────────────────────────────────────────────────────────────────
 
-export async function tapTile(driver: WdBrowser, tile: WdElement): Promise<void> {
-  let tapX: number, tapY: number;
-  let text = 'Unknown';
-  try {
-    text = await tile.getText().catch(() => 'Unknown');
-    const rect = await tile.getRect();
-    tapX = rect.x + Math.round(rect.width  / 2);
-    tapY = rect.y + Math.round(rect.height / 2);
-  } catch {
-    const { x, y } = await getElementCenter(tile);
-    tapX = x; tapY = y;
+export async function tapTile(
+  driver: WdBrowser,
+  tile: WdElement,
+  dims?: ScreenDimensions,
+  ppvName?: string,
+): Promise<void> {
+  const nameToFind = ppvName || await tile.getText().catch(() => 'Unknown');
+
+  // Verify where the PPV tile actually is right now before clicking
+  let info = await findAndVerifyPPVTileElement(driver, nameToFind);
+  let targetEl = info.element || tile;
+  let tapX = info.x;
+  let tapY = info.y;
+  let titleText = info.text || nameToFind;
+
+  if (tapX <= 0 || tapY <= 0) {
+    try {
+      const loc = await targetEl.getLocation();
+      const size = await targetEl.getSize();
+      tapX = loc.x + Math.round(size.width / 2);
+      tapY = loc.y + Math.round(size.height / 2);
+    } catch {
+      try {
+        const rect = await targetEl.getRect();
+        tapX = rect.x + Math.round(rect.width / 2);
+        tapY = rect.y + Math.round(rect.height / 2);
+      } catch {
+        const center = await getElementCenter(targetEl);
+        tapX = center.x;
+        tapY = center.y;
+      }
+    }
   }
-  console.log(`🎯 Phase 5: Tapping tile "${text}" at (${tapX}, ${tapY})`);
+
+  // Safety check: Is tap position still in bottom navigation area (> 72% screen height)?
+  if (dims && tapY > Math.round(dims.height * 0.72)) {
+    console.warn(`⚠️ Phase 5: Tap Y (${tapY}) is in bottom navigation danger zone (> ${Math.round(dims.height * 0.72)}). Scrolling up to reach middle of screen...`);
+    await swipeUp(driver, dims, GENTLE_SWIPE_START_Y, GENTLE_SWIPE_END_Y, 400);
+    await driver.pause(700);
+
+    // Re-verify PPV tile location after safety scroll
+    info = await findAndVerifyPPVTileElement(driver, nameToFind);
+    if (info.element && info.x > 0 && info.y > 0) {
+      targetEl = info.element;
+      tapX = info.x;
+      tapY = info.y;
+      titleText = info.text;
+      console.log(`   Phase 5: After safety scroll — verified PPV tile "${titleText}" at (${tapX}, ${tapY})`);
+    }
+  }
+
+  console.log(`🎯 Phase 5: Verified target is PPV Title "${titleText}" at (${tapX}, ${tapY}). Clicking...`);
+
+  // Try clicking directly on the verified PPV title element first
+  try {
+    if (targetEl && await targetEl.isDisplayed().catch(() => false)) {
+      await targetEl.click();
+      console.log(`✅ Phase 5: Clicked directly on PPV Title element "${titleText}".`);
+      return;
+    }
+  } catch (err: any) {
+    console.warn(`⚠️ Phase 5: targetEl.click() failed (${err.message}). Falling back to coordinate tap at (${tapX}, ${tapY}).`);
+  }
+
   await tap(driver, tapX, tapY);
 }
 
@@ -785,7 +899,7 @@ export async function navigateScheduleToPPVTile(
     await hooks.validateSurface('PPV Tile');
   }
 
-  await tapTile(driver, tile);
+  await tapTile(driver, tile, dims, ppvName);
 
   await verifyNavigation(driver, ppvName);
 
@@ -849,5 +963,5 @@ export async function navigateToPPVTile(
     await hooks.validateSurface('PPV Tile');
   }
 
-  await tapTile(driver, centered);
+  await tapTile(driver, centered, dims, ppvName);
 }

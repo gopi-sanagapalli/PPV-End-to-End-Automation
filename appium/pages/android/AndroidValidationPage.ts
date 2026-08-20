@@ -503,8 +503,11 @@ export class AndroidValidationPage extends AndroidBasePage {
             const normExp = normalizeAndroidTitle(expectedValue, ' ');
             return compare(t, expectedValue) ||
               cleanT.includes(cleanExp) ||
+              // Guard: actual must be > 10 chars before allowing expected ⊇ actual
               (cleanT.length > 10 && cleanExp.includes(cleanT)) ||
-              (normExp && normT && (normT.includes(normExp) || normExp.includes(normT)));
+              // Guard: actual must be ≥ 15 chars to prevent short words like "or"
+              // from matching inside a long expected string like "...browser and..."
+              (normExp && normT && normT.length >= 15 && (normT.includes(normExp) || normExp.includes(normT)));
           });
           if (!matched && expectedValue.toLowerCase().includes('how to watch')) {
             const foundHeader = texts.find(t => t.toLowerCase().includes('how to watch'));
@@ -523,7 +526,10 @@ export class AndroidValidationPage extends AndroidBasePage {
                     const txt = await el.getText().catch(() => '');
                     if (txt && txt.trim()) {
                       const tc = txt.trim().toLowerCase();
-                      if (tc === expLower || tc.includes(expLower) || expLower.includes(tc.substring(0, 20))) {
+                      // Guard: tc must be >= 15 chars to use reverse-contains check,
+                      // preventing short words like "or" from matching inside expected text.
+                      const prefixMatch = tc.length >= 15 && expLower.includes(tc.substring(0, Math.min(tc.length, 20)));
+                      if (tc === expLower || tc.includes(expLower) || prefixMatch) {
                         matched = txt.trim();
                         break;
                       }

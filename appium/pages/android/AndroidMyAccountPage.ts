@@ -12,11 +12,31 @@ export class AndroidMyAccountPage extends AndroidBasePage {
     console.log('\nPRE-LOGIN FLOW: Signing in existing user...');
     await this.driver.pause(500);
 
-    // Fresh installs now open directly on the combined Log in / sign up
-    // screen.  There is no profile/menu action to take in that case.
-    const emailScreen = await this.findEl(
+    // Dismiss any lingering cookie prompt or system dialog that could obscure the landing page login button
+    const cookieSelectors = [
+      '//android.widget.Button[@resource-id="com.dazn:id/btn_accept_cookies"]',
+      'android=new UiSelector().resourceId("com.dazn:id/btn_accept_cookies")',
+      'android=new UiSelector().textMatches("(?i)^accept all cookies$")',
+      'android=new UiSelector().textMatches("(?i)^accept all$")',
+      'android=new UiSelector().textMatches("(?i)^accept$")',
+      'android=new UiSelector().textContains("I Agree")',
+    ];
+    for (const sel of cookieSelectors) {
+      try {
+        const cookieEl = await this.driver.$(sel);
+        if (await cookieEl.isDisplayed().catch(() => false)) {
+          console.log(`  Dismissing cookie prompt on landing page via ${sel}...`);
+          await cookieEl.click().catch(() => {});
+          await this.driver.pause(1000);
+          break;
+        }
+      } catch {}
+    }
+
+    // Fast check: check if the app already opened on the combined Log in / Sign up EditText screen
+    let emailScreen = await this.findEl(
       'android=new UiSelector().className("android.widget.EditText")',
-      10000,
+      2500,
     );
     
     // Declare emailInput at function level so it can be used in password section
@@ -24,17 +44,30 @@ export class AndroidMyAccountPage extends AndroidBasePage {
     let emailNeededFallback = false;
 
     const directLoginSelectors = [
+      // Case-insensitive regex matches
+      'android=new UiSelector().textMatches("(?i)^(log\\s*in|sign\\s*in|login|signin)$")',
+      'android=new UiSelector().textMatches("(?i).*(log\\s*in|sign\\s*in|login|signin).*")',
+      'android=new UiSelector().descriptionMatches("(?i)^(log\\s*in|sign\\s*in|login|signin)$")',
+      'android=new UiSelector().descriptionMatches("(?i).*(log\\s*in|sign\\s*in|login|signin).*")',
+      // Resource IDs commonly used across DAZN Android builds
+      'android=new UiSelector().resourceIdMatches(".*(btn_login|login_button|button_login|sign_in_button|tv_sign_in|btn_sign_in|landing_login).*")',
+      '//*[@resource-id="com.dazn:id/btn_login" or @resource-id="com.dazn:id/login_button" or @resource-id="com.dazn:id/button_login" or @resource-id="com.dazn:id/sign_in_button" or @resource-id="com.dazn:id/tv_sign_in"]',
       // Exact text matches (Android UiSelector is case-sensitive)
       'android=new UiSelector().text("Sign In")',
       'android=new UiSelector().text("Sign in")',
+      'android=new UiSelector().text("SIGN IN")',
       'android=new UiSelector().text("Log In")',
       'android=new UiSelector().text("Log in")',
+      'android=new UiSelector().text("LOG IN")',
       'android=new UiSelector().text("Login")',
+      'android=new UiSelector().text("LOGIN")',
       // Exact description matches
       'android=new UiSelector().description("Sign In")',
       'android=new UiSelector().description("Sign in")',
+      'android=new UiSelector().description("SIGN IN")',
       'android=new UiSelector().description("Log In")',
       'android=new UiSelector().description("Log in")',
+      'android=new UiSelector().description("LOG IN")',
       'android=new UiSelector().description("Login")',
       // Contains text matches
       'android=new UiSelector().textContains("Sign In")',
@@ -48,66 +81,88 @@ export class AndroidMyAccountPage extends AndroidBasePage {
       'android=new UiSelector().descriptionContains("Log in")',
       'android=new UiSelector().descriptionContains("Login")',
       // XPath fallback: case-insensitive text match
-      '//*[contains(translate(text(), "LOGIN", "login"), "login") or contains(translate(text(), "SIGN IN", "sign in"), "sign in")]',
+      '//*[contains(translate(@text, "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "log in") or contains(translate(@text, "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "sign in")]',
     ];
 
     let loginClicked = !!emailScreen;
-    for (const selector of emailScreen ? [] : directLoginSelectors) {
-      try {
-        const loginBtn = await this.driver.$(selector);
-        if (await loginBtn.isDisplayed()) {
-          console.log(`  Found direct login button with selector: ${selector}, clicking...`);
-          await loginBtn.click();
-          await this.driver.pause(1500);
-          loginClicked = true;
-          break;
-        }
-      } catch {}
-    }
 
-    if (!loginClicked) {
-      console.log('  Direct login button not found, trying via Profile/Account icon...');
-      const profileSelectors = [
-        'android=new UiSelector().descriptionContains("Profile")',
-        'android=new UiSelector().descriptionContains("Account")',
-        'android=new UiSelector().textContains("Profile")',
-        'android=new UiSelector().textContains("Account")',
-        '//android.widget.ImageView[contains(@content-desc, "Profile")]',
-        '//android.widget.ImageView[contains(@content-desc, "Account")]',
-      ];
-
-      let profileFound = false;
-      for (const selector of profileSelectors) {
+    if (!emailScreen) {
+      // Helper function to click element with ADB tap fallback
+      const clickWithFallback = async (el: any, label: string): Promise<boolean> => {
         try {
-          const profileBtn = await this.driver.$(selector);
-          if (await profileBtn.isDisplayed()) {
-            console.log('  Found Profile/Account button, tapping...');
-            await profileBtn.click();
-            await this.driver.pause(800);
-            profileFound = true;
-            break;
+          if (await el.isDisplayed().catch(() => false)) {
+            console.log(`  Clicking ${label}...`);
+            try {
+              await el.click();
+            } catch (err: any) {
+              console.warn(`  Native click failed: ${err.message}. Trying coordinate tap fallback...`);
+              const rect = await el.getRect();
+              adbTap(Math.round(rect.x + rect.width / 2), Math.round(rect.y + rect.height / 2));
+            }
+            await this.driver.pause(1500);
+            return true;
           }
         } catch {}
-      }
-
-      if (!profileFound) {
-        console.log('  Profile button not found via selectors, trying coordinate tap...');
-        const screenSize = getScreenSize();
-        adbTap(Math.round(screenSize.width * 0.90), Math.round(screenSize.height * 0.06));
-        await this.driver.pause(1000);
-      }
+        return false;
+      };
 
       for (const selector of directLoginSelectors) {
         try {
-          const signInBtn = await this.driver.$(selector);
-          if (await signInBtn.isDisplayed()) {
-            console.log('  Found Sign In button in profile menu, tapping...');
-            await signInBtn.click();
-            await this.driver.pause(1500);
+          const loginBtn = await this.driver.$(selector);
+          if (await clickWithFallback(loginBtn, `direct login button (${selector})`)) {
             loginClicked = true;
             break;
           }
         } catch {}
+      }
+
+      // Check if clicking succeeded in transitioning to email screen
+      if (loginClicked) {
+        emailScreen = await this.findEl('android=new UiSelector().className("android.widget.EditText")', 3000);
+        if (!emailScreen) {
+          console.log('  ⚠️ Click registered but email screen did not appear immediately. Retrying fallback...');
+          loginClicked = false;
+        }
+      }
+
+      if (!loginClicked) {
+        console.log('  Direct login button not found or did not transition, trying via Profile/Account icon...');
+        const profileSelectors = [
+          'android=new UiSelector().descriptionContains("Profile")',
+          'android=new UiSelector().descriptionContains("Account")',
+          'android=new UiSelector().textContains("Profile")',
+          'android=new UiSelector().textContains("Account")',
+          '//android.widget.ImageView[contains(@content-desc, "Profile")]',
+          '//android.widget.ImageView[contains(@content-desc, "Account")]',
+        ];
+
+        let profileFound = false;
+        for (const selector of profileSelectors) {
+          try {
+            const profileBtn = await this.driver.$(selector);
+            if (await clickWithFallback(profileBtn, `Profile/Account button (${selector})`)) {
+              profileFound = true;
+              break;
+            }
+          } catch {}
+        }
+
+        if (!profileFound) {
+          console.log('  Profile button not found via selectors, trying coordinate tap (top-right)...');
+          const screenSize = getScreenSize();
+          adbTap(Math.round(screenSize.width * 0.90), Math.round(screenSize.height * 0.06));
+          await this.driver.pause(1000);
+        }
+
+        for (const selector of directLoginSelectors) {
+          try {
+            const signInBtn = await this.driver.$(selector);
+            if (await clickWithFallback(signInBtn, `Sign In button in profile menu (${selector})`)) {
+              loginClicked = true;
+              break;
+            }
+          } catch {}
+        }
       }
     }
 
