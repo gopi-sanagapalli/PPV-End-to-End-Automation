@@ -89,31 +89,74 @@ export class AndroidSearchPage extends AndroidBasePage {
   }
 
   async findCorrectPPVTile(keywords: string[]): Promise<WdElement | null> {
-    console.log(`Scanning TextView elements for keywords: ${JSON.stringify(keywords)}`);
+    console.log(`🔍 Search: Looking for PPV tile. ppvName="${this.ppvName}" keywords=${JSON.stringify(keywords)}`);
+
+    let elements: WdElement[] = [];
     try {
-      const elements = await this.driver.$$('android=new UiSelector().className("android.widget.TextView")');
-      for (const el of elements) {
-        const rawText = await el.getText().catch(() => '');
-        if (!rawText) continue;
-
-        // Normalize diacritics so "Teófimo" tile matches keyword "teofimo"
-        const textNorm = normalizeAndroidTitle(rawText, ' ');
-        const matchesQuery = keywords.every(kw => textNorm.includes(kw));
-        const isAncillary = [
-          'press', 'weigh', 'workout', 'replay', 'highlights',
-          'preview', 'promo', 'interview', 'behind the', 'episode',
-          'documentary', 'face off', 'kickboxing',
-        ].some(term => textNorm.includes(term));
-
-        if (matchesQuery && !isAncillary) {
-          console.log(`  Found matching main event tile: "${rawText}"`);
-          return el;
-        }
-      }
+      elements = await this.driver.$$('android=new UiSelector().className("android.widget.TextView")');
     } catch (e: any) {
-      console.log(`  Error finding tile: ${e.message}`);
+      console.log(`  Error fetching TextViews: ${e.message}`);
+      return null;
     }
 
+    const normPpv     = normalizeAndroidTitle(this.ppvName || '', ' ').trim().toLowerCase();
+
+    // ── Tier 1: Exact title-only match (raw text equals PPV name exactly) ────
+    // The actual PPV tile contains ONLY the PPV title as its text.
+    // Related tiles (Press Conference, Weigh-In, Prelims, etc.) always have
+    // a colon + suffix, so they will never be an exact match.
+    for (const el of elements) {
+      const rawText = await el.getText().catch(() => '');
+      if (!rawText) continue;
+      const rawNorm = normalizeAndroidTitle(rawText, ' ').trim().toLowerCase();
+      if (rawNorm === normPpv) {
+        console.log(`✅ Search Tier 1 (exact match): "${rawText}"`);
+        return el;
+      }
+    }
+
+    // ── Tier 2: Exact match after stripping punctuation differences ──────────
+    // Handles minor punctuation differences like "vs." vs "vs" or extra spaces.
+    const stripPunct = (s: string) => s.replace(/[.,:;!?'"""'']/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+    const normPpvStripped = stripPunct(normPpv);
+    for (const el of elements) {
+      const rawText = await el.getText().catch(() => '');
+      if (!rawText) continue;
+      const rawStripped = stripPunct(normalizeAndroidTitle(rawText, ' '));
+      if (rawStripped === normPpvStripped) {
+        console.log(`✅ Search Tier 2 (punct-stripped exact match): "${rawText}"`);
+        return el;
+      }
+    }
+
+    // ── Tier 3: Keyword-contains + expanded ancillary blocklist (fallback) ───
+    // Only reached when no exact-title tile is found (e.g. app renders the
+    // PPV tile differently). Rejects tiles that contain any suffix keyword
+    // that indicates it is NOT the main PPV event.
+    console.log('   Search Tier 1 & 2 found no exact match. Falling back to keyword + blocklist logic.');
+    const ANCILLARY_TERMS = [
+      'press conference', 'press', 'weigh-in', 'weigh in', 'weigh',
+      'prelims', 'preliminary', 'workout', 'replay', 'highlights',
+      'preview', 'promo', 'interview', 'behind the', 'episode',
+      'documentary', 'face off', 'kickboxing', 'launch',
+      'undercard', 'open workout', 'media day', 'final', 'official',
+    ];
+
+    for (const el of elements) {
+      const rawText = await el.getText().catch(() => '');
+      if (!rawText) continue;
+
+      const textNorm     = normalizeAndroidTitle(rawText, ' ').toLowerCase();
+      const matchesQuery = keywords.every(kw => textNorm.includes(kw));
+      const isAncillary  = ANCILLARY_TERMS.some(term => textNorm.includes(term));
+
+      if (matchesQuery && !isAncillary) {
+        console.log(`✅ Search Tier 3 (keyword+blocklist): "${rawText}"`);
+        return el;
+      }
+    }
+
+    console.log('❌ Search: No matching PPV tile found in any tier.');
     return null;
   }
 

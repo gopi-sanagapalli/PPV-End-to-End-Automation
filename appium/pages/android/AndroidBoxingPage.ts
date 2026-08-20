@@ -146,6 +146,7 @@ export class AndroidBoxingPage extends AndroidBasePage {
   async clickHomeSportFilter(sportName: string = 'Boxing'): Promise<void> {
     const targetSport = sportName.trim() || 'Boxing';
     console.log(`  Selecting "${targetSport}" from Sports / All Sports on home page...`);
+    await this.dismissPromoPopup();
 
     const sportSelectors = [
       `android=new UiSelector().text("${targetSport}")`,
@@ -335,6 +336,27 @@ export class AndroidBoxingPage extends AndroidBasePage {
     }
 
     if (ppvFound) {
+      // Check if PPV element is near the bottom of screen (> 55% of screen height)
+      // If so, scroll up so it reaches the middle of the screen before proceeding.
+      const ppvEls = await this.findVisiblePpvTitleElements();
+      for (const el of ppvEls) {
+        if (await el.isDisplayed().catch(() => false)) {
+          const loc = await el.getLocation().catch(() => null);
+          if (loc && loc.y > Math.round(screen.height * 0.55)) {
+            console.log(`  PPV tile is near bottom of screen (y=${loc.y} > ${Math.round(screen.height * 0.55)}). Scrolling up to bring it to middle...`);
+            for (let s = 0; s < 3; s++) {
+              adbSwipe(cx, Math.round(screen.height * 0.65), cx, Math.round(screen.height * 0.40));
+              await this.driver.pause(600);
+              const freshLoc = await el.getLocation().catch(() => null);
+              if (freshLoc && freshLoc.y <= Math.round(screen.height * 0.55)) {
+                console.log(`  PPV tile now centered at y=${freshLoc.y}.`);
+                break;
+              }
+            }
+          }
+          break;
+        }
+      }
       await this.driver.saveScreenshot('./test-results/android_ppv_tile_area.png');
     } else {
       await this.driver.saveScreenshot('./test-results/android_ppv_not_found.png');
@@ -348,12 +370,20 @@ export class AndroidBoxingPage extends AndroidBasePage {
     const cleanUserState = String(process.env.USER_STATE || '').toLowerCase().trim().replace('-', '_');
     const isUltimateUser = ['active_ultimate_upfront', 'active_ultimate_apm'].includes(cleanUserState);
     const isLoginFirst = String(process.env.LOGIN_FIRST || '').toLowerCase() === 'true';
+    const screen = getScreenSize();
+    const cx = Math.round(screen.width / 2);
 
     if (isUltimateUser && isLoginFirst) {
       console.log(`✨ [Ultimate Active User with LOGIN_FIRST=true] Clicking the PPV tile itself for "${this.ppvName}"...`);
       const ppvEls = await this.findVisiblePpvTitleElements();
       for (const el of ppvEls) {
         if (await el.isDisplayed().catch(() => false)) {
+          const loc = await el.getLocation().catch(() => null);
+          if (loc && loc.y > Math.round(screen.height * 0.72)) {
+            console.warn(`  PPV tile text is near bottom nav area (y=${loc.y} > ${Math.round(screen.height * 0.72)}). Scrolling up first...`);
+            adbSwipe(cx, Math.round(screen.height * 0.65), cx, Math.round(screen.height * 0.40));
+            await this.driver.pause(800);
+          }
           await el.click();
           console.log(`  Tapped PPV tile text: "${this.ppvName}"`);
           await this.handlePinProtectionIfPresent();
@@ -363,9 +393,6 @@ export class AndroidBoxingPage extends AndroidBasePage {
       }
       return false;
     }
-
-    const screen = getScreenSize();
-    const cx = Math.round(screen.width / 2);
 
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
@@ -396,6 +423,12 @@ export class AndroidBoxingPage extends AndroidBasePage {
           }
 
           if (targetBtn) {
+            const btnLoc = await targetBtn.getLocation().catch(() => null);
+            if (btnLoc && btnLoc.y > Math.round(screen.height * 0.72)) {
+              console.warn(`  "Buy now" button is in bottom nav area (y=${btnLoc.y} > ${Math.round(screen.height * 0.72)}). Scrolling up first...`);
+              adbSwipe(cx, Math.round(screen.height * 0.65), cx, Math.round(screen.height * 0.40));
+              await this.driver.pause(800);
+            }
             await targetBtn.click();
             console.log('  Tapped "Buy now" specific to the PPV card');
             return true;

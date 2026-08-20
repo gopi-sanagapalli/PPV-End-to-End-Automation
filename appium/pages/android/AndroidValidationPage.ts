@@ -376,12 +376,35 @@ export class AndroidValidationPage extends AndroidBasePage {
           console.warn('⚠️ Failed to save XML dumps:', err.message);
         }
       } else {
-        // Banner: extract all texts from full page source
-        const regex = /(?:text|content-desc)="([^"]+)"/g;
-        let match;
-        while ((match = regex.exec(targetXml)) !== null) {
-          const val = match[1].trim();
-          if (val) textsSet.add(val);
+        // Banner: extract texts from hero banner region (top 68% of screen) to exclude content rails below
+        const isLanding = targetXml.includes('resource-id="CarouselBox"') || !targetXml.includes('id/bottom_navigation');
+        const elementRegex = /<([a-zA-Z0-9.]+)\b[^>]*(?:text|content-desc)="([^"]+)"[^>]*bounds="([^"]+)"/g;
+        let elMatch;
+        let boundsFound = false;
+        const screenSz = getScreenSize();
+        const maxBannerY = Math.round(screenSz.height * (isLanding ? 0.95 : 0.68));
+
+        while ((elMatch = elementRegex.exec(targetXml)) !== null) {
+          const textVal = elMatch[2].trim();
+          const boundsStr = elMatch[3];
+          if (!textVal) continue;
+          const bm = boundsStr.match(/\[(\d+),(\d+)\]\[(\d+),(\d+)\]/);
+          if (bm) {
+            boundsFound = true;
+            const topY = parseInt(bm[2], 10);
+            if (topY <= maxBannerY) {
+              textsSet.add(textVal);
+            }
+          }
+        }
+
+        if (!boundsFound) {
+          const regex = /(?:text|content-desc)="([^"]+)"/g;
+          let match;
+          while ((match = regex.exec(targetXml)) !== null) {
+            const val = match[1].trim();
+            if (val) textsSet.add(val);
+          }
         }
 
         // Save XML dump for banner debugging
@@ -503,8 +526,11 @@ export class AndroidValidationPage extends AndroidBasePage {
             const normExp = normalizeAndroidTitle(expectedValue, ' ');
             return compare(t, expectedValue) ||
               cleanT.includes(cleanExp) ||
+              // Guard: actual must be > 10 chars before allowing expected ⊇ actual
               (cleanT.length > 10 && cleanExp.includes(cleanT)) ||
-              (normExp && normT && (normT.includes(normExp) || normExp.includes(normT)));
+              // Guard: actual must be ≥ 15 chars to prevent short words like "or"
+              // from matching inside a long expected string like "...browser and..."
+              (normExp && normT && normT.length >= 15 && (normT.includes(normExp) || normExp.includes(normT)));
           });
           if (!matched && expectedValue.toLowerCase().includes('how to watch')) {
             const foundHeader = texts.find(t => t.toLowerCase().includes('how to watch'));
@@ -523,7 +549,10 @@ export class AndroidValidationPage extends AndroidBasePage {
                     const txt = await el.getText().catch(() => '');
                     if (txt && txt.trim()) {
                       const tc = txt.trim().toLowerCase();
-                      if (tc === expLower || tc.includes(expLower) || expLower.includes(tc.substring(0, 20))) {
+                      // Guard: tc must be >= 15 chars to use reverse-contains check,
+                      // preventing short words like "or" from matching inside expected text.
+                      const prefixMatch = tc.length >= 15 && expLower.includes(tc.substring(0, Math.min(tc.length, 20)));
+                      if (tc === expLower || tc.includes(expLower) || prefixMatch) {
                         matched = txt.trim();
                         break;
                       }
@@ -1060,25 +1089,25 @@ export class AndroidValidationPage extends AndroidBasePage {
 
       // 4. Description
       const expectedDesc = eventData.MOBILE_BANNER_DESCRIPTION || eventData.BANNER_DESCRIPTION || '';
-      const cleanExpectedDesc = cleanStr(expectedDesc).replace(/\.\.\.$/, '').trim();
+      const cleanExpectedDesc = cleanStr(expectedDesc).replace(/\.\.\.+$/, '').trim();
+      // Partial prefix (first 40 chars) handles Android XML text truncation (e.g. "PUT UP OR SHUT UP!...")
+      const descPrefix = cleanExpectedDesc.substring(0, 40).trim();
       const isDescPresent = texts.some(t => {
-        const ct = cleanStr(t);
-        return ct.includes(cleanExpectedDesc) || cleanExpectedDesc.includes(ct);
-      }) || cleanStr(pageSource).includes(cleanExpectedDesc);
+        const ct = cleanStr(t).replace(/\.\.\.+$/, '').trim(); // strip trailing ellipsis from actual too
+        return ct.includes(cleanExpectedDesc) ||
+          cleanExpectedDesc.includes(ct) ||
+          (descPrefix.length >= 15 && ct.includes(descPrefix));
+      }) || cleanStr(pageSource).includes(cleanExpectedDesc) ||
+        (descPrefix.length >= 15 && cleanStr(pageSource).includes(descPrefix));
       await pushResult('Description', expectedDesc, isDescPresent ? expectedDesc : 'Not found', isDescPresent);
 
       // 5. Fight Card Button
-      const isBoxingPage = String(source || '').trim().toLowerCase().includes('boxing');
       const hasFightCard = texts.some(t => {
         const tl = t.toLowerCase().replace(/\s+/g, '');
         return tl.includes('fightcard') || tl.includes('fightcards');
       }) || pageSource.toLowerCase().replace(/\s+/g, '').includes('fightcard');
 
-      if (isBoxingPage || isUltimateUser) {
-        await pushResult('Fight Card Button', 'Fight Card', hasFightCard ? 'Fight Card' : 'Not found', hasFightCard);
-      } else {
-        await pushResult('Fight Card Button', 'Absent', hasFightCard ? 'Present' : 'Absent', !hasFightCard);
-      }
+      await pushResult('Fight Card Button', 'Fight Card', hasFightCard ? 'Fight Card' : 'Not found', hasFightCard);
 
       // Conditional validations based on user type:
       if (!isUltimateUser) {
@@ -1181,6 +1210,12 @@ export class AndroidValidationPage extends AndroidBasePage {
         const fieldLower = fieldName.toLowerCase();
         if (surface === 'PPV Tile' && fieldLower.includes('lock') && fieldLower.includes('icon')) {
           console.log(`  Skip field [${fieldName}] (Android PPV tile lock-icon validation disabled)`);
+          continue;
+        }
+
+        // On home-boxing-upcoming PPV tile, date/time is embedded in the Description badge (no separate PPV Time element)
+        if (surface === 'PPV Tile' && source === 'home-boxing-upcoming' && (fieldLower === 'ppv time' || fieldLower === 'time' || fieldLower === 'tile - time')) {
+          console.log(`  Skip field [${fieldName}] (PPV Time validation removed for home-boxing-upcoming tile)`);
           continue;
         }
 
@@ -1509,6 +1544,51 @@ export class AndroidValidationPage extends AndroidBasePage {
             });
             if (nonDateElement) actualValue = nonDateElement;
           }
+        } else if (fieldName.toLowerCase().includes('description')) {
+          const expectedClean = expectedValue.replace(/[\u200b\u200c\u200d\ufeff]/g, '').trim().toLowerCase();
+          const cleanExpectedDesc = cleanStr(expectedValue).replace(/\.\.\.+$/, '').trim();
+          const descPrefix = cleanExpectedDesc.substring(0, 40).trim();
+
+          // 1. If expected is a Watch Live date/time description, look for watch live text element first
+          const watchLiveEl = texts.find(t => t.toLowerCase().includes('watch live'));
+          if (watchLiveEl && (expectedClean.includes('watch live') || expectedClean.includes('watch'))) {
+            actualValue = watchLiveEl;
+            const actClean = watchLiveEl.replace(/[\u200b\u200c\u200d\ufeff]/g, '').trim().toLowerCase();
+            isMatch = compare(watchLiveEl, expectedValue) || actClean === expectedClean || actClean.includes(expectedClean) || expectedClean.includes(actClean);
+            if (!isMatch) {
+              const cleanWatchLive = (val: string) => val.toLowerCase().replace(/\bwatch\s+live\b/gi, '').trim();
+              const expParsed = parseTimeAndWeekday(cleanWatchLive(expectedValue));
+              const actParsed = parseTimeAndWeekday(cleanWatchLive(watchLiveEl));
+              if (expParsed && actParsed) {
+                isMatch = expParsed.hour === actParsed.hour &&
+                  expParsed.minute === actParsed.minute &&
+                  (!expParsed.weekday || !actParsed.weekday || expParsed.weekday === actParsed.weekday);
+              }
+            }
+            if (isMatch) actualValue = watchLiveEl;
+          }
+
+          if (!isMatch) {
+            let matched = texts.find(t => {
+              const tClean = t.toLowerCase().trim();
+              const ct = cleanStr(t).replace(/\.\.\.+$/, '').trim();
+              return compare(t, expectedValue) ||
+                tClean === expectedClean ||
+                (tClean.length > 10 && tClean.includes(expectedClean)) ||
+                (tClean.length > 10 && cleanExpectedDesc.includes(ct)) ||
+                (descPrefix.length >= 15 && ct.includes(descPrefix));
+            });
+            if (matched) {
+              actualValue = matched;
+              isMatch = true;
+            } else if (
+              pageSource.toLowerCase().includes(expectedClean) ||
+              (descPrefix.length >= 15 && cleanStr(pageSource).includes(descPrefix))
+            ) {
+              actualValue = expectedValue;
+              isMatch = true;
+            }
+          }
         } else {
           const expectedClean = expectedValue.replace(/[\u200b\u200c\u200d\ufeff]/g, '').trim().toLowerCase();
           const normExp = normalizeAndroidTitle(expectedValue, ' ');
@@ -1517,8 +1597,9 @@ export class AndroidValidationPage extends AndroidBasePage {
             const normT = normalizeAndroidTitle(t, ' ');
             return compare(t, expectedValue) ||
               tClean === expectedClean ||
-              tClean.includes(expectedClean) ||
-              (normExp && normT && (normT === normExp || normT.includes(normExp) || normExp.includes(normT)));
+              (tClean.length > 10 && tClean.includes(expectedClean)) ||
+              (tClean.length > 10 && expectedClean.includes(tClean)) ||
+              (normExp && normT && normT.length >= 15 && (normT === normExp || normT.includes(normExp) || normExp.includes(normT)));
           });
           if (matched) {
             actualValue = matched;
