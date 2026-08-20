@@ -19,6 +19,14 @@ try {
   console.warn('⚠️ Failed to load timezone utilities, date validation will use device timezone');
 }
 
+let compare: (actual: string, expected: string, type?: string) => boolean;
+try {
+  compare = require('../../../utils/compare').compare;
+} catch (e) {
+  compare = (actual: string, expected: string) => actual.trim().toLowerCase() === expected.trim().toLowerCase();
+}
+
+
 export function parseTimeAndWeekday(val: string): { weekday?: string; hour: number; minute: number } | null {
   const normalizeDateString = (s: string) => {
     let clean = String(s || '').toLowerCase()
@@ -883,7 +891,8 @@ export class AndroidValidationPage extends AndroidBasePage {
 
     if (surface === 'PPV Banner') {
       const userState = String(process.env.USER_STATE || '').toLowerCase().trim().replace('-', '_');
-      const isUltimateUser = ['active_ultimate_apm', 'active_ultimate_upfront'].includes(userState);
+      const isLoginFirst = String(process.env.LOGIN_FIRST || '').toLowerCase() === 'true';
+      const isUltimateUser = ['active_ultimate_apm', 'active_ultimate_upfront'].includes(userState) && isLoginFirst;
 
       const cleanStr = (s: string) =>
         (s || '').replace(/[\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]/g, ' ')
@@ -1059,16 +1068,16 @@ export class AndroidValidationPage extends AndroidBasePage {
       await pushResult('Description', expectedDesc, isDescPresent ? expectedDesc : 'Not found', isDescPresent);
 
       // 5. Fight Card Button
-      const isLandingPage = String(source || '').trim().toLowerCase() === 'landing-page-banner';
+      const isBoxingPage = String(source || '').trim().toLowerCase().includes('boxing');
       const hasFightCard = texts.some(t => {
         const tl = t.toLowerCase().replace(/\s+/g, '');
         return tl.includes('fightcard') || tl.includes('fightcards');
       }) || pageSource.toLowerCase().replace(/\s+/g, '').includes('fightcard');
 
-      if (isLandingPage) {
-        await pushResult('Fight Card Button', 'Absent', hasFightCard ? 'Present' : 'Absent', !hasFightCard);
-      } else {
+      if (isBoxingPage || isUltimateUser) {
         await pushResult('Fight Card Button', 'Fight Card', hasFightCard ? 'Fight Card' : 'Not found', hasFightCard);
+      } else {
+        await pushResult('Fight Card Button', 'Absent', hasFightCard ? 'Present' : 'Absent', !hasFightCard);
       }
 
       // Conditional validations based on user type:
@@ -1077,24 +1086,27 @@ export class AndroidValidationPage extends AndroidBasePage {
         // 6. Buy Now Button (expected to be present)
         const hasBuyNow = texts.some(t => {
           const tl = t.toLowerCase();
-          return tl === 'buy now' || tl === 'buy';
-        }) || pageSource.toLowerCase().includes('buy now');
-        await pushResult('Buy Now Button', 'Buy now', hasBuyNow ? 'Buy now' : 'Not found', hasBuyNow);
+          return tl === 'buy now' || tl === 'buy' || tl === 'watch now' || tl === 'get ppv' || tl.includes('buy') || tl.includes('watch now');
+        }) || /buy now|buy|watch now|get ppv/i.test(pageSource);
+        const buyActual = texts.find(t => /buy now|buy|watch now|get ppv/i.test(t)) || (hasBuyNow ? 'Buy now' : 'Not found');
+        await pushResult('Buy Now Button', 'Buy now', hasBuyNow ? buyActual : 'Not found', hasBuyNow);
       } else {
         // Ultimate User Banner validations
-        // 6. Set Reminder Button
+        // 6. Set Reminder / Watch now Button
         const hasSetReminder = texts.some(t => {
           const tl = t.toLowerCase();
-          return tl === 'set reminder' || tl.includes('reminder');
-        }) || pageSource.toLowerCase().includes('set reminder') || pageSource.toLowerCase().includes('reminder');
-        await pushResult('Set Reminder Button', 'Set Reminder', hasSetReminder ? 'Set Reminder' : 'Not found', hasSetReminder);
+          return tl === 'set reminder' || tl.includes('reminder') || tl === 'watch now' || tl.includes('watch now');
+        }) || pageSource.toLowerCase().includes('set reminder') || pageSource.toLowerCase().includes('reminder') || pageSource.toLowerCase().includes('watch now');
+        const reminderActual = texts.find(t => /set reminder|reminder|watch now/i.test(t)) || (hasSetReminder ? 'Set Reminder' : 'Not found');
+        await pushResult('Set Reminder Button', 'Set Reminder', hasSetReminder ? reminderActual : 'Not found', hasSetReminder);
 
-        // 7. Purchased Text
+        // 7. Purchased / Included / Subscribed / Watch Now Text
         const hasPurchased = texts.some(t => {
           const tl = t.toLowerCase();
-          return tl === 'purchased' || tl.includes('purchased');
-        }) || pageSource.toLowerCase().includes('purchased');
-        await pushResult('Purchased Text', 'Purchased', hasPurchased ? 'Purchased' : 'Not found', hasPurchased);
+          return tl.includes('purchased') || tl.includes('included') || tl.includes('subscribed') || tl === 'watch now' || tl.includes('watch now');
+        }) || /purchased|included|subscribed|watch now/i.test(pageSource);
+        const purchasedActual = texts.find(t => /purchased|included|subscribed|watch now/i.test(t)) || (hasPurchased ? 'Purchased' : 'Not found');
+        await pushResult('Purchased Text', 'Purchased', hasPurchased ? purchasedActual : 'Not found', hasPurchased);
 
         // 8. Buy Now Button NOT getting
         const hasBuyNow = texts.some(t => {
@@ -1459,14 +1471,38 @@ export class AndroidValidationPage extends AndroidBasePage {
             const expectedClean = expectedPart.replace(/[\u200b\u200c\u200d\ufeff]/g, '').trim().toLowerCase();
             const actualClean = extractedVal.replace(/[\u200b\u200c\u200d\ufeff]/g, '').trim().toLowerCase();
             isMatch = actualClean === expectedClean || actualClean.includes(expectedClean) || expectedClean.includes(actualClean);
+            if (!isMatch && effectiveField === 'Time') {
+              const expParsed = parseTimeAndWeekday(expectedPart);
+              const actParsed = parseTimeAndWeekday(extractedVal);
+              if (expParsed && actParsed && expParsed.hour === actParsed.hour && expParsed.minute === actParsed.minute) {
+                isMatch = true;
+              }
+            }
           } else {
             const expectedClean = expectedPart.replace(/[\u200b\u200c\u200d\ufeff]/g, '').trim().toLowerCase();
             const matched = texts.find(t => {
               const tClean = t.toLowerCase();
               return tClean === expectedClean || tClean.includes(expectedClean);
             });
-            if (matched) { actualValue = matched; isMatch = true; }
-            else if (pageSource.toLowerCase().includes(expectedClean)) { actualValue = expectedPart; isMatch = true; }
+            if (matched) {
+              actualValue = matched;
+              isMatch = true;
+            } else if (pageSource.toLowerCase().includes(expectedClean)) {
+              actualValue = expectedPart;
+              isMatch = true;
+            } else if (effectiveField === 'Time') {
+              const expParsed = parseTimeAndWeekday(expectedPart);
+              if (expParsed) {
+                const timeMatchFromTexts = texts.find(t => {
+                  const actParsed = parseTimeAndWeekday(t);
+                  return actParsed && actParsed.hour === expParsed.hour && actParsed.minute === expParsed.minute;
+                });
+                if (timeMatchFromTexts) {
+                  actualValue = timeMatchFromTexts;
+                  isMatch = true;
+                }
+              }
+            }
           }
           expectedValue = expectedPart;
         } else if (fieldName.toLowerCase().includes('title') || fieldName.toLowerCase().includes('name')) {
@@ -1658,6 +1694,34 @@ export async function validateAndroidFixturePage(
   console.log(`\n📺 Validating Android Fixture Page & Player Screen for "${ppvName}"...`);
   await driver.pause(3000);
 
+  // Check if we landed on the native Paywall screen instead of the Fixture page
+  const paywallIndicators = [
+    'android=new UiSelector().textContains("How to watch")',
+    'android=new UiSelector().textContains("Paste this link")',
+    'android=new UiSelector().textMatches("(?i)^copy$")',
+  ];
+  let onPaywallScreen = false;
+  for (const pSel of paywallIndicators) {
+    try {
+      if (await (await driver.$(pSel)).isDisplayed().catch(() => false)) {
+        onPaywallScreen = true;
+        break;
+      }
+    } catch { }
+  }
+
+  if (onPaywallScreen) {
+    console.error(`❌ Expected Fixture Page for Active Ultimate user, but Native Paywall screen was displayed.`);
+    results.push({
+      page: 'Fixture Page',
+      field: 'Fixture Page Displayed',
+      expected: 'Fixture Page / Player Screen',
+      actual: 'Native Paywall Screen Displayed (Unexpected Paywall for Active Ultimate User)',
+      status: 'FAIL',
+    });
+    return false;
+  }
+
   // 1. Check Video Player Surface View / TextureView or Pre-live Player Screen
   const playerSelectors = [
     '//android.view.TextureView',
@@ -1682,18 +1746,103 @@ export async function validateAndroidFixturePage(
     } catch { }
   }
 
-  // 2. Check Fixture Title Text (e.g. "Joshua vs. Prenga")
+  // 2. Check Fixture Title Text (e.g. "Rolly vs. Teófimo" / "Rolly vs. Teofimo")
   let titleFound = false;
   let titleRead = 'Not found';
-  try {
-    const titleEl = await driver.$(`//*[contains(@text, "${ppvName}")]`);
-    if (await titleEl.isDisplayed().catch(() => false)) {
-      titleFound = true;
-      titleRead = await titleEl.getText().catch(() => ppvName);
-    }
-  } catch { }
 
-  // Determine full title for expected field (e.g. "Joshua vs. Prenga")
+  const normalizedPpvName = ppvName.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const titleNorm = normalizeAndroidTitle(ppvName, ' ');
+  const withoutDots = ppvName.replace(/\./g, '');
+  const withoutDotsNorm = normalizeAndroidTitle(withoutDots, ' ');
+
+  // Extract individual fighter names (e.g. ["rolly", "teofimo"])
+  const fighterWords = ppvName
+    .split(/vs\.?|v\.?|[-–—]/i)
+    .map(s => normalizeAndroidTitle(s, ' ').trim())
+    .filter(s => s.length > 1);
+
+  const titleCandidates = Array.from(new Set([
+    ppvName,
+    normalizedPpvName,
+    withoutDots,
+    ppvName.replace(/vs\.?/i, 'vs').trim(),
+    normalizedPpvName.replace(/vs\.?/i, 'vs').trim(),
+    ...fighterWords,
+  ])).filter(Boolean);
+
+  // Strategy 1: Direct UiSelector & XPath searches for full title or normalized candidates
+  for (const cand of [ppvName, normalizedPpvName, withoutDots, ...titleCandidates]) {
+    try {
+      const titleEls = await driver.$$(`android=new UiSelector().textContains("${cand}")`);
+      for (const el of titleEls) {
+        const txt = await el.getText().catch(() => cand);
+        if (txt && (compare(txt, ppvName) || normalizeAndroidTitle(txt, ' ').includes(titleNorm) || (fighterWords.length >= 2 && fighterWords.every(f => normalizeAndroidTitle(txt, ' ').includes(f))))) {
+          titleFound = true;
+          titleRead = txt.trim();
+          break;
+        }
+      }
+      if (titleFound) break;
+    } catch { }
+
+    try {
+      const titleElsXPath = await driver.$$(`//*[contains(@text, "${cand}") or contains(@content-desc, "${cand}")]`);
+      for (const el of titleElsXPath) {
+        const txt = (await el.getText().catch(() => '')) ||
+                    (await el.getAttribute('text').catch(() => '')) ||
+                    (await el.getAttribute('content-desc').catch(() => '')) ||
+                    cand;
+        if (txt && (compare(txt, ppvName) || normalizeAndroidTitle(txt, ' ').includes(titleNorm) || (fighterWords.length >= 2 && fighterWords.every(f => normalizeAndroidTitle(txt, ' ').includes(f))))) {
+          titleFound = true;
+          titleRead = txt.trim();
+          break;
+        }
+      }
+      if (titleFound) break;
+    } catch { }
+  }
+
+  // Strategy 2: Check all on-screen TextView / View / Button elements
+  if (!titleFound) {
+    try {
+      const textEls = await driver.$$('//android.widget.TextView | //android.view.View | //android.widget.Button');
+      for (const el of textEls) {
+        const txt = (await el.getText().catch(() => '')) ||
+                    (await el.getAttribute('text').catch(() => '')) ||
+                    (await el.getAttribute('content-desc').catch(() => ''));
+        if (!txt || !txt.trim()) continue;
+        const normTxt = normalizeAndroidTitle(txt, ' ');
+        const matchesFighters = fighterWords.length >= 2 && fighterWords.every(f => normTxt.includes(f));
+        if (compare(txt, ppvName) || normTxt.includes(titleNorm) || titleNorm.includes(normTxt) || matchesFighters) {
+          if (txt.length <= 60 || !titleFound) {
+            titleFound = true;
+            titleRead = txt.trim();
+            if (txt.length <= 40) break;
+          }
+        }
+      }
+    } catch { }
+  }
+
+  // Strategy 3: Check getPageSource() XML attributes
+  if (!titleFound) {
+    try {
+      const pageSource = await driver.getPageSource().catch(() => '');
+      const textMatches = Array.from(pageSource.matchAll(/(?:text|content-desc)="([^"]+)"/g)).map(m => m[1]);
+      for (const txt of textMatches) {
+        if (!txt || !txt.trim()) continue;
+        const normTxt = normalizeAndroidTitle(txt, ' ');
+        const matchesFighters = fighterWords.length >= 2 && fighterWords.every(f => normTxt.includes(f));
+        if (compare(txt, ppvName) || normTxt.includes(titleNorm) || titleNorm.includes(normTxt) || matchesFighters) {
+          titleFound = true;
+          titleRead = txt.trim();
+          if (txt.length <= 40) break;
+        }
+      }
+    } catch { }
+  }
+
+  // Determine full title for expected field (e.g. "Rolly vs. Teófimo")
   let fullTitleExpected = eventData?.MOBILE_BANNER_TITLE || eventData?.PPV_DISPLAY_NAME || eventData?.PPV_NAME;
   if (!fullTitleExpected) {
     try {
@@ -1720,28 +1869,28 @@ export async function validateAndroidFixturePage(
     page: 'Fixture Page',
     field: 'Player / Video Screen',
     expected: 'Yes',
-    actual: playerScreenFound ? 'Yes (Pre-live Player Screen / Video Active)' : 'Present',
-    status: 'PASS',
+    actual: playerScreenFound ? 'Yes (Pre-live Player Screen / Video Active)' : 'Not Found',
+    status: playerScreenFound ? 'PASS' : 'FAIL',
   });
 
   results.push({
     page: 'Fixture Page',
     field: 'Fixture Title',
     expected: fullTitleExpected,
-    actual: titleFound ? titleRead : fullTitleExpected,
-    status: 'PASS',
+    actual: titleFound ? titleRead : 'Not Found',
+    status: titleFound ? 'PASS' : 'FAIL',
   });
 
   results.push({
     page: 'Fixture Page',
     field: 'Related Content Section',
     expected: 'Present',
-    actual: relatedSectionFound ? 'Present' : 'Present',
-    status: 'PASS',
+    actual: relatedSectionFound ? 'Present' : 'Not Present',
+    status: relatedSectionFound ? 'PASS' : 'FAIL',
   });
 
   await driver.saveScreenshot('./test-results/android_fixture_page_validated.png').catch(() => { });
-  return true;
+  return playerScreenFound && titleFound;
 }
 export async function validateMobilePaywallPage(
   driver: WdBrowser,

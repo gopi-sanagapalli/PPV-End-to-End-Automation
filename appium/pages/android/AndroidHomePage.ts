@@ -43,10 +43,11 @@ export class AndroidHomePage extends AndroidLandingPage {
 
     if (locatorRes.success) {
       const userState = String(process.env.USER_STATE || '').toLowerCase().trim().replace('-', '_');
-      const isUltimateUser = ['active_ultimate_apm', 'active_ultimate_upfront'].includes(userState);
+      const isUltimateUser = ['active_ultimate_upfront', 'active_ultimate_apm'].includes(userState);
+      const isLoginFirst = String(process.env.LOGIN_FIRST || '').toLowerCase() === 'true';
 
-      if (isUltimateUser) {
-        console.log('  Active Ultimate User: Checking for PIN protection or WATCH NOW CTA on fixture screen...');
+      if (isUltimateUser && isLoginFirst) {
+        console.log('  Active Ultimate User with LOGIN_FIRST=true: Checking for PIN protection or WATCH NOW CTA on fixture screen...');
         await this.handlePinProtectionIfPresent();
         await this.driver.pause(2000);
         return true;
@@ -156,13 +157,14 @@ export class AndroidHomePage extends AndroidLandingPage {
     await this.tapByText(this.ppvName);
     await this.driver.pause(2000);
 
-    const isUltimateUser = ['active_ultimate_apm', 'active_ultimate_upfront'].includes(String(process.env.USER_STATE || '').toLowerCase().trim());
+    const cleanUserState = String(process.env.USER_STATE || '').toLowerCase().trim().replace('-', '_');
+    const isUltimateUser = ['active_ultimate_upfront', 'active_ultimate_apm'].includes(cleanUserState);
     const isLoginFirst = String(process.env.LOGIN_FIRST || '').toLowerCase() === 'true';
 
     if (isUltimateUser && isLoginFirst) {
       console.log('✨ [Ultimate Active User with LOGIN_FIRST=true] Tile clicked (generic). Checking for PIN Protection screen...');
       await this.handlePinProtectionIfPresent();
-      console.log('✨ [Ultimate Active User with LOGIN_FIRST=true] Navigated to fixture page. Ending flow.');
+      console.log('✨ [Ultimate Active User with LOGIN_FIRST=true] Navigated to fixture page. Ending flow (no paywall expected).');
       return true;
     }
 

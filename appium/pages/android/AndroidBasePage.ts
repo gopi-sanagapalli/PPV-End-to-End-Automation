@@ -1,5 +1,6 @@
 import { execSync } from 'child_process';
 import { BannerInteraction } from '../../utils/bannerInteraction';
+import { normalizeAndroidTitle } from '../../utils/androidTitleNormalizer';
 
 export type WdBrowser = any;
 export type WdElement = any;
@@ -264,47 +265,147 @@ export class AndroidBasePage {
 
   async findBannerOnCurrentPage(
     ppvName = this.ppvName,
-    options: { horizontalSwipes?: number; verticalScrolls?: number } = {},
+    options: { horizontalSwipes?: number; verticalScrolls?: number; isLandingPage?: boolean } = {},
   ): Promise<boolean> {
-    const horizontalSwipes = options.horizontalSwipes ?? 8;
-    const verticalScrolls = options.verticalScrolls ?? 5;
+    const horizontalSwipes = options.horizontalSwipes ?? 10;
+    const isLandingPage = options.isLandingPage ?? false;
     const normalizedPpvName = ppvName.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-    const ppvNameCandidates = Array.from(new Set([ppvName, normalizedPpvName]));
+    const titleNorm = normalizeAndroidTitle(ppvName, ' ');
+    const withoutDots = ppvName.replace(/\./g, '');
+    const withoutDotsNorm = normalizeAndroidTitle(withoutDots, ' ');
+    const ppvNameCandidates = Array.from(new Set([
+      ppvName,
+      normalizedPpvName,
+      titleNorm,
+      withoutDots,
+      withoutDotsNorm,
+      ppvName.replace(/vs\.?/i, 'vs').trim(),
+      normalizedPpvName.replace(/vs\.?/i, 'vs').trim(),
+    ])).filter(Boolean);
 
-    const isCurrentBannerPPV = async (timeoutMs: number): Promise<boolean> => {
+    const isCurrentBannerVisibleOnScreen = async (): Promise<boolean> => {
+      const windowSize = await this.driver.getWindowSize().catch(() => ({ width: 1080, height: 2400 }));
+      const bannerMaxY = Math.round(windowSize.height * (isLandingPage ? 0.90 : 0.52));
+
+      // 1. Exclude generic schedule/promo slides (e.g. "Your Boxing Schedule" / "See schedule")
+      if (!isLandingPage) {
+        try {
+          const scheduleEls = await this.driver.$$('android=new UiSelector().textMatches("(?i).*(see schedule|your boxing schedule).*")');
+          for (const el of scheduleEls) {
+            if (await el.isDisplayed().catch(() => false)) {
+              const loc = await el.getLocation().catch(() => null);
+              if (loc && loc.y < bannerMaxY) {
+                console.log('  ℹ️ Active slide is "Your Boxing Schedule" (not the dedicated PPV banner). Swiping...');
+                return false;
+              }
+            }
+          }
+        } catch { }
+      }
+
+      // Extract individual fighter words for multi-line banner cards (e.g. "Rolly vs. Teófimo" -> ["Rolly", "Teófimo"])
+      const fighterParts = ppvName.split(/\s+vs\.?\s+/i)
+        .map(p => p.trim())
+        .filter(p => p.length > 2);
+
+      // 2. Check for full title candidates in the top banner region
       for (const candidate of ppvNameCandidates) {
-        if (await this.isVisible(candidate, timeoutMs)) return true;
+        try {
+          const els = await this.driver.$$(`android=new UiSelector().textContains("${candidate}")`);
+          for (const el of els) {
+            if (await el.isDisplayed().catch(() => false)) {
+              const loc = await el.getLocation().catch(() => null);
+              if (loc && loc.y < bannerMaxY) {
+                console.log(`  🎯 Found PPV banner title "${candidate}" in hero banner region (y=${loc.y} < ${bannerMaxY})`);
+                return true;
+              } else if (loc) {
+                console.log(`  ℹ️ Ignored "${candidate}" in content rail below banner (y=${loc.y} >= ${bannerMaxY})`);
+              }
+            }
+          }
+        } catch { }
+        try {
+          const descEls = await this.driver.$$(`android=new UiSelector().descriptionContains("${candidate}")`);
+          for (const el of descEls) {
+            if (await el.isDisplayed().catch(() => false)) {
+              const loc = await el.getLocation().catch(() => null);
+              if (loc && loc.y < bannerMaxY) {
+                console.log(`  🎯 Found PPV banner description "${candidate}" in hero banner region (y=${loc.y} < ${bannerMaxY})`);
+                return true;
+              } else if (loc) {
+                console.log(`  ℹ️ Ignored description "${candidate}" in content rail below banner (y=${loc.y} >= ${bannerMaxY})`);
+              }
+            }
+          }
+        } catch { }
       }
 
-      // Compose carousel text is sometimes available in the UI hierarchy a
-      // fraction before UiSelector reports it as displayed. Checking it here
-      // prevents a visible PPV card being skipped while the carousel moves.
-      try {
-        const pageSource = (await this.driver.getPageSource()).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-        return pageSource.includes(normalizedPpvName.toLowerCase());
-      } catch {
-        return false;
+      // 3. Check if all fighter names + banner CTA/PPV indicators are visible in hero banner region
+      if (fighterParts.length >= 2) {
+        try {
+          let foundCount = 0;
+          for (const part of fighterParts) {
+            const normPart = part.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+            const partNormTitle = normalizeAndroidTitle(part, ' ');
+            const partCandidates = Array.from(new Set([part, normPart, partNormTitle]));
+            let partFoundInBanner = false;
+            for (const pc of partCandidates) {
+              const els = await this.driver.$$(`android=new UiSelector().textContains("${pc}")`);
+              for (const el of els) {
+                if (await el.isDisplayed().catch(() => false)) {
+                  const loc = await el.getLocation().catch(() => null);
+                  if (loc && loc.y < bannerMaxY) {
+                    partFoundInBanner = true;
+                    break;
+                  }
+                }
+              }
+              if (partFoundInBanner) break;
+            }
+            if (partFoundInBanner) foundCount++;
+          }
+
+          if (foundCount >= fighterParts.length) {
+            // Verify there is also a PPV/CTA button or badge in the banner region
+            const ctaEls = await this.driver.$$('android=new UiSelector().textMatches("(?i).*(buy|fight card|watch now|get ppv|set reminder|pay-per-view|copy).*")');
+            let hasBannerCta = false;
+            for (const el of ctaEls) {
+              if (await el.isDisplayed().catch(() => false)) {
+                const loc = await el.getLocation().catch(() => null);
+                if (loc && loc.y < bannerMaxY) {
+                  hasBannerCta = true;
+                  break;
+                }
+              }
+            }
+            if (hasBannerCta || isLandingPage) {
+              console.log(`  🎯 Found all fighters (${fighterParts.join(', ')}) in hero banner region`);
+              return true;
+            }
+          }
+        } catch { }
       }
+
+      return false;
     };
 
-    // Let the auto-advancing card render naturally first. This is faster and
-    // more reliable than swiping away the PPV card while it is entering view.
-    console.log(`  Waiting for "${ppvName}" to become the current banner...`);
-    for (let attempt = 0; attempt < 16; attempt++) {
-      if (await isCurrentBannerPPV(500)) return true;
-      await this.driver.pause(250);
+    console.log(`  Checking if "${ppvName}" is the active banner on screen...`);
+    for (let attempt = 0; attempt < 6; attempt++) {
+      if (await isCurrentBannerVisibleOnScreen()) {
+        console.log(`  ✓ Banner "${ppvName}" is currently active on screen!`);
+        return true;
+      }
+      await this.driver.pause(500);
     }
 
-    console.log(`  PPV banner not immediately visible. Swiping left to find "${ppvName}"...`);
+    console.log(`  PPV banner "${ppvName}" not active on screen. Swiping banner carousel horizontally to find "${ppvName}"...`);
     for (let i = 0; i < horizontalSwipes; i++) {
       await this.swipeLeft();
-      if (await isCurrentBannerPPV(750)) return true;
-    }
-
-    console.log('  Swiping left exhausted. Trying vertical scroll down...');
-    for (let i = 0; i < verticalScrolls; i++) {
-      await this.scrollDown();
-      if (await isCurrentBannerPPV(750)) return true;
+      await this.driver.pause(1200);
+      if (await isCurrentBannerVisibleOnScreen()) {
+        console.log(`  ✓ Found and centered banner "${ppvName}" on horizontal swipe ${i + 1}!`);
+        return true;
+      }
     }
 
     return false;

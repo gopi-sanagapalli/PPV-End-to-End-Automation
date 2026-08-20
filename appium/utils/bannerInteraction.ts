@@ -94,12 +94,18 @@ export class BannerInteraction {
     // expose the banner title. Holding the title area pauses the same card.
     if (!this.driver.isIOS && referenceText) {
       try {
-        const title = await this.driver.$(
+        const titles = await this.driver.$$(
           `android=new UiSelector().textContains("${referenceText.replace(/"/g, '\\"')}")`,
         );
-        if (await title.isDisplayed()) {
-          console.log(`[BannerLock] Found current PPV banner by title "${referenceText}"`);
-          return title;
+        const screenHeight = (await this.driver.getWindowSize()).height;
+        for (const title of titles) {
+          if (await title.isDisplayed().catch(() => false)) {
+            const loc = await title.getLocation().catch(() => null);
+            if (!loc || loc.y < screenHeight * 0.60) {
+              console.log(`[BannerLock] Found current PPV banner by title "${referenceText}" at y=${loc?.y ?? 0}`);
+              return title;
+            }
+          }
         }
       } catch {
         // Continue with generic carousel selectors below.

@@ -18,6 +18,7 @@ export interface AndroidBannerFlowOptions {
   recordPage?: string;
   ensureBannerStillVisibleBeforeBuy?: boolean;
   waitForBannerImageBeforeBuy?: boolean;
+  isLandingPage?: boolean;
 }
 
 export class AndroidLandingPage extends AndroidBasePage {
@@ -25,7 +26,8 @@ export class AndroidLandingPage extends AndroidBasePage {
     console.log(`${options.label} -> Find PPV banner -> Buy now`);
     console.log(`  Finding PPV banner for "${this.ppvName}" on ${options.pageName || options.label}...`);
 
-    const found = await this.findBannerOnCurrentPage(this.ppvName);
+    const isLanding = options.isLandingPage ?? (options.pageName === 'Landing page' || options.label === 'Landing Page');
+    const found = await this.findBannerOnCurrentPage(this.ppvName, { isLandingPage: isLanding });
     if (!found) {
       const shot = hooks.saveScreenshot
         ? await hooks.saveScreenshot(options.missingScreenshot)
@@ -51,6 +53,7 @@ export class AndroidLandingPage extends AndroidBasePage {
 
     if (options.ensureBannerStillVisibleBeforeBuy) {
       const stillOnPPVBanner = await this.findBannerOnCurrentPage(this.ppvName, {
+        isLandingPage: isLanding,
         horizontalSwipes: 6,
         verticalScrolls: 0,
       });

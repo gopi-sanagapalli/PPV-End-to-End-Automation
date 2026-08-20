@@ -705,7 +705,8 @@ export async function verifyNavigation(
 
     const userStateStr = String(process.env.USER_STATE || '').toLowerCase().trim().replace('-', '_');
     const isUltimate = ['active_ultimate_upfront', 'active_ultimate_apm'].includes(userStateStr);
-    if (isUltimate && (ppvVisible || !scheduleStillVisible)) {
+    const isLoginFirst = String(process.env.LOGIN_FIRST || '').toLowerCase() === 'true';
+    if (isUltimate && isLoginFirst && (ppvVisible || !scheduleStillVisible)) {
       console.log(`✅ Phase 6: Ultimate user navigation verified (navigated away from schedule to fixture screen for "${ppvName}").`);
       return true;
     }
