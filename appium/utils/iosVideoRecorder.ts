@@ -81,7 +81,7 @@ async function startRealDeviceRecording(): Promise<void> {
   ];
 
   console.log(`🎥 Starting MJPEG capture → ${recordingOutputPath}`);
-  ffmpegProcess = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+  ffmpegProcess = spawn('ffmpeg', args, { stdio: ['pipe', 'pipe', 'pipe'] });
 
   ffmpegProcess.on('error', (e) => {
     console.warn(`⚠️ ffmpeg process error: ${e.message}`);

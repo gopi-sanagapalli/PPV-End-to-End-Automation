@@ -64,6 +64,31 @@ async function tapDialogButton(driver: WdBrowser, labels: string[], tag: string)
   return false;
 }
 
+async function dismissMarketingPopupIfPresent(driver: WdBrowser): Promise<boolean> {
+  const dismissButton = await findVisible(driver, [
+    '-ios predicate string:type == "XCUIElementTypeButton" AND (name == "Keep me updated" OR label == "Keep me updated" OR name == "Keep Me Updated" OR label == "Keep Me Updated" OR name == "Maybe later" OR label == "Maybe later" OR name == "Maybe Later" OR label == "Maybe Later" OR name == "No thanks" OR label == "No thanks" OR name == "No Thanks" OR label == "No Thanks" OR name == "Not now" OR label == "Not now" OR name == "Not Now" OR label == "Not Now" OR name == "Close" OR label == "Close" OR name == "Dismiss" OR label == "Dismiss")',
+  ]);
+  if (dismissButton) {
+    await dismissButton.click();
+    console.log('🔔 [Marketing Popup] Dismissed visible marketing popup.');
+    return true;
+  }
+
+  const source = await driver.getPageSource().catch(() => '');
+  if (!/where fans meet superstars|reserve a seat|powered by the residency|live chat|keep me updated|maybe later|no thanks|not now/i.test(source)) {
+    return false;
+  }
+  const closeButton = await findVisible(driver, [
+    '-ios predicate string:type == "XCUIElementTypeButton" AND (name == "X" OR label == "X" OR name == "×" OR label == "×")',
+    '-ios predicate string:type == "XCUIElementTypeButton" AND (name CONTAINS[c] "Close" OR label CONTAINS[c] "Close" OR name CONTAINS[c] "Dismiss" OR label CONTAINS[c] "Dismiss")',
+  ]);
+  if (!closeButton) return false;
+
+  await closeButton.click();
+  console.log('🔔 [Marketing Popup] Dismissed visible marketing popup.');
+  return true;
+}
+
 // Helper: tap by coordinates on iOS screen
 async function tapByCoordinates(driver: WdBrowser, x: number, y: number): Promise<void> {
   await driver.performActions([{
@@ -342,6 +367,12 @@ export async function handleStartupDialogs(driver: WdBrowser, timeoutMs = 20000)
       continue;
     }
 
+    if (await dismissMarketingPopupIfPresent(driver)) {
+      handledCount++;
+      await driver.pause(500);
+      continue;
+    }
+
     if (forcedAttTapCount < 3) {
       const forcedAttDismissed = await tapAttPopupFallback(driver, 'Startup Forced ATT');
       if (forcedAttDismissed) {
@@ -567,6 +598,10 @@ export async function waitForHomePage(driver: WdBrowser, timeoutMs = 120000): Pr
       if (await acceptCookiesIfPresent(driver)) {
         sawCookiePrompt = true;
         await driver.pause(2000);
+        return false;
+      }
+
+      if (await dismissMarketingPopupIfPresent(driver)) {
         return false;
       }
 

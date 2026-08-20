@@ -83,6 +83,7 @@ runs:
           reports/
         if-no-files-found: ignore
         retention-days: 1
+        compression-level: 0
     - name: Clean local reports after storing
       if: ${{ always() }}
       shell: bash
