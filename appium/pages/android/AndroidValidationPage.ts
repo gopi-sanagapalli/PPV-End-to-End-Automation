@@ -1060,11 +1060,16 @@ export class AndroidValidationPage extends AndroidBasePage {
 
       // 4. Description
       const expectedDesc = eventData.MOBILE_BANNER_DESCRIPTION || eventData.BANNER_DESCRIPTION || '';
-      const cleanExpectedDesc = cleanStr(expectedDesc).replace(/\.\.\.$/, '').trim();
+      const cleanExpectedDesc = cleanStr(expectedDesc).replace(/\.\.\.+$/, '').trim();
+      // Partial prefix (first 40 chars) handles Android XML text truncation (e.g. "PUT UP OR SHUT UP!...")
+      const descPrefix = cleanExpectedDesc.substring(0, 40).trim();
       const isDescPresent = texts.some(t => {
-        const ct = cleanStr(t);
-        return ct.includes(cleanExpectedDesc) || cleanExpectedDesc.includes(ct);
-      }) || cleanStr(pageSource).includes(cleanExpectedDesc);
+        const ct = cleanStr(t).replace(/\.\.\.+$/, '').trim(); // strip trailing ellipsis from actual too
+        return ct.includes(cleanExpectedDesc) ||
+          cleanExpectedDesc.includes(ct) ||
+          (descPrefix.length >= 15 && ct.includes(descPrefix));
+      }) || cleanStr(pageSource).includes(cleanExpectedDesc) ||
+        (descPrefix.length >= 15 && cleanStr(pageSource).includes(descPrefix));
       await pushResult('Description', expectedDesc, isDescPresent ? expectedDesc : 'Not found', isDescPresent);
 
       // 5. Fight Card Button
