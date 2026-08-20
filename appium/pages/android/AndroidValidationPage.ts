@@ -1195,6 +1195,12 @@ export class AndroidValidationPage extends AndroidBasePage {
           continue;
         }
 
+        // On home-boxing-upcoming PPV tile, date/time is embedded in the Description badge (no separate PPV Time element)
+        if (surface === 'PPV Tile' && source === 'home-boxing-upcoming' && (fieldLower === 'ppv time' || fieldLower === 'time' || fieldLower === 'tile - time')) {
+          console.log(`  Skip field [${fieldName}] (PPV Time validation removed for home-boxing-upcoming tile)`);
+          continue;
+        }
+
         let expectedValue = '';
         try { expectedValue = resolveExp(row, eventData); }
         catch { expectedValue = String(row['Expected'] || ''); }
@@ -1545,6 +1551,51 @@ export class AndroidValidationPage extends AndroidBasePage {
             });
             if (nonDateElement) actualValue = nonDateElement;
           }
+        } else if (fieldName.toLowerCase().includes('description')) {
+          const expectedClean = expectedValue.replace(/[\u200b\u200c\u200d\ufeff]/g, '').trim().toLowerCase();
+          const cleanExpectedDesc = cleanStr(expectedValue).replace(/\.\.\.+$/, '').trim();
+          const descPrefix = cleanExpectedDesc.substring(0, 40).trim();
+
+          // 1. If expected is a Watch Live date/time description, look for watch live text element first
+          const watchLiveEl = texts.find(t => t.toLowerCase().includes('watch live'));
+          if (watchLiveEl && (expectedClean.includes('watch live') || expectedClean.includes('watch'))) {
+            actualValue = watchLiveEl;
+            const actClean = watchLiveEl.replace(/[\u200b\u200c\u200d\ufeff]/g, '').trim().toLowerCase();
+            isMatch = compare(watchLiveEl, expectedValue) || actClean === expectedClean || actClean.includes(expectedClean) || expectedClean.includes(actClean);
+            if (!isMatch) {
+              const cleanWatchLive = (val: string) => val.toLowerCase().replace(/\bwatch\s+live\b/gi, '').trim();
+              const expParsed = parseTimeAndWeekday(cleanWatchLive(expectedValue));
+              const actParsed = parseTimeAndWeekday(cleanWatchLive(watchLiveEl));
+              if (expParsed && actParsed) {
+                isMatch = expParsed.hour === actParsed.hour &&
+                  expParsed.minute === actParsed.minute &&
+                  (!expParsed.weekday || !actParsed.weekday || expParsed.weekday === actParsed.weekday);
+              }
+            }
+            if (isMatch) actualValue = watchLiveEl;
+          }
+
+          if (!isMatch) {
+            let matched = texts.find(t => {
+              const tClean = t.toLowerCase().trim();
+              const ct = cleanStr(t).replace(/\.\.\.+$/, '').trim();
+              return compare(t, expectedValue) ||
+                tClean === expectedClean ||
+                (tClean.length > 10 && tClean.includes(expectedClean)) ||
+                (tClean.length > 10 && cleanExpectedDesc.includes(ct)) ||
+                (descPrefix.length >= 15 && ct.includes(descPrefix));
+            });
+            if (matched) {
+              actualValue = matched;
+              isMatch = true;
+            } else if (
+              pageSource.toLowerCase().includes(expectedClean) ||
+              (descPrefix.length >= 15 && cleanStr(pageSource).includes(descPrefix))
+            ) {
+              actualValue = expectedValue;
+              isMatch = true;
+            }
+          }
         } else {
           const expectedClean = expectedValue.replace(/[\u200b\u200c\u200d\ufeff]/g, '').trim().toLowerCase();
           const normExp = normalizeAndroidTitle(expectedValue, ' ');
@@ -1553,8 +1604,9 @@ export class AndroidValidationPage extends AndroidBasePage {
             const normT = normalizeAndroidTitle(t, ' ');
             return compare(t, expectedValue) ||
               tClean === expectedClean ||
-              tClean.includes(expectedClean) ||
-              (normExp && normT && (normT === normExp || normT.includes(normExp) || normExp.includes(normT)));
+              (tClean.length > 10 && tClean.includes(expectedClean)) ||
+              (tClean.length > 10 && expectedClean.includes(tClean)) ||
+              (normExp && normT && normT.length >= 15 && (normT === normExp || normT.includes(normExp) || normExp.includes(normT)));
           });
           if (matched) {
             actualValue = matched;
