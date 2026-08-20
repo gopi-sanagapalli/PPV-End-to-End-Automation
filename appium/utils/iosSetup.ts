@@ -668,6 +668,10 @@ export async function prepareIosApp(driver: WdBrowser, options: PrepareIosAppOpt
   await handleStartupDialogs(driver, 12000);
   await ensureAttDialogClosed(driver, 18000);
 
+  // Dismiss cookie consent early — it can overlay the app and prevent
+  // ensureLoggedOut from detecting the profile icon.
+  await acceptCookiesIfPresent(driver);
+
   // Ensure app starts from a logged-out state for clean test runs.
   await ensureLoggedOut(driver);
 

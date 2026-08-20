@@ -126,7 +126,7 @@ export class IOSSignupPage extends IOSBasePage {
           const nextUrl = await this.driver.getUrl().catch(() => '');
           const nextText = await this.text();
           if (isActiveStandardAddonPage) {
-            return /choose how to buy|one time payment|pay now/.test(nextText.toLowerCase());
+            return /choose how to buy|today you pay|one time payment|pay now/.test(nextText.toLowerCase());
           }
           return nextUrl !== url || Boolean(nextText.trim());
         }, {
@@ -147,10 +147,10 @@ export class IOSSignupPage extends IOSBasePage {
 
       // ── PPV Payment page (active_standard checkout) ──
       // This must be evaluated before the generic payment-page condition:
-      // both saved-card and payment-options PPV screens contain the
-      // "Payment method" heading.
-      if (/one time payment|pay now/i.test(lower) &&
-        (/payment method|visa|mastercard|amex|\*{4}|saved card/i.test(lower))) {
+      // PPV payment can render its order summary before a saved-card label.
+      if (isActiveStandardAddonPage &&
+        !ppvPage.isChooseHowToBuyPage(lower) &&
+        /today you pay|one time payment|pay now/.test(lower)) {
         await new IOSPaymentPage(this.driver).completePPVPayment(results, eventData);
         return;
       }
@@ -304,7 +304,7 @@ export class IOSSignupPage extends IOSBasePage {
             console.log('⏳ Waiting for the active-standard add-on page to resolve...');
             await this.driver.waitUntil(async () => {
               const nextText = (await this.text()).toLowerCase();
-              return /choose how to buy|one time payment|pay now/.test(nextText);
+              return /choose how to buy|today you pay|one time payment|pay now/.test(nextText);
             }, {
               timeout: 15000,
               interval: 250,

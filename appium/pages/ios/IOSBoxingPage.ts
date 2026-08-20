@@ -78,21 +78,9 @@ export class IOSBoxingPage extends IOSBasePage {
 
   /** Finds only the configured PPV title, then verifies its own date column. */
   private async findUpcomingPpvCard(dateParts: IOSPPVDateParts): Promise<any | null> {
-    // The Upcoming list is virtualized and re-created during scrolling. Its
-    // stable page-source marker distinguishes the target list entry from the
-    // same event title in the promotional carousel, avoiding stale-element
-    // requests until the actual list card has been rendered.
-    const normalize = (value: string) => value.normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toLowerCase();
-    const pageSource = normalize(await this.driver.getPageSource().catch(() => ''));
-    const listMarker = `${normalize(this.ppvName)}-list:`;
-    const targetListIndex = pageSource.indexOf(listMarker);
-    const dateMarker = `${dateParts.day}, article`;
-    const hasTargetListCard = targetListIndex >= 0 &&
-      pageSource.lastIndexOf(dateMarker, targetListIndex) >= Math.max(0, targetListIndex - 3000);
-    if (!hasTargetListCard) return null;
-
+    // A page-source request during an Upcoming-list refresh can block WDA for
+    // several seconds. Query the title directly and keep the existing date
+    // geometry check as the guard against promotional-card matches.
     const escapedName = this.iosPredicateValue(this.ppvName);
     const titleTermVariants = this.ppvTitleTermVariants(this.ppvName).slice(0, 2);
     const titleSelectors = [

@@ -691,6 +691,24 @@ export class IOSBasePage {
       (/contextualPpvId=|\/signup|[?&]page=/i.test(url));
   }
 
+  /** Excludes checkout WebViews left open by a previous event or region run. */
+  private isCurrentSafariHandoffUrl(url: string): boolean {
+    if (!this.isPreferredSafariHandoffUrl(url)) return false;
+    const expectedEvent = String(process.env.PPV_EVENT || '').trim();
+    const expectedRegion = String(process.env.DAZN_REGION || 'GB').toLowerCase();
+    try {
+      const parsed = new URL(url);
+      const actualEvent = parsed.searchParams.get('contextualPpvId') || '';
+      if (expectedEvent && actualEvent !== expectedEvent) return false;
+      const lowerUrl = url.toLowerCase();
+      return expectedRegion === 'gb'
+        ? /-(?:gb|uk|gg|je)\b/.test(lowerUrl)
+        : lowerUrl.includes(`-${expectedRegion}`);
+    } catch {
+      return false;
+    }
+  }
+
   private assertContextualPpvIdMatch(url: string): void {
     const expected = String(process.env.PPV_EVENT || '').trim();
     if (!expected || !/\/account\//i.test(url)) return;
@@ -940,8 +958,18 @@ export class IOSBasePage {
         const webContexts = contextDetails
           .filter(context => context.id && context.id !== 'NATIVE_APP')
           .reverse();
+        const landingContext = webContexts.find(context =>
+          this.isSafariHandoffLandingUrl(String(context.url || ''))
+        );
+        if (landingContext?.url) {
+          const url = String(landingContext.url);
+          console.log(`✅ Captured new DAZN handoff URL from WEBVIEW context ${landingContext.id}: ${url}`);
+          this.assertCheckoutUrlCountryMatch(url);
+          activatedBrowser = 'WEBVIEW';
+          return url;
+        }
         const preferredContext = webContexts.find(context =>
-          this.isPreferredSafariHandoffUrl(String(context.url || ''))
+          this.isCurrentSafariHandoffUrl(String(context.url || ''))
         );
         if (preferredContext?.url) {
           const url = String(preferredContext.url);
@@ -950,18 +978,6 @@ export class IOSBasePage {
           this.assertContextualPpvIdMatch(url);
           activatedBrowser = 'WEBVIEW';
           return url;
-        }
-        for (let contextIndex = 0; contextIndex < webContexts.length; contextIndex++) {
-          const webContext = webContexts[contextIndex];
-          const webCtx = webContext.id!;
-          const url = String(webContext.url || '');
-          console.log(`🌐 Checking web context ${webCtx}: ${url || '(no URL yet)'}`);
-          if (this.isSafariHandoffLandingUrl(url)) {
-            console.log(`✅ Captured new DAZN handoff URL from WEBVIEW context ${webCtx}: ${url}`);
-            this.assertCheckoutUrlCountryMatch(url);
-            activatedBrowser = 'WEBVIEW';
-            return url;
-          }
         }
       } catch (e: any) {
         if (/\[(Country Match|Contextual PPV) Check\]/.test(String(e?.message || e))) throw e;
@@ -1011,7 +1027,7 @@ export class IOSBasePage {
               await this.driver.switchContext(webCtx);
               const url = await this.driver.getUrl();
               console.log(`🌐 Checking web context ${webCtx}: ${url || '(no URL yet)'}`);
-              if (this.isPreferredSafariHandoffUrl(url)) {
+              if (this.isCurrentSafariHandoffUrl(url)) {
                 console.log(`✅ Captured Safari account handoff context ${webCtx}: ${url}`);
                 this.assertCheckoutUrlCountryMatch(url);
                 this.assertContextualPpvIdMatch(url);
@@ -1260,12 +1276,6 @@ export class IOSBasePage {
     await addressField.setValue(capturedUrl);
 
     await this.driver.keys(['Enter']);
-
-    if (needsExternalSafariForDevMode) {
-      console.log('🇺🇸 [US Ultimate] Submitted captured URL in external Safari; continuing with Safari WebView polling.');
-      await this.driver.pause(Number(process.env.IOS_US_PRIVATE_TAB_SETTLE_MS || 3000));
-      return '';
-    }
 
     let safariContext = '';
     await this.driver.waitUntil(async () => {

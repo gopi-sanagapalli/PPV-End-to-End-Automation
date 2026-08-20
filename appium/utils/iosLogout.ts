@@ -97,23 +97,30 @@ export async function ensureLoggedOut(driver: WdBrowser): Promise<void> {
     }).catch(() => { });
 
     if (!logoutBtn) {
-      console.log('🔓 [Logout] "Log out" is not visible; scrolling the Profile page to look for it...');
+      // "Log out" may be below the fold (e.g. profile completion card visible).
+      // Scroll down once to reveal it.
+      console.log('🔓 [Logout] "Log out" not visible — scrolling down to reveal it...');
       const { width, height } = await driver.getWindowSize();
-      for (let attempt = 0; attempt < 3 && !logoutBtn; attempt++) {
-        await driver.performActions([{
-          type: 'pointer',
-          id: 'ios-logout-scroll',
-          parameters: { pointerType: 'touch' },
-          actions: [
-            { type: 'pointerMove', duration: 0, x: Math.round(width / 2), y: Math.round(height * 0.75) },
-            { type: 'pointerDown', button: 0 },
-            { type: 'pointerMove', duration: 250, x: Math.round(width / 2), y: Math.round(height * 0.25) },
-            { type: 'pointerUp', button: 0 },
-          ],
-        }]);
-        await driver.releaseActions();
+      await driver.performActions([{
+        type: 'pointer', id: 'logoutScroll', parameters: { pointerType: 'touch' },
+        actions: [
+          { type: 'pointerMove', duration: 0, x: Math.round(width / 2), y: Math.round(height * 0.8) },
+          { type: 'pointerDown', button: 0 },
+          { type: 'pause', duration: 80 },
+          { type: 'pointerMove', duration: 250, x: Math.round(width / 2), y: Math.round(height * 0.3) },
+          { type: 'pointerUp', button: 0 },
+        ],
+      }]).catch(() => { });
+      await driver.releaseActions().catch(() => { });
+      await driver.pause(500);
+      await driver.waitUntil(async () => {
         logoutBtn = await firstVisible(driver, LOGOUT_BUTTON_SELECTORS);
-      }
+        return Boolean(logoutBtn);
+      }, {
+        timeout: 5_000,
+        interval: 500,
+        timeoutMsg: '"Log out" button not visible after scrolling.',
+      }).catch(() => { });
     }
 
     if (!logoutBtn) {

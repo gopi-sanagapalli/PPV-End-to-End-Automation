@@ -334,7 +334,11 @@ export class IOSPPVPage extends IOSBasePage {
       ]);
       if (!buyNow) throw new Error('"Buy now" CTA not found on "Choose how to buy" page.');
       await buyNow.click();
-      await this.driver.waitUntil(async () => /one time payment|pay now|payment method/i.test(await this.browserText()), {
+      await this.driver.waitUntil(async () => {
+        const paymentText = await this.browserText();
+        return !/choose how to buy/i.test(paymentText) &&
+          /today you pay|one time payment|pay now|payment method|payment details/i.test(paymentText);
+      }, {
         timeout: 15000,
         interval: 250,
         timeoutMsg: 'PPV selection did not transition to the saved-card payment page.',

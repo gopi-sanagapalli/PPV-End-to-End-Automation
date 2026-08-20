@@ -185,6 +185,7 @@ export class IOSHomePage extends IOSLandingPage {
       const location = await rail.getLocation().catch(() => null);
       if (!location) return false;
       railY = location.y;
+      railFound = true;
       return true;
     }, {
       timeout: 10000,
@@ -312,7 +313,9 @@ export class IOSHomePage extends IOSLandingPage {
       ...this.ppvTitleTermVariants(this.ppvName).flat(),
     ].filter(term => term.length >= 3)));
     const railBottom = railY + Math.round(height * 0.45);
+    let targetTileOutsideViewport = false;
     const findVisiblePpvTile = async (): Promise<any | undefined> => {
+      targetTileOutsideViewport = false;
       const inspectedCandidates = new Set<string>();
       for (const term of ppvTerms) {
         const escapedTerm = term.replace(/"/g, '\\"');
@@ -332,6 +335,13 @@ export class IOSHomePage extends IOSLandingPage {
           const centreY = location.y + (size?.height || 0) / 2;
           if (centreX < 0 || centreX >= width || centreY < 0 || centreY >= height) {
             console.log(`  PPV tile using "${term}" is outside the horizontal viewport at x=${location.x}, y=${location.y}; continuing rail swipe search.`);
+            // The exact configured title proves this is the target rail card;
+            // querying its fighter-name fallbacks before the next swipe only
+            // repeats slow XCUITest geometry calls against the same clipped node.
+            if (term === this.ppvName) {
+              targetTileOutsideViewport = true;
+              return undefined;
+            }
             continue;
           }
           console.log(`  Found PPV tile using "${term}" at y=${location.y}; stopping horizontal search.`);
@@ -375,7 +385,7 @@ export class IOSHomePage extends IOSLandingPage {
       console.log(`  PPV tile is not in the current card viewport; making short horizontal swipe ${attempt + 1}/${maxHorizontalRailSwipes}.`);
       await swipeRail('left', 'dont-miss-rail-search');
       ppvTile = await findVisiblePpvTile();
-      if (!ppvTile) visualTile = await findPpvTileByImage();
+      if (!ppvTile && !targetTileOutsideViewport) visualTile = await findPpvTileByImage();
       if (!ppvTile && !visualTile && latestRailScreenshotFingerprint) {
         unchangedRailSwipes = latestRailScreenshotFingerprint === previousRailScreenshotFingerprint
           ? unchangedRailSwipes + 1
