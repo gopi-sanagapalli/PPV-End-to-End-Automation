@@ -68,6 +68,11 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
+        if ! command -v iproxy > /dev/null 2>&1; then
+          echo "❌ iproxy not found on this runner. Install via: brew install libimobiledevice"
+          echo "   This runner does not have the required iOS tooling. Ensure the job runs on the correct self-hosted runner."
+          exit 1
+        fi
         iproxy 8100 8100 -u "${IOS_UDID}" &
         IPROXY_PID=$!
         echo "IPROXY_PID=$IPROXY_PID" >> "$GITHUB_ENV"
