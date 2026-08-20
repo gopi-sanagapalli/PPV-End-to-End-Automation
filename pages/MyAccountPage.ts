@@ -135,6 +135,7 @@ export class MyAccountPage {
     const cleanText = this.normalizeEventName(text);
     const cleanName = this.normalizeEventName(ppvName);
     if (!cleanText || !cleanName) return false;
+    if (/entitlement[_\s-]+set[_\s-]+title|ppv_t_/i.test(text)) return false;
     if (cleanText === cleanName) return true;
 
     const words = this.eventNameWords(ppvName);
@@ -207,6 +208,7 @@ export class MyAccountPage {
       };
 
       const hasAllWords = (text: string): boolean => {
+        if (/entitlement[_\s-]+set[_\s-]+title|ppv_t_/i.test(text)) return false;
         const textWords = normalize(text).split(' ');
         return words.every(word => textWords.some(textWord => isNearWordMatch(word, textWord)));
       };

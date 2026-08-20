@@ -326,6 +326,15 @@ function getDynamicDateBadgeSingle(configStr: string, referenceDate: Date = getN
       candidates.add(`TODAY ${t}`);
       candidates.add(`TODAY AT ${t.toUpperCase()}`);
     }
+    if (hours >= 5 && hours < 12) {
+      for (const t of times) {
+        candidates.add(`This morning at ${t}`);
+        candidates.add(`This morning ${t}`);
+        candidates.add(`this morning at ${t}`);
+        candidates.add(`this morning ${t}`);
+        candidates.add(`THIS MORNING AT ${t.toUpperCase()}`);
+      }
+    }
     if (hours >= 12 && hours < 17) {
       for (const t of times) {
         candidates.add(`This afternoon at ${t}`);
@@ -349,6 +358,15 @@ function getDynamicDateBadgeSingle(configStr: string, referenceDate: Date = getN
         candidates.add(`THIS EVENING AT ${t.toUpperCase()}`);
         candidates.add(`TONIGHT AT ${t}`);
         candidates.add(`TONIGHT AT ${t.toUpperCase()}`);
+      }
+    }
+    if (hours >= 21 || hours < 5) {
+      for (const t of times) {
+        candidates.add(`This night at ${t}`);
+        candidates.add(`This night ${t}`);
+        candidates.add(`this night at ${t}`);
+        candidates.add(`this night ${t}`);
+        candidates.add(`THIS NIGHT AT ${t.toUpperCase()}`);
       }
     }
     addDayVariations(dayName);
@@ -605,6 +623,9 @@ export function calculateDynamicPpvBannerDate(
         candidates.add(`TONIGHT AT ${t.toUpperCase()}`);
         candidates.add(`Night at ${t}`);
         candidates.add(`NIGHT AT ${t.toUpperCase()}`);
+        candidates.add(`This night at ${t}`);
+        candidates.add(`THIS NIGHT AT ${t.toUpperCase()}`);
+        candidates.add(`this night at ${t}`);
       }
     }
 

@@ -488,11 +488,11 @@ export class AndroidValidationPage extends AndroidBasePage {
           actualValue = mobileDateText;
           isMatch = compare(actualValue, expectedValue);
           if (!isMatch) {
-            // Dynamic date/time match fallback for different timezones/formatting (optional weekday)
-            const dateRegex = /\b((Sun|Mon|Tue|Wed|Thu|Fri|Sat)[a-z]*\s+)?\d{1,2}(?:st|nd|rd|th)?\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(?:at|•)?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?/i;
-            if (dateRegex.test(actualValue)) {
-              isMatch = true;
-            }
+            const normaliseNativeDate = (value: string) => value.toLowerCase()
+              .replace(/(\d)\s*:\s*(\d)/g, '$1:$2')
+              .replace(/\b0(\d):/g, '$1:')
+              .replace(/[\s.,•]/g, '');
+            isMatch = normaliseNativeDate(actualValue) === normaliseNativeDate(expectedValue);
           }
         } else {
           let matched = texts.find(t => {
@@ -1250,38 +1250,16 @@ export class AndroidValidationPage extends AndroidBasePage {
           fieldName.toLowerCase().includes('fight card') ||
           fieldName.toLowerCase().includes('cta')
         ) {
-          // For active_standard users, the banner may show different CTAs
-          // (e.g. "Get PPV", "Buy PPV") instead of "Buy Now" / "Fight Card".
-          // Check for any CTA-like text in the banner area.
-          const fieldLower = fieldName.toLowerCase();
-          let ctaKeywords: string[] = [];
-          if (fieldLower.includes('fight card')) {
-            ctaKeywords = ['fight card', 'fightcard', 'card'];
-          } else if (fieldLower.includes('buy now') || fieldLower.includes('buy')) {
-            ctaKeywords = ['buy now', 'buy', 'get ppv', 'get', 'ppv', 'subscribe'];
-          } else {
-            ctaKeywords = ['buy now', 'buy', 'get ppv', 'get', 'watch', 'fight card', 'ppv', 'subscribe'];
-          }
-
-          let foundCta = '';
-          for (const t of texts) {
-            const tLower = t.toLowerCase();
-            if (tLower.includes('watch live')) continue;
-            for (const kw of ctaKeywords) {
-              if (tLower.includes(kw)) {
-                foundCta = t;
-                break;
-              }
-            }
-            if (foundCta) break;
-          }
-          if (foundCta) {
-            actualValue = foundCta;
-            isMatch = true;
-          } else if (pageSource.toLowerCase().includes('buy') || pageSource.toLowerCase().includes('ppv')) {
-            actualValue = expectedValue;
-            isMatch = true;
-          }
+          const expectedCtas = expectedValue.split('|')
+            .map(value => value.trim().toLowerCase())
+            .filter(Boolean);
+          const foundCta = texts.find(text => {
+            const actualCta = text.toLowerCase().trim();
+            return !actualCta.includes('watch live') &&
+              expectedCtas.some(expectedCta => actualCta.includes(expectedCta));
+          });
+          actualValue = foundCta || 'Not found';
+          isMatch = Boolean(foundCta);
         } else if (fieldName === 'Banner - Event Date' || fieldName === 'Date and Time') {
           // The date on the mobile banner may be one joined string or split across parts.
           // Try exact/includes match on the full expected string first, then try part-based matching.
@@ -1380,12 +1358,10 @@ export class AndroidValidationPage extends AndroidBasePage {
                   const dynamicDateMatch = texts.find(t => dateRegex.test(t));
                   if (dynamicDateMatch) {
                     actualValue = dynamicDateMatch;
-                    isMatch = true;
                   } else {
                     const pageSourceMatch = pageSource.match(dateRegex);
                     if (pageSourceMatch) {
                       actualValue = pageSourceMatch[0];
-                      isMatch = true;
                     } else {
                       // FALLBACK: Find a date-like text element to show in actualValue on fail
                       const dateLike = texts.find(t =>
@@ -1514,8 +1490,7 @@ export class AndroidValidationPage extends AndroidBasePage {
             return compare(t, expectedValue) ||
               tClean === expectedClean ||
               tClean.includes(expectedClean) ||
-              expectedClean.includes(tClean) ||
-              (normExp && normT && (normT === normExp || normT.includes(normExp) || normExp.includes(normT)));
+              (normExp && normT && (normT === normExp || normT.includes(normExp)));
           });
           if (matched) {
             actualValue = matched;

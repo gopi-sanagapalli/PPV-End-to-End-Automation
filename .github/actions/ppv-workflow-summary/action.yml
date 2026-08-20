@@ -24,7 +24,7 @@ runs:
   using: composite
   steps:
     - name: Download all job reports from GitHub artifacts
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v7
       with:
         pattern: ${{ inputs.artifact_pattern }}
         path: downloaded-job-artifacts
@@ -99,7 +99,7 @@ runs:
         cp -R ppv-workflow-summary/. "$summary_dir/"
         echo "Stored consolidated workflow report locally at $summary_dir"
     - name: Upload consolidated report as GitHub artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: ${{ inputs.artifact_name }}
         path: ppv-workflow-summary/

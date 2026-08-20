@@ -7,7 +7,7 @@ import {
 import { getIOSValidationSheet } from './IOSSurfacingPoint';
 
 // Timezone-aware date utilities loaded dynamically
-let getDynamicDateTimeBadge: ((template: string, region?: string) => string) | undefined;
+let getDynamicDateTimeBadge: ((template: string, referenceDate?: Date) => string) | undefined;
 let getNowForRegion: ((region?: string) => Date) | undefined;
 try {
   // IOSValidationPage lives at appium/pages/ios, so three parents reach the
@@ -562,10 +562,13 @@ export class IOSValidationPage extends IOSBasePage {
             // Formatting differences are fine; a different date or time is
             // not. The previous regex marked every date-shaped value as PASS.
             isMatch = normaliseNativeDate(actualValue) === normaliseNativeDate(expectedValue);
-            if (!isMatch && actualValue !== 'Not found') {
-              const expectedTime = expectedValue.match(/(\d{1,2}):(\d{2})\s*(?:a\.?m\.?|p\.?m\.?)?/i)?.[0] || '';
-              const actualTime = actualValue.match(/(\d{1,2}):(\d{2})\s*(?:a\.?m\.?|p\.?m\.?)?/i)?.[0] || '';
-              isMatch = Boolean(expectedTime && actualTime && normaliseNativeDate(expectedTime) === normaliseNativeDate(actualTime));
+            if (!isMatch && getDynamicDateTimeBadge) {
+              const region = String(eventData.REGION || eventData.region || process.env.DAZN_REGION || 'GB');
+              const dynamicExpected = getDynamicDateTimeBadge(
+                expectedValue,
+                getNowForRegion ? getNowForRegion(region) : undefined,
+              );
+              isMatch = dynamicExpected.split('|').some(candidate => compare(actualValue, candidate));
             }
           }
         } else if (fieldName.toLowerCase() === 'event name') {
@@ -860,14 +863,18 @@ export class IOSValidationPage extends IOSBasePage {
           actualValue = dontMissTileFound ? 'Yes' : 'No';
           isMatch = dontMissTileFound && expectedValue.toLowerCase() === 'yes';
         } else if (isDontMissTile && fieldName === 'PPV Name') {
-          const nameTerms = expectedValue.toLowerCase()
+          const nameTerms = cleanStr(expectedValue)
             .split(/\s+vs\.?\s+|[^a-z0-9]+/)
             .filter((term: string) => term.length >= 3);
+          const ocrCorpus = cleanStr(dontMissOcrTexts.join(' '));
+          const nameMatches = nameTerms.length > 0 && nameTerms.every(term => ocrCorpus.includes(term));
           const matchingText = dontMissOcrTexts.find(text =>
-            nameTerms.some((term: string) => text.toLowerCase().includes(term)),
+            nameTerms.every((term: string) => cleanStr(text).includes(term)),
           );
-          actualValue = matchingText || 'Not found';
-          isMatch = Boolean(matchingText);
+          actualValue = matchingText || (nameMatches
+            ? dontMissOcrTexts.join(' ')
+            : dontMissOcrTexts.find(text => nameTerms.some(term => cleanStr(text).includes(term))) || 'Not found');
+          isMatch = nameMatches;
         } else if (isDontMissTile && fieldName === 'PPV Date') {
           const expectedDateTerms = expectedValue.toLowerCase().match(/jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|\b\d{1,2}\b/g) || [];
           // Vision can expose `AUG` and `29` as separate observations. Search
@@ -876,8 +883,16 @@ export class IOSValidationPage extends IOSBasePage {
           const matchesDate = expectedDateTerms.length > 0 && expectedDateTerms.every((term: string) =>
             ocrCorpus.includes(term.slice(0, 3)) || ocrCorpus.includes(term),
           );
-          actualValue = matchesDate || dontMissTileFound ? expectedValue : 'Not found';
-          isMatch = matchesDate || dontMissTileFound;
+          const matchingDateText = dontMissOcrTexts.find(text => {
+            const cleanText = text.toLowerCase();
+            return expectedDateTerms.every((term: string) =>
+              cleanText.includes(term.slice(0, 3)) || cleanText.includes(term),
+            );
+          });
+          actualValue = matchingDateText || (matchesDate
+            ? dontMissOcrTexts.join(' ')
+            : dontMissOcrTexts.find(text => /\b\d{1,2}\b|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec/i.test(text)) || 'Not found');
+          isMatch = matchesDate;
         } else if (isDontMissTile && fieldName === 'PPV Image Present') {
           actualValue = dontMissTileFound ? 'Yes' : 'No';
           isMatch = dontMissTileFound && expectedValue.toLowerCase() === 'yes';
@@ -934,42 +949,22 @@ export class IOSValidationPage extends IOSBasePage {
           // Upcoming Fights shows both CTAs on the same card. Validate each
           // one by its own copy; accepting the first CTA caused "Fight card"
           // to be reported as a successful Buy now check.
-          const requiredCta = fieldName.toLowerCase().includes('buy now')
-            ? cleanStr(expectedValue).split('|')[0]
-            : (fieldName.toLowerCase().includes('fight card') ? 'fight card' : '');
-          if (requiredCta) {
-            let exactCta = getTargetTileTexts().find(text => cleanStr(text).includes(requiredCta));
-            // Upcoming Fights virtualizes the target card's CTA nodes away
-            // from its title/date nodes in the page-source snapshot. The
-            // current surface still exposes the CTA label (and the flow then
-            // locates and taps that target CTA by geometry), so use the
-            // snapshot-wide label only for this native scoped-list fallback.
-            if (!exactCta && normalizedSource === 'home-boxing-upcoming' && isPresent) {
-              exactCta = texts.find(text => cleanStr(text).includes(requiredCta));
-            }
-            actualValue = exactCta || 'Not found';
-            isMatch = Boolean(exactCta);
-          } else {
-            const ctaKeywords = ['buy now', 'buy', 'get ppv', 'get', 'watch', 'fight card', 'ppv', 'subscribe', 'go to'];
-            let foundCta = '';
-            for (const t of getTargetTileTexts()) {
-              const tLower = t.toLowerCase();
-              for (const kw of ctaKeywords) {
-                if (tLower.includes(kw)) {
-                  foundCta = t;
-                  break;
-                }
-              }
-              if (foundCta) break;
-            }
-            if (foundCta) {
-              actualValue = foundCta;
-              isMatch = true;
-            } else if (pageSource.toLowerCase().includes('buy') || pageSource.toLowerCase().includes('ppv')) {
-              actualValue = expectedValue;
-              isMatch = true;
-            }
+          const expectedCtas = expectedValue.split('|').map(cleanStr).filter(Boolean);
+          let exactCta = getTargetTileTexts().find(text =>
+            expectedCtas.some(expectedCta => cleanStr(text).includes(expectedCta)),
+          );
+          // Upcoming Fights virtualizes the target card's CTA nodes away
+          // from its title/date nodes in the page-source snapshot. The
+          // current surface still exposes the CTA label (and the flow then
+          // locates and taps that target CTA by geometry), so use the
+          // snapshot-wide label only for this native scoped-list fallback.
+          if (!exactCta && normalizedSource === 'home-boxing-upcoming' && isPresent) {
+            exactCta = texts.find(text =>
+              expectedCtas.some(expectedCta => cleanStr(text).includes(expectedCta)),
+            );
           }
+          actualValue = exactCta || 'Not found';
+          isMatch = Boolean(exactCta);
         } else if (
           source.trim().toLowerCase() === 'home-boxing-upcoming' &&
           fieldName.trim().toLowerCase() === 'ppv time'
@@ -1072,9 +1067,17 @@ export class IOSValidationPage extends IOSBasePage {
               actualValue = visibleDate;
               isMatch = true;
             } else {
-              const parsedExpected = getDynamicDateTimeBadge ? getDynamicDateTimeBadge(expectedValue, eventData.region) : '';
-              if (parsedExpected && texts.some(t => normalizeDateString(t).includes(normalizeDateString(parsedExpected)))) {
-                actualValue = parsedExpected;
+              const region = String(eventData.REGION || eventData.region || process.env.DAZN_REGION || 'GB');
+              const parsedExpected = getDynamicDateTimeBadge
+                ? getDynamicDateTimeBadge(expectedValue, getNowForRegion ? getNowForRegion(region) : undefined)
+                : '';
+              const dynamicMatch = parsedExpected && texts.find(t =>
+                parsedExpected.split('|').some(candidate =>
+                  normalizeDateString(t).includes(normalizeDateString(candidate)),
+                ),
+              );
+              if (dynamicMatch) {
+                actualValue = dynamicMatch;
                 isMatch = true;
               } else if (visibleDate) {
                 actualValue = visibleDate;
