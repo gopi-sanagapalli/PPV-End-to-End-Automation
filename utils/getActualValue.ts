@@ -659,7 +659,7 @@ export async function getActualValue(
     (/\b(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b\s+\d{1,2}(st|nd|rd|th)?\b/i.test(t)) ||
     (/\b(Mon|Tue|Wed|Thu|Fri|Sat|Sun|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\b/i.test(t) &&
       /\d{1,2}:\d{2}/.test(t)) ||
-    (/\b(Tonight|Today|This evening|Tomorrow)\b/i.test(t) &&
+    (/\b(Tonight|Today|Tomorrow|This morning|This afternoon|This evening|This night)\b/i.test(t) &&
       /\d{1,2}:\d{2}/.test(t));
 
   let key = field.toLowerCase()
@@ -1154,7 +1154,7 @@ export async function getActualValue(
       .map(el => clean(el.innerText || el.textContent))
       .filter(Boolean);
     const name = leaves.find(text => hasEventName(text) && text.length < 120) || '';
-    const date = leaves.find(text => /\b(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)\b(?:\s+\d{1,2}(?:st|nd|rd|th)?\s+[a-z]{3,}|\s+at\s+\d{1,2}:\d{2})/i.test(text)) || '';
+    const date = leaves.find(text => /\b(?:today|tomorrow|tonight|this\s+(?:morning|afternoon|evening|night))\s+at\s+\d{1,2}:\d{2}(?:\s*[ap]m)?|\b(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)\b(?:\s+\d{1,2}(?:st|nd|rd|th)?\s+[a-z]{3,}|\s+at\s+\d{1,2}:\d{2})/i.test(text)) || '';
     const tag = leaves.some(text => /^included$/i.test(text));
     const image = Array.from(card.querySelectorAll<HTMLElement>('img, picture, [role="img"], div, span'))
       .some(el => visible(el) && (
@@ -4277,7 +4277,7 @@ export async function getActualValue(
             }
           }
           const containerText = await container.textContent().catch(() => '');
-          const dateRegex = /(?:today|tomorrow|yesterday)\s+at\s+\d{2}:\d{2}|\b(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*\s+at\s+\d{2}:\d{2}|\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/i;
+          const dateRegex = /(?:today|tomorrow|yesterday|tonight|this\s+(?:morning|afternoon|evening|night))\s+at\s+\d{1,2}:\d{2}(?:\s*[ap]m)?|\b(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*\s+at\s+\d{2}:\d{2}|\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/i;
           const match = (containerText || '').match(dateRegex);
           if (match) return match[0].trim();
         }

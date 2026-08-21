@@ -1505,7 +1505,7 @@ export class IOSSafariValidationPage extends IOSBasePage {
           actual = lines.find(line => expectedWords.length > 0 && expectedWords.every(word => line.toLowerCase().includes(word))) || 'N/A';
 
         } else if (key === 'ppv date and time') {
-          actual = lines.find(line => /\b(?:today|tomorrow|tonight)\s+at\s+\d{1,2}:\d{2}\b|\b(?:mon|tue|wed|thu|fri|sat|sun)\w*\s+(?:(?:\d{1,2}(?:st|nd|rd|th)?\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*)(?:\s+at)?|at)\s+\d{1,2}:\d{2}\b/i.test(line)) || 'N/A';
+          actual = lines.find(line => /\b(?:today|tomorrow|tonight|this\s+(?:morning|afternoon|evening|night))\s+at\s+\d{1,2}:\d{2}\b|\b(?:mon|tue|wed|thu|fri|sat|sun)\w*\s+(?:(?:\d{1,2}(?:st|nd|rd|th)?\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*)(?:\s+at)?|at)\s+\d{1,2}:\d{2}\b/i.test(line)) || 'N/A';
 
         } else if (key === 'order summary ppv name') {
           actual = lines.find(line => ppvWords.length > 0 && ppvWords.every(word => line.toLowerCase().includes(word))) || 'N/A';

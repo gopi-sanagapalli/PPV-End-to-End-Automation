@@ -192,7 +192,7 @@ export class PPVUpsellPaymentPage extends BasePage {
         const datePatterns = [
           // Checkout renders near events as a relative badge over the PPV image
           // (for example, "Tomorrow at 18:30") rather than a calendar date.
-          /\b(?:today|tomorrow|tonight|this\s+(?:afternoon|evening))\s+at\s+\d{1,2}:\d{2}\b/i,
+          /\b(?:today|tomorrow|tonight|this\s+(?:morning|afternoon|evening|night))\s+at\s+\d{1,2}:\d{2}\b/i,
           /\b(Sat|Sun|Mon|Tue|Wed|Thu|Fri)\w*\s+\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\s+at\s+\d{1,2}:\d{2}/i,
           /\b(Saturday|Sunday|Monday|Tuesday|Wednesday|Thursday|Friday)\s+at\s+\d{1,2}:\d{2}/i,
           /\b(Sat|Sun|Mon|Tue|Wed|Thu|Fri)\w*\s+at\s+\d{1,2}:\d{2}/i,

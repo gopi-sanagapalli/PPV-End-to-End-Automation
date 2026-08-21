@@ -3,6 +3,7 @@ import { handleCookies, hasLoadedPPVArtwork } from '../utils/helpers';
 import { validateVariant } from '../flows/validateVariant';
 import { getMyAccountData } from '../utils/excelReader';
 import { compare } from '../utils/compare';
+import { getDynamicDateTimeBadge, getNowForRegion } from '../utils/dateUtils';
 
 const MY_ACCOUNT_PPV_CARD_MARKER = 'data-myaccount-ppv-card-target';
 
@@ -1313,6 +1314,11 @@ export class MyAccountPage {
       const checkDateMatch = (act: string, exp: string): boolean => {
         if (!exp) return true;
         if (compare(act, exp)) return true;
+        const dynamicExpected = getDynamicDateTimeBadge(
+          exp,
+          getNowForRegion(eventData.DAZN_REGION || eventData.REGION),
+        );
+        if (dynamicExpected && compare(act, dynamicExpected)) return true;
         const expNorm = normalizeDate(exp);
         const actNorm = normalizeDate(act);
         if (actNorm === expNorm || actNorm.includes(expNorm) || expNorm.includes(actNorm)) return true;
@@ -1611,6 +1617,11 @@ export class MyAccountPage {
       const checkDateMatch = (act: string, exp: string): boolean => {
         if (!exp) return true;
         if (compare(act, exp)) return true;
+        const dynamicExpected = getDynamicDateTimeBadge(
+          exp,
+          getNowForRegion(eventData.DAZN_REGION || eventData.REGION),
+        );
+        if (dynamicExpected && compare(act, dynamicExpected)) return true;
         const expNorm = normalizeDate(exp);
         const actNorm = normalizeDate(act);
         if (actNorm === expNorm || actNorm.includes(expNorm) || expNorm.includes(actNorm)) return true;
