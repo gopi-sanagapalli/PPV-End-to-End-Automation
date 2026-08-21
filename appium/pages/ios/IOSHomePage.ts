@@ -54,6 +54,7 @@ export class IOSHomePage extends IOSLandingPage {
       immediatePaywall: options.immediatePaywall ?? true,
       recordPage: 'Home Page',
       ensureBannerStillVisibleBeforeBuy: true,
+      tapVerifiedBannerCta: true,
     }, hooks);
     if (!bannerCtaTapped) return false;
 
@@ -355,13 +356,23 @@ export class IOSHomePage extends IOSLandingPage {
     // but not necessarily the PPV title inside the image. OCR the current
     // screenshot locally without changing the scroll or rail-location logic.
     let latestRailScreenshotFingerprint = '';
-    const findPpvTileByImage = async (): Promise<{ x: number; y: number } | undefined> => {
+    const findPpvTileByImage = async (collectEvidenceWithoutTitleMatch = false): Promise<{ x: number; y: number } | undefined> => {
       const visualMatch = await locateIOSPpvTileByImage(this.driver, this.ppvName, {
         minYPercent: Math.max(0, railY / height),
         maxYPercent: Math.min(1, railBottom / height),
-      });
+      }, collectEvidenceWithoutTitleMatch);
       latestRailScreenshotFingerprint = visualMatch.screenshotFingerprint || '';
-      if (!visualMatch.visible || visualMatch.xPercent === null || visualMatch.yPercent === null) return undefined;
+      if (!visualMatch.visible || visualMatch.xPercent === null || visualMatch.yPercent === null) {
+        if (collectEvidenceWithoutTitleMatch && visualMatch.ocrTexts?.length) {
+          // The native tile lookup has already confirmed this event. Retain its
+          // complete title when artwork OCR splits or misspells a fighter name.
+          process.env.IOS_DONT_MISS_OCR_TEXTS = JSON.stringify([
+            ...visualMatch.ocrTexts,
+            this.ppvName,
+          ]);
+        }
+        return undefined;
+      }
 
       const x = Math.round(width * visualMatch.xPercent);
       const y = Math.round(height * visualMatch.yPercent);
@@ -447,7 +458,7 @@ export class IOSHomePage extends IOSLandingPage {
     // Native title nodes do not contain the date rendered in the card artwork.
     // Capture OCR evidence once the target is centred so PPV Date validation
     // uses the visible card rather than replacing it with the title alone.
-    const visualEvidence = await findPpvTileByImage();
+    const visualEvidence = await findPpvTileByImage(Boolean(ppvTile));
     if (visualEvidence) visualTile = visualTile || visualEvidence;
 
     process.env.IOS_DONT_MISS_PPV_TILE_FOUND = 'true';
@@ -591,6 +602,7 @@ async function locateIOSPpvTileByImage(
   driver: WdBrowser,
   ppvName: string,
   verticalRange?: { minYPercent: number; maxYPercent: number },
+  collectEvidenceWithoutTitleMatch = false,
 ): Promise<IOSVisualTileMatch> {
   let screenshotPath = '';
   try {
@@ -652,7 +664,15 @@ async function locateIOSPpvTileByImage(
       .filter(candidate => candidate.matchedTerms > 0)
       .sort((left, right) => right.matchedTerms - left.matchedTerms)[0]?.observation;
     if (!match) {
-      return { visible: false, xPercent: null, yPercent: null, screenshotFingerprint };
+      return {
+        visible: false,
+        xPercent: null,
+        yPercent: null,
+        ocrTexts: collectEvidenceWithoutTitleMatch
+          ? railObservations.map(observation => observation.text)
+          : undefined,
+        screenshotFingerprint,
+      };
     }
     console.log(`  Local OCR matched PPV artwork text: "${match.text}".`);
     return {

@@ -35,13 +35,17 @@ const sourceConfig = JSON.parse(fs.readFileSync('config/surfacingpoint.json', 'u
 const planConfig = JSON.parse(fs.readFileSync('config/DaznPlan.json', 'utf8'));
 const isBoxing = String(event.SPORT || '').trim().toLowerCase() === 'boxing';
 const isKickboxing = String(event.SPORT || '').toLowerCase() === 'kickboxing';
+const isStandalonePPV = String(event.PPV_TYPE || '').trim().toLowerCase() === 'standalone';
 const hasBundle = event.HAS_BUNDLE === true;
 const defaultSignupDevMode = event.DEFAULT_SIGNUP_DEVMODE === true;
 const hasDefaultSignup = event.HAS_DEFAULT_SIGNUP_PPV === true;
 // The workflow matrix must only contain plans offered in the selected country.
 // `loadEventConfig` validates this too, but filtering here avoids creating CI jobs
 // that are guaranteed to fail (for example, standard_apm is not offered in AE).
-const requestedPlans = ['standard_monthly', 'standard_apm', 'ultimate_apm', 'ultimate_upfront'];
+const requestedPlans = (isStandalonePPV
+  ? ['standard_monthly', 'standard_apm']
+  : ['standard_monthly', 'standard_apm', 'ultimate_apm', 'ultimate_upfront']
+);
 const standardPlans = requestedPlans.filter((plan) => planConfig[plan]?.regions?.[country]);
 if (standardPlans.length === 0) {
   throw new Error(`No supported plans are configured for ${country} in DaznPlan.json.`);
@@ -51,7 +55,7 @@ if (standardPlans.length === 0) {
 // e.g. "standard-dazn-annual-pay over time".
 // Canada has 2 tiers × 2 subscriptions × 3 billing options = 12 combinations.
 // These are built directly rather than mapped from DaznPlan.json keys.
-const canadaPlans = country === 'CA' ? [
+const availableCanadaPlans = [
   'standard-dazn-monthly',
   'standard-dazn-annual-pay over time',
   'standard-dazn-annual-pay now',
@@ -64,7 +68,10 @@ const canadaPlans = country === 'CA' ? [
   'ultimate-dazn+-monthly',
   'ultimate-dazn+-annual-pay over time',
   'ultimate-dazn+-annual-pay now',
-] : null;
+];
+const canadaPlans = country === 'CA'
+  ? availableCanadaPlans.filter((plan) => !isStandalonePPV || plan.startsWith('standard-'))
+  : null;
 
 // For existing/signed-in CA jobs:
 // - freemium + frozen × all 12 plans (new/returning subscribers)
@@ -400,6 +407,32 @@ switch (mode) {
     break;
   }
   default: throw new Error(`Unsupported matrix mode: ${mode}`);
+}
+
+if (isStandalonePPV) {
+  const standalonePurchasePlan = country === 'CA'
+    ? (canadaPlans.includes('standard-dazn-annual-pay over time')
+      ? 'standard-dazn-annual-pay over time'
+      : canadaPlans[0])
+    : (standardPlans.includes('standard_apm') ? 'standard_apm' : 'standard_monthly');
+
+  matrix = matrix.flatMap((entry) => {
+    if (!entry.profile) return [entry];
+
+    const [userState, purchasePlan] = entry.profile.split('/');
+    const isUltimatePurchasePlan =
+      purchasePlan.startsWith('ultimate_') ||
+      purchasePlan.startsWith('ultimate-');
+    if (!isUltimatePurchasePlan) return [entry];
+
+    // Active Ultimate accounts can buy standalone PPV, but the standalone
+    // selector itself only supports Standard purchase plans.
+    if (userState.startsWith('active_ultimate_')) {
+      return [{ ...entry, profile: `${userState}/${standalonePurchasePlan}` }];
+    }
+
+    return [];
+  });
 }
 
 // Keep every matrix mode consistent, including explicitly-added switch jobs.

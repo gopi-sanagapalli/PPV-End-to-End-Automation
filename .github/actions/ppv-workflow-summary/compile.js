@@ -318,6 +318,7 @@ if (fs.existsSync(artifactsDir)) {
     const playwrightFiles = findFiles(jobPath, (name, filepath) => {
       return filepath.includes('playwright-report') && name.toLowerCase() === 'index.html';
     });
+    const jiraTicketFiles = findFiles(jobPath, name => name.toLowerCase() === 'qar_tickets.json');
 
     const pdfRelative = pdfFiles.length > 0 ? path.relative(baseDir, pdfFiles[0]) : null;
     const customHtmlRelative = customHtmlFiles.length > 0 ? path.relative(baseDir, customHtmlFiles[0]) : null;
@@ -332,6 +333,22 @@ if (fs.existsSync(artifactsDir)) {
     let jiraUrl = null;
     let jiraKey = null;
     let isFail = false;
+
+    for (const ticketFile of jiraTicketFiles) {
+      try {
+        const tickets = JSON.parse(fs.readFileSync(ticketFile, 'utf-8'));
+        const ticket = Array.isArray(tickets)
+          ? tickets.find(item => item && typeof item.key === 'string' && typeof item.url === 'string')
+          : null;
+        if (ticket) {
+          jiraKey = ticket.key;
+          jiraUrl = ticket.url;
+          break;
+        }
+      } catch (err) {
+        console.error(`Error parsing QAR ticket file ${ticketFile}:`, err.message);
+      }
+    }
 
     if (jsonFiles.length > 0) {
       try {

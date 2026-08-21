@@ -65,10 +65,10 @@ export class IOSSafariCheckoutPage extends IOSBasePage {
   }
 
   private async waitForSafariStartToSettle(): Promise<void> {
-    await this.driver.waitUntil(async () => this.browserDocumentReady(), {
+    await this.driver.waitUntil(async () => this.browserLoadComplete(), {
       timeout: Number(process.env.IOS_SAFARI_SETTLE_TIMEOUT_MS || 35000),
       interval: Number(process.env.IOS_SAFARI_SETTLE_POLL_MS || 2000),
-      timeoutMsg: 'Safari /start page did not render a document body.',
+      timeoutMsg: 'Safari handoff page did not reach the load state.',
     });
     await this.refreshSafariOpeningProblemPageIfPresent();
     console.log(`🌐 Safari handoff landing settled: ${await this.driver.getUrl()}`);
@@ -727,7 +727,13 @@ export class IOSSafariCheckoutPage extends IOSBasePage {
         console.log('🎭 Ultimate tier detected on account checkout — enabling dev mode first...');
         const searchUrl = new URL(`/en-${region}/search`, settledUrl).toString();
         await this.driver.url(searchUrl);
-        await this.driver.pause(2000);
+        await this.driver.waitUntil(async () =>
+          /\/search(?:[/?#]|$)/i.test(await this.driver.getUrl()) &&
+          await this.browserLoadComplete(), {
+          timeout: Number(process.env.IOS_SAFARI_SETTLE_TIMEOUT_MS || 35000),
+          interval: Number(process.env.IOS_SAFARI_SETTLE_POLL_MS || 2000),
+          timeoutMsg: 'Safari Search route did not reach the load state.',
+        });
         await this.enableSafariDevMode();
         if (region === 'US') {
           console.log('🇺🇸 [US Ultimate] Returning to contextual checkout with Safari Back, then refreshing...');

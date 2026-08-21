@@ -17,6 +17,7 @@ export interface IOSBannerFlowOptions {
   recordPage?: string;
   ensureBannerStillVisibleBeforeBuy?: boolean;
   waitForBannerImageBeforeBuy?: boolean;
+  tapVerifiedBannerCta?: boolean;
 }
 
 export class IOSLandingPage extends IOSBasePage {
@@ -56,6 +57,7 @@ export class IOSLandingPage extends IOSBasePage {
         horizontalSwipes: 8,
         verticalScrolls: 0,
         ctaTexts: options.ctaTexts,
+        swipeDirection: 'right',
       });
       if (!stillOnPPVBanner) {
         await this.driver.saveScreenshot(options.buyMissingScreenshot);
@@ -72,7 +74,9 @@ export class IOSLandingPage extends IOSBasePage {
     }
 
     console.log(`  Clicking PPV banner CTA "${options.ctaTexts[0]}"...`);
-    const buyTapped = Boolean(await this.tapFirstText(options.ctaTexts, 6000));
+    const buyTapped = options.tapVerifiedBannerCta
+      ? Boolean(await this.tapBannerCtaForVerifiedPpv(options.ctaTexts, 6000, { swipeDirection: 'right' }))
+      : Boolean(await this.tapFirstText(options.ctaTexts, 6000));
     if (!buyTapped) {
       await this.driver.saveScreenshot(options.buyMissingScreenshot);
       throw new Error(`Could not tap Buy CTA on PPV banner. See ${options.buyMissingScreenshot}`);
@@ -128,6 +132,7 @@ export class IOSLandingPage extends IOSBasePage {
       recordPage: 'Landing',
       ensureBannerStillVisibleBeforeBuy: true,
       waitForBannerImageBeforeBuy: true,
+      tapVerifiedBannerCta: true,
     }, hooks);
   }
 }

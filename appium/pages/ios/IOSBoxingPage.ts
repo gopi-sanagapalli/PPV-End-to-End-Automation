@@ -296,6 +296,25 @@ export class IOSBoxingPage extends IOSBasePage {
       await this.driver.saveScreenshot('./test-results/ios_sport_destination_not_ready.png');
       throw error;
     }
+    // The destination header is exposed before the hero carousel replaces the
+    // All Sports accessibility hierarchy. Wait for that hierarchy to settle
+    // before banner lookup so XCUITest does not retry stale elements per swipe.
+    let previousSource = '';
+    let stableReads = 0;
+    const destinationSettled = await this.driver.waitUntil(async () => {
+      const currentSource = await this.driver.getPageSource().catch(() => '');
+      if (!currentSource) return false;
+      stableReads = currentSource === previousSource ? stableReads + 1 : 0;
+      previousSource = currentSource;
+      return stableReads >= 2;
+    }, {
+      timeout: 10000,
+      interval: 300,
+      timeoutMsg: `${configuredSport} destination page did not settle after loading.`,
+    }).then(() => true).catch(() => false);
+    if (!destinationSettled) {
+      console.warn(`⚠️ ${configuredSport} destination carousel is still updating; continuing with surface-specific readiness checks.`);
+    }
     await this.driver.saveScreenshot('./test-results/ios_sport_competition_page.png');
     console.log(`  Opened ${configuredSport} competition page via All Sports.`);
   }
@@ -474,6 +493,7 @@ export class IOSBoxingPage extends IOSBasePage {
   async openHomeBoxingBannerPaywall(eventConfig?: any, hooks: IOSFlowHooks = {}): Promise<boolean> {
     console.log('Home -> All Sports -> configured sport page -> PPV banner -> Buy now');
     await this.navigateToConfiguredSport(eventConfig);
+    await this.waitForConfiguredPpvContentOnSportPage('Home of Boxing');
     await this.driver.saveScreenshot('./test-results/ios_boxing_page.png');
 
     const bannerCtas = ['Buy now', 'Buy Now'];
@@ -507,6 +527,7 @@ export class IOSBoxingPage extends IOSBasePage {
       horizontalSwipes: 8,
       verticalScrolls: 0,
       ctaTexts: bannerCtas,
+      swipeDirection: 'right',
     });
     if (!stillOnPPVBanner) {
       await this.driver.saveScreenshot('./test-results/ios_home_boxing_buy_cta_not_found.png');
@@ -522,23 +543,25 @@ export class IOSBoxingPage extends IOSBasePage {
 
   /** Re-query the verified banner CTA when its carousel node is replaced. */
   private async tapVerifiedBannerCta(ctas: string[]): Promise<boolean> {
-    for (const cta of ctas) {
-      const escapedCta = cta.replace(/'/g, "\\'");
-      const selector = `-ios predicate string:label CONTAINS[c] '${escapedCta}' OR name CONTAINS[c] '${escapedCta}'`;
-      const tapped = await this.driver.waitUntil(async () => {
-        const candidates = await this.driver.$$(selector).catch(() => []);
-        for (const candidate of candidates) {
-          if (!await candidate.isDisplayed().catch(() => false)) continue;
-          if (await candidate.click().then(() => true).catch(() => false)) return true;
-        }
-        return false;
-      }, { timeout: 6000, interval: 200 }).catch(() => false);
-      if (tapped) {
-        console.log(`Tapped verified banner CTA "${cta}"`);
-        return true;
-      }
+    return Boolean(await super.tapBannerCtaForVerifiedPpv(ctas, 6000, { swipeDirection: 'right' }));
+  }
+
+  private async waitForConfiguredPpvContentOnSportPage(surface: string): Promise<void> {
+    const titleTerms = this.ppvTitleTerms(this.ppvName);
+    if (!titleTerms.length) return;
+
+    const contentReady = await this.driver.waitUntil(async () => {
+      const source = await this.driver.getPageSource().catch(() => '');
+      const normalisedSource = this.normalisePpvMatchText(source);
+      return titleTerms.every(term => normalisedSource.includes(term));
+    }, {
+      timeout: 30000,
+      interval: 1000,
+    }).then(() => true).catch(() => false);
+
+    if (!contentReady) {
+      console.log(`  ${surface} content did not expose "${this.ppvName}" before banner lookup; continuing with carousel swipe search.`);
     }
-    return false;
   }
 
   async openHomeBoxingUpcomingPaywall(eventConfig?: any, hooks: IOSFlowHooks = {}): Promise<boolean> {
@@ -614,6 +637,7 @@ export class IOSBoxingPage extends IOSBasePage {
   async openHomeBoxingDontMissTilePaywall(eventConfig?: any, hooks: IOSFlowHooks = {}): Promise<boolean> {
     console.log('Home -> All Sports -> configured sport page -> Don\'t Miss rail -> PPV tile -> Buy now');
     await this.navigateToConfiguredSport(eventConfig);
+    await this.waitForConfiguredPpvContentOnSportPage('Home of Boxing');
     return new IOSHomePage(this.driver, this.ppvName).openHomePageDontMissPaywall(hooks, {
       skipEnsureHome: true,
       recordPage: 'Home of Boxing',

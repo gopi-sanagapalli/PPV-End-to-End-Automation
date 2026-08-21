@@ -21,7 +21,7 @@ runs:
     - name: Clear stale Android report artifacts
       shell: bash
       run: |
-        rm -rf appium/test-results appium/reports appium/playwright-report
+        rm -rf appium/test-results appium/reports appium/playwright-report reports
         mkdir -p appium/test-results
     - name: Verify assigned Android device and ADB setup
       shell: bash
@@ -72,7 +72,7 @@ runs:
         report_dir="${reports_root}/${GITHUB_RUN_ID}/${report_name}"
         mkdir -p "$report_dir"
         found=false
-        for source_dir in appium/test-results appium/reports; do
+        for source_dir in appium/test-results appium/reports reports; do
           if [ -e "$source_dir" ]; then
             cp -R "$source_dir" "$report_dir/"
             found=true
@@ -92,6 +92,7 @@ runs:
         path: |
           appium/test-results/
           appium/reports/
+          reports/
         if-no-files-found: ignore
         retention-days: 1
         compression-level: 0
