@@ -217,6 +217,24 @@ export function compare(
 
   const aTimeMinutes = parseToMinutes(actual);
   const eTimeMinutes = parseToMinutes(expected);
+  const relativeLabel = (value: string) => value
+    .match(/\b(today|tomorrow|tonight|this\s+(?:morning|afternoon|evening|night))\b/i)?.[1]
+    ?.replace(/\s+/g, ' ')
+    .toLowerCase() || '';
+  const actualRelativeLabel = relativeLabel(actual);
+  const expectedRelativeLabel = relativeLabel(expected);
+  const actualHasMeridiem = /\b(?:am|pm)\b/i.test(actual);
+  if (
+    actualRelativeLabel &&
+    actualRelativeLabel === expectedRelativeLabel &&
+    !actualHasMeridiem &&
+    aTimeMinutes !== null &&
+    eTimeMinutes !== null &&
+    eTimeMinutes >= 12 * 60 &&
+    aTimeMinutes === eTimeMinutes % (12 * 60)
+  ) {
+    return true;
+  }
   if (aTimeMinutes !== null && eTimeMinutes !== null && aTimeMinutes === eTimeMinutes) {
     const cleanTime = (s: string) => s.replace(/\d{1,2}:\d{2}\s*(?:am|pm)?/gi, '').replace(/[•·]/g, ' ').replace(/\s+/g, ' ').trim();
 

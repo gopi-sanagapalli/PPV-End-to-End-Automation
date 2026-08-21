@@ -1,4 +1,10 @@
 node_modules/
+
+# Local Playwright agent experimentation
+.github/agents/
+.github/workflows/copilot-setup-steps.yml
+specs/
+tests/seed.spec.ts
 test-results/
 playwright-report/
 blob-report/

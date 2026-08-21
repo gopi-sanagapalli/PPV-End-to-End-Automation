@@ -668,10 +668,20 @@ export class IOSValidationPage extends IOSBasePage {
     };
     const findDateText = (expected: string): string => {
       const expectedDateTerms: string[] = String(expected || '').toLowerCase().match(/jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|\b\d{1,2}\b/g) || [];
-      if (!expectedDateTerms.length) return '';
-      return texts.find(text => {
+      const calendarDateText = expectedDateTerms.length ? texts.find(text => {
         const cleanText = text.toLowerCase();
         return expectedDateTerms.every(term => cleanText.includes(term.slice(0, 3)) || cleanText.includes(term));
+      }) : '';
+      if (calendarDateText) return calendarDateText;
+
+      const region = String(eventData.REGION || eventData.region || process.env.DAZN_REGION || 'GB');
+      const dynamicExpected = getDynamicDateTimeBadge
+        ? getDynamicDateTimeBadge(expected, getNowForRegion ? getNowForRegion(region) : undefined)
+        : '';
+      const candidates = dynamicExpected.split('|').map(cleanStr).filter(Boolean);
+      return texts.find(text => {
+        const cleanText = cleanStr(text);
+        return candidates.some(candidate => cleanText === candidate || cleanText.includes(candidate) || candidate.includes(cleanText));
       }) || '';
     };
     const getTargetTileTexts = (): string[] => {

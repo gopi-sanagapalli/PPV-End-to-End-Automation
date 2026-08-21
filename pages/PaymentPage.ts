@@ -1617,7 +1617,7 @@ export class PaymentPage extends BasePage {
       if (!paymentMethodsExpanded) return 'No';
       const option = this.page.locator(
         'section[id="Credit & Debit Card"]:visible, .accordion-cta-refined___3csKv:visible'
-      ).filter({ hasText: /Credit\s*&\s*Debit/i }).first();
+      ).filter({ hasText: /Credit\s*(?:\/|&|and|or)\s*Debit\s*Card/i }).first();
       return await option.isVisible({ timeout: 1500 }).catch(() => false) ? 'Yes' : 'No';
     }
 

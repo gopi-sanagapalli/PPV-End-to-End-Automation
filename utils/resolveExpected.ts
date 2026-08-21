@@ -1009,14 +1009,11 @@ export function resolveExpected(
     'ppv date and time',
     'ppv date and time expected',
     'ppv date and time text',
+    'included ppv date and time',
     'ppv1 date and time text on bundle',
     'event date and time',
   ];
   if (dateTimeFields.includes(field)) {
-    // The Choose How To Buy cards use the device-local Safari time. Preserve
-    // the configured value as one deterministic expectation; the iOS Safari
-    // validator compares the date separately when the device timezone differs.
-    if (normalizedPageName === 'choose how to buy') return template;
     return hasExplicitDateAndTime(template) ? getDynamicDateTimeBadge(template) : template;
   }
 
