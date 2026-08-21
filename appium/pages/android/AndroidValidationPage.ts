@@ -1101,13 +1101,19 @@ export class AndroidValidationPage extends AndroidBasePage {
         (descPrefix.length >= 15 && cleanStr(pageSource).includes(descPrefix));
       await pushResult('Description', expectedDesc, isDescPresent ? expectedDesc : 'Not found', isDescPresent);
 
-      // 5. Fight Card Button
-      const hasFightCard = texts.some(t => {
-        const tl = t.toLowerCase().replace(/\s+/g, '');
-        return tl.includes('fightcard') || tl.includes('fightcards');
-      }) || pageSource.toLowerCase().replace(/\s+/g, '').includes('fightcard');
+      // 5. Fight Card Button (only present on home-page-banner and home-boxing-banner; skipped on landing-page-banner)
+      const currentSource = String(source || process.env.SOURCE || '').toLowerCase().trim();
+      const isLandingPageBanner = currentSource.includes('landing');
+      if (!isLandingPageBanner) {
+        const hasFightCard = texts.some(t => {
+          const tl = t.toLowerCase().replace(/\s+/g, '');
+          return tl.includes('fightcard') || tl.includes('fightcards');
+        }) || pageSource.toLowerCase().replace(/\s+/g, '').includes('fightcard');
 
-      await pushResult('Fight Card Button', 'Fight Card', hasFightCard ? 'Fight Card' : 'Not found', hasFightCard);
+        await pushResult('Fight Card Button', 'Fight Card', hasFightCard ? 'Fight Card' : 'Not found', hasFightCard);
+      } else {
+        console.log('  ℹ️ [Fight Card Button] Skipped for landing-page-banner (Fight Card CTA is not present on Landing Page Banner).');
+      }
 
       // Conditional validations based on user type:
       if (!isUltimateUser) {
