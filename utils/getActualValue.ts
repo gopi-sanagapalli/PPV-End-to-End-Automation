@@ -7036,6 +7036,13 @@ export async function getActualValue(
     // ════════════════════════════════════════════════════════════
     case 'credit & debit card option':
     case 'credit and debit card option': {
+      const creditDebitCardOption = page.locator(
+        'section[id], button, [role="button"], [role="radio"], label'
+      ).filter({
+        hasText: /credit\s*(?:\/|&|and|or)\s*debit\s*card/i,
+      });
+      if (await isVisible(creditDebitCardOption)) return 'Yes';
+
       const fromSnap = snapFind(n =>
         n.text.toLowerCase().includes('credit') ||
         n.text.toLowerCase().includes('debit')

@@ -713,6 +713,12 @@ for (const stateKey of userStatesToRun) {
       timezoneId: regionTimezone,
       ...(recordVideo ? { recordVideo } : {}),
     });
+    let contextClosed = false;
+    const closeContext = async () => {
+      if (contextClosed) return;
+      await context.close();
+      contextClosed = true;
+    };
 
 
     await context.addInitScript(() => {
@@ -733,7 +739,7 @@ for (const stateKey of userStatesToRun) {
     const finishRun = async (displayTier = tier, userStatusOverride?: string) => {
       reachedEndPage = true;
       capturedVideoPath = (await page.video()?.path().catch(() => null)) ?? null;
-      await context.close().catch(() => { });
+      await closeContext().catch(() => { });
       const { excelPath, videoPath } = await writeResults(results, capturedVideoPath);
 
       displayResultsTable(results, displayTier, {
@@ -1635,7 +1641,7 @@ for (const stateKey of userStatesToRun) {
                   actual: 'PPV container absent from page',
                   status: 'PASS',
                 });
-                await context.close().catch(() => { });
+                await closeContext().catch(() => { });
                 return;
               }
               throwLogged(new Error(`❌ PPV container not found on landing page via ${SOURCE}`));
@@ -2457,7 +2463,7 @@ for (const stateKey of userStatesToRun) {
           reachedEndPage = true;
           // Capture video path and finalize video file BEFORE report generation
           capturedVideoPath = (await page.video()?.path().catch(() => null)) ?? null;
-          await context.close().catch(() => { });
+          await closeContext().catch(() => { });
           const { excelPath, videoPath } = await writeResults(results, capturedVideoPath);
 
           // Display detailed per-page results
@@ -2511,7 +2517,7 @@ for (const stateKey of userStatesToRun) {
           await executeCanadaPPVAddonPurchaseFlow(page, myAccountPage, eventData, results);
           reachedEndPage = true;
           capturedVideoPath = (await page.video()?.path().catch(() => null)) ?? null;
-          await context.close().catch(() => {});
+          await closeContext().catch(() => {});
           const { excelPath, videoPath } = await writeResults(results, capturedVideoPath);
           displayResultsTable(results, tier, {
             event: eventData.PPV_NAME,
@@ -2631,7 +2637,7 @@ for (const stateKey of userStatesToRun) {
           reachedEndPage = true;
           // Capture video path and finalize video file BEFORE report generation
           capturedVideoPath = (await page.video()?.path().catch(() => null)) ?? null;
-          await context.close().catch(() => { });
+          await closeContext().catch(() => { });
           const { excelPath, videoPath } = await writeResults(results, capturedVideoPath);
 
           // Display detailed per-page results
@@ -2918,7 +2924,7 @@ for (const stateKey of userStatesToRun) {
                   status: 'PASS',
                 });
                 reachedEndPage = true;
-                await context.close().catch(() => { });
+                await closeContext().catch(() => { });
                 return;
               } else {
                 throwLogged(new Error(`❌ [PPV Removal - Existing User] PPV purchase modal appeared via ${SOURCE} when PPV should be removed`));
@@ -2933,7 +2939,7 @@ for (const stateKey of userStatesToRun) {
                 status: 'PASS',
               });
               reachedEndPage = true;
-              await context.close().catch(() => { });
+              await closeContext().catch(() => { });
               return;
             }
           }
@@ -4801,7 +4807,7 @@ for (const stateKey of userStatesToRun) {
       // ══════════════════════════════════════════════════════════════
       // Capture video path and finalize video file BEFORE report generation
       capturedVideoPath = (await page.video()?.path().catch(() => null)) ?? null;
-      await context.close().catch(() => { });
+      await closeContext().catch(() => { });
       const { excelPath, videoPath } = await writeResults(results, capturedVideoPath);
 
       // Display detailed per-page results
@@ -4937,7 +4943,7 @@ for (const stateKey of userStatesToRun) {
         console.log('⚠️  Video path error:', e.message);
       }
       // Safe no-op if already closed by an early-exit branch
-      await context.close().catch(() => { });
+      await closeContext().catch(() => { });
     }
   });
 }
