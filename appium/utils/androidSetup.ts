@@ -362,6 +362,107 @@ export async function waitForHomePage(driver: WdBrowser, timeoutMs = 120000): Pr
   console.log('✅ App ready (Home or Landing page detected)');
 }
 
+async function clearAppDataViaSettings(driver: WdBrowser, appPackage: string, targetSerial?: string): Promise<boolean> {
+  try {
+    console.log(`🔄 Attempting fallback: Clearing app data via Android Settings UI (${appPackage})...`);
+    adb(`shell am start -a android.settings.APPLICATION_DETAILS_SETTINGS -d package:${appPackage}`, targetSerial);
+    await driver.pause(1500);
+
+    // Direct check: On some OEM UIs (e.g. Xiaomi/HyperOS), "Clear data" is directly on the App info page
+    const directClearSelectors = [
+      'android=new UiSelector().textMatches("(?i)^Clear data$")',
+      'android=new UiSelector().resourceIdMatches("(?i).*(clear_data|clear_user_data).*")',
+      '//android.widget.Button[contains(@text, "Clear data")]',
+    ];
+
+    let foundClearBtn = false;
+    for (const sel of directClearSelectors) {
+      try {
+        const el = await driver.$(sel);
+        if (await el.isDisplayed().catch(() => false)) {
+          console.log(`  Found direct clear button: ${sel}`);
+          await el.click();
+          foundClearBtn = true;
+          await driver.pause(800);
+          break;
+        }
+      } catch {}
+    }
+
+    // Otherwise, click "Storage" / "Storage usage" / "Storage & cache" first
+    if (!foundClearBtn) {
+      const storageSelectors = [
+        'android=new UiSelector().textMatches("(?i)^(Storage|Storage usage|Storage & cache)$")',
+        'android=new UiSelector().textContains("Storage")',
+        '//android.widget.TextView[contains(@text, "Storage")]',
+        '//android.widget.Button[contains(@text, "Storage")]',
+      ];
+
+      for (const sel of storageSelectors) {
+        try {
+          const el = await driver.$(sel);
+          if (await el.isDisplayed().catch(() => false)) {
+            console.log(`  Found storage menu: ${sel}`);
+            await el.click();
+            await driver.pause(1200);
+            break;
+          }
+        } catch {}
+      }
+
+      // Inside Storage page, click "Clear data" or "Clear storage"
+      const storageClearSelectors = [
+        'android=new UiSelector().textMatches("(?i)^Clear (storage|data)$")',
+        'android=new UiSelector().resourceIdMatches("(?i).*(clear_data_button|clear_user_data_button|button1).*")',
+        '//android.widget.Button[contains(@text, "Clear storage") or contains(@text, "Clear data")]',
+        '//android.widget.TextView[contains(@text, "Clear storage") or contains(@text, "Clear data")]',
+      ];
+
+      for (const sel of storageClearSelectors) {
+        try {
+          const el = await driver.$(sel);
+          if (await el.isDisplayed().catch(() => false)) {
+            console.log(`  Found clear storage button: ${sel}`);
+            await el.click();
+            foundClearBtn = true;
+            await driver.pause(800);
+            break;
+          }
+        } catch {}
+      }
+    }
+
+    // Confirm dialog prompt ("OK", "Delete", "Clear all data")
+    const confirmSelectors = [
+      'android=new UiSelector().resourceId("android:id/button1")',
+      'android=new UiSelector().textMatches("(?i)^(OK|Delete|Clear|Clear all data)$")',
+      '//android.widget.Button[@resource-id="android:id/button1"]',
+      '//android.widget.Button[contains(@text, "OK") or contains(@text, "Delete") or contains(@text, "Clear")]',
+    ];
+
+    for (const sel of confirmSelectors) {
+      try {
+        const el = await driver.$(sel);
+        if (await el.isDisplayed().catch(() => false)) {
+          console.log(`  Confirming data deletion: ${sel}`);
+          await el.click();
+          await driver.pause(1200);
+          break;
+        }
+      } catch {}
+    }
+
+    // Force stop app and close Settings
+    adb(`shell am force-stop ${appPackage}`, targetSerial);
+    adb('shell am force-stop com.android.settings', targetSerial);
+    console.log(`✅ App data cleared via Android Settings UI (${appPackage})`);
+    return true;
+  } catch (err: any) {
+    console.warn(`⚠️ Settings UI clear failed: ${err.message}`);
+    return false;
+  }
+}
+
 export async function prepareAndroidApp(driver: WdBrowser, options: PrepareAndroidAppOptions = {}) {
   const clearAppData = options.clearAppData !== false;
 
@@ -408,9 +509,12 @@ export async function prepareAndroidApp(driver: WdBrowser, options: PrepareAndro
     // Attempt 1: ADB pm clear with explicit device serial
     try {
       const res = adb(`shell pm clear ${APP_PACKAGE}`, serial);
-      if (res.toLowerCase().includes('success') || res.trim() === '') {
+      const isSecurityException = res.includes('SecurityException') || res.includes('permission');
+      if (!isSecurityException && (res.toLowerCase().includes('success') || res.trim() === '')) {
         console.log(`✅ App data cleared via ADB pm clear (${APP_PACKAGE})`);
         cleared = true;
+      } else if (isSecurityException) {
+        console.warn(`⚠️ ADB pm clear blocked by device security: ${res.split('\n')[0]}`);
       }
     } catch (err: any) {
       console.warn(`⚠️ ADB pm clear failed: ${err.message}`);
@@ -419,16 +523,23 @@ export async function prepareAndroidApp(driver: WdBrowser, options: PrepareAndro
     // Attempt 2: Appium mobile:shell fallback
     if (!cleared) {
       try {
-        await driver.execute('mobile: shell', { command: 'pm', args: ['clear', APP_PACKAGE] });
-        console.log(`✅ App data cleared via Appium mobile:shell (${APP_PACKAGE})`);
-        cleared = true;
+        const res = await driver.execute('mobile: shell', { command: 'pm', args: ['clear', APP_PACKAGE] });
+        if (typeof res === 'string' && res.toLowerCase().includes('success')) {
+          console.log(`✅ App data cleared via Appium mobile:shell (${APP_PACKAGE})`);
+          cleared = true;
+        }
       } catch (err: any) {
         console.warn(`⚠️ Appium mobile:shell clear failed: ${err.message}`);
       }
     }
 
+    // Attempt 3: Programmatic Settings UI Fallback (handles OnePlus/Oppo/Xiaomi/OEM permission restrictions)
     if (!cleared) {
-      console.log('⚠️ Unable to clear app data');
+      cleared = await clearAppDataViaSettings(driver, APP_PACKAGE, serial);
+    }
+
+    if (!cleared) {
+      console.warn('⚠️ Unable to clear app data');
     }
   } else {
     console.log('ℹ️ App data preserved');
