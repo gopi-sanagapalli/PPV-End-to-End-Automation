@@ -155,6 +155,10 @@ export class IOSBasePage {
     }
   }
 
+  protected async browserLoadComplete(): Promise<boolean> {
+    return this.driver.execute(() => document.readyState === 'complete').catch(() => false);
+  }
+
   protected async browserFirstVisible(selectors: string[]): Promise<WdElement | null> {
     for (const selector of selectors) {
       try {
@@ -343,6 +347,105 @@ export class IOSBasePage {
     return '';
   }
 
+  private async findBannerCtaForVerifiedPpv(ctas: string[], ppvName = this.ppvName): Promise<WdElement | null> {
+    const titleTerms = this.ppvTitleTerms(ppvName);
+    const titleSelector = `-ios predicate string:name CONTAINS[c] '${this.iosPredicateValue(titleTerms[0] || ppvName)}' OR label CONTAINS[c] '${this.iosPredicateValue(titleTerms[0] || ppvName)}'`;
+    const [viewport, titleElements] = await Promise.all([
+      this.driver.getWindowRect().catch(() => null),
+      this.driver.$$(titleSelector).catch(() => []),
+    ]);
+    if (!viewport) return null;
+
+    // The PPV name can appear more than once on screen at the same time —
+    // for example the hero banner title and an unrelated content rail
+    // heading below it sharing the same event name. Collect every visible,
+    // matching title candidate instead of taking only the first one, so the
+    // CTA lookup below can find the candidate that actually owns a CTA.
+    const titleLocations: Array<{ x: number; y: number }> = [];
+    for (const title of titleElements) {
+      if (!(await title.isDisplayed().catch(() => false))) continue;
+      const titleText = [
+        await title.getAttribute('label').catch(() => ''),
+        await title.getAttribute('name').catch(() => ''),
+        await title.getAttribute('value').catch(() => ''),
+      ].join(' ');
+      if (!titleTerms.every(term => this.normalisePpvMatchText(titleText).includes(term))) continue;
+
+      const location = await title.getLocation().catch(() => null);
+      const size = await title.getSize().catch(() => null);
+      if (!location || !size) continue;
+      const centerX = location.x + size.width / 2;
+      const centerY = location.y + size.height / 2;
+      if (centerX >= 0 && centerX < viewport.width && centerY >= 0 && centerY < viewport.height) {
+        titleLocations.push(location);
+      }
+    }
+    if (!titleLocations.length) return null;
+
+    let targetButton: WdElement | null = null;
+    let closestBelow = Number.POSITIVE_INFINITY;
+    for (const cta of ctas) {
+      const ctaSelector = `-ios predicate string:name == '${this.iosPredicateValue(cta)}' OR label == '${this.iosPredicateValue(cta)}'`;
+      const buttons = await this.driver.$$(ctaSelector).catch(() => []);
+      for (const button of buttons) {
+        if (!(await button.isDisplayed().catch(() => false))) continue;
+        const location = await button.getLocation().catch(() => null);
+        const size = await button.getSize().catch(() => null);
+        if (!location || !size) continue;
+        const centerX = location.x + size.width / 2;
+        const centerY = location.y + size.height / 2;
+        if (centerX < 0 || centerX >= viewport.width || centerY < 0 || centerY >= viewport.height) continue;
+        for (const titleLocation of titleLocations) {
+          const verticalDistance = location.y - titleLocation.y;
+          if (
+            verticalDistance < 0 || verticalDistance > viewport.height * 0.55 ||
+            verticalDistance >= closestBelow
+          ) continue;
+          targetButton = button;
+          closestBelow = verticalDistance;
+        }
+      }
+    }
+    return targetButton;
+  }
+
+  protected async tapBannerCtaForVerifiedPpv(
+    ctas: string[],
+    timeoutMs = 6000,
+    options: { swipeDirection?: 'left' | 'right'; maxSwipes?: number } = {},
+  ): Promise<string> {
+    const tryTap = async (): Promise<string> => {
+      const targetButton = await this.findBannerCtaForVerifiedPpv(ctas);
+      if (targetButton && await targetButton.click().then(() => true).catch(() => false)) {
+        const label = await targetButton.getAttribute('label').catch(() => ctas[0]);
+        console.log(`Tapped verified PPV banner CTA "${label || ctas[0]}"`);
+        return label || ctas[0];
+      }
+      return '';
+    };
+
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const tapped = await tryTap();
+      if (tapped) return tapped;
+      await this.driver.pause(200);
+    }
+
+    // The carousel can rotate the verified banner off-screen between the
+    // active-banner recheck and this click. Swipe to bring it back into
+    // view instead of failing on a banner that briefly stepped away.
+    console.log(`  Verified banner CTA not immediately visible. Swiping ${options.swipeDirection || 'left'} to reacquire "${this.ppvName}"...`);
+    const maxSwipes = options.maxSwipes ?? 8;
+    for (let i = 0; i < maxSwipes; i++) {
+      if (options.swipeDirection === 'right') await this.swipeRight();
+      else await this.swipeLeft();
+      const tapped = await tryTap();
+      if (tapped) return tapped;
+    }
+
+    return '';
+  }
+
   async isVisible(text: string, timeoutMs = 3000): Promise<boolean> {
     return Boolean(await this.findByText(text, timeoutMs));
   }
@@ -369,6 +472,18 @@ export class IOSBasePage {
       .down()
       .pause(250)
       .move({ x: Math.round(width * 0.2), y: Math.round(height * 0.35) })
+      .up()
+      .perform();
+    await this.driver.pause(1000);
+  }
+
+  async swipeRight(): Promise<void> {
+    const { width, height } = await this.driver.getWindowSize();
+    await this.driver.action('pointer')
+      .move({ x: Math.round(width * 0.2), y: Math.round(height * 0.35) })
+      .down()
+      .pause(250)
+      .move({ x: Math.round(width * 0.8), y: Math.round(height * 0.35) })
       .up()
       .perform();
     await this.driver.pause(1000);
@@ -404,7 +519,7 @@ export class IOSBasePage {
 
   async findBannerOnCurrentPage(
     ppvName = this.ppvName,
-    options: { horizontalSwipes?: number; verticalScrolls?: number; ctaTexts?: string[] } = {},
+    options: { horizontalSwipes?: number; verticalScrolls?: number; ctaTexts?: string[]; swipeDirection?: 'left' | 'right' } = {},
   ): Promise<boolean> {
     const horizontalSwipes = options.horizontalSwipes ?? 8;
     const verticalScrolls = options.verticalScrolls ?? 5;
@@ -447,9 +562,10 @@ export class IOSBasePage {
       await this.driver.pause(150);
     }
 
-    console.log(`  PPV banner not immediately visible. Swiping left to find "${ppvName}"...`);
+    console.log(`  PPV banner not immediately visible. Swiping ${options.swipeDirection || 'left'} to find "${ppvName}"...`);
     for (let i = 0; i < horizontalSwipes; i++) {
-      await this.swipeLeft();
+      if (options.swipeDirection === 'right') await this.swipeRight();
+      else await this.swipeLeft();
       if (await isCurrentBannerPPV(150)) {
         await this.captureCurrentBannerValidationSnapshot();
         return true;

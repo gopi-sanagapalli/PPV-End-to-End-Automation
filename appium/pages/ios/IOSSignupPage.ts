@@ -222,23 +222,23 @@ export class IOSSignupPage extends IOSBasePage {
         if (!await this.clickContinue()) throw new Error('Safari sign-in Continue button was not available.');
         if (isUltimateSignInDuringFlow) {
           const myAccountPage = new IOSMyAccountPage(this.driver);
-          await this.driver.waitUntil(async () => {
+          const redirectedToMyAccount = await this.driver.waitUntil(async () => {
             const postLoginUrl = await this.driver.getUrl().catch(() => '');
-            if (myAccountPage.isSafariPurchasedPPVPage('', postLoginUrl)) return true;
-            return /\/(?:signup|payment|checkout|purchase|choose)(?:[/?#]|$)/i.test(postLoginUrl);
+            return myAccountPage.isSafariPurchasedPPVPage('', postLoginUrl) &&
+              await this.browserLoadComplete();
           }, {
-            timeout: 45000,
-            interval: 1000,
+            timeout: Number(process.env.IOS_SAFARI_SETTLE_TIMEOUT_MS || 35000),
+            interval: Number(process.env.IOS_SAFARI_SETTLE_POLL_MS || 2000),
             timeoutMsg: 'Active Ultimate user sign-in did not redirect to the My Account PPV page.',
-          });
+          }).then(() => true).catch(() => false);
 
           const postLoginUrl = await this.driver.getUrl().catch(() => '');
-          if (!myAccountPage.isSafariPurchasedPPVPage('', postLoginUrl)) {
+          if (!redirectedToMyAccount) {
             await this.driver.saveScreenshot('./test-results/ios_ultimate_myaccount_redirect_failed.png').catch(() => {});
             throw new Error(
-              `❌ [iOS Sign In During Flow Ultimate] Post-login redirection failed: expected My Account PPV page ` +
-              `but landed on "${postLoginUrl || 'unknown'}". The configured user is not an active Ultimate user ` +
-              `or does not own this PPV. See test-results/ios_ultimate_myaccount_redirect_failed.png`,
+              `❌ [iOS Sign In During Flow Ultimate] My Account PPV page did not appear after post-login redirection. ` +
+              `The configured user is not an active Ultimate user. Last URL: "${postLoginUrl || 'unknown'}". ` +
+              `See test-results/ios_ultimate_myaccount_redirect_failed.png`,
             );
           }
 

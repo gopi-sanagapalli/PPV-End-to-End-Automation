@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { chromium } from '@playwright/test';
+import type { JiraTicket } from './jiraValidationReporter';
 
 const PDF_RENDER_TIMEOUT_MS = Number(process.env.PPV_REPORT_PDF_TIMEOUT_MS) || 30_000;
 
@@ -511,6 +512,28 @@ export async function generateReports(
   console.log(`  Excel: ${fs.existsSync(bundledExcelPath) ? bundledExcelPath : 'not generated'}`);
   console.log(`  Video: ${bundledVideoPath && fs.existsSync(bundledVideoPath) ? bundledVideoPath : 'not generated'}`);
   console.log(`  Gemini: ${geminiEvidencePath || 'not generated'}`);
+
+  const platform = (meta.platform || '').trim().toLowerCase();
+  if ((platform === 'android' || platform === 'ios') && results.some(result => result.status === 'FAIL')) {
+    const { reportValidationFailuresToJira }: typeof import('./jiraValidationReporter') = require('./jiraValidationReporter');
+    const tickets: JiraTicket[] = await reportValidationFailuresToJira({
+      results,
+      context: {
+        region: meta.region,
+        environment: meta.env,
+        platform: meta.platform || platform,
+        flow: meta.flowName,
+        event: meta.event,
+        userState: meta.userStatus || meta.userType,
+        source: meta.source,
+      },
+      htmlReportPath: htmlPath,
+      pdfReportPath: pdfOk ? pdfPath : null,
+    });
+    if (tickets.length) {
+      fs.writeFileSync(path.join(runDir, 'QAR_Tickets.json'), `${JSON.stringify(tickets, null, 2)}\n`);
+    }
+  }
 
   return { htmlPath, pdfPath: pdfOk ? pdfPath : null, folderPath: runDir };
 }

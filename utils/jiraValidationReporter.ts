@@ -32,6 +32,11 @@ type JiraValidationReport = {
   pdfReportPath?: string | null;
 };
 
+export type JiraTicket = {
+  key: string;
+  url: string;
+};
+
 const MAX_ATTACHMENTS = 12;
 const JIRA_REQUEST_TIMEOUT_MS = Number(process.env.JIRA_REQUEST_TIMEOUT_MS) || 15_000;
 
@@ -503,16 +508,17 @@ async function attachFile(
  * already established that a flow completed successfully but validations failed.
  * All Jira errors are logged and deliberately do not hide the original test failure.
  */
-export async function reportValidationFailuresToJira(report: JiraValidationReport): Promise<void> {
-  if (process.env.GITHUB_ACTIONS !== 'true' && process.env.DEMO_MODE !== 'true') return;
+export async function reportValidationFailuresToJira(report: JiraValidationReport): Promise<JiraTicket[]> {
+  const tickets: JiraTicket[] = [];
+  if (process.env.GITHUB_ACTIONS !== 'true' && process.env.DEMO_MODE !== 'true') return tickets;
 
   const failures = report.results.filter(result => String(result.status).toUpperCase() === 'FAIL');
-  if (!failures.length) return;
+  if (!failures.length) return tickets;
 
   const config = jiraConfig();
   if (!config || process.env.JIRA_EMAIL === 'your_jira_email_here' || process.env.JIRA_API_TOKEN === 'your_jira_api_token_here') {
     console.warn('⚠️ [Jira] Validation failures found, but Jira secrets are not configured; skipping ticket creation.');
-    return;
+    return tickets;
   }
 
   const context = report.context;
@@ -607,6 +613,10 @@ export async function reportValidationFailuresToJira(report: JiraValidationRepor
       await addDuplicateOccurrenceComment(existingIssueKey, context, failures, runMetadata, config);
       await attachEvidence(existingIssueKey, report, evidencePath, failures, config);
       publishJiraIssueLink(existingIssueKey, config.baseUrl);
+      tickets.push({
+        key: existingIssueKey,
+        url: `${config.baseUrl}/browse/${encodeURIComponent(existingIssueKey)}`,
+      });
       continue;
     }
 
@@ -652,9 +662,14 @@ export async function reportValidationFailuresToJira(report: JiraValidationRepor
     if (!issue.key) throw new Error('issue creation response did not include an issue key');
     console.log(`🐞 [Jira] Created ${issue.key} for ${failures.length} validation failure(s).`);
     publishJiraIssueLink(issue.key, config.baseUrl);
+    tickets.push({
+      key: issue.key,
+      url: `${config.baseUrl}/browse/${encodeURIComponent(issue.key)}`,
+    });
     await attachEvidence(issue.key, report, evidencePath, failures, config);
   } catch (error: any) {
     console.warn(`⚠️ [Jira] Could not create validation issue: ${error?.message || error}`);
   }
   }
+  return tickets;
 }

@@ -1886,7 +1886,7 @@ describe('DAZN Android PPV → Web Handoff', () => {
       });
 
       // Generate HTML + PDF run reports
-      const reportPaths = await generateReports(results, {
+      await generateReports(results, {
         event: json.PPV_NAME,
         region: REGION,
         source: flowConfig.source,
@@ -1905,29 +1905,6 @@ describe('DAZN Android PPV → Web Handoff', () => {
       const passed = results.filter(r => r.status === 'PASS').length;
       const failed = results.filter(r => r.status === 'FAIL').length;
       const total = passed + failed;
-
-      if (failed > 0) {
-        try {
-          const { reportValidationFailuresToJira } = require('../../../utils/jiraValidationReporter');
-          console.log(`🐞 [Jira] Triggering Jira ticket reporting for Android handoff test failures...`);
-          await reportValidationFailuresToJira({
-            results,
-            context: {
-              region: REGION,
-              environment: ENV,
-              platform: 'Android',
-              flow: 'newuser-landing-page',
-              event: json.PPV_NAME,
-              userState: 'new-user',
-              source: SOURCE,
-            },
-            htmlReportPath: reportPaths?.htmlPath || null,
-            pdfReportPath: reportPaths?.pdfPath || null,
-          });
-        } catch (jiraErr: any) {
-          console.error(`⚠️ [Jira] Failed to report to Jira: ${jiraErr.message}`);
-        }
-      }
 
       console.log(`\n✅ Flow "${flowConfig.name}" complete: ${passed}/${total} passed (${total > 0 ? ((passed / total) * 100).toFixed(1) : 0}%)`);
       console.log(`${'─'.repeat(55)}`);

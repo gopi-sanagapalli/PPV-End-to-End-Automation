@@ -411,7 +411,7 @@ export class IOSSafariValidationPage extends IOSBasePage {
     }
 
     if (fieldLower === 'currency') {
-      const currencyAmount = fullText.match(/(?:[A-Z]{3}\s*|[£$€₹]\s?)\d+(?:[.,]\d{2})?/i)?.[0] || '';
+      const currencyAmount = fullText.match(/(?:\b[A-Z]{3}\s*|[£$€₹]\s?)\d+(?:[.,]\d{2})?/i)?.[0] || '';
       const currencyCode = currencyAmount.match(/^[A-Z]{3}\b/i)?.[0];
       const currencySymbol = currencyAmount.match(/^[£$€₹]/)?.[0];
       const actual = currencyCode || currencySymbol || 'Not found';
