@@ -44,31 +44,66 @@ export class StandalonePPVPage extends BasePage {
     return await cb.isChecked().catch(() => false);
   }
 
+  // Android standalone tests still cover the unchecked state. Web and iOS do
+  // not call this method because they validate only the default checked state.
   async togglePPVCheckbox(ppvName?: string): Promise<void> {
     const mainName = ppvName ? ppvName.split(/[:\-–]/)[0].trim() : '';
     const btn = mainName
       ? this.page.locator(`button:has-text("${mainName}"), button[class*="ni7RX"]`).first()
       : this.page.locator(`button[class*="ni7RX"]`).first();
     if (await btn.isVisible().catch(() => false)) {
-      console.log(`🖱️ Clicking ticket button to toggle state`);
       await btn.click({ force: true });
     } else {
       const cb = this.page.locator('input[type="checkbox"]').first();
-      await cb.scrollIntoViewIfNeeded().catch(() => { });
       await cb.click({ force: true }).catch(() => { });
     }
     await this.page.waitForTimeout(1000);
   }
 
-  async validatePPVPageChecked(data: any[], results: any[], eventData: Record<string, string>): Promise<void> {
-    console.log('🔍 Validating Standalone PPV page (checkbox checked)...');
+  async validatePPVPageForSelectedPlan(
+    data: any[],
+    results: any[],
+    eventData: Record<string, string>,
+    planType: 'flex' | 'annual_monthly',
+  ): Promise<void> {
+    console.log(`🔍 Validating Standalone PPV page for selected ${planType} plan...`);
 
-    const ppvName = eventData.PPV_NAME;
-    // Ensure checkbox is checked
-    const checked = await this.isPPVCheckboxChecked(ppvName);
-    if (!checked) {
-      await this.togglePPVCheckbox(ppvName);
+    const checkedRows = data.filter(r => (r.State || '').trim().toLowerCase() === 'checked');
+    const hasAnnualFreeMonthOffer = /(?:1|first)\s+month\s+free/i.test(
+      String(eventData.ANNUAL_BADGE || '')
+    );
+    const checkboxRows = checkedRows.filter(
+      r => (r.Field || '').trim().toLowerCase() === 'ppv checkbox state'
+    );
+    const selectedPlanRows = checkedRows.filter(r => {
+      const field = (r.Field || '').trim().toLowerCase();
+      if (field === 'ppv checkbox state') return false;
+      const isFlexField = field.startsWith('flex ') || field === 'cta button (flex selected)';
+      const isAnnualField = field.startsWith('annual ') || field === 'cta button (apm selected)';
+      const isAnnualFeature = /^annual feature [1-3]$/.test(field);
+      if (isAnnualFeature && !hasAnnualFreeMonthOffer) return false;
+      return planType === 'flex'
+        ? !isAnnualField
+        : !isFlexField;
+    });
+
+    // The ticket must be selected by default. Do not change the product state
+    // merely to make the validation pass.
+    await validateVariant(this.page, 'standalone-ppv', checkboxRows, results, eventData, 'PPV');
+
+    if (planType === 'flex') {
+      await this.selectPlan('flex');
+      await validateVariant(this.page, 'standalone-ppv', selectedPlanRows, results, eventData, 'PPV');
+    } else {
+      await this.selectPlan('annual_monthly');
+      await validateVariant(this.page, 'standalone-ppv', selectedPlanRows, results, eventData, 'PPV');
     }
+  }
+
+  // Retained only for existing Android callers. Do not use in web or iOS flows.
+  async validatePPVPageChecked(data: any[], results: any[], eventData: Record<string, string>): Promise<void> {
+    const checked = await this.isPPVCheckboxChecked(eventData.PPV_NAME);
+    if (!checked) await this.togglePPVCheckbox(eventData.PPV_NAME);
 
     const checkedRows = data.filter(r => (r.State || '').trim().toLowerCase() === 'checked');
     const apmCtaRows = checkedRows.filter(
@@ -77,32 +112,21 @@ export class StandalonePPVPage extends BasePage {
     const flexAndCommonRows = checkedRows.filter(
       r => (r.Field || '').trim().toLowerCase() !== 'cta button (apm selected)'
     );
-
     await this.selectPlan('flex');
     await validateVariant(this.page, 'standalone-ppv', flexAndCommonRows, results, eventData, 'PPV');
-
     if (apmCtaRows.length > 0) {
       await this.selectPlan('annual_monthly');
       await validateVariant(this.page, 'standalone-ppv', apmCtaRows, results, eventData, 'PPV');
     }
   }
 
+  // Retained only for existing Android callers. Do not use in web or iOS flows.
   async validatePPVPageUnchecked(data: any[], results: any[], eventData: Record<string, string>): Promise<void> {
-    console.log('🔍 Validating Standalone PPV page (checkbox unchecked)...');
-
-    const ppvName = eventData.PPV_NAME;
-    // 1. Uncheck checkbox
-    const checked = await this.isPPVCheckboxChecked(ppvName);
-    if (checked) {
-      await this.togglePPVCheckbox(ppvName);
-    }
-
-    // 2. Validate unchecked elements
+    const checked = await this.isPPVCheckboxChecked(eventData.PPV_NAME);
+    if (checked) await this.togglePPVCheckbox(eventData.PPV_NAME);
     const uncheckedRows = data.filter(r => (r.State || '').trim().toLowerCase() === 'unchecked');
     await validateVariant(this.page, 'standalone-ppv', uncheckedRows, results, eventData, 'PPV');
-
-    // 3. Check back checkbox
-    await this.togglePPVCheckbox(ppvName);
+    await this.togglePPVCheckbox(eventData.PPV_NAME);
   }
 
   async selectPlan(planType: 'flex' | 'annual_monthly'): Promise<void> {

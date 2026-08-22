@@ -5,6 +5,7 @@ import { IOSValidationResult } from './IOSValidationPage';
 const lazyExcelReader = () => require('../../../utils/excelReader') as {
   getChooseHowToBuyData: () => any[];
   getPPVPaymentData: () => any[];
+  getStandalonePPVPageData: () => any[];
 };
 
 /**
@@ -252,7 +253,7 @@ export class IOSSafariValidationPage extends IOSBasePage {
     texts: string[],
     fullText: string,
     compareFn: (actual: string, expected: string) => boolean,
-    extras: { h1Text: string; buttonTexts: string[]; hasImage: boolean; selectedRadioText: string; hasTermsLink: boolean; eventName: string; ratePlan: string; pageName: string },
+    extras: { h1Text: string; buttonTexts: string[]; hasImage: boolean; ppvCheckboxChecked: boolean; visiblePlanCount: number; selectedRadioText: string; hasTermsLink: boolean; eventName: string; ratePlan: string; pageName: string },
   ): { actual: string; isMatch: boolean } {
     const fieldLower = field.toLowerCase().replace(/\s+/g, ' ').trim();
     const isUpgradeConfirmation = /upgrade confirmation/i.test(extras.pageName);
@@ -407,6 +408,16 @@ export class IOSSafariValidationPage extends IOSBasePage {
 
     if (fieldLower === 'ppv image present') {
       const actual = extras.hasImage ? 'Yes' : 'No';
+      return { actual, isMatch: compareFn(actual, expected) };
+    }
+
+    if (fieldLower === 'ppv checkbox state') {
+      const actual = extras.ppvCheckboxChecked ? 'Checked' : 'Unchecked';
+      return { actual, isMatch: compareFn(actual, expected) };
+    }
+
+    if (fieldLower === 'plans visible count (checked)') {
+      const actual = String(extras.visiblePlanCount);
       return { actual, isMatch: compareFn(actual, expected) };
     }
 
@@ -809,8 +820,25 @@ export class IOSSafariValidationPage extends IOSBasePage {
     const fullText = texts.join(' ');
     const h1Text = await this.getH1Text();
     const buttonTexts = await this.getButtonTexts();
-    const [hasImage, selectedRadioText, hasTermsLink] = await Promise.all([
+    const [hasImage, ppvCheckboxChecked, visiblePlanCount, selectedRadioText, hasTermsLink] = await Promise.all([
       this.driver.execute(() => document.querySelectorAll('img').length > 0).catch(() => false),
+      this.driver.execute(() => {
+        const checkbox = document.querySelector<HTMLInputElement>('input[type="checkbox"]');
+        if (checkbox) return checkbox.checked;
+        const toggle = document.querySelector<HTMLElement>('button[class*="ni7RX"]');
+        return Boolean(toggle && (
+          toggle.getAttribute('aria-pressed') === 'true' ||
+          toggle.getAttribute('aria-checked') === 'true' ||
+          /\b(?:checked|active)\b/i.test(toggle.className || '')
+        ));
+      }).catch(() => false),
+      this.driver.execute(() => Array.from(
+        document.querySelectorAll<HTMLElement>('input[type="radio"], [role="radio"]'),
+      ).filter(element => {
+        const style = window.getComputedStyle(element);
+        const box = element.getBoundingClientRect();
+        return style.display !== 'none' && style.visibility !== 'hidden' && box.width > 0 && box.height > 0;
+      }).length).catch(() => 0),
       this.driver.execute(() => {
         // DAZN has used native radios, ARIA radios, and CSS-selected cards in
         // different mobile experiments. Restrict the CSS fallback to elements
@@ -954,7 +982,7 @@ export class IOSSafariValidationPage extends IOSBasePage {
       const { actual, isMatch } = this.findActualValue(
         field, expected, texts, fullText, compare,
         {
-          h1Text, buttonTexts, hasImage, selectedRadioText, hasTermsLink,
+          h1Text, buttonTexts, hasImage, ppvCheckboxChecked, visiblePlanCount, selectedRadioText, hasTermsLink,
           eventName: String(eventData.PPV_NAME || ''),
           ratePlan: String(eventData.RATE_PLAN || process.env.RATE_PLAN || 'monthly').toLowerCase(),
           pageName,
@@ -1053,6 +1081,7 @@ export class IOSSafariValidationPage extends IOSBasePage {
           console.log('⏭️  No PPV page sheet found, skipping PPV validation');
           return;
         }
+
       }
       eventData.CURRENT_PAGE = 'PPV';
       const rowsBeforeTierSelection = String(eventData.TIER || '').toLowerCase() === 'ultimate'
@@ -1061,6 +1090,36 @@ export class IOSSafariValidationPage extends IOSBasePage {
       await this.validateWebPageWithSheet('PPV Page', rowsBeforeTierSelection, eventData, results);
     } catch (err: any) {
       console.warn(`⚠️  PPV page validation error: ${err.message}`);
+    }
+  }
+
+  async validateStandalonePPVPage(
+    eventData: Record<string, any>,
+    results: IOSValidationResult[],
+    planType: 'flex' | 'annual_monthly',
+  ): Promise<void> {
+    try {
+      const { getStandalonePPVPageData } = lazyExcelReader();
+      const checkedRows = getStandalonePPVPageData().filter((row: any) =>
+        String(row.State || '').trim().toLowerCase() === 'checked'
+      );
+      const hasAnnualFreeMonthOffer = /(?:1|first)\s+month\s+free/i.test(
+        String(eventData.ANNUAL_BADGE || '')
+      );
+      const rows = checkedRows.filter((row: any) => {
+        const field = String(row.Field || '').trim().toLowerCase();
+        const isFlexField = field.startsWith('flex ') || field === 'cta button (flex selected)';
+        const isAnnualField = field.startsWith('annual ') || field === 'cta button (apm selected)';
+        const isAnnualFeature = /^annual feature [1-3]$/.test(field);
+        if (isAnnualFeature && !hasAnnualFreeMonthOffer) return false;
+        return planType === 'flex'
+          ? !isAnnualField
+          : !isFlexField;
+      });
+      eventData.CURRENT_PAGE = 'PPV';
+      await this.validateWebPageWithSheet('Standalone PPV Page', rows, eventData, results);
+    } catch (err: any) {
+      console.warn(`⚠️ Standalone PPV Safari validation error: ${err.message}`);
     }
   }
 
