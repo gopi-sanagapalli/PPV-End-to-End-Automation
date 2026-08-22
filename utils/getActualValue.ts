@@ -8976,6 +8976,7 @@ export async function getActualValue(
       const expectedHasTime = /\d{1,2}:\d{2}/.test(expectedDate);
       const fullDateTimeRegex = /\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)(?:day)?\b\s+\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)(?:\s+at\s+\d{1,2}:\d{2}(?:\s*[AP]M)?)?/i;
       const dateWithTimeRegex = /\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)(?:day)?\b[^\n]{0,40}\d{1,2}:\d{2}(?:\s*[AP]M)?|\b\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)[^\n]{0,30}\d{1,2}:\d{2}(?:\s*[AP]M)?/i;
+      const relativeDateTimeRegex = /\b(?:today|tomorrow|yesterday|tonight|this\s+(?:morning|afternoon|evening|night))\s+at\s+\d{1,2}:\d{2}(?:\s*[AP]M)?/i;
 
       if (isLandingOrHome) {
         const candidateEls = container.locator('time, span, p, div, button, [class*="badge" i], [class*="date" i]');
@@ -8986,6 +8987,14 @@ export async function getActualValue(
           if (!await candidate.isVisible({ timeout: 100 }).catch(() => false)) continue;
           const text = clean(await candidate.innerText({ timeout: T }).catch(() => ''));
           if (text && text.length <= 100) candidates.push(text);
+        }
+
+        // The active carousel banner can render a relative badge while another
+        // promotion in the same DOM subtree exposes a full calendar date.
+        // Prefer the active badge so a nested adjacent promotion cannot win.
+        for (const candidate of candidates) {
+          const matched = candidate.match(relativeDateTimeRegex);
+          if (matched) return matched[0].trim();
         }
 
         if (expectedHasTime) {
@@ -9009,7 +9018,7 @@ export async function getActualValue(
       // "Sunday", "Sunday at 3:45 AM", "Sat 27 Jun", or "27 June".
       // Extract only the date badge text from the scoped event banner.
       const dateRegex =
-        /\b(?:today|tomorrow|yesterday)\b(?:\s+at\s+\d{1,2}:\d{2}(?:\s*[AP]M)?)?|\b(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*\b(?:\s+at\s+\d{1,2}:\d{2}(?:\s*[AP]M)?)?|\b\d{1,2}(?:st|nd|rd|th)?\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/i;
+        /\b(?:today|tomorrow|yesterday|tonight|this\s+(?:morning|afternoon|evening|night))\b(?:\s+at\s+\d{1,2}:\d{2}(?:\s*[AP]M)?)?|\b(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*\b(?:\s+at\s+\d{1,2}:\d{2}(?:\s*[AP]M)?)?|\b\d{1,2}(?:st|nd|rd|th)?\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/i;
 
       if (isLandingOrHome) {
         // Prefer full landing banner date + time (e.g. "Sat 25th Jul at 21:30" or "Sun 26th July at 5:00 AM")
