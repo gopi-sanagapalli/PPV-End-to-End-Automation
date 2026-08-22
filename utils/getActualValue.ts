@@ -1903,13 +1903,15 @@ export async function getActualValue(
           const hasDay = /\b\d{1,2}(?:st|nd|rd|th)?\b/i.test(t);
           const hasWeekday = /\b(mon|tue|wed|thu|fri|sat|sun|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i.test(t);
           const hasTime = /\b\d{1,2}:\d{2}\s*(?:am|pm)?\b/i.test(t);
-          if (!(hasMonth && hasDay) && !(hasWeekday && hasTime)) continue;
+          const hasRelativeLabel = /\b(?:today|tomorrow|tonight|this\s+(?:morning|afternoon|evening|night))\b/i.test(t);
+          if (!(hasMonth && hasDay) && !(hasWeekday && hasTime) && !(hasRelativeLabel && hasTime)) continue;
 
           let score = 0;
           if (hasMonth) score += 30;
           if (hasDay) score += 20;
           if (hasTime) score += 25;
           if (hasWeekday) score += 10;
+          if (hasRelativeLabel) score += 10;
           if (kids === 0) score += 12;
           if (lower.includes('at ')) score += 4;
           score -= Math.max(0, t.length - 18);
