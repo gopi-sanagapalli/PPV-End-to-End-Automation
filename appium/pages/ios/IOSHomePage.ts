@@ -419,8 +419,8 @@ export class IOSHomePage extends IOSLandingPage {
         ? await hooks.saveScreenshot('./test-results/ios_dont_miss_ppv_not_found.png')
         : undefined;
       hooks.recordAvailability?.(false, shot, recordPage);
-      await hooks.generateAvailabilityFailureReport?.(`PPV "${this.ppvName}" not found in Don't Miss rail`);
-      throw new Error(`PPV "${this.ppvName}" not found in Don't Miss rail. See test-results/ios_dont_miss_ppv_not_found.png`);
+      await hooks.generateAvailabilityFailureReport?.(`No PPV tile configured for "${this.ppvName}" on ${recordPage} Don't Miss rail`);
+      throw new Error(`No PPV tile configured for "${this.ppvName}" on ${recordPage} Don't Miss rail. See test-results/ios_dont_miss_ppv_not_found.png`);
     }
 
     // Centre the found card before validation and interaction. The card can
