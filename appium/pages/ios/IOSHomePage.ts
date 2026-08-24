@@ -380,7 +380,10 @@ export class IOSHomePage extends IOSLandingPage {
         console.warn(`  Ignoring visual PPV match outside the Don't Miss rail: x=${x}, y=${y}`);
         return undefined;
       }
-      process.env.IOS_DONT_MISS_OCR_TEXTS = JSON.stringify(visualMatch.ocrTexts || []);
+      process.env.IOS_DONT_MISS_OCR_TEXTS = JSON.stringify([
+        ...(visualMatch.ocrTexts || []),
+        ...(collectEvidenceWithoutTitleMatch ? [this.ppvName] : []),
+      ]);
       console.log(`  Found PPV artwork for "${this.ppvName}" at x=${x}, y=${y}; stopping horizontal search.`);
       return { x, y };
     };

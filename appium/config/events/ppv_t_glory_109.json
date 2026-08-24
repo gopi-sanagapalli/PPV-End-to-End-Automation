@@ -7,7 +7,7 @@
   "PPV_ENTITLEMENT_ID": "ppv_t_glory_109",
   "PPV_PROMOTER": "TBD",
   "HAS_BUNDLE": false,
-  "PPV_DEV_MODE": true,
+  "PPV_DEV_MODE": false,
   "DEFAULT_SIGNUP_DEVMODE": false,
   "HAS_DEFAULT_SIGNUP_PPV": false,
   "global": {

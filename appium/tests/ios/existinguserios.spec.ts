@@ -573,7 +573,10 @@ describe('DAZN iOS PPV — Existing User Flow', () => {
     const { configureExcelPathForEvent } = require('../../../utils/excelReader');
     configureExcelPathForEvent(json.eventKey || '');
 
-    const safariResults: IOSValidationResult[] = [...iosAvailabilityResults, ...appiumResults];
+    // Keep Safari validations in the shared accumulator so a later checkout
+    // failure still produces a complete report instead of a native-only one.
+    iosAvailabilityResults.push(...appiumResults);
+    const safariResults = iosAvailabilityResults;
     const browserReentry = getIOSBrowserReentry(SOURCE);
     if (!browserReentry.supported) {
       throw new Error(

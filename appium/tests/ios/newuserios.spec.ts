@@ -475,7 +475,9 @@ describe('DAZN iOS PPV — New User Handoff Flow', () => {
     const { configureExcelPathForEvent } = require('../../../utils/excelReader');
     configureExcelPathForEvent(json.eventKey || '');
 
-    const safariResults = [...iosAvailabilityResults];
+    // Keep Safari validations in the shared accumulator so a later checkout
+    // failure still produces a complete report instead of a native-only one.
+    const safariResults = iosAvailabilityResults;
     const browserReentry = getIOSBrowserReentry(SOURCE);
     if (!browserReentry.supported) {
       throw new Error(`iOS Safari re-entry via welcome page is not yet verified for SOURCE="${SOURCE}". Add it to getIOSBrowserReentry() in IOSSurfacingPoint.ts once confirmed on device.`);
