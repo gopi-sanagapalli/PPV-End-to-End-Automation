@@ -40,6 +40,7 @@ import {
 } from '../../utils/excelReader';
 import { detectVariant } from '../../flows/detectVariant';
 import { validateVariant, validateCtaAfterUltimateSelection } from '../../flows/validateVariant';
+import { captureFailures } from '../../utils/failureCapture';
 import { parseCanadaCommand } from '../../utils/configLoader';
 import { buildEventData } from '../../utils/buildEventData';
 import { displayResultsTable } from '../../utils/resultsDisplay';
@@ -493,6 +494,13 @@ for (const stateKey of userStatesToRun) {
 
     const tier = (json.TIER || 'freemium').toLowerCase();
     const requestedPlan = (process.env.PLAN || '').trim().toLowerCase();
+    if (
+      PPV_TYPE === 'upsell' &&
+      (tier === 'ultimate' || requestedPlan.startsWith('ultimate_') || userStateKey.startsWith('active_ultimate'))
+    ) {
+      test.skip(true, 'PPV upsell flows are only applicable to Standard PPV purchases.');
+      return;
+    }
     const isActiveStandardUser = userStateKey.startsWith('active_standard');
     const isUltimateUpgrade =
       isActiveStandardUser &&
@@ -878,7 +886,11 @@ for (const stateKey of userStatesToRun) {
         try {
           await p.waitForFunction(() => {
             const bodyText = document.body ? document.body.innerText.toLowerCase() : '';
-            return bodyText.includes('choose how to buy') ||
+            return (bodyText.includes('payment was successful') &&
+              (bodyText.includes('dazn bet') || bodyText.includes('free bet') || bodyText.includes('activate betting'))) ||
+              (bodyText.includes('payment was successful') &&
+              (bodyText.includes('buy now for') || bodyText.includes('no thanks'))) ||
+              bodyText.includes('choose how to buy') ||
               bodyText.includes('pay now') ||
               bodyText.includes('one time payment') ||
               bodyText.includes('****');
@@ -891,6 +903,22 @@ for (const stateKey of userStatesToRun) {
           .innerText({ timeout: 3000 })
           .then((t: string) => t.toLowerCase())
           .catch(() => '');
+
+        if (
+          PPV_TYPE === 'upsell' &&
+          addonBody.includes('payment was successful') &&
+          (addonBody.includes('dazn bet') || addonBody.includes('free bet') || addonBody.includes('activate betting'))
+        ) {
+          return 'bet-upsell';
+        }
+
+        if (
+          PPV_TYPE === 'upsell' &&
+          addonBody.includes('payment was successful') &&
+          (addonBody.includes('buy now for') || addonBody.includes('no thanks'))
+        ) {
+          return 'success-upsell';
+        }
 
         if (isStandalonePPV) {
           const hasStandaloneControls =
@@ -1610,6 +1638,7 @@ for (const stateKey of userStatesToRun) {
             console.log('✅ [DAZN Tile] Entitlement tile clicked; waiting for subscription modal');
 
             const subscribeCta = page
+              .locator('#notification-layer')
               .getByRole('button', { name: /^subscribe$/i })
               .filter({ visible: true })
               .first();
@@ -2832,7 +2861,9 @@ for (const stateKey of userStatesToRun) {
 
           await handleCookies(page, step === 0 ? 8000 : 1500);
           await stabilisePage(page);
-          await dismissMarketingPopup(page);
+          if (PPV_TYPE !== 'upsell' || !firstPaymentDone) {
+            await dismissMarketingPopup(page);
+          }
 
           // Dynamically extract name from page if available to keep eventData in sync
           let signedInText = '';
@@ -3387,13 +3418,21 @@ for (const stateKey of userStatesToRun) {
                   console.log('🔵 [GPay] Using Google Pay payment method...');
                   await paymentPage.fillGooglePayAndSubmit(results, eventData);
                   await paymentPage.verifyPaymentSuccess();
-                  await paymentPage.clickSuccessContinue();
+                  if (PPV_TYPE === 'upsell') {
+                    await new PPVUpsellSuccessPage(page).waitForUpsellOffer(eventData.UPSELL_BUY_CTA);
+                  } else {
+                    await paymentPage.clickSuccessContinue();
+                  }
                 } else {
                   // ── Credit Card flow (existing default) ──────────────
                   console.log('💳 Using Credit Card payment method...');
                   await paymentPage.fillPaymentAndSubmit();
                   await paymentPage.verifyPaymentSuccess();
-                  await paymentPage.clickSuccessContinue();
+                  if (PPV_TYPE === 'upsell') {
+                    await new PPVUpsellSuccessPage(page).waitForUpsellOffer(eventData.UPSELL_BUY_CTA);
+                  } else {
+                    await paymentPage.clickSuccessContinue();
+                  }
                 }
                 console.log('✅ Payment details submitted successfully on staging!');
 
@@ -4289,6 +4328,7 @@ for (const stateKey of userStatesToRun) {
                 actual: cleanCta,
                 status: ctaMatch ? 'PASS' : 'FAIL'
               });
+              await captureFailures(page, results, 'DAZN Plan', eventData);
             }
 
             await clickAndWaitForNav(page, planBtn, 'Plan Continue');

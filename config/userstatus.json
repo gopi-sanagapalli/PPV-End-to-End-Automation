@@ -6,7 +6,7 @@
       "GB": {
         "environments": {
           "stag": {
-            "USER_EMAIL": "stagukppv2@yopmail.com",
+            "USER_EMAIL": "stagupsellfree3@yopmail.com",
             "USER_PASSWORD": "Dazn@123"
           },
           "prod": {
@@ -88,8 +88,8 @@
       "GB": {
         "environments": {
           "stag": {
-            "USER_EMAIL": "uk_ppvb1@t.com",
-            "USER_PASSWORD": "Test1!"
+            "USER_EMAIL": "stagupsell4@yopmail.com",
+            "USER_PASSWORD": "Dazn@123"
           },
           "prod": {
             "USER_EMAIL": "uk_ppvb1@t.com",
@@ -260,9 +260,8 @@
             "USER_PASSWORD": "TODO_ADD_PASSWORD"
           },
           "prod": {
-            "USER_EMAIL": "ukgc@yopmail.com",
-            "USER_PASSWORD": "Dazn@1",
-            "PAYMENT_PROFILE": "giftcode"
+            "USER_EMAIL": "uknewglory@yopmail.com",
+            "USER_PASSWORD": "Dazn@123"
           }
         }
       },
