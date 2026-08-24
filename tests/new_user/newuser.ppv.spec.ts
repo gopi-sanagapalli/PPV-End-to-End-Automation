@@ -1641,10 +1641,12 @@ async function runFlow(
               const ppvData = getStandalonePPVPageData();
               console.log(`📊 Standalone PPV rows: ${ppvData.length}`);
 
-              // Validate checked state
-              await standalonePPVPage.validatePPVPageChecked(ppvData, results, eventData);
-              // Validate unchecked state
-              await standalonePPVPage.validatePPVPageUnchecked(ppvData, results, eventData);
+              await standalonePPVPage.validatePPVPageForSelectedPlan(
+                ppvData,
+                results,
+                eventData,
+                ratePlan === 'monthly' ? 'flex' : 'annual_monthly',
+              );
               ppvValidated = true;
             } catch (err: any) {
               console.warn('⚠️ Standalone PPV page validation error:', err.message);

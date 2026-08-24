@@ -722,8 +722,9 @@ export class IOSSafariCheckoutPage extends IOSBasePage {
       const isUltimateUser = userState.startsWith('active_ultimate');
       const isLoginFirst = String(process.env.LOGIN_FIRST || process.env.LOGIN || '').toLowerCase() === 'true';
       const ppvDevMode = String(options.eventData?.PPV_DEV_MODE || process.env.PPV_DEV_MODE || '').toLowerCase() === 'true';
+      const isStandalonePPV = String(options.eventData?.PPV_TYPE || '').toLowerCase() === 'standalone';
       const devModeForced = String(process.env.DEV_MODE_ON || '').toLowerCase() === 'on' || ppvDevMode;
-      if (devModeForced || (tier === 'ultimate' && isUSorGB) || (isUltimateUser && isLoginFirst)) {
+      if (!isStandalonePPV && (devModeForced || (tier === 'ultimate' && isUSorGB) || (isUltimateUser && isLoginFirst))) {
         console.log('🎭 Ultimate tier detected on account checkout — enabling dev mode first...');
         const searchUrl = new URL(`/en-${region}/search`, settledUrl).toString();
         await this.driver.url(searchUrl);
@@ -775,8 +776,9 @@ export class IOSSafariCheckoutPage extends IOSBasePage {
     const isLoginFirst = String(process.env.LOGIN_FIRST || process.env.LOGIN || '').toLowerCase() === 'true';
     const isExistingUser = !userState.startsWith('new') || Boolean(process.env.USER_EMAIL);
     const ppvDevMode = String(options.eventData?.PPV_DEV_MODE || process.env.PPV_DEV_MODE || '').toLowerCase() === 'true';
+    const isStandalonePPV = String(options.eventData?.PPV_TYPE || '').toLowerCase() === 'standalone';
     const devModeForced = String(process.env.DEV_MODE_ON || '').toLowerCase() === 'on' || ppvDevMode;
-    if (devModeForced || (tier === 'ultimate' && isUSorGB) || (isUltimateUser && isLoginFirst)) {
+    if (!isStandalonePPV && (devModeForced || (tier === 'ultimate' && isUSorGB) || (isUltimateUser && isLoginFirst))) {
       await this.waitForSafariLandingNavigation();
       await this.enableSafariDevMode();
       // Always navigate explicitly to welcome — dev mode ends on /search.

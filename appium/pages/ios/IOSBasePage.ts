@@ -1,5 +1,6 @@
 import { BannerInteraction } from '../../utils/bannerInteraction';
 import { execFileSync } from 'child_process';
+import { createHash } from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -409,6 +410,12 @@ export class IOSBasePage {
     return targetButton;
   }
 
+  private async bannerCarouselFingerprint(): Promise<string> {
+    return this.driver.takeScreenshot()
+      .then((screenshot: string) => createHash('sha256').update(screenshot).digest('hex'))
+      .catch(() => '');
+  }
+
   protected async tapBannerCtaForVerifiedPpv(
     ctas: string[],
     timeoutMs = 6000,
@@ -435,10 +442,21 @@ export class IOSBasePage {
     // active-banner recheck and this click. Swipe to bring it back into
     // view instead of failing on a banner that briefly stepped away.
     console.log(`  Verified banner CTA not immediately visible. Swiping ${options.swipeDirection || 'left'} to reacquire "${this.ppvName}"...`);
-    const maxSwipes = options.maxSwipes ?? 8;
-    for (let i = 0; i < maxSwipes; i++) {
+    const seenCarouselStates = new Set<string>();
+    const initialState = await this.bannerCarouselFingerprint();
+    if (initialState) seenCarouselStates.add(initialState);
+    const reacquisitionDeadline = Date.now() + Number(process.env.IOS_BANNER_SEARCH_TIMEOUT_MS || 30000);
+    let swipes = 0;
+    while (Date.now() < reacquisitionDeadline && (options.maxSwipes === undefined || swipes < options.maxSwipes)) {
       if (options.swipeDirection === 'right') await this.swipeRight();
       else await this.swipeLeft();
+      swipes++;
+      const currentState = await this.bannerCarouselFingerprint();
+      if (currentState && seenCarouselStates.has(currentState)) {
+        console.log(`  Banner carousel returned to a previously checked state after ${swipes} swipe(s); stopping CTA reacquisition.`);
+        break;
+      }
+      if (currentState) seenCarouselStates.add(currentState);
       const tapped = await tryTap();
       if (tapped) return tapped;
     }
@@ -521,7 +539,6 @@ export class IOSBasePage {
     ppvName = this.ppvName,
     options: { horizontalSwipes?: number; verticalScrolls?: number; ctaTexts?: string[]; swipeDirection?: 'left' | 'right' } = {},
   ): Promise<boolean> {
-    const horizontalSwipes = options.horizontalSwipes ?? 8;
     const verticalScrolls = options.verticalScrolls ?? 5;
     const ctaTexts = options.ctaTexts || ['Go to dazn.com/start', 'dazn.com/start', 'dazn.com'];
     const isUltimateUser = ['active_ultimate_apm', 'active_ultimate_upfront'].includes(String(process.env.USER_STATE || '').toLowerCase().trim());
@@ -530,32 +547,16 @@ export class IOSBasePage {
       ? [...ctaTexts, 'Fight Card', 'Set Reminder', 'Purchased']
       : ctaTexts;
 
-    const simplifiedName = ppvName.split(/ vs/i)[0].trim().replace(/\./g, '');
-    const normalisedName = this.normalisePpvMatchText(simplifiedName);
-    const titleTermVariants = this.ppvTitleTermVariants(ppvName);
-
-    const isCurrentBannerPPV = async (timeoutMs: number): Promise<boolean> => {
-      const titleVisible = await this.isVisible(simplifiedName, timeoutMs) || await this.isVisible(normalisedName, 200);
-      if (!titleVisible) return false;
-      for (const variants of titleTermVariants) {
-        let termVisible = false;
-        for (const term of variants) {
-          if (await this.isVisible(term, 200)) {
-            termVisible = true;
-            break;
-          }
-        }
-        if (!termVisible) return false;
-      }
-      for (const cta of activeBannerCtas) {
-        if (await this.isVisible(cta, 200)) return true;
-      }
-      return false;
+    const isCurrentBannerPPV = async (): Promise<boolean> => {
+      // Home can expose the configured PPV title in a lower content rail while
+      // a different event owns the visible hero CTA. The scoped lookup requires
+      // a CTA below the full configured title, avoiding stale generic queries.
+      return Boolean(await this.findBannerCtaForVerifiedPpv(activeBannerCtas, ppvName));
     };
 
     console.log(`  Checking if "${ppvName}" is the active banner...`);
     for (let attempt = 0; attempt < 2; attempt++) {
-      if (await isCurrentBannerPPV(500)) {
+      if (await isCurrentBannerPPV()) {
         await this.captureCurrentBannerValidationSnapshot();
         return true;
       }
@@ -563,10 +564,22 @@ export class IOSBasePage {
     }
 
     console.log(`  PPV banner not immediately visible. Swiping ${options.swipeDirection || 'left'} to find "${ppvName}"...`);
-    for (let i = 0; i < horizontalSwipes; i++) {
+    const seenCarouselStates = new Set<string>();
+    const initialState = await this.bannerCarouselFingerprint();
+    if (initialState) seenCarouselStates.add(initialState);
+    const deadline = Date.now() + Number(process.env.IOS_BANNER_SEARCH_TIMEOUT_MS || 30000);
+    let swipes = 0;
+    while (Date.now() < deadline && (options.horizontalSwipes === undefined || swipes < options.horizontalSwipes)) {
       if (options.swipeDirection === 'right') await this.swipeRight();
       else await this.swipeLeft();
-      if (await isCurrentBannerPPV(150)) {
+      swipes++;
+      const currentState = await this.bannerCarouselFingerprint();
+      if (currentState && seenCarouselStates.has(currentState)) {
+        console.log(`  Banner carousel returned to a previously checked state after ${swipes} swipe(s); stopping banner search.`);
+        break;
+      }
+      if (currentState) seenCarouselStates.add(currentState);
+      if (await isCurrentBannerPPV()) {
         await this.captureCurrentBannerValidationSnapshot();
         return true;
       }
@@ -576,7 +589,7 @@ export class IOSBasePage {
       console.log('  Swiping left exhausted. Trying vertical scroll down...');
       for (let i = 0; i < verticalScrolls; i++) {
         await this.scrollDown();
-        if (await isCurrentBannerPPV(150)) {
+        if (await isCurrentBannerPPV()) {
           await this.captureCurrentBannerValidationSnapshot();
           return true;
         }
@@ -786,20 +799,19 @@ export class IOSBasePage {
       console.log(`⚠️ [Country Match Check] Bypassed country match assertion (requested region: "${process.env.DAZN_REGION || 'GB'}").`);
       return;
     }
-    const region = String(process.env.DAZN_REGION || 'GB').toLowerCase();
-    const lowerUrl = url.toLowerCase();
-    let matches = false;
-    if (region === 'gb') {
-      matches = lowerUrl.includes('-gb') || lowerUrl.includes('-uk') || lowerUrl.includes('-gg') || lowerUrl.includes('-je');
-    } else if (region === 'ca') {
-      matches = lowerUrl.includes('-ca');
-    } else {
-      matches = lowerUrl.includes(`-${region}`);
-    }
-    if (!matches) {
+    if (!this.isCheckoutUrlCountryMatch(url)) {
       throw new Error(`❌ [Country Match Check] Country mismatch: expected region "${process.env.DAZN_REGION || 'GB'}" but URL is "${url}". Please ensure your VPN is connected to the correct region.`);
     }
     console.log(`✅ [Country Match Check] URL matches expected region "${process.env.DAZN_REGION || 'GB'}": ${url}`);
+  }
+
+  private isCheckoutUrlCountryMatch(url: string): boolean {
+    const region = String(process.env.DAZN_REGION || 'GB').toLowerCase();
+    const lowerUrl = url.toLowerCase();
+    if (region === 'gb') {
+      return lowerUrl.includes('-gb') || lowerUrl.includes('-uk') || lowerUrl.includes('-gg') || lowerUrl.includes('-je');
+    }
+    return region === 'ca' ? lowerUrl.includes('-ca') : lowerUrl.includes(`-${region}`);
   }
 
   private isPreferredSafariHandoffUrl(url: string): boolean {
@@ -1049,6 +1061,7 @@ export class IOSBasePage {
     const webviewPollIntervalMs = Number(process.env.IOS_WEBVIEW_CONTEXT_POLL_MS || 2000);
     const webviewDeadline = Date.now() + webviewTimeoutMs;
     let lastContextSummary = '';
+    let lastUnlocalizedLandingUrl = '';
     while (Date.now() < webviewDeadline) {
       await this.driver.pause(webviewPollIntervalMs);
       try {
@@ -1079,6 +1092,13 @@ export class IOSBasePage {
         );
         if (landingContext?.url) {
           const url = String(landingContext.url);
+          if (process.env.BYPASS_COUNTRY_CHECK !== 'true' && !this.isCheckoutUrlCountryMatch(url)) {
+            if (url !== lastUnlocalizedLandingUrl) {
+              console.log(`⏳ DAZN handoff is still settling at ${url}; waiting for the ${process.env.DAZN_REGION || 'GB'} localized URL.`);
+              lastUnlocalizedLandingUrl = url;
+            }
+            continue;
+          }
           console.log(`✅ Captured new DAZN handoff URL from WEBVIEW context ${landingContext.id}: ${url}`);
           this.assertCheckoutUrlCountryMatch(url);
           activatedBrowser = 'WEBVIEW';
@@ -1099,6 +1119,9 @@ export class IOSBasePage {
         if (/\[(Country Match|Contextual PPV) Check\]/.test(String(e?.message || e))) throw e;
         console.warn(`⚠️ Could not list web contexts: ${e.message}`);
       }
+    }
+    if (lastUnlocalizedLandingUrl) {
+      this.assertCheckoutUrlCountryMatch(lastUnlocalizedLandingUrl);
     }
 
     // Phase 2: check if external Safari/Chrome was opened instead.

@@ -40,8 +40,8 @@ export class IOSLandingPage extends IOSBasePage {
           .then(() => options.missingScreenshot)
           .catch(() => undefined);
       hooks.recordAvailability?.(false, shot, options.recordPage);
-      await hooks.generateAvailabilityFailureReport?.(`PPV banner "${this.ppvName}" not found on ${options.pageName || options.label}`);
-      throw new Error(`PPV banner "${this.ppvName}" not found. See ${options.missingScreenshot}`);
+      await hooks.generateAvailabilityFailureReport?.(`No PPV banner configured for "${this.ppvName}" on ${options.pageName || options.label}`);
+      throw new Error(`No PPV banner configured for "${this.ppvName}" on ${options.pageName || options.label}. See ${options.missingScreenshot}`);
     }
 
     hooks.recordAvailability?.(true, undefined, options.recordPage);
@@ -54,7 +54,6 @@ export class IOSLandingPage extends IOSBasePage {
 
     if (options.ensureBannerStillVisibleBeforeBuy) {
       const stillOnPPVBanner = await this.findBannerOnCurrentPage(this.ppvName, {
-        horizontalSwipes: 8,
         verticalScrolls: 0,
         ctaTexts: options.ctaTexts,
         swipeDirection: 'right',

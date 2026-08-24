@@ -126,51 +126,49 @@ export class IOSSchedulePage extends IOSBasePage {
       '-ios predicate string:(type == "XCUIElementTypeButton" OR type == "XCUIElementTypeStaticText" OR type == "XCUIElementTypeOther") AND (name CONTAINS[c] "All Sports" OR label CONTAINS[c] "All Sports")',
     ];
     const { width, height } = await this.driver.getWindowRect();
-    let sportEl: WdElement | null = null;
-    let allSports: WdElement | null = null;
-    await this.driver.waitUntil(async () => {
-      sportEl = await this.firstVisibleNearY(
-        sportTab,
-        Math.round(height * 0.20),
-        Math.round(height * 0.24),
-      );
-      if (sportEl) return true;
-      allSports = await this.firstVisibleNearY(
-        allSportsTab,
-        Math.round(height * 0.20),
-        Math.round(height * 0.24),
-      );
-      return Boolean(allSports);
-    }, {
-      timeout: 30000,
-      interval: 500,
-      timeoutMsg: 'Schedule filter strip was not visible after Schedule loaded.',
-    });
-
-    const anchor = sportEl || allSports!;
-    const location = await anchor.getLocation();
-    const size = await anchor.getSize();
-    const menuY = Math.round(location.y + size.height / 2);
-    // The event list can contain a Boxing label too. Restrict discovery to
-    // the filter-strip row so the following click cannot select list content.
-    sportEl = sportEl || await this.firstVisibleNearY(sportTab, menuY);
-    for (let attempt = 0; attempt < 20 && !sportEl; attempt++) {
-      console.log(`  Horizontal swipe ${attempt + 1} to find ${sport} in the filter strip...`);
+    // The Schedule strip is always directly beneath the header, but some
+    // iOS builds expose its chips only after they enter the viewport. Use the
+    // stable strip row rather than requiring an All Sports accessibility node
+    // before beginning the horizontal search.
+    const menuY = Math.round(height * 0.14);
+    const findSportInStrip = async (): Promise<WdElement | null> => {
+      const candidates = await this.driver.$$(
+        `-ios predicate string:name == "${escapedSport}" OR label == "${escapedSport}"`,
+      ).catch(() => []);
+      for (const candidate of candidates) {
+        if (!(await candidate.isDisplayed().catch(() => false))) continue;
+        const location = await candidate.getLocation().catch(() => null);
+        const size = await candidate.getSize().catch(() => null);
+        const centreY = location && size ? location.y + size.height / 2 : -1;
+        if (Math.abs(centreY - menuY) <= Math.round(height * 0.08)) return candidate;
+      }
+      return null;
+    };
+    let sportEl = await findSportInStrip();
+    const filterSearchDeadline = Date.now() + Number(process.env.IOS_SCHEDULE_FILTER_SEARCH_TIMEOUT_MS || 180000);
+    let swipes = 0;
+    while (Date.now() < filterSearchDeadline && !sportEl) {
+      console.log(`  Horizontal swipe ${swipes + 1} to find ${sport} in the filter strip...`);
       await this.driver.performActions([{
         type: 'pointer', id: 'schedule-filter-strip', parameters: { pointerType: 'touch' },
         actions: [
-          { type: 'pointerMove', duration: 0, x: Math.round(width * 0.80), y: menuY },
+          { type: 'pointerMove', duration: 0, x: Math.round(width * 0.70), y: menuY },
           { type: 'pointerDown', button: 0 },
           { type: 'pause', duration: 80 },
-          { type: 'pointerMove', duration: 250, x: Math.round(width * 0.20), y: menuY },
+          { type: 'pointerMove', duration: 300, x: Math.round(width * 0.30), y: menuY },
           { type: 'pointerUp', button: 0 },
         ],
       }]);
       await this.driver.releaseActions();
+      swipes++;
       await this.driver.waitUntil(async () => {
-        sportEl = await this.firstVisibleNearY(sportTab, menuY);
+        sportEl = await findSportInStrip();
         return Boolean(sportEl);
-      }, { timeout: 1200, interval: 200 }).catch(() => { });
+      }, {
+        timeout: 1000,
+        interval: 200,
+        timeoutMsg: `${sport} filter did not become visible after scrolling the Schedule strip.`,
+      }).catch(() => { });
     }
 
     if (!sportEl) {
@@ -183,7 +181,7 @@ export class IOSSchedulePage extends IOSBasePage {
     }
 
     // Tap the sport filter using coordinates (more reliable on real iOS).
-    const currentSportEl = await this.firstVisibleNearY(sportTab, menuY) || sportEl;
+    const currentSportEl = sportEl;
     const loc = await currentSportEl.getLocation().catch(() => null);
     const sz = await currentSportEl.getSize().catch(() => null);
     if (loc && sz) {

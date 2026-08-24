@@ -1,5 +1,6 @@
 import { IOSBasePage, IOSFlowHooks, WdBrowser } from './IOSBasePage';
 import { IOSHomePage } from './IOSHomePage';
+import { createHash } from 'crypto';
 
 export interface IOSPPVDateParts {
   month: string;
@@ -260,9 +261,44 @@ export class IOSBoxingPage extends IOSBasePage {
     // configured sport in the modal's screen area instead of its title.
     await allSports.click();
     let sport: any | null = null;
-    for (let attempt = 0; attempt < 12 && !sport; attempt++) {
-      await this.driver.pause(300);
+    const pickerFingerprint = async (): Promise<string> => this.driver.takeScreenshot()
+      .then((screenshot: string) => createHash('sha256').update(screenshot).digest('hex'))
+      .catch(() => '');
+    const seenPickerStates = new Set<string>();
+    const pickerDeadline = Date.now() + Number(process.env.IOS_SPORT_PICKER_SEARCH_TIMEOUT_MS || 30000);
+    while (Date.now() < pickerDeadline && !sport) {
       sport = await findSportInPicker();
+      if (sport) break;
+
+      const previousState = await pickerFingerprint();
+      if (previousState) seenPickerStates.add(previousState);
+      const { width, height } = await this.driver.getWindowRect();
+      await this.driver.performActions([{
+        type: 'pointer', id: 'all-sports-picker-scroll', parameters: { pointerType: 'touch' },
+        actions: [
+          { type: 'pointerMove', duration: 0, x: Math.round(width / 2), y: Math.round(height * 0.75) },
+          { type: 'pointerDown', button: 0 },
+          { type: 'pause', duration: 80 },
+          { type: 'pointerMove', duration: 300, x: Math.round(width / 2), y: Math.round(height * 0.32) },
+          { type: 'pointerUp', button: 0 },
+        ],
+      }]);
+      await this.driver.releaseActions();
+
+      let currentState = '';
+      const pickerMoved = await this.driver.waitUntil(async () => {
+        currentState = await pickerFingerprint();
+        return Boolean(currentState) && currentState !== previousState;
+      }, {
+        timeout: 5000,
+        interval: 250,
+        timeoutMsg: 'All Sports picker did not move after scrolling.',
+      }).then(() => true).catch(() => false);
+      if (!pickerMoved || (currentState && seenPickerStates.has(currentState))) {
+        console.log(`  All Sports picker reached a previously checked state while looking for "${configuredSport}".`);
+        break;
+      }
+      if (currentState) seenPickerStates.add(currentState);
     }
 
     if (!sport) {
@@ -507,8 +543,8 @@ export class IOSBoxingPage extends IOSBasePage {
         ? await hooks.saveScreenshot('./test-results/ios_ppv_banner_not_found.png')
         : undefined;
       hooks.recordAvailability?.(false, shot, 'Home of Boxing');
-      await hooks.generateAvailabilityFailureReport?.(`PPV banner "${this.ppvName}" not found on Boxing page`);
-      throw new Error(`PPV banner "${this.ppvName}" not found on boxing page. See test-results/ios_ppv_banner_not_found.png`);
+      await hooks.generateAvailabilityFailureReport?.(`No PPV banner configured for "${this.ppvName}" on Home of Boxing`);
+      throw new Error(`No PPV banner configured for "${this.ppvName}" on Home of Boxing. See test-results/ios_ppv_banner_not_found.png`);
     }
 
     hooks.recordAvailability?.(true, undefined, 'Home of Boxing');
@@ -524,7 +560,6 @@ export class IOSBoxingPage extends IOSBasePage {
     }
 
     const stillOnPPVBanner = await this.findBannerOnCurrentPage(this.ppvName, {
-      horizontalSwipes: 8,
       verticalScrolls: 0,
       ctaTexts: bannerCtas,
       swipeDirection: 'right',

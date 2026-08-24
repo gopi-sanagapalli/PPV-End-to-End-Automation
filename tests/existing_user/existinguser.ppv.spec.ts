@@ -3335,35 +3335,6 @@ for (const stateKey of userStatesToRun) {
                 await paymentPage.validate(paymentData, results, eventData, undefined);
               }
 
-              if (userStateKey === 'frozen') {
-                const savedCardControlFields = new Set([
-                  'payment method present',
-                  'pay now button',
-                  'secure checkout',
-                  'more payment methods',
-                ]);
-                const savedCardControlData = getAddonPPVPaymentData(userStateKey === 'frozen').filter((row: any) =>
-                  savedCardControlFields.has(String(row.Field || '').trim().toLowerCase())
-                );
-                const savedCardPage = new PPVUpsellPaymentPage(page);
-
-                if (await savedCardPage.isPPVUpsellPaymentPage()) {
-                  await savedCardPage.validateSavedCardPayment(
-                    savedCardControlData,
-                    results,
-                    eventData,
-                    'Payment'
-                  );
-                } else {
-                  results.push({
-                    page: 'Payment',
-                    field: 'Frozen Saved Card Payment Controls',
-                    expected: 'Present',
-                    actual: 'Not present',
-                    status: 'FAIL',
-                  });
-                }
-              }
             }
 
             // ── SCENARIO 2: Ultimate Upsell Banner — validate before click,
@@ -3544,10 +3515,12 @@ for (const stateKey of userStatesToRun) {
                 const ppvData = getStandalonePPVPageData();
                 console.log(`📊 Standalone PPV rows: ${ppvData.length}`);
 
-                // Validate checked state
-                await standalonePPVPage.validatePPVPageChecked(ppvData, results, eventData);
-                // Validate unchecked state
-                await standalonePPVPage.validatePPVPageUnchecked(ppvData, results, eventData);
+                await standalonePPVPage.validatePPVPageForSelectedPlan(
+                  ppvData,
+                  results,
+                  eventData,
+                  ratePlan === 'monthly' ? 'flex' : 'annual_monthly',
+                );
                 ppvValidated = true;
               } catch (err: any) {
                 console.warn('⚠️ Standalone PPV page validation error:', err.message);

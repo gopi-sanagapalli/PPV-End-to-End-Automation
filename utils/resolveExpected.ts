@@ -634,12 +634,13 @@ export function resolveExpected(
     if (popupDate) raw = popupDate;
   }
 
-  // ── popup - event date: always use PPV_POPUP_DATE as-is for ALL sources ────────
+  // ── popup - event date: use PPV_POPUP_DATE for all sources ────────────────────
   // Some sources (e.g. home-biggest-fights) have {{PPV_DATE}} in the Excel template
-  // but the popup card shows PPV_POPUP_DATE format (e.g. "25 JUL 4:00PM").
-  // Return PPV_POPUP_DATE directly — no Today/Tomorrow conversion — for all sources.
+  // but the popup card shows PPV_POPUP_DATE format (e.g. "25 JUL 4:00PM"). Convert
+  // explicit dates to relative candidates when the modal renders a same-day badge.
   if (field === 'popup - event date' && eventData.PPV_POPUP_DATE) {
-    return String(eventData.PPV_POPUP_DATE);
+    const popupDate = String(eventData.PPV_POPUP_DATE);
+    return hasExplicitDateAndTime(popupDate) ? getDynamicDateTimeBadge(popupDate) : popupDate;
   }
 
 

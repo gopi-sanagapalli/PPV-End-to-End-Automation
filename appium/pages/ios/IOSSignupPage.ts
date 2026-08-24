@@ -5,6 +5,7 @@ import { IOSPPVPage } from './IOSPPVPage';
 import { IOSPlanPage } from './IOSPlanPage';
 import { IOSMyAccountPage } from './IOSMyAccountPage';
 import { IOSPaymentPage } from './IOSPaymentPage';
+import { IOSStandalonePPVPage } from './IOSStandalonePPVPage';
 
 /**
  * DAZN account creation / sign-in in Safari. This page object handles only
@@ -95,7 +96,9 @@ export class IOSSignupPage extends IOSBasePage {
     this.resetCookieConsentCache();
     await this.handleSafariCookies(5000);
     const userState = (process.env.USER_STATE || 'new').toLowerCase();
+    const isStandalonePPV = String(eventData?.PPV_TYPE || '').toLowerCase() === 'standalone';
     const isUltimateSignInDuringFlow = userState.startsWith('active_ultimate') &&
+      !isStandalonePPV &&
       String(process.env.LOGIN_FIRST || process.env.LOGIN || '').toLowerCase() !== 'true';
     const isExistingUser = !userState.startsWith('new') || !!process.env.USER_EMAIL;
     const email = isExistingUser
@@ -113,21 +116,25 @@ export class IOSSignupPage extends IOSBasePage {
 
     const ppvPage = new IOSPPVPage(this.driver);
     const planPage = new IOSPlanPage(this.driver);
+    const standalonePPVPage = new IOSStandalonePPVPage(this.driver);
 
     for (let step = 0; step < 12; step++) {
       const body = await this.text();
       const lower = body.toLowerCase();
       const url = await this.driver.getUrl();
+      const isStandaloneActiveAddonPage = isStandalonePPV &&
+        userState.startsWith('active_') &&
+        /\/account\/addon\/purchase/i.test(url);
       const isActiveStandardAddonPage = userState.startsWith('active_standard') &&
         /\/account\/addon\/purchase/i.test(url) &&
-        /isupselltieronppv=true/i.test(url);
+        (/isupselltieronppv=true/i.test(url) || isStandalonePPV);
       console.log(`Safari account step ${step + 1}: ${url}`);
       if (!body.trim() && /\/account\//i.test(url)) {
         console.log('⏳ Safari account page is still rendering; waiting for WebKit content or the next redirect...');
         const pageAdvanced = await this.driver.waitUntil(async () => {
           const nextUrl = await this.driver.getUrl().catch(() => '');
           const nextText = await this.text();
-          if (isActiveStandardAddonPage) {
+          if (isActiveStandardAddonPage || isStandaloneActiveAddonPage) {
             return /choose how to buy|today you pay|one time payment|pay now/.test(nextText.toLowerCase());
           }
           return nextUrl !== url || Boolean(nextText.trim());
@@ -150,7 +157,7 @@ export class IOSSignupPage extends IOSBasePage {
       // ── PPV Payment page (active_standard checkout) ──
       // This must be evaluated before the generic payment-page condition:
       // PPV payment can render its order summary before a saved-card label.
-      if (isActiveStandardAddonPage &&
+      if ((isActiveStandardAddonPage || isStandaloneActiveAddonPage) &&
         !ppvPage.isChooseHowToBuyPage(lower) &&
         /today you pay|one time payment|pay now/.test(lower)) {
         await new IOSPaymentPage(this.driver).completePPVPayment(results, eventData);
@@ -160,8 +167,17 @@ export class IOSSignupPage extends IOSBasePage {
       // ── My Account PPV page (active_ultimate — PPV already purchased) ──
       const myAccountPage = new IOSMyAccountPage(this.driver);
       if (myAccountPage.isSafariPurchasedPPVPage(lower, url)) {
+        if (isStandalonePPV) {
+          throw new Error('Standalone PPV must continue to add-on checkout; Safari must not treat it as purchased content.');
+        }
         await myAccountPage.validateSafariPurchasedPPV(results as any, eventName);
         return;
+      }
+
+      const isStandalonePage = await standalonePPVPage.isStandalonePPVPage(eventData, lower, url);
+      if (isStandalonePage) {
+        await standalonePPVPage.validateAndContinue(results, eventData || {});
+        continue;
       }
 
       // ── Contextual PPV page (delegated to IOSPPVPage) ──
