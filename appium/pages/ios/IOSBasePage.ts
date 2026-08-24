@@ -799,20 +799,19 @@ export class IOSBasePage {
       console.log(`⚠️ [Country Match Check] Bypassed country match assertion (requested region: "${process.env.DAZN_REGION || 'GB'}").`);
       return;
     }
-    const region = String(process.env.DAZN_REGION || 'GB').toLowerCase();
-    const lowerUrl = url.toLowerCase();
-    let matches = false;
-    if (region === 'gb') {
-      matches = lowerUrl.includes('-gb') || lowerUrl.includes('-uk') || lowerUrl.includes('-gg') || lowerUrl.includes('-je');
-    } else if (region === 'ca') {
-      matches = lowerUrl.includes('-ca');
-    } else {
-      matches = lowerUrl.includes(`-${region}`);
-    }
-    if (!matches) {
+    if (!this.isCheckoutUrlCountryMatch(url)) {
       throw new Error(`❌ [Country Match Check] Country mismatch: expected region "${process.env.DAZN_REGION || 'GB'}" but URL is "${url}". Please ensure your VPN is connected to the correct region.`);
     }
     console.log(`✅ [Country Match Check] URL matches expected region "${process.env.DAZN_REGION || 'GB'}": ${url}`);
+  }
+
+  private isCheckoutUrlCountryMatch(url: string): boolean {
+    const region = String(process.env.DAZN_REGION || 'GB').toLowerCase();
+    const lowerUrl = url.toLowerCase();
+    if (region === 'gb') {
+      return lowerUrl.includes('-gb') || lowerUrl.includes('-uk') || lowerUrl.includes('-gg') || lowerUrl.includes('-je');
+    }
+    return region === 'ca' ? lowerUrl.includes('-ca') : lowerUrl.includes(`-${region}`);
   }
 
   private isPreferredSafariHandoffUrl(url: string): boolean {
@@ -1062,6 +1061,7 @@ export class IOSBasePage {
     const webviewPollIntervalMs = Number(process.env.IOS_WEBVIEW_CONTEXT_POLL_MS || 2000);
     const webviewDeadline = Date.now() + webviewTimeoutMs;
     let lastContextSummary = '';
+    let lastUnlocalizedLandingUrl = '';
     while (Date.now() < webviewDeadline) {
       await this.driver.pause(webviewPollIntervalMs);
       try {
@@ -1092,6 +1092,13 @@ export class IOSBasePage {
         );
         if (landingContext?.url) {
           const url = String(landingContext.url);
+          if (process.env.BYPASS_COUNTRY_CHECK !== 'true' && !this.isCheckoutUrlCountryMatch(url)) {
+            if (url !== lastUnlocalizedLandingUrl) {
+              console.log(`⏳ DAZN handoff is still settling at ${url}; waiting for the ${process.env.DAZN_REGION || 'GB'} localized URL.`);
+              lastUnlocalizedLandingUrl = url;
+            }
+            continue;
+          }
           console.log(`✅ Captured new DAZN handoff URL from WEBVIEW context ${landingContext.id}: ${url}`);
           this.assertCheckoutUrlCountryMatch(url);
           activatedBrowser = 'WEBVIEW';
@@ -1112,6 +1119,9 @@ export class IOSBasePage {
         if (/\[(Country Match|Contextual PPV) Check\]/.test(String(e?.message || e))) throw e;
         console.warn(`⚠️ Could not list web contexts: ${e.message}`);
       }
+    }
+    if (lastUnlocalizedLandingUrl) {
+      this.assertCheckoutUrlCountryMatch(lastUnlocalizedLandingUrl);
     }
 
     // Phase 2: check if external Safari/Chrome was opened instead.
