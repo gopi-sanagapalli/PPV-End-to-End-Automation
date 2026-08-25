@@ -126,6 +126,11 @@ const ULTIMATE_LOGIN_FIRST_BOXING_MY_ACCOUNT_SOURCES = new Set<string>([
   'boxing-page-banner',
   'boxing-upcoming-fights',
 ]);
+const ULTIMATE_MID_LOGIN_MY_ACCOUNT_SOURCES = new Set<string>([
+  'home-boxing-upcoming',
+  'landing-page-dont-miss-live',
+  'boxing-upcoming-fights',
+]);
 
 function isMyAccountDestination(url: string): boolean {
   const lower = url.toLowerCase();
@@ -137,6 +142,24 @@ function isMyAccountDestination(url: string): boolean {
     !lower.includes('/emaildetails') &&
     !lower.includes('/content/')
   );
+}
+
+function isFixtureOrPreviewDestination(url: string): boolean {
+  const lower = url.toLowerCase();
+  const isTarget =
+    lower.includes('preview') ||
+    lower.includes('fixture') ||
+    lower.includes('event') ||
+    lower.includes('stream') ||
+    lower.includes('player');
+  const isPurchaseRoute =
+    lower.includes('plandetails') ||
+    lower.includes('tierplans') ||
+    lower.includes('signup') ||
+    lower.includes('signin') ||
+    lower.includes('payment') ||
+    lower.includes('checkout');
+  return isTarget && !isPurchaseRoute;
 }
 const ENV = (process.env.DAZN_ENV || 'stag').toLowerCase();
 const PAYMENT_METHOD = (process.env.PAYMENT_METHOD || 'credit_card').toLowerCase();
@@ -3274,39 +3297,43 @@ for (const stateKey of userStatesToRun) {
             }
 
             if (signedIn && !LOGIN_FIRST && PPV_TYPE === 'normal' && !isStandalonePPV && isActiveUltimateState(userStateKey)) {
-              const expectsHomeRedirect = requestedPlan.startsWith('ultimate_');
-              console.log(`⏳ [Ultimate User Login] Waiting for post-login redirection to ${expectsHomeRedirect ? 'Home' : 'My Account'}...`);
+              const redirectsToMyAccount = ULTIMATE_MID_LOGIN_MY_ACCOUNT_SOURCES.has(srcResolvedSource.toLowerCase());
+              const expectedDestination = redirectsToMyAccount
+                ? 'My Account'
+                : 'Fixture Page or Preview Page';
+              console.log(`⏳ [Ultimate User Login] Waiting for post-login redirection to ${expectedDestination}...`);
               await page.waitForURL(
                 (url: URL) =>
-                  expectsHomeRedirect
-                    ? url.pathname.toLowerCase().includes('/home')
-                    : isMyAccountDestination(url.href),
+                  redirectsToMyAccount
+                    ? isMyAccountDestination(url.href)
+                    : isFixtureOrPreviewDestination(url.href),
                 { timeout: 20000 }
               ).catch(() => { });
 
               const currentUrl = page.url();
-              const lowerUrl = currentUrl.toLowerCase();
               let navStatus: 'PASS' | 'FAIL' = 'FAIL';
               let actualPage = 'Unknown Page';
 
-              if (expectsHomeRedirect && lowerUrl.includes('/home')) {
-                actualPage = 'Home Page';
-                navStatus = 'PASS';
-              } else if (!expectsHomeRedirect && isMyAccountDestination(currentUrl)) {
+              if (redirectsToMyAccount && isMyAccountDestination(currentUrl)) {
                 actualPage = 'My Account';
+                navStatus = 'PASS';
+              } else if (!redirectsToMyAccount && isFixtureOrPreviewDestination(currentUrl)) {
+                actualPage = currentUrl.toLowerCase().includes('preview')
+                  ? 'Preview Page'
+                  : 'Fixture Page';
                 navStatus = 'PASS';
               }
 
               results.push({
                 page: 'Sign In',
                 field: 'Post-Login Navigation Target',
-                expected: expectsHomeRedirect ? 'Home Page' : 'My Account',
+                expected: expectedDestination,
                 actual: `Navigated to: ${currentUrl} (${actualPage})`,
                 status: navStatus,
               });
 
               if (navStatus === 'FAIL') {
-                const errMsg = `❌ [Ultimate User Login] Not redirected to ${expectsHomeRedirect ? 'Home' : 'My Account'} after signing in. Landed on: ${currentUrl}`;
+                const errMsg = `❌ [Ultimate User Login] Expected to redirect to ${expectedDestination} after signing in, but landed on: ${currentUrl}`;
                 console.error(errMsg);
                 throw new Error(errMsg);
               } else if (actualPage === 'My Account') {
