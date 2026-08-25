@@ -8,7 +8,7 @@
   "PPV_ENTITLEMENT_ID": "ppv_t_aew_all_in",
   "PPV_PROMOTER": "All Elite Wrestling",
   "HAS_BUNDLE": false,
-  "PPV_DEV_MODE": false,
+  "PPV_DEV_MODE": true,
   "DEFAULT_SIGNUP_DEVMODE": false,
   "HAS_DEFAULT_SIGNUP_PPV": false,
   "global": {
