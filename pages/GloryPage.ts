@@ -29,7 +29,7 @@ export class GloryPage extends BasePage {
   // NAVIGATE TO GLORY PAGE
   // ─────────────────────────────
   async navigate(url?: string): Promise<void> {
-    const targetUrl = url || 'https://www.dazn.com/glory';
+    const targetUrl = url || 'https://www.dazn.com/welcome/glory';
     console.log(`🌍 [GloryPage] Navigating to: ${targetUrl}`);
     await this.page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await this.page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => { });

@@ -51,7 +51,7 @@ jobs:
   my-account:
     needs: prepare
     environment: prod
-    name: Existing user · Dev mode My Account | ${{ matrix.profile }}
+    name: Existing user · Dev mode ${{ matrix.source }} | ${{ matrix.profile }}
     runs-on: [self-hosted, macOS, ARM64]
     timeout-minutes: 30
     strategy:

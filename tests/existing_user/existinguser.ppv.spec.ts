@@ -427,8 +427,10 @@ for (const stateKey of userStatesToRun) {
     // PPV_DEV_MODE: when true, the PPV is only accessible via My Account + Dev Mode.
     // All non-myaccount sources are skipped automatically.
     const PPV_DEV_MODE = json?.PPV_DEV_MODE === true;
+    const isGloryStandalone = String(json?.PPV_TYPE || '').toLowerCase() === 'standalone' &&
+      SOURCE.toLowerCase() === 'glory';
     const MY_ACCOUNT_SOURCES = new Set(['my-account', 'myaccount', 'myaccount-subscription-status']);
-    if (PPV_DEV_MODE && !MY_ACCOUNT_SOURCES.has(SOURCE.toLowerCase())) {
+    if (PPV_DEV_MODE && !MY_ACCOUNT_SOURCES.has(SOURCE.toLowerCase()) && !isGloryStandalone) {
       const skipReason = `PPV_DEV_MODE is true — only myaccount flows are supported for this event. SOURCE "${SOURCE}" is skipped.`;
       console.log(`INFO: ${skipReason}`);
       test.skip(true, skipReason);

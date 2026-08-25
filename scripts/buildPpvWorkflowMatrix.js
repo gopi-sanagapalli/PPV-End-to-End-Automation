@@ -147,6 +147,11 @@ const liveSources = {
     ? ['home-page-banner', 'home-page-dont-miss', 'home-biggest-fights', 'home-page-dazntile', 'home-boxing-banner', 'home-boxing-tile', 'home-boxing-upcoming', 'home-kickboxing-tile', 'boxing-page-banner', 'boxing-page-bundle', 'boxing-upcoming-fights', 'boxing-banner-ultimate', 'boxing-ultimate-subscription', 'boxing-standard-subscription', 'boxing-join-the-club', 'search', 'schedule', 'myaccount']
     : ['home-page-banner', 'home-boxing-banner', 'home-boxing-tile', 'home-page-dont-miss', 'schedule', 'search', 'myaccount'],
 };
+if (isStandalonePPV && sourceConfig.glory) {
+  liveSources.new.push('glory');
+  liveSources.existing.push('glory');
+  liveSources.signed.push('glory');
+}
 
 // Canada (CA): PPV is surfaced via search, schedule, sport/UFC page tile, and banners.
 // home-page-dont-miss is not applicable for CA.
@@ -247,6 +252,9 @@ switch (mode) {
       { source: 'myaccount', profile: 'active_ultimate_apm/ultimate_apm' },
       { source: 'myaccount', profile: 'active_ultimate_upfront/ultimate_upfront' },
     ];
+    if (isStandalonePPV && sourceConfig.glory) {
+      matrix.push(...matrix.map((entry) => ({ ...entry, source: 'glory' })));
+    }
     break;
   case 'live-new': {
     const sources = applicable(liveSources.new, false);
