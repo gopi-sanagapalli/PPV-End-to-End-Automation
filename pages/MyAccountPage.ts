@@ -826,14 +826,20 @@ export class MyAccountPage {
       return weekdayTimeMatch?.[0].trim() || '';
     };
 
-    const rowDate = readDate((await row.textContent().catch(() => '')) || '');
+    const rowDate = readDate(
+      (await row.innerText().catch(() => '')) ||
+      (await row.textContent().catch(() => '')) ||
+      ''
+    );
     if (rowDate) return rowDate;
 
     const allEls = row.locator('span, p, div, time');
     const count = await allEls.count().catch(() => 0);
     for (let i = 0; i < count; i++) {
       const text =
-        (await allEls.nth(i).textContent().catch(() => ''))?.trim() || '';
+        (await allEls.nth(i).innerText().catch(() => ''))?.trim() ||
+        (await allEls.nth(i).textContent().catch(() => ''))?.trim() ||
+        '';
       const date = readDate(text);
       if (date) return date;
     }
