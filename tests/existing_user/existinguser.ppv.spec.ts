@@ -466,16 +466,20 @@ for (const stateKey of userStatesToRun) {
       ));
     }
 
-    // home-page-dazntile (and subscribe-without-pay-per-view which resolves to
-    // it) expects a subscription modal after clicking a DAZN entitlement tile.
-    // Active standard/ultimate users already have a subscription, so the tile
-    // opens the content directly — no subscription modal appears.
+    // A pre-authenticated active user opens content directly from a DAZN tile,
+    // so the subscription-modal flow is not applicable. Sign-in-during-flow
+    // users click the tile while anonymous and must remain eligible.
     const DAZNTILE_SOURCES = new Set(['home-page-dazntile', 'subscribe-without-pay-per-view']);
     const ACTIVE_SUBSCRIBED_STATES = new Set([
       'active_standard_monthly', 'active_standard_apm', 'active_standard_upfront',
       'active_ultimate_apm', 'active_ultimate_upfront',
     ]);
-    if (!isStandalonePPV && DAZNTILE_SOURCES.has(SOURCE.toLowerCase()) && ACTIVE_SUBSCRIBED_STATES.has(userStateKey.toLowerCase())) {
+    if (
+      LOGIN_FIRST &&
+      !isStandalonePPV &&
+      DAZNTILE_SOURCES.has(SOURCE.toLowerCase()) &&
+      ACTIVE_SUBSCRIBED_STATES.has(userStateKey.toLowerCase())
+    ) {
       throwLogged(new Error(
         `❌ SOURCE "${SOURCE}" is not applicable for USER_STATE="${userStateKey}". ` +
         `Active standard/ultimate users already have a subscription — clicking a ` +

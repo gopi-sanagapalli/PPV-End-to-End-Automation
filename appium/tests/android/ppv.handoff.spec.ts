@@ -183,12 +183,13 @@ describe('DAZN Android PPV → Web Handoff', () => {
     const REGION = process.env.DAZN_REGION || 'GB';
     const EVENT_CONFIG = process.env.PPV_CONFIG || 'ppv_t_joshua_prenga.json';
     const PLAN = process.env.PLAN || 'standard_monthly';
-    const PPV_TYPE = (process.env.PPV_TYPE || 'normal').toLowerCase();
     const SWITCH_TO_ULTIMATE = (process.env.SWITCH || '').toLowerCase() === 'true';
     const ENV = (process.env.DAZN_ENV || 'stag').toLowerCase();
     const PAYMENT_METHOD = (process.env.PAYMENT_METHOD || 'credit_card').toLowerCase();
 
     const json = loadEventConfig(EVENT_CONFIG);
+    const PPV_TYPE = String(json.PPV_TYPE || process.env.PPV_TYPE || 'normal').trim().toLowerCase();
+    const isStandalonePPV = PPV_TYPE === 'standalone';
 
     const plansPath = path.resolve(__dirname, '../../..', 'config/DaznPlan.json');
     const plans = JSON.parse(fs.readFileSync(plansPath, 'utf-8'));
@@ -200,6 +201,11 @@ describe('DAZN Android PPV → Web Handoff', () => {
     const planTier = (planData.TIER || 'standard').toLowerCase();
     const isUltimate = planTier === 'ultimate';
     const ratePlan = (planData.RATE_PLAN || 'monthly').toLowerCase();
+    if (isStandalonePPV && (planTier === 'ultimate' || !['monthly', 'annual pay monthly'].includes(ratePlan))) {
+      throw new Error(
+        `Standalone PPV supports only Standard monthly or Annual Pay Monthly plans; received "${PLAN}".`
+      );
+    }
 
     // Merge mobile overrides
     let mobileRegional = {};
@@ -701,7 +707,7 @@ describe('DAZN Android PPV → Web Handoff', () => {
         tier: planTier,
         ratePlan: ratePlan,
         endPage: 'payment',
-        enableDevMode: isUltimate,
+        enableDevMode: !isStandalonePPV && isUltimate,
         planKey: PLAN
       };
 
@@ -878,7 +884,7 @@ describe('DAZN Android PPV → Web Handoff', () => {
       for (let step = 0; step < 15; step++) {
         if (page.isClosed()) throw new Error('❌ Page closed unexpectedly');
 
-        const pageType = await detectPageType(page, pagesConfig, planClickCount);
+        const pageType = await detectPageType(page, pagesConfig, planClickCount, isStandalonePPV);
         await handleCookies(page, step === 0 ? 5000 : 500);
         await stabilisePage(page);
         await dismissMarketingPopup(page);
@@ -1137,7 +1143,9 @@ describe('DAZN Android PPV → Web Handoff', () => {
           const isStandardTierForUpsell = planTier === 'standard';
           const isMonthlyOrAPMForUpsell = ratePlan === 'monthly' || ratePlan === 'annual pay monthly';
 
-          if (isStandardTierForUpsell && isMonthlyOrAPMForUpsell) {
+          if (isStandalonePPV) {
+            await payment.validateUltimateUpsellBannerAbsent(results);
+          } else if (isStandardTierForUpsell && isMonthlyOrAPMForUpsell) {
             try {
               await payment.validateUltimateUpsellBannerText(results, eventData);
               const shouldClickUpsell = SWITCH_TO_ULTIMATE || SOURCE === 'landing-page-dont-miss-live-switch';
@@ -1439,7 +1447,7 @@ describe('DAZN Android PPV → Web Handoff', () => {
 
         // ── Standalone PPV Page ────────────────────────────────
         if (pageType === 'standalone-ppv') {
-          if (PPV_TYPE !== 'standalone') {
+          if (!isStandalonePPV) {
             console.log('⚠️ standalone-ppv detected but PPV_TYPE is not standalone — treating as ppv');
           } else {
             console.log('👉 Standalone PPV page');
@@ -1450,15 +1458,19 @@ describe('DAZN Android PPV → Web Handoff', () => {
             if (!ppvValidated) {
               try {
                 const ppvData = getStandalonePPVPageData();
-                await standalonePPVPage.validatePPVPageChecked(ppvData, results, eventData);
-                await standalonePPVPage.validatePPVPageUnchecked(ppvData, results, eventData);
+                await standalonePPVPage.validatePPVPageForSelectedPlan(
+                  ppvData,
+                  results,
+                  eventData,
+                  ratePlan === 'monthly' ? 'flex' : 'annual_monthly',
+                );
                 ppvValidated = true;
               } catch (err: any) {
                 console.warn('⚠️ Standalone PPV page validation error:', err.message);
               }
             }
 
-            await standalonePPVPage.selectPlan(ratePlan === 'monthly' ? 'flex' : 'annual');
+            await standalonePPVPage.selectPlan(ratePlan === 'monthly' ? 'flex' : 'annual_monthly');
             await standalonePPVPage.clickContinue();
             await page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => { });
             continue;
