@@ -173,12 +173,10 @@ export class PPVUpsellPaymentPage extends BasePage {
         const expectedDescription = clean(checkoutPpvDescription || expected || '');
         const paras = await this.page.locator('p, [class*="description" i], [class*="subtitle" i]')
           .allTextContents().catch(() => []);
-        const cardTerms = /payment|visa|mastercard|amex|maestro|\*{4}|exp\s*\d|one time|today you pay|secure|promo|terms|privacy|cvv|cvc/i;
         const allText = paras.map(clean).filter((text: string) => text.length >= 20 && text.length <= 300);
         const expectedNorm = expectedDescription.toLowerCase();
         const exact = allText.find((text: string) => clean(text).toLowerCase() === expectedNorm);
-        const candidates = allText.filter((text: string) => !cardTerms.test(text));
-        actual = exact || candidates[0] || 'N/A';
+        actual = exact || 'N/A';
 
         // ── PPV Image Present ──
       } else if (key === 'ppv image present' || key.includes('ppv image') || key.includes('image present')) {
