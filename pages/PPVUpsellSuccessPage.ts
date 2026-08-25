@@ -24,6 +24,20 @@ export class PPVUpsellSuccessPage extends BasePage {
     return body.toLowerCase().includes('payment was successful');
   }
 
+  async waitForUpsellOffer(buyCta: string): Promise<void> {
+    console.log('⏳ Waiting for payment confirmation and upsell offer...');
+    await this.page.waitForFunction(
+      expectedBuyCta => {
+        const bodyText = document.body.innerText.toLowerCase();
+        return bodyText.includes('payment was successful') &&
+          bodyText.includes(expectedBuyCta.toLowerCase());
+      },
+      buyCta,
+      { timeout: 30_000 }
+    );
+    console.log('✅ Payment confirmation and upsell offer are visible');
+  }
+
   // ─────────────────────────────
   // VALIDATE: PPV Upsell Success Page (generic)
   // Validates fields like: payment success text, upsell heading,

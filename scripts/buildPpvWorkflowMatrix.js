@@ -36,13 +36,14 @@ const planConfig = JSON.parse(fs.readFileSync('config/DaznPlan.json', 'utf8'));
 const isBoxing = String(event.SPORT || '').trim().toLowerCase() === 'boxing';
 const isKickboxing = String(event.SPORT || '').toLowerCase() === 'kickboxing';
 const isStandalonePPV = String(event.PPV_TYPE || '').trim().toLowerCase() === 'standalone';
+const isStandardOnlyPPV = isStandalonePPV || String(event.PPV_TYPE || '').trim().toLowerCase() === 'upsell';
 const hasBundle = event.HAS_BUNDLE === true;
 const defaultSignupDevMode = event.DEFAULT_SIGNUP_DEVMODE === true;
 const hasDefaultSignup = event.HAS_DEFAULT_SIGNUP_PPV === true;
 // The workflow matrix must only contain plans offered in the selected country.
 // `loadEventConfig` validates this too, but filtering here avoids creating CI jobs
 // that are guaranteed to fail (for example, standard_apm is not offered in AE).
-const requestedPlans = (isStandalonePPV
+const requestedPlans = (isStandardOnlyPPV
   ? ['standard_monthly', 'standard_apm']
   : ['standard_monthly', 'standard_apm', 'ultimate_apm', 'ultimate_upfront']
 );
@@ -70,7 +71,7 @@ const availableCanadaPlans = [
   'ultimate-dazn+-annual-pay now',
 ];
 const canadaPlans = country === 'CA'
-  ? availableCanadaPlans.filter((plan) => !isStandalonePPV || plan.startsWith('standard-'))
+  ? availableCanadaPlans.filter((plan) => !isStandardOnlyPPV || plan.startsWith('standard-'))
   : null;
 
 // For existing/signed-in CA jobs:

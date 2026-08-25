@@ -36,6 +36,7 @@ import {
 } from '../../utils/excelReader';
 import { detectVariant } from '../../flows/detectVariant';
 import { validateVariant, validateCtaAfterUltimateSelection } from '../../flows/validateVariant';
+import { captureFailures } from '../../utils/failureCapture';
 import { parseCanadaCommand } from '../../utils/configLoader';
 import { buildEventData } from '../../utils/buildEventData';
 import { detectPageType, handleNoPpvClick } from '../../utils/flowHelpers';
@@ -158,6 +159,7 @@ async function runFlow(
   const { name, source, tier, ratePlan: rawRatePlan, enableDevMode: devModeEnabled, noPpvClick: noPpvClickConfig, requiresDefaultSignup } = flowConfig;
   let noPpvClick = !!(noPpvClickConfig);
   const ratePlan = (rawRatePlan || '').replace(/-/g, ' ').toLowerCase();
+  const PPV_TYPE = String(json?.PPV_TYPE || process.env.PPV_TYPE || 'normal').trim().toLowerCase();
   const isStandalonePPV = String(json?.PPV_TYPE || process.env.PPV_TYPE || 'normal').trim().toLowerCase() === 'standalone';
   if (isStandalonePPV && tier === 'ultimate') {
     throw new Error('❌ Standalone PPV does not support Ultimate plans. Use a Standard monthly or Annual Pay Monthly plan.');
@@ -657,6 +659,7 @@ async function runFlow(
         console.log('✅ [DAZN Tile] Entitlement tile clicked; waiting for subscription modal');
 
         const subscribeCta = page
+          .locator('#notification-layer')
           .getByRole('button', { name: /^subscribe$/i })
           .filter({ visible: true })
           .first();
@@ -1017,7 +1020,9 @@ async function runFlow(
       const pageType = await detectPageType(page, pagesConfig, planClickCount, isStandalonePPV);
       await handleCookies(page, step === 0 ? 5000 : 500);
       await stabilisePage(page);
-      await dismissMarketingPopup(page);
+      if (PPV_TYPE !== 'upsell' || !firstPaymentDone) {
+        await dismissMarketingPopup(page);
+      }
 
       // ── Canada (CA) Region Branching ─────────────────────────────
       const currentRegion = (eventData.REGION || eventData.region || process.env.DAZN_REGION || region || 'GB').toUpperCase();
@@ -1284,13 +1289,21 @@ async function runFlow(
               console.log('🔵 [GPay] Using Google Pay payment method...');
               await payment.fillGooglePayAndSubmit(results, eventData);
               await payment.verifyPaymentSuccess();
-              await payment.clickSuccessContinue();
+              if (PPV_TYPE === 'upsell') {
+                await new PPVUpsellSuccessPage(page).waitForUpsellOffer(eventData.UPSELL_BUY_CTA);
+              } else {
+                await payment.clickSuccessContinue();
+              }
             } else {
               // ── Credit Card flow (existing default) ──────────────
               console.log('💳 Using Credit Card payment method...');
               await payment.fillPaymentAndSubmit();
               await payment.verifyPaymentSuccess();
-              await payment.clickSuccessContinue();
+              if (PPV_TYPE === 'upsell') {
+                await new PPVUpsellSuccessPage(page).waitForUpsellOffer(eventData.UPSELL_BUY_CTA);
+              } else {
+                await payment.clickSuccessContinue();
+              }
             }
 
             console.log('✅ Payment details submitted successfully on staging!');
@@ -2219,6 +2232,7 @@ async function runFlow(
               actual: cleanCta,
               status: ctaMatch ? 'PASS' : 'FAIL'
             });
+            await captureFailures(page, results, 'DAZN Plan', eventData);
 
             await clickAndWaitForNav(page, planBtn, 'Standard Annual Plan Continue');
             await waitForPostPlanTransition(page);
@@ -2347,6 +2361,11 @@ for (const planKey of plansToRun) {
 
     try {
       const json = loadEventConfig(EVENT_CONFIG);
+      test.setTimeout(
+        String(json?.PPV_TYPE || process.env.PPV_TYPE || 'normal').trim().toLowerCase() === 'upsell'
+          ? UPSELL_FLOW_TIMEOUT_MS
+          : NORMAL_FLOW_TIMEOUT_MS
+      );
 
       const plansPath = path.resolve(process.cwd(), 'config/DaznPlan.json');
       const plans = JSON.parse(fs.readFileSync(plansPath, 'utf-8'));
@@ -2364,6 +2383,10 @@ for (const planKey of plansToRun) {
 
       const planTier = (planData.TIER || 'standard').toLowerCase();
       const isUltimate = planTier === 'ultimate';
+      if (String(json?.PPV_TYPE || '').toLowerCase() === 'upsell' && isUltimate) {
+        test.skip(true, 'PPV upsell flows are only applicable to Standard PPV purchases.');
+        return;
+      }
       const isUSorGB = REGION === 'GB' || REGION === 'US';
       // Dev mode: bypass phone number on ultimate flows in GB/US.
       // Enabled on all environments (including prod) when tier is ultimate.

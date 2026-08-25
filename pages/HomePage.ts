@@ -574,6 +574,14 @@ export class HomePage extends LandingPage {
         `from rail "${clicked.railTitle}"`
       );
 
+      const subscribeCta = this.page
+        .locator('#notification-layer')
+        .getByRole('button', { name: /^subscribe$/i })
+        .first();
+      if (!await subscribeCta.isVisible({ timeout: 5_000 }).catch(() => false)) {
+        await railsInterceptor.clickLockedContentSelection();
+      }
+
       // Store clicked tile info so it can be used in validation results
       eventData.DAZN_TILE_CLICKED = clicked.tileTitle;
       eventData.DAZN_TILE_RAIL = clicked.railTitle;

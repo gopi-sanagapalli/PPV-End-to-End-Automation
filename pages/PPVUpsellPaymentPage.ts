@@ -91,6 +91,14 @@ export class PPVUpsellPaymentPage extends BasePage {
     // subscription total as the PPV checkout amount.
     eventData.CURRENT_PAGE = pageName;
     eventData['CURRENT_PAGE'] = pageName;
+    const isUpsellPpvPayment = pageName.toLowerCase().includes('upsell payment') &&
+      String(eventData.PPV_TYPE || '').toLowerCase() === 'upsell';
+    const checkoutPpvName = isUpsellPpvPayment
+      ? eventData.UPSELL_PPV_NAME || eventData.PPV_NAME || ''
+      : eventData.PPV_NAME || '';
+    const checkoutPpvDescription = isUpsellPpvPayment
+      ? eventData.UPSELL_PPV_DESCRIPTION || ''
+      : eventData.BANNER_DESCRIPTION || eventData.PPV_DESCRIPTION || '';
 
     // ── Wait for page to be ready ──
     // Wait specifically for the Pay Now button — it is the last element to render
@@ -139,7 +147,7 @@ export class PPVUpsellPaymentPage extends BasePage {
         // ── PPV Name (heading) ──
       } else if (key === 'ppv name' || key === 'page title') {
         const headings = await this.page.locator('h1, h2, h3, h4').allTextContents().catch(() => []);
-        const ppvNameFull = (eventData?.PPV_NAME || '').toLowerCase();
+        const ppvNameFull = checkoutPpvName.toLowerCase();
         const nameWords = ppvNameFull
           .split(/[\s:\-–—,]+/)
           .filter(w => w.length > 2 && !/^(the|and|for|with|from|ppv)$/i.test(w));
@@ -162,7 +170,7 @@ export class PPVUpsellPaymentPage extends BasePage {
         const clean = (value: string) => value.replace(/\s+/g, ' ').trim();
         // The checkout card renders the event marketing description
         // (BANNER_DESCRIPTION), not the generic plan-pairing PPV_DESCRIPTION.
-        const expectedDescription = clean(eventData.BANNER_DESCRIPTION || eventData.PPV_DESCRIPTION || expected || '');
+        const expectedDescription = clean(checkoutPpvDescription || expected || '');
         const paras = await this.page.locator('p, [class*="description" i], [class*="subtitle" i]')
           .allTextContents().catch(() => []);
         const cardTerms = /payment|visa|mastercard|amex|maestro|\*{4}|exp\s*\d|one time|today you pay|secure|promo|terms|privacy|cvv|cvc/i;
@@ -174,14 +182,14 @@ export class PPVUpsellPaymentPage extends BasePage {
 
         // ── PPV Image Present ──
       } else if (key === 'ppv image present' || key.includes('ppv image') || key.includes('image present')) {
-        const title = this.page.getByText(eventData.PPV_NAME || '', { exact: true }).first();
+        const title = this.page.getByText(checkoutPpvName, { exact: true }).first();
         const eventScope = title.locator(
           'xpath=ancestor::*[.//img or .//*[@role="img"] or .//*[contains(@style,"background-image")]][1]'
         );
         const hasEventScope = await eventScope.count().catch(() => 0) > 0;
         const hasArtwork = await hasLoadedPPVArtwork(
           hasEventScope ? eventScope : this.page,
-          eventData.PPV_NAME || '',
+          checkoutPpvName,
           eventData.PPV_ENTITLEMENT_ID || '',
           !hasEventScope
         );
@@ -216,7 +224,7 @@ export class PPVUpsellPaymentPage extends BasePage {
         // ── Order Summary PPV Name (PPV name in the price/summary section) ──
       } else if (key === 'order summary ppv name') {
         // The PPV name appears next to the price in the order summary row
-        const ppvName = eventData.PPV_NAME || '';
+        const ppvName = checkoutPpvName;
         const mainName = ppvName.split(/[:\-–]/)[0].trim();
         const vsMatch = ppvName.match(/([\w\u00C0-\u024F]+)\s+vs\.?\s+([\w\u00C0-\u024F]+)/i);
         const f1 = vsMatch ? vsMatch[1].toLowerCase() : '';
@@ -264,7 +272,7 @@ export class PPVUpsellPaymentPage extends BasePage {
             }
           }
           return '';
-        }, { ppvName: eventData.PPV_NAME || '', pricePatternSource: pricePattern.source }).catch(() => '');
+        }, { ppvName: checkoutPpvName, pricePatternSource: pricePattern.source }).catch(() => '');
         actual = summaryPrice || 'N/A';
 
         // ── Today You Pay Text ──
@@ -339,7 +347,9 @@ export class PPVUpsellPaymentPage extends BasePage {
 
         // ── More Payment Methods ──
       } else if (key === 'more payment methods' || key.includes('more payment')) {
-        actual = paymentMethodsExpanded ? 'Yes' : 'No';
+        const morePaymentMethods = this.page.getByText(/^More payment methods$/i).first();
+        actual = (await morePaymentMethods.textContent().catch(() => ''))?.trim() ||
+          (paymentMethodsExpanded ? 'Yes' : 'No');
 
         // ── Legal Text Present ──
       } else if (key === 'legal text present') {

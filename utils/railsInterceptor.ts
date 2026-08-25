@@ -393,6 +393,171 @@ export class RailsInterceptor {
   }
 
   /**
+   * Some base-entitlement tiles open a content-selection panel before the
+   * subscription modal. Select its locked option to continue to the paywall.
+   *
+   * The panel is not always rendered inside #notification-layer — it can
+   * also open as an inline side panel next to the clicked tile (e.g. a
+   * "Select what you want to watch" list with Highlights/Full Replay
+   * options). Locate it by its heading text anywhere on the page instead of
+   * assuming a fixed container/class name, so both layouts are supported.
+   */
+  async clickLockedContentSelection(): Promise<boolean> {
+    // The panel can render its rows before the entitlement/lock state has
+    // finished loading, so a single immediate check can miss the lock icon
+    // that appears a moment later. Retry the detection for a few seconds
+    // before giving up.
+    const deadline = Date.now() + 5_000;
+    let attempt = 0;
+    while (true) {
+      attempt++;
+      const result = await this.attemptClickLockedContentSelection();
+      if (result) return true;
+      if (Date.now() >= deadline) {
+        if (attempt > 1) {
+          console.log('ℹ️ [RailsInterceptor] Content-selection panel has no visible locked option after retrying');
+        }
+        return false;
+      }
+      await this.page.waitForTimeout(300).catch(() => {});
+    }
+  }
+
+  private async attemptClickLockedContentSelection(): Promise<boolean> {
+    const panelFound = await this.page.evaluate(() => {
+      const HEADING_RE = /select what you want to watch/i;
+      const isVisible = (el: Element) => {
+        const rect = el.getBoundingClientRect();
+        const style = window.getComputedStyle(el);
+        return rect.width > 0 && rect.height > 0 &&
+          style.display !== 'none' && style.visibility !== 'hidden';
+      };
+
+      // Find the smallest visible element whose own text (not just nested
+      // descendants) matches the panel heading.
+      const heading = Array.from(document.querySelectorAll<HTMLElement>('*')).find(el => {
+        if (!isVisible(el)) return false;
+        const ownText = Array.from(el.childNodes)
+          .filter(node => node.nodeType === Node.TEXT_NODE)
+          .map(node => node.textContent || '')
+          .join(' ')
+          .trim();
+        return HEADING_RE.test(ownText);
+      });
+      if (!heading) return false;
+
+      // Rows are not always semantic button/link/role markup — some are
+      // plain elements (e.g. <li>/<div>) driven by JS click handlers. Detect
+      // those by their pointer cursor too, keeping only the outermost such
+      // element per row so nested icon/text wrappers aren't double-counted.
+      const findRowCandidates = (scope: HTMLElement): HTMLElement[] => {
+        const tagged = Array.from(
+          scope.querySelectorAll<HTMLElement>('button, a, [role="button"], [role="option"]')
+        );
+        const pointerEls = Array.from(scope.querySelectorAll<HTMLElement>('*')).filter(candidate => {
+          if (!isVisible(candidate)) return false;
+          if (!(candidate.innerText || '').trim()) return false;
+          return window.getComputedStyle(candidate).cursor === 'pointer';
+        });
+        const outerPointerEls = pointerEls.filter(candidate =>
+          !pointerEls.some(other => other !== candidate && other.contains(candidate))
+        );
+        return Array.from(new Set([...tagged, ...outerPointerEls]));
+      };
+
+      // Climb from the heading to the nearest ancestor that also contains
+      // the selectable content options (at least 2 clickable rows).
+      let container: HTMLElement | null = heading;
+      for (let i = 0; i < 6 && container; i++) {
+        if (findRowCandidates(container).length >= 2) break;
+        container = container.parentElement;
+      }
+      if (!container) return false;
+
+      container.setAttribute('data-ppv-content-selection-panel', 'true');
+      return true;
+    }).catch(() => false);
+
+    if (!panelFound) {
+      return false;
+    }
+
+    const panel = this.page.locator('[data-ppv-content-selection-panel="true"]').first();
+
+    if (!await panel.isVisible({ timeout: 5_000 }).catch(() => false)) {
+      await panel.evaluate((element: HTMLElement) => {
+        element.removeAttribute('data-ppv-content-selection-panel');
+      }).catch(() => {});
+      return false;
+    }
+
+    const lockedOptionFound = await panel.evaluate((element: HTMLElement) => {
+      const isVisible = (candidate: HTMLElement) => {
+        const rect = candidate.getBoundingClientRect();
+        const style = window.getComputedStyle(candidate);
+        return rect.width > 0 && rect.height > 0 &&
+          style.display !== 'none' && style.visibility !== 'hidden';
+      };
+      const isLocked = (candidate: HTMLElement) => {
+        const metadata = [
+          candidate.innerText,
+          candidate.getAttribute('aria-label'),
+          candidate.getAttribute('data-testid'),
+          candidate.className,
+          candidate.innerHTML,
+        ].join(' ');
+        return /\b(?:lock|locked)\b/i.test(metadata) ||
+          !!candidate.querySelector(
+            '[aria-label*="lock" i], [data-testid*="lock" i], [class*="lock" i], svg[data-icon="lock"]'
+          ) ||
+          candidate.querySelectorAll('svg').length > 1;
+      };
+      const options = Array.from(
+        new Set([
+          ...element.querySelectorAll<HTMLElement>('button, a, [role="button"], [role="option"]'),
+          ...Array.from(element.querySelectorAll<HTMLElement>('*')).filter(candidate => {
+            if (!isVisible(candidate)) return false;
+            if (!(candidate.innerText || '').trim()) return false;
+            return window.getComputedStyle(candidate).cursor === 'pointer';
+          }).filter((candidate, _i, all) =>
+            !all.some(other => other !== candidate && other.contains(candidate))
+          ),
+        ])
+      );
+      const lockedOption = options.find(option =>
+        isVisible(option) &&
+        option.getAttribute('aria-disabled') !== 'true' &&
+        isLocked(option)
+      );
+
+      if (!lockedOption) return false;
+      lockedOption.setAttribute('data-ppv-locked-content-selection', 'true');
+      return true;
+    }).catch(() => false);
+
+    if (!lockedOptionFound) {
+      await panel.evaluate((element: HTMLElement) => {
+        element.removeAttribute('data-ppv-content-selection-panel');
+      }).catch(() => {});
+      return false;
+    }
+
+    const lockedOption = panel.locator('[data-ppv-locked-content-selection="true"]').first();
+    try {
+      await lockedOption.click({ timeout: 5_000 });
+      console.log('✅ [RailsInterceptor] Clicked locked content-selection option');
+      return true;
+    } finally {
+      await lockedOption.evaluate((element: HTMLElement) => {
+        element.removeAttribute('data-ppv-locked-content-selection');
+      }).catch(() => {});
+      await panel.evaluate((element: HTMLElement) => {
+        element.removeAttribute('data-ppv-content-selection-panel');
+      }).catch(() => {});
+    }
+  }
+
+  /**
    * Find tiles within rails whose title matches a pattern, with an optional
    * per-tile title check. Useful when tile text lives on an image overlay
    * (not in DOM text) but is available in the API response's tile title field.

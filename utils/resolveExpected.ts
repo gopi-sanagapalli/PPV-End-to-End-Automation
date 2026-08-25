@@ -133,7 +133,11 @@ export function resolveExpected(
   const isPpvPaymentPage = normalizedPageName.includes('ppv payment') ||
     normalizedPageName.includes('upsell payment') ||
     pageName.includes('/addon/purchase');
-  const ppvPaymentPrice = eventData.OFFER_EFFECTIVE_PPV_PRICE || eventData.PPV_PRICE || eventData.TODAY_YOU_PAY_PRICE || '';
+  const isUpsellPpvPayment = isPpvPaymentPage &&
+    String(eventData.PPV_TYPE || '').toLowerCase() === 'upsell';
+  const ppvPaymentPrice = isUpsellPpvPayment
+    ? eventData.UPSELL_PPV_TODAY || eventData.UPSELL_PPV_PRICE || ''
+    : eventData.OFFER_EFFECTIVE_PPV_PRICE || eventData.PPV_PRICE || eventData.TODAY_YOU_PAY_PRICE || '';
   const currentUserState = String(eventData.USER_STATE || process.env.USER_STATE || '').trim().toLowerCase();
   const paymentProfile = String(eventData.PAYMENT_PROFILE || process.env.PAYMENT_PROFILE || '').trim().toLowerCase();
   const isGiftCodePaymentProfile = paymentProfile === 'giftcode' || paymentProfile === 'gift_code' || paymentProfile === 'gift-code';

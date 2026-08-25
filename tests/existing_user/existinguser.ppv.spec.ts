@@ -40,6 +40,7 @@ import {
 } from '../../utils/excelReader';
 import { detectVariant } from '../../flows/detectVariant';
 import { validateVariant, validateCtaAfterUltimateSelection } from '../../flows/validateVariant';
+import { captureFailures } from '../../utils/failureCapture';
 import { parseCanadaCommand } from '../../utils/configLoader';
 import { buildEventData } from '../../utils/buildEventData';
 import { displayResultsTable } from '../../utils/resultsDisplay';
@@ -493,6 +494,13 @@ for (const stateKey of userStatesToRun) {
 
     const tier = (json.TIER || 'freemium').toLowerCase();
     const requestedPlan = (process.env.PLAN || '').trim().toLowerCase();
+    if (
+      PPV_TYPE === 'upsell' &&
+      (tier === 'ultimate' || requestedPlan.startsWith('ultimate_') || userStateKey.startsWith('active_ultimate'))
+    ) {
+      test.skip(true, 'PPV upsell flows are only applicable to Standard PPV purchases.');
+      return;
+    }
     const isActiveStandardUser = userStateKey.startsWith('active_standard');
     const isUltimateUpgrade =
       isActiveStandardUser &&
@@ -878,7 +886,11 @@ for (const stateKey of userStatesToRun) {
         try {
           await p.waitForFunction(() => {
             const bodyText = document.body ? document.body.innerText.toLowerCase() : '';
-            return bodyText.includes('choose how to buy') ||
+            return (bodyText.includes('payment was successful') &&
+              (bodyText.includes('dazn bet') || bodyText.includes('free bet') || bodyText.includes('activate betting'))) ||
+              (bodyText.includes('payment was successful') &&
+              (bodyText.includes('buy now for') || bodyText.includes('no thanks'))) ||
+              bodyText.includes('choose how to buy') ||
               bodyText.includes('pay now') ||
               bodyText.includes('one time payment') ||
               bodyText.includes('****');
@@ -891,6 +903,22 @@ for (const stateKey of userStatesToRun) {
           .innerText({ timeout: 3000 })
           .then((t: string) => t.toLowerCase())
           .catch(() => '');
+
+        if (
+          PPV_TYPE === 'upsell' &&
+          addonBody.includes('payment was successful') &&
+          (addonBody.includes('dazn bet') || addonBody.includes('free bet') || addonBody.includes('activate betting'))
+        ) {
+          return 'bet-upsell';
+        }
+
+        if (
+          PPV_TYPE === 'upsell' &&
+          addonBody.includes('payment was successful') &&
+          (addonBody.includes('buy now for') || addonBody.includes('no thanks'))
+        ) {
+          return 'success-upsell';
+        }
 
         if (isStandalonePPV) {
           const hasStandaloneControls =
@@ -1610,6 +1638,7 @@ for (const stateKey of userStatesToRun) {
             console.log('✅ [DAZN Tile] Entitlement tile clicked; waiting for subscription modal');
 
             const subscribeCta = page
+              .locator('#notification-layer')
               .getByRole('button', { name: /^subscribe$/i })
               .filter({ visible: true })
               .first();
@@ -2832,7 +2861,9 @@ for (const stateKey of userStatesToRun) {
 
           await handleCookies(page, step === 0 ? 8000 : 1500);
           await stabilisePage(page);
-          await dismissMarketingPopup(page);
+          if (PPV_TYPE !== 'upsell' || !firstPaymentDone) {
+            await dismissMarketingPopup(page);
+          }
 
           // Dynamically extract name from page if available to keep eventData in sync
           let signedInText = '';
@@ -3238,16 +3269,14 @@ for (const stateKey of userStatesToRun) {
               await clickAndWaitForNav(page, continueBtn, 'Email Continue');
             }
 
-            if (signedIn && !isStandalonePPV && isActiveUltimateState(userStateKey)) {
-              console.log('⏳ [Ultimate User Login] Waiting for post-login redirection to fixture page...');
+            if (signedIn && !LOGIN_FIRST && PPV_TYPE === 'normal' && !isStandalonePPV && isActiveUltimateState(userStateKey)) {
+              const expectsHomeRedirect = requestedPlan.startsWith('ultimate_');
+              console.log(`⏳ [Ultimate User Login] Waiting for post-login redirection to ${expectsHomeRedirect ? 'Home' : 'My Account'}...`);
               await page.waitForURL(
                 (url: URL) =>
-                  !url.href.includes('signin') &&
-                  !url.href.includes('signup') &&
-                  !url.href.includes('PlanDetails') &&
-                  !url.href.includes('TierPlans') &&
-                  !url.href.includes('payment') &&
-                  !url.href.includes('checkout'),
+                  expectsHomeRedirect
+                    ? url.pathname.toLowerCase().includes('/home')
+                    : isMyAccountDestination(url.href),
                 { timeout: 20000 }
               ).catch(() => { });
 
@@ -3256,18 +3285,10 @@ for (const stateKey of userStatesToRun) {
               let navStatus: 'PASS' | 'FAIL' = 'FAIL';
               let actualPage = 'Unknown Page';
 
-              if (lowerUrl.includes('preview')) {
-                actualPage = 'Preview Page';
+              if (expectsHomeRedirect && lowerUrl.includes('/home')) {
+                actualPage = 'Home Page';
                 navStatus = 'PASS';
-              } else if (
-                lowerUrl.includes('fixture') ||
-                lowerUrl.includes('event') ||
-                lowerUrl.includes('stream') ||
-                lowerUrl.includes('player')
-              ) {
-                actualPage = 'Fixture Page';
-                navStatus = 'PASS';
-              } else if (lowerUrl.includes('/myaccount')) {
+              } else if (!expectsHomeRedirect && isMyAccountDestination(currentUrl)) {
                 actualPage = 'My Account';
                 navStatus = 'PASS';
               }
@@ -3275,13 +3296,13 @@ for (const stateKey of userStatesToRun) {
               results.push({
                 page: 'Sign In',
                 field: 'Post-Login Navigation Target',
-                expected: 'Preview Page, Fixture Page, or My Account',
+                expected: expectsHomeRedirect ? 'Home Page' : 'My Account',
                 actual: `Navigated to: ${currentUrl} (${actualPage})`,
                 status: navStatus,
               });
 
               if (navStatus === 'FAIL') {
-                const errMsg = `❌ [Ultimate User Login] Not redirected to fixture/preview page or My Account after signing in. Landed on: ${currentUrl}`;
+                const errMsg = `❌ [Ultimate User Login] Not redirected to ${expectsHomeRedirect ? 'Home' : 'My Account'} after signing in. Landed on: ${currentUrl}`;
                 console.error(errMsg);
                 throw new Error(errMsg);
               } else if (actualPage === 'My Account') {
@@ -3289,10 +3310,36 @@ for (const stateKey of userStatesToRun) {
                 await finishRun('ultimate', userStateKey);
                 return;
               } else {
-                console.log(`✅ [Ultimate User Login] Successfully redirected to fixture/preview page: ${currentUrl} (${actualPage})`);
+                console.log(`✅ [Ultimate User Login] Successfully redirected to ${actualPage}: ${currentUrl}`);
               }
               reachedEndPage = true;
               break;
+            }
+
+            const isActiveStandardPlan =
+              signedIn &&
+              !LOGIN_FIRST &&
+              PPV_TYPE === 'normal' &&
+              userStateKey.startsWith('active_standard') &&
+              requestedPlan.startsWith('standard_');
+            if (isActiveStandardPlan) {
+              await page.waitForURL(
+                (url: URL) => {
+                  const href = url.href.toLowerCase();
+                  return href.includes('/home') ||
+                    href.includes('page=paymentdetails') ||
+                    href.includes('/payment') ||
+                    href.includes('/checkout');
+                },
+                { timeout: 20_000 }
+              ).catch(() => {});
+
+              if (page.url().toLowerCase().includes('/home')) {
+                throw new Error(
+                  `❌ [Active Standard] Selected Standard plan "${requestedPlan}" ` +
+                  `must redirect to the payment page after sign-in, but DAZN redirected to Home: ${page.url()}`
+                );
+              }
             }
 
             await page.waitForLoadState('domcontentloaded').catch(() => { });
@@ -3387,13 +3434,21 @@ for (const stateKey of userStatesToRun) {
                   console.log('🔵 [GPay] Using Google Pay payment method...');
                   await paymentPage.fillGooglePayAndSubmit(results, eventData);
                   await paymentPage.verifyPaymentSuccess();
-                  await paymentPage.clickSuccessContinue();
+                  if (PPV_TYPE === 'upsell') {
+                    await new PPVUpsellSuccessPage(page).waitForUpsellOffer(eventData.UPSELL_BUY_CTA);
+                  } else {
+                    await paymentPage.clickSuccessContinue();
+                  }
                 } else {
                   // ── Credit Card flow (existing default) ──────────────
                   console.log('💳 Using Credit Card payment method...');
                   await paymentPage.fillPaymentAndSubmit();
                   await paymentPage.verifyPaymentSuccess();
-                  await paymentPage.clickSuccessContinue();
+                  if (PPV_TYPE === 'upsell') {
+                    await new PPVUpsellSuccessPage(page).waitForUpsellOffer(eventData.UPSELL_BUY_CTA);
+                  } else {
+                    await paymentPage.clickSuccessContinue();
+                  }
                 }
                 console.log('✅ Payment details submitted successfully on staging!');
 
@@ -4289,6 +4344,7 @@ for (const stateKey of userStatesToRun) {
                 actual: cleanCta,
                 status: ctaMatch ? 'PASS' : 'FAIL'
               });
+              await captureFailures(page, results, 'DAZN Plan', eventData);
             }
 
             await clickAndWaitForNav(page, planBtn, 'Plan Continue');
