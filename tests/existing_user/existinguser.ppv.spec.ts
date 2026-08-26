@@ -1770,10 +1770,9 @@ for (const stateKey of userStatesToRun) {
           } else {
             console.log(`\n📋 Validating ${pageName} page...`);
             try {
-              const isStandalone = eventData.PPV_TYPE === 'standalone';
               const onOnboarding = page.url().includes('signup') || page.url().includes('PlanDetails') || page.url().includes('payment') || page.url().includes('checkout');
-              if ((sheetName === 'Home of Boxing' || sheetName === 'Home of Sport' || sheetName === 'Home page') && (isStandalone || onOnboarding)) {
-                console.log('ℹ️ Standalone flow or direct navigation — skipping popup modal validations');
+              if ((sheetName === 'Home of Boxing' || sheetName === 'Home of Sport' || sheetName === 'Home page') && onOnboarding) {
+                console.log('ℹ️ Direct navigation — skipping popup modal validations');
               } else {
                 let landingData = sheetName === 'Home page'
                   ? getHomePageData(flowParam)
