@@ -14,42 +14,17 @@ export class IOSStandalonePPVPage extends IOSBasePage {
   ): Promise<boolean> {
     if (String(eventData?.PPV_TYPE || '').toLowerCase() !== 'standalone') return false;
     if (!/contextualppvid=|\/account\/content\/.*\/signup/i.test(url)) return false;
-
-    return await this.driver.execute(() => {
-      const visible = (element: HTMLElement | null) => {
-        if (!element) return false;
-        const style = window.getComputedStyle(element);
-        const box = element.getBoundingClientRect();
-        return style.display !== 'none' && style.visibility !== 'hidden' &&
-          style.opacity !== '0' && box.width > 0 && box.height > 0;
-      };
-      const hasTicket = visible(document.querySelector<HTMLElement>(
-        'input[type="checkbox"], button[class*="ni7RX"]',
-      ));
-      const hasPlan = Array.from(document.querySelectorAll<HTMLElement>(
-        'input[type="radio"], [role="radio"]',
-      )).some(visible);
-      const hasSubscriptionSection = /choose your subscription/i.test(document.body?.innerText || '');
-      return hasTicket && hasPlan && hasSubscriptionSection;
-    }).catch(() => false);
+    return /choose your subscription/i.test(bodyTextLower) &&
+      /flex\s*[–-]?\s*pay monthly/i.test(bodyTextLower) &&
+      /annual\s*[–-]?\s*pay monthly/i.test(bodyTextLower);
   }
 
   async waitUntilPageReady(): Promise<void> {
     await this.driver.waitUntil(async () => this.driver.execute(() => {
-      const visible = (element: HTMLElement | null) => {
-        if (!element) return false;
-        const style = window.getComputedStyle(element);
-        const box = element.getBoundingClientRect();
-        return style.display !== 'none' && style.visibility !== 'hidden' &&
-          style.opacity !== '0' && box.width > 0 && box.height > 0;
-      };
-      const hasTicket = visible(document.querySelector<HTMLElement>(
-        'input[type="checkbox"], button[class*="ni7RX"]',
-      ));
-      const hasPlan = Array.from(document.querySelectorAll<HTMLElement>(
-        'input[type="radio"], [role="radio"]',
-      )).some(visible);
-      return hasTicket && hasPlan && /choose your subscription/i.test(document.body?.innerText || '');
+      const text = document.body?.innerText || '';
+      return /choose your subscription/i.test(text) &&
+        /flex\s*[–-]?\s*pay monthly/i.test(text) &&
+        /annual\s*[–-]?\s*pay monthly/i.test(text);
     }).catch(() => false), {
       timeout: 20000,
       interval: 250,
@@ -60,7 +35,7 @@ export class IOSStandalonePPVPage extends IOSBasePage {
   private async selectPlan(planType: 'flex' | 'annual_monthly'): Promise<void> {
     const label = planType === 'flex' ? 'flex' : 'annual pay monthly';
     const selected = await this.driver.execute((target: string) => {
-      const normalize = (value: string) => value.replace(/\s+/g, ' ').trim().toLowerCase();
+      const normalize = (value: string) => value.replace(/[–—-]/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
       const visible = (element: HTMLElement) => {
         const style = window.getComputedStyle(element);
         const box = element.getBoundingClientRect();
@@ -91,10 +66,12 @@ export class IOSStandalonePPVPage extends IOSBasePage {
       const selectedControl = document.querySelector<HTMLElement>(
         '[role="radio"][aria-checked="true"], input[type="radio"]:checked, [data-state="checked"]',
       );
-      return (selectedControl?.closest<HTMLElement>('label, [role="radio"], div')?.innerText || '')
+      const text = (selectedControl?.closest<HTMLElement>('label, [role="radio"], div')?.innerText || '')
+        .replace(/[–—-]/g, ' ')
         .replace(/\s+/g, ' ')
-        .toLowerCase()
-        .includes(target);
+        .trim()
+        .toLowerCase();
+      return text.includes(target);
     }, label).catch(() => false), {
       timeout: 5000,
       interval: 200,

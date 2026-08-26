@@ -457,6 +457,10 @@ export class BoxingHomePage extends HomePage {
           `image="${eventData.__HOME_BOXING_IMAGE_PRESENT}"`
         );
 
+        if (eventData.__RETURN_TILE_BEFORE_POPUP === 'true') {
+          return tile;
+        }
+
         console.log(`📌 [Home Sport Tile] Found PPV tile, clicking to open modal...`);
         await tile.scrollIntoViewIfNeeded().catch(() => { });
         await this.page.waitForTimeout(150);

@@ -200,7 +200,7 @@ export class IOSSignupPage extends IOSBasePage {
       }
 
       // ── Plan selection page (delegated to IOSPlanPage) ──
-      if (planPage.isPlanPage(lower, url)) {
+      if (!isStandalonePPV && planPage.isPlanPage(lower, url)) {
         await planPage.validateAndSelect(results, eventData);
         // The plan card has been verified above. Use its tier-specific CTA;
         // do not let the generic PPV-first Continue list choose a different

@@ -19,6 +19,10 @@ permissions:
   contents: read
   actions: write
 
+concurrency:
+  group: android-prod-ppv-live-sanity
+  cancel-in-progress: false
+
 jobs:
   prepare:
     name: Validate PPV and build sanity matrix
@@ -74,7 +78,7 @@ jobs:
           journey: new-user
 
   existing-sign-in-during-flow:
-    needs: prepare
+    needs: [prepare, new-user]
     name: Existing user · Sign in during flow | ${{ matrix.source }} | ${{ matrix.profile }}
     runs-on: [self-hosted, macOS, ARM64, sridevi-runners]
     timeout-minutes: 30
@@ -102,7 +106,7 @@ jobs:
           journey: sign-in-during-flow
 
   existing-already-signed-in:
-    needs: prepare
+    needs: [prepare, existing-sign-in-during-flow]
     name: Existing user · Already signed in | ${{ matrix.source }} | ${{ matrix.profile }}
     runs-on: [self-hosted, macOS, ARM64, sridevi-runners]
     timeout-minutes: 30

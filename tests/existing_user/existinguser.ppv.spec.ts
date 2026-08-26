@@ -1446,6 +1446,7 @@ for (const stateKey of userStatesToRun) {
             SOURCE === 'subscribe-without-pay-per-view';
           const isHomeSport = HOME_SPORT_DROPDOWN_SOURCES.has(SOURCE.toLowerCase());
           const isBoxingSource = SOURCE.startsWith('boxing-page') || SOURCE.startsWith('boxing');
+          const shouldValidateTileBeforePopup = new Set(['home-page-dont-miss', 'home-boxing-tile']).has(SOURCE.toLowerCase());
 
           const landing = isHomePageSource
             ? new HomePage(page)
@@ -1632,6 +1633,9 @@ for (const stateKey of userStatesToRun) {
           // knows which CTA to find (e.g. home-page-dazntile or home-page-get-started).
           const containerSource = srcResolvedSource;
           let container: any;
+          if (shouldValidateTileBeforePopup) {
+            eventData.__RETURN_TILE_BEFORE_POPUP = 'true';
+          }
 
           const isBoxingSubscriptionSource =
             SOURCE === 'boxing-banner-ultimate' ||
@@ -1781,11 +1785,7 @@ for (const stateKey of userStatesToRun) {
                     : sheetName === 'Home of Sport'
                       ? getHomeOfSportData(flowParam)
                     : readSheet(sheetName);
-                const shouldValidateDontMissPopup =
-                  LOGIN_FIRST &&
-                  ['active_standard_monthly', 'active_standard_apm'].includes(userStateKey.toLowerCase()) &&
-                  SOURCE.toLowerCase() === 'home-page-dont-miss';
-                if (SOURCE.toLowerCase() === 'home-page-dont-miss' && !shouldValidateDontMissPopup) {
+                if (shouldValidateTileBeforePopup) {
                   landingData = landingData.filter((row: any) =>
                     !String(row.Field || '').trim().toLowerCase().startsWith('popup')
                   );
@@ -1815,7 +1815,25 @@ for (const stateKey of userStatesToRun) {
 
           const clickBuyNowSource = srcResolvedSource;
           if (SOURCE !== 'home-page-dazntile' && srcResolvedSource !== 'home-page-dazntile') {
-            await landing.clickBuyNow(container, clickBuyNowSource);
+            if (shouldValidateTileBeforePopup) {
+              console.log('📌 Tile validation completed before popup. Clicking tile to open popup...');
+              const clickTarget = container.locator(
+                'xpath=ancestor-or-self::*[self::a or self::button or @role="button"][1]'
+              ).first();
+              const target = await clickTarget.isVisible({ timeout: 500 }).catch(() => false)
+                ? clickTarget
+                : container;
+              try {
+                await target.click({ force: true, timeout: 10000 });
+              } catch (clickErr: any) {
+                const handle = await target.elementHandle().catch(() => null);
+                if (!handle) throw clickErr;
+                await page.evaluate((el: any) => el.click(), handle);
+              }
+              await handlePopupModal(page, results, eventData, SOURCE, true);
+            } else {
+              await landing.clickBuyNow(container, clickBuyNowSource);
+            }
           } else {
             console.log('ℹ️ [DAZN Tile] Generic Buy Now click skipped; subscription modal Subscribe was already clicked');
           }

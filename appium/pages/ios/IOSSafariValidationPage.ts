@@ -331,7 +331,8 @@ export class IOSSafariValidationPage extends IOSBasePage {
     // ── PPV Date and Time / Included PPV Date and Time (CHTB page) ──
     if ((fieldLower.includes('date') && fieldLower.includes('time')) ||
       fieldLower === 'ppv date and time' ||
-      fieldLower === 'included ppv date and time') {
+      fieldLower === 'included ppv date and time' ||
+      fieldLower === 'ppv date badge') {
       const normalizeDateTime = (value: string) => value.toLowerCase()
         .replace(/[\u200b\u200c\u200d\ufeff]/g, '')
         .replace(/\b(\d+)(?:st|nd|rd|th)\b/g, '$1')
@@ -547,7 +548,7 @@ export class IOSSafariValidationPage extends IOSBasePage {
       // currency search can incorrectly take the £0 trial or the £15.99 APM
       // renewal price instead of the £24.99 PPV charge shown beside Moses and
       // "Today you pay".
-      const currencyPattern = /(?:[A-Z]{3}\s*|[£$€₹]\s?)\d+(?:[.,]\d{2})?/g;
+      const currencyPattern = /(?:\b[A-Z]{3}\s*|[£$€₹]\s?)\d+(?:[.,]\d{2})?/g;
       const findPriceAfter = (startIndex: number): string => {
         for (let index = startIndex + 1; index < Math.min(texts.length, startIndex + 5); index++) {
           const price = texts[index].match(currencyPattern)?.[0];
@@ -822,16 +823,27 @@ export class IOSSafariValidationPage extends IOSBasePage {
     const buttonTexts = await this.getButtonTexts();
     const [hasImage, ppvCheckboxChecked, visiblePlanCount, selectedRadioText, hasTermsLink] = await Promise.all([
       this.driver.execute(() => document.querySelectorAll('img').length > 0).catch(() => false),
-      this.driver.execute(() => {
+      this.driver.execute((eventName: string) => {
         const checkbox = document.querySelector<HTMLInputElement>('input[type="checkbox"]');
         if (checkbox) return checkbox.checked;
-        const toggle = document.querySelector<HTMLElement>('button[class*="ni7RX"]');
-        return Boolean(toggle && (
-          toggle.getAttribute('aria-pressed') === 'true' ||
-          toggle.getAttribute('aria-checked') === 'true' ||
-          /\b(?:checked|active)\b/i.test(toggle.className || '')
-        ));
-      }).catch(() => false),
+        const ticketTerm = String(eventName || '').split(':')[0].trim().toLowerCase();
+        return Array.from(document.querySelectorAll<HTMLElement>(
+          'button, [role="checkbox"], [aria-checked], [aria-pressed], [data-state]',
+        )).some(toggle => {
+          if (toggle.matches('input[type="radio"], [role="radio"]')) return false;
+          let container: HTMLElement | null = toggle;
+          for (let depth = 0; container && depth < 4; depth++, container = container.parentElement) {
+            const text = (container.innerText || container.textContent || '').toLowerCase();
+            if (ticketTerm && text.includes(ticketTerm)) {
+              return toggle.getAttribute('aria-pressed') === 'true' ||
+                toggle.getAttribute('aria-checked') === 'true' ||
+                toggle.getAttribute('data-state') === 'checked' ||
+                /\b(?:checked|active)\b/i.test(toggle.className || '');
+            }
+          }
+          return false;
+        });
+      }, String(eventData.PPV_NAME || '')).catch(() => false),
       this.driver.execute(() => Array.from(
         document.querySelectorAll<HTMLElement>('input[type="radio"], [role="radio"]'),
       ).filter(element => {
@@ -894,6 +906,11 @@ export class IOSSafariValidationPage extends IOSBasePage {
       if (IOSSafariValidationPage.MOBILE_SKIP_FIELDS.has(fieldLower)) continue;
       if (pageName === 'Payment Page' && fieldLower === 'payment method heading') {
         console.log('⏭️  Skipping desktop-only Safari field: Payment Method Heading');
+        continue;
+      }
+      if (pageName === 'Payment Page' && String(eventData.PPV_TYPE || '').toLowerCase() === 'standalone' &&
+        fieldLower === 'ultimate upsell text') {
+        console.log('⏭️  Skipping Ultimate Upsell Text for standalone PPV payment.');
         continue;
       }
       if (fieldLower.includes('welcome back')) continue;

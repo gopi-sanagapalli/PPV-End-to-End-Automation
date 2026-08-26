@@ -1,5 +1,5 @@
 import { IOSBasePage, IOSFlowHooks, WdBrowser } from './IOSBasePage';
-import { IOSHomePage } from './IOSHomePage';
+import { IOSHomePage, locateIOSPpvTileByImage } from './IOSHomePage';
 import { createHash } from 'crypto';
 
 export interface IOSPPVDateParts {
@@ -306,18 +306,17 @@ export class IOSBoxingPage extends IOSBasePage {
       throw new Error(`Configured sport "${configuredSport}" was not found in the All Sports picker. See test-results/ios_configured_sport_not_found.png`);
     }
 
-    const loadedPageControls = [
-      '-ios predicate string:name CONTAINS[c] "Upcoming Fights" OR label CONTAINS[c] "Upcoming Fights"',
-    ];
-    const isSportContentReady = async (): Promise<boolean> => {
-      for (const selector of loadedPageControls) {
-        const element = await this.driver.$(selector).catch(() => null);
-        if (element && await element.isDisplayed().catch(() => false)) return true;
+    const isConfiguredSportPageReady = async (): Promise<boolean> => {
+      const headers = await this.driver.$$(
+        `-ios predicate string:name == "${escapedSport}" OR label == "${escapedSport}" OR value == "${escapedSport}"`,
+      ).catch(() => []);
+      const viewport = await this.driver.getWindowRect().catch(() => null);
+      for (const header of headers) {
+        if (!(await header.isDisplayed().catch(() => false))) continue;
+        const location = await header.getLocation().catch(() => null);
+        if (location && (!viewport || location.y < viewport.height * 0.25)) return true;
       }
       return false;
-    };
-    const isConfiguredSportPageReady = async (): Promise<boolean> => {
-      return isSportContentReady();
     };
 
     await sport.click();
@@ -670,6 +669,16 @@ export class IOSBoxingPage extends IOSBasePage {
   }
 
   async openHomeBoxingDontMissTilePaywall(eventConfig?: any, hooks: IOSFlowHooks = {}): Promise<boolean> {
+    const configuredSport = String(
+      eventConfig?.SPORT || eventConfig?.global?.SPORT || process.env.SPORT || 'Boxing',
+    ).trim().toLowerCase();
+    // Match the web Home Sport flow: Boxing (and Misfits boxing) exposes the
+    // Don't Miss rail, whereas other sport destinations expose the PPV in
+    // their Coming up rail.
+    if (configuredSport && configuredSport !== 'boxing' && !configuredSport.includes('misfits')) {
+      return this.openConfiguredSportComingUpTilePaywall(eventConfig, hooks);
+    }
+
     console.log('Home -> All Sports -> configured sport page -> Don\'t Miss rail -> PPV tile -> Buy now');
     await this.navigateToConfiguredSport(eventConfig);
     await this.waitForConfiguredPpvContentOnSportPage('Home of Boxing');
@@ -677,6 +686,112 @@ export class IOSBoxingPage extends IOSBasePage {
       skipEnsureHome: true,
       recordPage: 'Home of Boxing',
     });
+  }
+
+  private async openConfiguredSportComingUpTilePaywall(eventConfig?: any, hooks: IOSFlowHooks = {}): Promise<boolean> {
+    const configuredSport = String(
+      eventConfig?.SPORT || eventConfig?.global?.SPORT || process.env.SPORT || 'Sport',
+    ).trim() || 'Sport';
+    delete process.env.IOS_HOME_SPORT_TILE_FOUND;
+    delete process.env.IOS_HOME_SPORT_OCR_TEXTS;
+    console.log(`Home -> All Sports -> ${configuredSport} -> Coming up -> PPV tile -> Buy now`);
+    await this.navigateToConfiguredSport(eventConfig);
+    await this.waitForConfiguredPpvContentOnSportPage('Home of Sport');
+
+    const comingUp = await this.driver.waitUntil(async () => {
+      const headings = await this.driver.$$(
+        '-ios predicate string:name CONTAINS[c] "Coming up" OR label CONTAINS[c] "Coming up"',
+      ).catch(() => []);
+      for (const heading of headings) {
+        if (await heading.isDisplayed().catch(() => false) && await this.isInViewport(heading)) return true;
+      }
+      return false;
+    }, {
+      timeout: 10000,
+      interval: 500,
+      timeoutMsg: `Coming up rail did not appear on ${configuredSport}.`,
+    }).then(() => true).catch(() => false);
+
+    if (!comingUp) {
+      const shot = hooks.saveScreenshot
+        ? await hooks.saveScreenshot('./test-results/ios_sport_coming_up_not_found.png')
+        : undefined;
+      hooks.recordAvailability?.(false, shot, 'Home of Sport');
+      await hooks.generateAvailabilityFailureReport?.(`"Coming up" rail not found on ${configuredSport}`);
+      throw new Error(`"Coming up" rail not found on ${configuredSport}. See test-results/ios_sport_coming_up_not_found.png`);
+    }
+
+    const ppvTile = await this.driver.waitUntil(async () => this.findVisibleUpcomingPpvTitle(), {
+      timeout: 10000,
+      interval: 500,
+      timeoutMsg: `PPV tile "${this.ppvName}" was not visible in ${configuredSport} Coming up.`,
+    }).catch(() => null);
+    if (!ppvTile) {
+      const shot = hooks.saveScreenshot
+        ? await hooks.saveScreenshot('./test-results/ios_sport_coming_up_ppv_not_found.png')
+        : undefined;
+      hooks.recordAvailability?.(false, shot, 'Home of Sport');
+      await hooks.generateAvailabilityFailureReport?.(`PPV tile "${this.ppvName}" not found in ${configuredSport} Coming up`);
+      return false;
+    }
+
+    hooks.recordAvailability?.(true, undefined, 'Home of Sport');
+    const [tileLocation, viewport] = await Promise.all([
+      ppvTile.getLocation().catch(() => null),
+      this.driver.getWindowRect().catch(() => null),
+    ]);
+    const visualEvidence = tileLocation && viewport
+      ? await locateIOSPpvTileByImage(this.driver, this.ppvName, {
+        minYPercent: Math.max(0, (tileLocation.y - 260) / viewport.height),
+        maxYPercent: Math.min(1, (tileLocation.y + 100) / viewport.height),
+      }, true)
+      : undefined;
+    process.env.IOS_HOME_SPORT_TILE_FOUND = 'true';
+    process.env.IOS_HOME_SPORT_OCR_TEXTS = JSON.stringify([
+      ...(visualEvidence?.ocrTexts || []),
+      this.ppvName,
+    ]);
+    await this.driver.saveScreenshot('./test-results/ios_sport_coming_up_ppv_found.png');
+    await this.runSurfaceValidation(hooks, 'PPV Tile');
+
+    try {
+      await ppvTile.click();
+    } catch {
+      const location = await ppvTile.getLocation();
+      const size = await ppvTile.getSize();
+      await this.driver.execute('mobile: tap', {
+        x: Math.round(location.x + size.width / 2),
+        y: Math.round(location.y + size.height / 2),
+      });
+    }
+    console.log(`  Opened PPV tile "${this.ppvName}" from ${configuredSport} Coming up.`);
+
+    const isUltimateUser = ['active_ultimate_apm', 'active_ultimate_upfront'].includes(String(process.env.USER_STATE || '').toLowerCase().trim());
+    const isLoginFirst = String(process.env.LOGIN_FIRST || '').toLowerCase() === 'true';
+    if (isUltimateUser && isLoginFirst) {
+      await this.validateUltimateFixtureOrPreviewPage(hooks);
+      return true;
+    }
+
+    await this.driver.pause(2000);
+    console.log('Validating native Coming up paywall before external handoff...');
+    await this.driver.saveScreenshot('./test-results/ios_sport_coming_up_native_paywall.png');
+    await this.runPaywallValidation(hooks);
+    if (await this.handleUsNativePaywallSheet(hooks)) return true;
+
+    const externalCtas = ['Go to dazn.com/start', 'Go to DAZN.com/start', 'dazn.com/start'];
+    const externalCtaTapped = await this.tapBuyCtaWithFallback(externalCtas, {
+      scrollBeforeFallback: true,
+      fallbackCtas: externalCtas,
+    });
+    if (!externalCtaTapped) {
+      const shot = hooks.saveScreenshot
+        ? await hooks.saveScreenshot('./test-results/ios_sport_coming_up_external_cta_not_found.png')
+        : undefined;
+      hooks.recordAvailability?.(false, shot, 'Home of Sport');
+      await hooks.generateAvailabilityFailureReport?.(`Go to dazn.com/start CTA for PPV "${this.ppvName}" not found in ${configuredSport} Coming up`);
+    }
+    return externalCtaTapped;
   }
 }
 

@@ -35,7 +35,6 @@ type WdElement = any;
 import { writeHandoffUrl, clearHandoffUrl } from '../../utils/handoff';
 import { prepareIosApp, waitForHomePage } from '../../utils/iosSetup';
 import { startIOSRecording, stopIOSRecording } from '../../utils/iosVideoRecorder';
-import { recomputeMobileDatesForDeviceTimezone } from '../../utils/deviceTimezone';
 import { loadEventConfig, EventConfig } from '../../utils/eventLoader';
 import { openSchedulePPVPaywall } from '../../pages/ios/IOSSchedulePage';
 import { IOSSearchPage, openSearchResultPaywall } from '../../pages/ios/IOSSearchPage';
@@ -268,6 +267,12 @@ describe('DAZN iOS PPV — New User Handoff Flow', () => {
 
     const planTier = (planData.TIER || 'standard').toLowerCase();
     const ratePlan = (planData.RATE_PLAN || 'monthly').toLowerCase();
+    const isStandalonePPV = String(json.PPV_TYPE || process.env.PPV_TYPE || '').toLowerCase() === 'standalone';
+    if (isStandalonePPV && (planTier === 'ultimate' || !['monthly', 'annual pay monthly'].includes(ratePlan))) {
+      throw new Error(
+        `Standalone PPV supports only Standard monthly or Annual Pay Monthly plans; received "${PLAN}".`,
+      );
+    }
     // IOSSignupPage performs the Safari contextual-plan selection. Keep its
     // choice aligned with the canonical DaznPlan.json entry used to build the
     // validations, rather than relying on a default inferred from the URL.
@@ -301,10 +306,6 @@ describe('DAZN iOS PPV — New User Handoff Flow', () => {
     eventData.SOURCE = SOURCE;
     eventData.MOBILE_WEB_HANDOFF = 'true';
     Object.assign(eventData, mobileRegional);
-
-    // Recompute mobile date/time tokens from PPV_UTC_DATE using the device's
-    // actual timezone — matches how Playwright uses timezoneId for web.
-    recomputeMobileDatesForDeviceTimezone(eventData);
 
     // Keep Safari's shared Excel validation data aligned with the established
     // web flow. The workbook uses these derived fields as {{...}} templates;

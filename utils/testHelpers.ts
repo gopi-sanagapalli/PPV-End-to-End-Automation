@@ -203,9 +203,7 @@ export async function handlePopupModal(
   // 2. Skip validation if already validated to avoid duplicate errors
   const alreadyValidated = results.some(r =>
     r.page === 'Popup Modal' ||
-    r.page === 'Home Page' ||
-    r.page === 'Home of Boxing' ||
-    r.page === 'Home of Sport'
+    String(r.field || r.Field || '').trim().toLowerCase().startsWith('popup')
   );
   if (alreadyValidated && !clickBuyNow) {
     console.log('ℹ️ [Popup Check] Popup modal/home validation already completed. Skipping.');

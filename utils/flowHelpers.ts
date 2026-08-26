@@ -199,9 +199,11 @@ export async function detectPageType(
   // Relies on structural indicators (checkbox/toggle) rather than event-name keywords
   // which could appear on ANY page (e.g., "GLORY Collision 9" in headers/breadcrumbs).
   if (isStandalonePPV && urlLower.includes('page=plandetails') && (
-    urlLower.includes('standalone') || 
+    urlLower.includes('standalone') ||
     body.toLowerCase().includes('standalone') ||
-    (await p.locator('input[type="checkbox"], button[class*="ni7RX"]').count().catch(() => 0)) > 0
+    (body.includes('choose your subscription') &&
+      /flex\s*[–-]?\s*pay monthly/i.test(body) &&
+      /annual\s*[–-]?\s*pay monthly/i.test(body))
   )) {
     return 'standalone-ppv';
   }
@@ -293,9 +295,10 @@ export async function detectPageType(
   if (body.includes('choose how to buy')) return 'ppv';
 
   // Standalone/Glory PPV page detection
-  if (body.includes("choose a plan that's right") && body.includes("choose your subscription")) {
-    const checkboxCount = await p.locator('input[type="checkbox"]').count().catch(() => 0);
-    if (checkboxCount > 0) return 'standalone-ppv';
+  if (isStandalonePPV && body.includes("choose a plan that's right") && body.includes("choose your subscription")) {
+    if (/flex\s*[–-]?\s*pay monthly/i.test(body) && /annual\s*[–-]?\s*pay monthly/i.test(body)) {
+      return 'standalone-ppv';
+    }
   }
 
   // Plan page detection (body text fallback)
