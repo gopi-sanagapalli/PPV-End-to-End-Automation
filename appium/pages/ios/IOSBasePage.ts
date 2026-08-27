@@ -1514,31 +1514,30 @@ export class IOSBasePage {
     if (explore) {
       await explore.click();
       console.log('✅ Clicked Explore to navigate from Landing page to Home page.');
-      await this.driver.waitUntil(async () => this.driver.execute(() => {
-        if (document.readyState !== 'complete') return false;
-        const isVisible = (element: HTMLElement): boolean => {
-          const style = window.getComputedStyle(element);
-          const rect = element.getBoundingClientRect();
-          return style.display !== 'none' && style.visibility !== 'hidden' &&
-            rect.width > 0 && rect.height > 0;
-        };
-        const controls = Array.from(document.querySelectorAll<HTMLElement>('button, a, [role="button"], [aria-label], [data-testid]'));
-        const searchVisible = controls.some(element => {
-          const text = `${element.innerText || element.textContent || ''} ${element.getAttribute('aria-label') || ''} ${element.getAttribute('data-testid') || ''}`;
-          const inHeader = Boolean(element.closest('header')) || element.getBoundingClientRect().top < window.innerHeight * 0.25;
-          return inHeader && /search/i.test(text) && isVisible(element);
-        });
-        const exploreVisible = controls.some(element =>
-          /^explore$/i.test((element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim()) &&
-          isVisible(element),
-        );
-        return searchVisible || !exploreVisible || document.querySelectorAll('div, section, article').length > 10;
-      }).catch(() => false), {
-        timeout: 15000,
+      let homeFeedReadyReads = 0;
+      await this.driver.waitUntil(async () => {
+        const homeFeedMounted = await this.driver.execute(() => {
+          if (document.readyState !== 'complete') return false;
+          const isVisible = (element: HTMLElement): boolean => {
+            const style = window.getComputedStyle(element);
+            const rect = element.getBoundingClientRect();
+            return style.display !== 'none' && style.visibility !== 'hidden' &&
+              rect.width > 0 && rect.height > 0;
+          };
+          const onHomeRoute = /\/home(?:[/?#]|$)/i.test(window.location.pathname);
+          const dontMissMounted = Array.from(document.querySelectorAll<HTMLElement>('*')).some(element =>
+            isVisible(element) && /^don.?t miss(?: live on dazn)?$/i.test((element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim()),
+          );
+          return onHomeRoute && dontMissMounted;
+        }).catch(() => false);
+        homeFeedReadyReads = homeFeedMounted ? homeFeedReadyReads + 1 : 0;
+        return homeFeedReadyReads >= 2;
+      }, {
+        timeout: 30000,
         interval: 500,
-        timeoutMsg: 'Safari Home page did not settle after clicking Explore.',
+        timeoutMsg: 'Safari Home page did not render a stable Don\'t miss feed after clicking Explore.',
       }).catch(() => {
-        console.log('⚠️ Safari Home settle wait timed out after Explore; continuing with Don\'t miss search.');
+        console.log('⚠️ Safari Home feed did not expose stable Don\'t miss after Explore; continuing with Don\'t miss search.');
       });
     } else {
       console.log('ℹ️ \'Explore\' control not found — assuming already on Home page or a different landing variant; continuing without navigation.');
@@ -1612,7 +1611,9 @@ export class IOSBasePage {
     console.log('📜 "Don\'t miss" rail positioned; scanning only its visible PPV tiles...');
 
     // ── Step 2: Check and click only a visible tile in this rail ──────────────
-    const clickVisibleMatchingTile = async (): Promise<string> => this.driver.execute((terms: string[]) => {
+    const markVisibleMatchingTile = async (): Promise<string> => this.driver.execute((terms: string[]) => {
+      document.querySelectorAll('[data-ios-dontmiss-ppv-target="true"]')
+        .forEach(element => element.removeAttribute('data-ios-dontmiss-ppv-target'));
       const rail = document.querySelector<HTMLElement>('[data-ios-dontmiss-rail="true"]') || undefined;
       if (!rail) return '';
 
@@ -1634,17 +1635,26 @@ export class IOSBasePage {
         const buyCta = Array.from(candidate.querySelectorAll<HTMLElement>('a, button')).find(el =>
           /buy now|get ppv|purchase/i.test(el.innerText || el.textContent || ''),
         );
-        (buyCta || candidate).click();
+        const target = buyCta || candidate.closest<HTMLElement>('a, button, [role="button"]') ||
+          candidate.querySelector<HTMLElement>('a, button, [role="button"]') || candidate;
+        target.setAttribute('data-ios-dontmiss-ppv-target', 'true');
         return buyCta ? 'Buy now' : 'tile card';
       }
       return '';
     }, eventTerms).catch(() => '');
 
+    const clickMarkedMatchingTile = async (): Promise<boolean> => {
+      const target = await this.driver.$('[data-ios-dontmiss-ppv-target="true"]');
+      if (!(await target.isDisplayed().catch(() => false))) return false;
+      await target.scrollIntoView().catch(() => { });
+      return target.click().then(() => true).catch(() => false);
+    };
+
     let urlBeforeTileClick = await this.driver.getUrl().catch(() => '');
-    let clicked = await clickVisibleMatchingTile();
-    if (clicked) {
-      console.log(`✅ Clicked ${clicked} for PPV tile "${eventName}" in "Don't miss".`);
+    let clickTarget = await markVisibleMatchingTile();
+    if (clickTarget && await clickMarkedMatchingTile()) {
       await this.waitForSafariAfterDontMissClick(eventName, urlBeforeTileClick);
+      console.log(`✅ Clicked ${clickTarget} for PPV tile "${eventName}" in "Don't miss".`);
       return true;
     }
 
@@ -1666,10 +1676,10 @@ export class IOSBasePage {
       await this.driver.pause(700);
 
       urlBeforeTileClick = await this.driver.getUrl().catch(() => '');
-      clicked = await clickVisibleMatchingTile();
-      if (clicked) {
-        console.log(`✅ Clicked ${clicked} for PPV tile "${eventName}" in "Don't miss".`);
+      clickTarget = await markVisibleMatchingTile();
+      if (clickTarget && await clickMarkedMatchingTile()) {
         await this.waitForSafariAfterDontMissClick(eventName, urlBeforeTileClick);
+        console.log(`✅ Clicked ${clickTarget} for PPV tile "${eventName}" in "Don't miss".`);
         return true;
       }
 
@@ -1686,18 +1696,83 @@ export class IOSBasePage {
   }
 
   private async waitForSafariAfterDontMissClick(eventName: string, previousUrl: string): Promise<void> {
-    await this.driver.pause(Number(process.env.IOS_SAFARI_AFTER_TILE_CLICK_PAUSE_MS || 5000));
+    const eventTerms = this.normalisePpvMatchText(eventName)
+      .split(/\s+/)
+      .filter(term => term.length >= 3 && term !== 'vs');
+    let postClickState = '';
+    const markVisibleModalBuyNow = async (): Promise<boolean> => Boolean(await this.driver.execute((terms: string[]) => {
+      document.querySelectorAll('[data-ios-dontmiss-modal-buy="true"]')
+        .forEach(element => element.removeAttribute('data-ios-dontmiss-modal-buy'));
+      const isVisible = (element: HTMLElement): boolean => {
+        const style = window.getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+      };
+      const isForeground = (element: HTMLElement): boolean => {
+        const rect = element.getBoundingClientRect();
+        const topElement = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+        return Boolean(topElement && (topElement === element || element.contains(topElement)));
+      };
+      for (const button of Array.from(document.querySelectorAll<HTMLElement>('button, a, [role="button"]'))) {
+        if (!isVisible(button) || !isForeground(button) || !/^buy now$/i.test((button.innerText || button.textContent || '').replace(/\s+/g, ' ').trim())) continue;
+        let modal: HTMLElement | undefined;
+        for (let element = button.parentElement; element && element !== document.body; element = element.parentElement) {
+          const rect = element.getBoundingClientRect();
+          const text = (element.innerText || element.textContent || '')
+            .normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ');
+          if (isVisible(element) && rect.width < window.innerWidth * 0.98 && rect.height < window.innerHeight * 0.98 &&
+            terms.every(term => text.includes(term))) {
+            modal = element;
+            break;
+          }
+        }
+        const modalText = (modal?.innerText || modal?.textContent || '')
+          .normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ');
+        if (modal && isVisible(modal) && terms.every(term => modalText.includes(term))) {
+          button.setAttribute('data-ios-dontmiss-modal-buy', 'true');
+          return 'modal';
+        }
+      }
+      return '';
+    }, eventTerms).catch(() => ''));
+    await this.driver.pause(5000);
     await this.driver.waitUntil(async () => {
       const currentUrl = await this.driver.getUrl().catch(() => '');
-      if (currentUrl && currentUrl !== previousUrl) return true;
-      return await this.browserDocumentReady();
+      if (currentUrl && currentUrl !== previousUrl) {
+        postClickState = 'navigated';
+        return true;
+      }
+      postClickState = (await markVisibleModalBuyNow()) ? 'modal' : '';
+      return Boolean(postClickState);
     }, {
       timeout: Number(process.env.IOS_SAFARI_AFTER_TILE_CLICK_TIMEOUT_MS || 20000),
       interval: 500,
-      timeoutMsg: `Safari did not settle after clicking PPV tile "${eventName}".`,
-    }).catch(() => {
-      console.log(`⚠️ Safari settle wait timed out after clicking PPV tile "${eventName}"; continuing.`);
+      timeoutMsg: `Safari PPV tile "${eventName}" did not open its modal or navigate to checkout.`,
     });
+    if (postClickState !== 'modal') return;
+
+    const clickedModalBuyNow = await this.driver.execute(() => {
+      const button = document.querySelector<HTMLElement>('[data-ios-dontmiss-modal-buy="true"]');
+      if (!button) return false;
+      const rect = button.getBoundingClientRect();
+      const topElement = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      if (!topElement || (topElement !== button && !button.contains(topElement))) return false;
+      button.click();
+      return true;
+    }).catch(() => false);
+    if (!clickedModalBuyNow) {
+      throw new Error(`Safari PPV modal Buy now button disappeared for "${eventName}".`);
+    }
+    await this.driver.waitUntil(async () => {
+      const currentUrl = await this.driver.getUrl().catch(() => '');
+      if (currentUrl && currentUrl !== previousUrl) return true;
+      return !(await markVisibleModalBuyNow());
+    }, {
+      timeout: Number(process.env.IOS_SAFARI_AFTER_TILE_CLICK_TIMEOUT_MS || 20000),
+      interval: 500,
+      timeoutMsg: `Safari PPV modal Buy now did not advance for "${eventName}".`,
+    });
+    console.log(`✅ Clicked scoped Buy now for PPV modal "${eventName}".`);
   }
 }
 

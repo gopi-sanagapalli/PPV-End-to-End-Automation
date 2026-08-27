@@ -372,6 +372,7 @@ async function runFlow(
     const isSchedule = source.toLowerCase().includes('schedule');
 
     const isGlory = source.toLowerCase() === 'glory';
+    const shouldValidateTileBeforePopup = new Set(['home-page-dont-miss', 'home-boxing-tile']).has(source.toLowerCase());
 
     // ══════════════════════════════════════════════════════════════
     // HOME PAGE POPUP FLOW
@@ -645,6 +646,9 @@ async function runFlow(
 
       // ── Step 2: Resolve the configured source ──────────
       let container: any;
+      if (shouldValidateTileBeforePopup) {
+        eventData.__RETURN_TILE_BEFORE_POPUP = 'true';
+      }
 
       if (source === 'home-page-dazntile') {
         // This source is not a PPV-container flow. HomePage finds and clicks
@@ -759,7 +763,12 @@ async function runFlow(
           console.log('\n📋 Validating Entry page using Excel sheet...');
           try {
             if (isHomePageSource) {
-              const homePageData = getHomePageData(source);
+              let homePageData = getHomePageData(source);
+              if (shouldValidateTileBeforePopup) {
+                homePageData = homePageData.filter((row: any) =>
+                  !String(row.Field || '').trim().toLowerCase().startsWith('popup')
+                );
+              }
               if (homePageData && homePageData.length > 0) {
                 await validateVariant(page, 'home-page', homePageData, results, eventData, 'Home Page', source);
               } else {
@@ -779,11 +788,16 @@ async function runFlow(
               const homeSportData = isNonBoxingSportTile
                 ? getHomeOfSportData(queryFlow)
                 : getHomeOfBoxingData(queryFlow);
-              if (homeSportData && homeSportData.length > 0) {
+              const homeSportTileData = shouldValidateTileBeforePopup
+                ? homeSportData.filter((row: any) =>
+                  !String(row.Field || '').trim().toLowerCase().startsWith('popup')
+                )
+                : homeSportData;
+              if (homeSportTileData && homeSportTileData.length > 0) {
                 await validateVariant(
                   page,
                   isNonBoxingSportTile ? 'home-sport' : 'home-boxing',
-                  homeSportData,
+                  homeSportTileData,
                   results,
                   eventData,
                   isNonBoxingSportTile ? 'Home of Sport' : 'Home of Boxing',
@@ -803,7 +817,25 @@ async function runFlow(
       // findPPVContainer(), so it has no PPV container for the generic
       // Buy Now handler.
       if (source !== 'home-page-dazntile' && process.env.PPV_REMOVAL !== 'true') {
-        await landing.clickBuyNow(container, source);
+        if (shouldValidateTileBeforePopup) {
+          console.log('📌 Tile validation completed before popup. Clicking tile to open popup...');
+          const clickTarget = container.locator(
+            'xpath=ancestor-or-self::*[self::a or self::button or @role="button"][1]'
+          ).first();
+          const target = await clickTarget.isVisible({ timeout: 500 }).catch(() => false)
+            ? clickTarget
+            : container;
+          try {
+            await target.click({ force: true, timeout: 10000 });
+          } catch (clickErr: any) {
+            const handle = await target.elementHandle().catch(() => null);
+            if (!handle) throw clickErr;
+            await page.evaluate((el: any) => el.click(), handle);
+          }
+          await handlePopupModal(page, results, eventData, source, true);
+        } else {
+          await landing.clickBuyNow(container, source);
+        }
       } else if (process.env.PPV_REMOVAL === 'true') {
         console.log('ℹ️ [PPV Removal] Generic Buy Now click skipped');
       } else {

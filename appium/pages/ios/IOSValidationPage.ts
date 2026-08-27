@@ -448,9 +448,9 @@ export class IOSValidationPage extends IOSBasePage {
           const dayTimePattern = new RegExp(`\\b${dayPattern}(?:day)?\\b\\s*(?:at\\s*)?${expectedTimePattern.source}`, 'i');
           const dayTimeText = texts.find(t => dayTimePattern.test(t) && excludeOtherEventTime(t));
           const timeText = texts.find(t => expectedTimePattern.test(t) && excludeOtherEventTime(t));
-          mobileDateText = dayTimeText || (timeText && expectedDay ? `${expectedDay} ${timeText}` : timeText) || 'Not found';
+          mobileDateText = dayTimeText || (timeText && expectedDay ? `${expectedDay} ${timeText}` : timeText) || paywallSnapshot.mobileDateText;
         } else {
-          mobileDateText = 'Not found';
+          mobileDateText = paywallSnapshot.mobileDateText;
         }
       } else if (expTimeMatch && candidates.length > 1) {
         const expH = parseInt(expTimeMatch[1], 10);
@@ -636,6 +636,9 @@ export class IOSValidationPage extends IOSBasePage {
 
     const titleExpected = eventData.MOBILE_BANNER_TITLE || eventData.PPV_DISPLAY_NAME || eventData.PPV_NAME;
     const normalizedSource = source.trim().toLowerCase();
+    const isHomeSportTile = normalizedSource === 'home-boxing-tile' &&
+      !['', 'boxing'].includes(String(eventData.SPORT || eventData.global?.SPORT || '').trim().toLowerCase()) &&
+      !String(eventData.SPORT || eventData.global?.SPORT || '').toLowerCase().includes('misfits');
     const useScheduleSnapshot = ['schedule', 'home-boxing-upcoming'].includes(normalizedSource) && surface === 'PPV Tile';
     const { texts, pageSource, targetXml } = await this.gatherTextsFromSurface(
       surface,
@@ -733,7 +736,9 @@ export class IOSValidationPage extends IOSBasePage {
       t => cleanStr(t).includes(cleanStr(titleExpected)) || cleanStr(titleExpected).includes(cleanStr(t))
     );
 
-    const sheetName = getIOSValidationSheet(source, surface);
+    const sheetName = isHomeSportTile && surface === 'PPV Tile'
+      ? 'Home of Sport'
+      : getIOSValidationSheet(source, surface);
     const { resolveExpected: resolveExp } = require('../../../utils/resolveExpected');
     const { readSheet } = require('../../../utils/excelReader');
     const { compare } = require('../../../utils/compare');
@@ -745,10 +750,12 @@ export class IOSValidationPage extends IOSBasePage {
         // Shared Android sheets contain multiple source flows. Prefer the
         // rows authored for the active source so a Home banner check (for
         // example, Copy Button) cannot run against the Don't Miss tile.
+        const expectedFlow = isHomeSportTile ? 'home-sport-tile' : source.trim().toLowerCase();
         const sourceRows = rows.filter((r: any) =>
-          String(r.Flow || '').trim().toLowerCase() === source.trim().toLowerCase(),
+          String(r.Flow || '').trim().toLowerCase() === expectedFlow,
         );
         if (sourceRows.length) rows = sourceRows;
+        if (isHomeSportTile) rows = rows.filter((r: any) => !String(r.Field || '').trim().toLowerCase().startsWith('popup'));
         if (sheetName === 'Schedule page') {
           rows = rows.filter((r: any) => !r.Field?.toString().trim().startsWith('Popup'));
         }
@@ -809,7 +816,12 @@ export class IOSValidationPage extends IOSBasePage {
         dontMissOcrTexts = JSON.parse(process.env.IOS_DONT_MISS_OCR_TEXTS || '[]');
       } catch { }
       const dontMissTileFound = process.env.IOS_DONT_MISS_PPV_TILE_FOUND === 'true';
-      const isDontMissTile = source === 'home-page-dont-miss' || source === 'home-boxing-tile';
+      const isDontMissTile = (source === 'home-page-dont-miss' || source === 'home-boxing-tile') && !isHomeSportTile;
+      let homeSportOcrTexts: string[] = [];
+      try {
+        homeSportOcrTexts = JSON.parse(process.env.IOS_HOME_SPORT_OCR_TEXTS || '[]');
+      } catch { }
+      const homeSportTileFound = process.env.IOS_HOME_SPORT_TILE_FOUND === 'true';
 
       for (const row of rows) {
         const fieldName = (row['Field'] || '').trim();
@@ -861,7 +873,31 @@ export class IOSValidationPage extends IOSBasePage {
         let actualValue = 'Not found';
         let isMatch = false;
 
-        if (source === 'home-page-dont-miss' && fieldName === "Don't Miss Section") {
+        if (isHomeSportTile && fieldLower === 'coming up section') {
+          actualValue = homeSportTileFound ? 'Present' : 'Not found';
+          isMatch = homeSportTileFound && expectedValue.toLowerCase() === 'present';
+        } else if (isHomeSportTile && fieldLower === 'ppv tile present') {
+          actualValue = homeSportTileFound ? 'Yes' : 'No';
+          isMatch = homeSportTileFound && expectedValue.toLowerCase() === 'yes';
+        } else if (isHomeSportTile && fieldLower === 'ppv name') {
+          const nameTerms = cleanStr(expectedValue).split(/\s+vs\.?\s+|[^a-z0-9]+/).filter((term: string) => term.length >= 3);
+          const ocrCorpus = cleanStr(homeSportOcrTexts.join(' '));
+          const nameMatches = nameTerms.length > 0 && nameTerms.every(term => ocrCorpus.includes(term));
+          actualValue = nameMatches ? expectedValue : 'Not found';
+          isMatch = nameMatches;
+        } else if (isHomeSportTile && fieldLower === 'ppv date') {
+          // The workbook contains many time-format alternatives separated by
+          // pipes. Use only the first variant's day/month; collecting every
+          // numeric token would incorrectly require all alternative times in
+          // the OCR text at once.
+          const dateTerms = expectedValue.split('|')[0].toLowerCase().match(/jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|\b\d{1,2}\b/g) || [];
+          const ocrCorpus = homeSportOcrTexts.join(' ').toLowerCase();
+          isMatch = dateTerms.length > 0 && dateTerms.every((term: string) => ocrCorpus.includes(term.slice(0, 3)) || ocrCorpus.includes(term));
+          actualValue = isMatch ? homeSportOcrTexts.join(' ') : 'Not found';
+        } else if (isHomeSportTile && fieldLower === 'ppv image present') {
+          actualValue = homeSportTileFound ? 'Yes' : 'No';
+          isMatch = homeSportTileFound && expectedValue.toLowerCase() === 'yes';
+        } else if (source === 'home-page-dont-miss' && fieldName === "Don't Miss Section") {
           const sectionPresent = texts.some(t => cleanStr(t).includes("don't miss") || cleanStr(t).includes('dont miss'));
           actualValue = sectionPresent ? 'Present' : 'Not found';
           isMatch = sectionPresent && expectedValue.toLowerCase() === 'present';

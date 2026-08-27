@@ -261,11 +261,14 @@ export class IOSHomePage extends IOSLandingPage {
         await scrollTowardDontMissRail();
         await this.driver.waitUntil(async () => {
           const centredRail = await findVisibleDontMissRail();
-          if (!centredRail) return false;
-          const location = await centredRail.getLocation().catch(() => null);
-          if (!location) return false;
-          railY = location.y;
-          return true;
+          if (centredRail) {
+            const location = await centredRail.getLocation().catch(() => null);
+            if (location) {
+              railY = location.y;
+              return true;
+            }
+          }
+          return findRailByRenderedHeading();
         }, {
           timeout: 1500,
           interval: 250,
@@ -289,9 +292,13 @@ export class IOSHomePage extends IOSLandingPage {
     // Do not vertically scroll after this point. Once the rail is visible,
     // all remaining discovery happens in its horizontal card row.
     console.log(`  Don't Miss rail locked at y=${railY}; starting horizontal search only.`);
-    const swipeY = Math.max(Math.round(height * 0.30), Math.min(Math.round(height * 0.80), railY + Math.round(height * 0.16)));
+    // Start inside the upper half of the card row. A lower point can fall on
+    // the card edge or the content below it after the rail has been centred.
+    const swipeY = Math.max(Math.round(height * 0.30), Math.min(Math.round(height * 0.80), railY + Math.round(height * 0.10)));
     const swipeRail = async (direction: 'left' | 'right', pointerId: string): Promise<void> => {
-      const startX = direction === 'left' ? Math.round(width * 0.68) : Math.round(width * 0.32);
+      // Travel about one rendered card width while keeping Y fixed in the rail,
+      // so each gesture advances the carousel without vertically scrolling Home.
+      const startX = direction === 'left' ? Math.round(width * 0.70) : Math.round(width * 0.30);
       const endX = direction === 'left' ? Math.round(width * 0.38) : Math.round(width * 0.62);
       await this.driver.performActions([{
         type: 'pointer', id: pointerId, parameters: { pointerType: 'touch' },
@@ -601,7 +608,7 @@ async function locateIOSDontMissRailByImage(driver: WdBrowser): Promise<IOSVisua
   }
 }
 
-async function locateIOSPpvTileByImage(
+export async function locateIOSPpvTileByImage(
   driver: WdBrowser,
   ppvName: string,
   verticalRange?: { minYPercent: number; maxYPercent: number },

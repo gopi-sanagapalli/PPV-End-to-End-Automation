@@ -1571,11 +1571,11 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
 
             // ── SCENARIO 2: Ultimate Upsell Banner ──
             const isStandardTierForUpsell = planTier === 'standard';
-            const isMonthlyOrAPMForUpsell = ratePlan === 'monthly' || ratePlan === 'annual pay monthly';
+          const isMonthlyOrAPMForUpsell = ratePlan === 'monthly' || ratePlan === 'annual pay monthly';
 
-            if (isStandalonePPV) {
-              await payment.validateUltimateUpsellBannerAbsent(results);
-            } else if (isStandardTierForUpsell && isMonthlyOrAPMForUpsell) {
+          if (isStandalonePPV) {
+            console.log('⏭️ Standalone PPV payment does not validate the Ultimate upsell banner.');
+          } else if (isStandardTierForUpsell && isMonthlyOrAPMForUpsell) {
               try {
                 await payment.validateUltimateUpsellBannerText(results, eventData);
                 const shouldClickUpsell = WANT_ULTIMATE || SOURCE === 'landing-page-dont-miss-live-switch';

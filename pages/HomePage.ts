@@ -891,6 +891,10 @@ export class HomePage extends LandingPage {
         `image="${eventData.__HOME_DONT_MISS_IMAGE_PRESENT}"`
       );
 
+      if (eventData.__RETURN_TILE_BEFORE_POPUP === 'true') {
+        return found;
+      }
+
       console.log(`📌 [HomePage Tile] Found PPV tile, clicking to open modal...`);
       await found.scrollIntoViewIfNeeded().catch(() => { });
       await this.page.waitForTimeout(150);

@@ -904,7 +904,10 @@ export class AndroidValidationPage extends AndroidBasePage {
   ): Promise<void> {
     console.log(`\n🔍 [${surface}] Running validations...`);
 
-    if ((source === 'home-page-dont-miss' || source === 'home-boxing-tile' || source.includes('dont-miss')) && surface === 'PPV Tile') {
+    const isHomeSportTile = source.trim().toLowerCase() === 'home-boxing-tile' &&
+      !['', 'boxing'].includes(String(eventData.SPORT || eventData.global?.SPORT || '').trim().toLowerCase()) &&
+      !String(eventData.SPORT || eventData.global?.SPORT || '').toLowerCase().includes('misfits');
+    if (!isHomeSportTile && (source === 'home-page-dont-miss' || source === 'home-boxing-tile' || source.includes('dont-miss')) && surface === 'PPV Tile') {
       const titleExpected = eventData.MOBILE_BANNER_TITLE || eventData.PPV_DISPLAY_NAME || eventData.PPV_NAME;
       const dateExpected = eventData.PPV_DATE || eventData.LANDING_PAGE_PPV_DATE || '';
       // Pass dynamic rail title (from eventData or default "Don't Miss")
@@ -1162,7 +1165,9 @@ export class AndroidValidationPage extends AndroidBasePage {
       t => cleanStr(t).includes(cleanStr(titleExpected)) || cleanStr(titleExpected).includes(cleanStr(t))
     );
 
-    const sheetName = getAndroidValidationSheet(source, surface);
+    const sheetName = isHomeSportTile && surface === 'PPV Tile'
+      ? 'Home of Sport'
+      : getAndroidValidationSheet(source, surface);
     const { resolveExpected: resolveExp } = require('../../../utils/resolveExpected');
     const { readSheet } = require('../../../utils/excelReader');
     const { compare } = require('../../../utils/compare');
@@ -1172,12 +1177,13 @@ export class AndroidValidationPage extends AndroidBasePage {
       try {
         // Try reading directly from dedicated Android sheet first
         rows = readSheet(sheetName);
+        const expectedFlow = isHomeSportTile ? 'home-sport-tile' : String(source || '').trim().toLowerCase();
         rows = rows.filter((r: any) => {
           if (r.Flow === undefined || r.Flow === '') return true;
           const rowFlow = String(r.Flow).trim().toLowerCase();
-          const currentSource = String(source || '').trim().toLowerCase();
-          return rowFlow === currentSource;
+          return rowFlow === expectedFlow;
         });
+        if (isHomeSportTile) rows = rows.filter((r: any) => !String(r.Field || '').trim().toLowerCase().startsWith('popup'));
         if (sheetName === 'Schedule page' || sheetName === 'Andriod_Schedule_Page') {
           rows = rows.filter((r: any) => !r.Field?.toString().trim().startsWith('Popup'));
         }
