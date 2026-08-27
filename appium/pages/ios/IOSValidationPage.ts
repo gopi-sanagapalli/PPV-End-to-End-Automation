@@ -954,6 +954,35 @@ export class IOSValidationPage extends IOSBasePage {
           actualValue = bannerDescription || 'Not found';
           isMatch = Boolean(bannerDescription && compare(actualValue, expectedValue));
         } else if (
+          normalizedSource === 'schedule' &&
+          surface === 'PPV Tile' &&
+          ['promoter', 'ppv promoter', 'ppv promoter on tile'].includes(fieldName.trim().toLowerCase())
+        ) {
+          const nearbyTexts = getTargetTileTexts();
+          const titleCandidates = [
+            titleExpected,
+            eventData.PPV_CARD_TITLE,
+            eventData.PPV_DISPLAY_NAME,
+            eventData.PPV_NAME,
+            eventData.MOBILE_BANNER_TITLE,
+          ].map(cleanStr).filter(Boolean);
+          const titleIndex = nearbyTexts.findIndex(text => {
+            const cleanText = cleanStr(text).replace(/-list:.+$/i, '').trim();
+            return titleCandidates.some(title => cleanText === title);
+          });
+          const candidateTexts = titleIndex >= 0 ? nearbyTexts.slice(titleIndex + 1) : nearbyTexts;
+          const promoterText = candidateTexts.find(text => {
+            const cleanText = cleanStr(text);
+            if (!cleanText || titleCandidates.some(title => cleanText === title || cleanText.includes(title))) return false;
+            if (/^(schedule|today|all sports|coming up|watch live|buy now)$/.test(cleanText)) return false;
+            if (/article|button|options|cellbutton|lock|bell|remind|notification/.test(cleanText)) return false;
+            if (/^\d+$/.test(cleanText) || /\b\d{1,2}:\d{2}\s*(?:am|pm)?\b/i.test(cleanText)) return false;
+            if (/\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/i.test(cleanText)) return false;
+            return cleanText.length >= 3;
+          });
+          actualValue = promoterText || 'Not found';
+          isMatch = Boolean(promoterText && compare(actualValue, expectedValue));
+        } else if (
           fieldName.toLowerCase().includes('present') ||
           fieldName.toLowerCase().includes('section') ||
           fieldName.toLowerCase().includes('icon')
@@ -976,8 +1005,46 @@ export class IOSValidationPage extends IOSBasePage {
                 hasIcon = 'Yes';
               }
             } else if (fieldName.toLowerCase().includes('dots') || fieldName.toLowerCase().includes('more')) {
-              if (pageSource.toLowerCase().includes('more') || pageSource.toLowerCase().includes('dots')) {
+              if (
+                pageSource.toLowerCase().includes('more') ||
+                pageSource.toLowerCase().includes('dots') ||
+                pageSource.toLowerCase().includes('options') ||
+                pageSource.toLowerCase().includes('three_dots') ||
+                pageSource.toLowerCase().includes('optionscellbutton') ||
+                pageSource.includes('…') ||
+                texts.some(t => /more|options|dots|three_dots|…|\.{3}/i.test(t))
+              ) {
                 hasIcon = 'Yes';
+              } else if (normalizedSource === 'schedule' && surface === 'PPV Tile') {
+                const titleGuess = texts.find(text =>
+                  cleanStr(text).includes(cleanStr(titleExpected)) || cleanStr(titleExpected).includes(cleanStr(text)),
+                ) || titleExpected;
+                const titleSelector = `-ios predicate string:(type == "XCUIElementTypeStaticText" OR type == "XCUIElementTypeButton" OR type == "XCUIElementTypeOther") AND (name == "${this.iosPredicateValue(titleGuess)}" OR label == "${this.iosPredicateValue(titleGuess)}" OR value == "${this.iosPredicateValue(titleGuess)}")`;
+                const titleEl = await this.driver.$(titleSelector).catch(() => null);
+                if (titleEl && await titleEl.isDisplayed().catch(() => false)) {
+                  const titleLoc = await titleEl.getLocation().catch(() => null);
+                  const titleSize = await titleEl.getSize().catch(() => null);
+                  if (titleLoc && titleSize) {
+                    const titleMidY = titleLoc.y + (titleSize.height / 2);
+                    const tileButtons = await this.driver.$$(' -ios predicate string:type == "XCUIElementTypeButton"').catch(() => []);
+                    const tileOthers = await this.driver.$$(' -ios predicate string:type == "XCUIElementTypeOther"').catch(() => []);
+                    const nearbyControls = [...tileButtons, ...tileOthers];
+                    for (const control of nearbyControls) {
+                      if (!(await control.isDisplayed().catch(() => false))) continue;
+                      const loc = await control.getLocation().catch(() => null);
+                      const size = await control.getSize().catch(() => null);
+                      if (!loc || !size || size.width <= 0 || size.height <= 0) continue;
+                      const controlMidY = loc.y + (size.height / 2);
+                      const sameRow = Math.abs(controlMidY - titleMidY) <= Math.max(24, titleSize.height);
+                      const toRight = loc.x > titleLoc.x + (titleSize.width * 0.45);
+                      const compact = size.width <= 90 && size.height <= 90;
+                      if (sameRow && toRight && compact) {
+                        hasIcon = 'Yes';
+                        break;
+                      }
+                    }
+                  }
+                }
               }
             }
             actualValue = hasIcon;

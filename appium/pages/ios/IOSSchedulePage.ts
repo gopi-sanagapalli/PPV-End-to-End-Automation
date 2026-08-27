@@ -44,6 +44,46 @@ export class IOSSchedulePage extends IOSBasePage {
     return selected === 'true' || selected === '1';
   }
 
+  private async waitForFilteredScheduleContent(sport: string, ppvName = this.ppvName): Promise<'events' | 'empty'> {
+    const timeoutMs = Number(process.env.IOS_SCHEDULE_FILTERED_CONTENT_TIMEOUT_MS || 30000);
+    const deadline = Date.now() + timeoutMs;
+    const expectedTitle = this.normalisePpvMatchText(ppvName);
+    let sawEmptyState = false;
+    while (Date.now() < deadline) {
+      const { height } = await this.driver.getWindowRect().catch(() => ({ height: 0 }));
+      const source = await this.driver.getPageSource().catch(() => '');
+      const lowerSource = source.toLowerCase();
+      const normalisedSource = this.normalisePpvMatchText(source);
+      const loading = await this.driver.$$('-ios predicate string:type == "XCUIElementTypeActivityIndicator"')
+        .then(async indicators => {
+          for (const indicator of indicators) {
+            if (await indicator.isDisplayed().catch(() => false)) return true;
+          }
+          return false;
+        })
+        .catch(() => false);
+
+      if (!loading) {
+        if (expectedTitle && normalisedSource.includes(expectedTitle)) return 'events';
+        if (lowerSource.includes('no events scheduled')) {
+          sawEmptyState = true;
+        } else {
+          const visibleTexts = await this.driver.$$('-ios predicate string:type == "XCUIElementTypeStaticText"')
+            .catch(() => []);
+          for (const text of visibleTexts) {
+            if (!(await text.isDisplayed().catch(() => false))) continue;
+            const location = await text.getLocation().catch(() => null);
+            if (location && location.y > height * 0.20) return 'events';
+          }
+        }
+      }
+
+      await this.driver.pause(500);
+    }
+    if (sawEmptyState) return 'empty';
+    throw new Error(`Schedule content did not finish loading after selecting ${sport}.`);
+  }
+
   async navigate(eventConfig?: Record<string, any>): Promise<void> {
     console.log('Navigating to Schedule tab...');
     await this.driver.saveScreenshot('./test-results/before_ios_schedule_click.png');
@@ -133,7 +173,7 @@ export class IOSSchedulePage extends IOSBasePage {
     const menuY = Math.round(height * 0.14);
     const findSportInStrip = async (): Promise<WdElement | null> => {
       const candidates = await this.driver.$$(
-        `-ios predicate string:name == "${escapedSport}" OR label == "${escapedSport}"`,
+        `-ios predicate string:(type == "XCUIElementTypeButton" OR type == "XCUIElementTypeStaticText" OR type == "XCUIElementTypeOther") AND (name == "${escapedSport}" OR label == "${escapedSport}" OR name CONTAINS[c] "${escapedSport}" OR label CONTAINS[c] "${escapedSport}")`,
       ).catch(() => []);
       for (const candidate of candidates) {
         if (!(await candidate.isDisplayed().catch(() => false))) continue;
@@ -144,6 +184,7 @@ export class IOSSchedulePage extends IOSBasePage {
       }
       return null;
     };
+    await this.driver.pause(Number(process.env.IOS_SCHEDULE_FILTER_STRIP_SETTLE_MS || 1000));
     let sportEl = await findSportInStrip();
     const filterSearchDeadline = Date.now() + Number(process.env.IOS_SCHEDULE_FILTER_SEARCH_TIMEOUT_MS || 180000);
     let swipes = 0;
@@ -154,32 +195,21 @@ export class IOSSchedulePage extends IOSBasePage {
         actions: [
           { type: 'pointerMove', duration: 0, x: Math.round(width * 0.70), y: menuY },
           { type: 'pointerDown', button: 0 },
-          { type: 'pause', duration: 80 },
-          { type: 'pointerMove', duration: 300, x: Math.round(width * 0.30), y: menuY },
+          { type: 'pause', duration: 40 },
+          { type: 'pointerMove', duration: 180, x: Math.round(width * 0.30), y: menuY },
           { type: 'pointerUp', button: 0 },
         ],
       }]);
       await this.driver.releaseActions();
       swipes++;
-      await this.driver.waitUntil(async () => {
-        sportEl = await findSportInStrip();
-        return Boolean(sportEl);
-      }, {
-        timeout: 1000,
-        interval: 200,
-        timeoutMsg: `${sport} filter did not become visible after scrolling the Schedule strip.`,
-      }).catch(() => { });
+      await this.driver.pause(200);
+      sportEl = await findSportInStrip();
     }
 
     if (!sportEl) {
       await this.driver.saveScreenshot('./test-results/ios_schedule_sport_filter_not_found.png').catch(() => { });
       throw new Error(`${sport} filter was not found in the Schedule filter strip.`);
     }
-    if (await this.isSelectedFilter(sportEl)) {
-      console.log(`✅ ${sport} filter already selected`);
-      return;
-    }
-
     // Tap the sport filter using coordinates (more reliable on real iOS).
     const currentSportEl = sportEl;
     const loc = await currentSportEl.getLocation().catch(() => null);
@@ -192,7 +222,7 @@ export class IOSSchedulePage extends IOSBasePage {
         actions: [
           { type: 'pointerMove', duration: 0, x: tapX, y: tapY },
           { type: 'pointerDown', button: 0 },
-          { type: 'pause', duration: 80 },
+          { type: 'pause', duration: 40 },
           { type: 'pointerUp', button: 0 },
         ],
       }]);
@@ -200,21 +230,9 @@ export class IOSSchedulePage extends IOSBasePage {
     } else {
       await currentSportEl.click();
     }
-    // Brief pause for the schedule to reload after the filter tap.
-    await this.driver.pause(800);
-    // Quick verification — if isSelectedFilter works, great; otherwise
-    // trust the tap since the element was visible and tappable.
-    const filterConfirmed = await (async () => {
-      const selected = await this.firstVisibleNearY(sportTab, menuY);
-      if (selected && await this.isSelectedFilter(selected)) return true;
-      const allSportsEl = await this.firstVisibleNearY(allSportsTab, menuY);
-      if (allSportsEl && !(await this.isSelectedFilter(allSportsEl))) return true;
-      return false;
-    })();
-    if (!filterConfirmed) {
-      console.log(`ℹ️ ${sport} filter selected-state could not be confirmed via attributes; trusting coordinate tap.`);
-    }
+    const contentState = await this.waitForFilteredScheduleContent(sport, this.ppvName);
     await this.driver.saveScreenshot('./test-results/ios_schedule_after_sport_filter.png');
+    if (contentState === 'empty') throw new Error(`No events scheduled for ${sport} in Schedule.`);
     console.log(`✅ ${sport} filter applied and Schedule content settled`);
   }
 
@@ -315,10 +333,10 @@ export class IOSSchedulePage extends IOSBasePage {
   async openPPVPaywall(eventConfig?: any, hooks: IOSFlowHooks = {}): Promise<boolean> {
     console.log('Navigating to Schedule page...');
     await this.navigate(eventConfig);
-    await this.clickSportFilterIfPresent(eventConfig);
 
-    console.log(`Navigating to ${this.ppvName} using iOS schedule scroll...`);
     try {
+      await this.clickSportFilterIfPresent(eventConfig);
+      console.log(`Navigating to ${this.ppvName} using iOS schedule scroll...`);
       const ppvTile = await this.scrollToPPVTile(this.ppvName);
       if (ppvTile) {
         await this.runSurfaceValidation(hooks, 'PPV Tile');

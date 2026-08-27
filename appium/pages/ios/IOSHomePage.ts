@@ -295,18 +295,22 @@ export class IOSHomePage extends IOSLandingPage {
     // Start inside the upper half of the card row. A lower point can fall on
     // the card edge or the content below it after the rail has been centred.
     const swipeY = Math.max(Math.round(height * 0.30), Math.min(Math.round(height * 0.80), railY + Math.round(height * 0.10)));
-    const swipeRail = async (direction: 'left' | 'right', pointerId: string): Promise<void> => {
-      // Travel about one rendered card width while keeping Y fixed in the rail,
-      // so each gesture advances the carousel without vertically scrolling Home.
-      const startX = direction === 'left' ? Math.round(width * 0.70) : Math.round(width * 0.30);
-      const endX = direction === 'left' ? Math.round(width * 0.38) : Math.round(width * 0.62);
+    const swipeRail = async (direction: 'left' | 'right', pointerId: string, centreNudge = false): Promise<void> => {
+      // Travel about one rendered card width while searching, but use a
+      // smaller nudge once the target tile is already visible.
+      const startX = direction === 'left'
+        ? Math.round(width * (centreNudge ? 0.62 : 0.70))
+        : Math.round(width * (centreNudge ? 0.38 : 0.30));
+      const endX = direction === 'left'
+        ? Math.round(width * (centreNudge ? 0.46 : 0.38))
+        : Math.round(width * (centreNudge ? 0.54 : 0.62));
       await this.driver.performActions([{
         type: 'pointer', id: pointerId, parameters: { pointerType: 'touch' },
         actions: [
           { type: 'pointerMove', duration: 0, x: startX, y: swipeY },
           { type: 'pointerDown', button: 0 },
-          { type: 'pause', duration: 80 },
-          { type: 'pointerMove', duration: 300, x: endX, y: swipeY },
+          { type: 'pause', duration: 40 },
+          { type: 'pointerMove', duration: 180, x: endX, y: swipeY },
           { type: 'pointerUp', button: 0 },
         ],
       }]);
@@ -325,36 +329,38 @@ export class IOSHomePage extends IOSLandingPage {
     const findVisiblePpvTile = async (): Promise<any | undefined> => {
       targetTileOutsideViewport = false;
       const inspectedCandidates = new Set<string>();
-      for (const term of ppvTerms) {
-        const escapedTerm = term.replace(/"/g, '\\"');
-        const candidates = await this.driver.$$(`-ios predicate string:name CONTAINS[c] "${escapedTerm}" OR label CONTAINS[c] "${escapedTerm}"`);
-        for (const candidate of candidates) {
-          if (!(await candidate.isDisplayed().catch(() => false))) continue;
-          const location = await candidate.getLocation().catch(() => undefined);
-          if (!location || location.y < railY - 40 || location.y > railBottom) continue;
-          const size = await candidate.getSize().catch(() => null);
-          const fingerprint = `${location.x}:${location.y}:${size?.width || 0}:${size?.height || 0}`;
-          // The full event name and both fighter names frequently resolve to
-          // the same XCTest node. Inspect and log that node only once per
-          // search pass instead of repeating three expensive geometry calls.
-          if (inspectedCandidates.has(fingerprint)) continue;
-          inspectedCandidates.add(fingerprint);
-          const centreX = location.x + (size?.width || 0) / 2;
-          const centreY = location.y + (size?.height || 0) / 2;
-          if (centreX < 0 || centreX >= width || centreY < 0 || centreY >= height) {
-            console.log(`  PPV tile using "${term}" is outside the horizontal viewport at x=${location.x}, y=${location.y}; continuing rail swipe search.`);
-            // The exact configured title proves this is the target rail card;
-            // querying its fighter-name fallbacks before the next swipe only
-            // repeats slow XCUITest geometry calls against the same clipped node.
-            if (term === this.ppvName) {
-              targetTileOutsideViewport = true;
-              return undefined;
-            }
-            continue;
+      const predicate = ppvTerms
+        .map(term => `(name CONTAINS[c] "${this.iosPredicateValue(term)}" OR label CONTAINS[c] "${this.iosPredicateValue(term)}")`)
+        .join(' OR ');
+      const candidates = await this.driver.$$(`-ios predicate string:${predicate}`);
+      for (const candidate of candidates) {
+        if (!(await candidate.isDisplayed().catch(() => false))) continue;
+        const location = await candidate.getLocation().catch(() => undefined);
+        if (!location || location.y < railY - 40 || location.y > railBottom) continue;
+        const size = await candidate.getSize().catch(() => null);
+        const fingerprint = `${location.x}:${location.y}:${size?.width || 0}:${size?.height || 0}`;
+        // The full event name and both fighter names frequently resolve to
+        // the same XCTest node. Inspect and log that node only once per
+        // search pass instead of repeating expensive geometry calls.
+        if (inspectedCandidates.has(fingerprint)) continue;
+        inspectedCandidates.add(fingerprint);
+        const candidateText = this.normalisePpvMatchText(`${await candidate.getAttribute('name').catch(() => '')} ${await candidate.getAttribute('label').catch(() => '')}`);
+        const matchedTerm = ppvTerms.find(term => candidateText.includes(this.normalisePpvMatchText(term))) || this.ppvName;
+        const centreX = location.x + (size?.width || 0) / 2;
+        const centreY = location.y + (size?.height || 0) / 2;
+        if (centreX < 0 || centreX >= width || centreY < 0 || centreY >= height) {
+          console.log(`  PPV tile using "${matchedTerm}" is outside the horizontal viewport at x=${location.x}, y=${location.y}; continuing rail swipe search.`);
+          // The exact configured title proves this is the target rail card;
+          // querying its fighter-name fallbacks before the next swipe only
+          // repeats slow XCUITest geometry calls against the same clipped node.
+          if (candidateText.includes(this.normalisePpvMatchText(this.ppvName))) {
+            targetTileOutsideViewport = true;
+            return undefined;
           }
-          console.log(`  Found PPV tile using "${term}" at y=${location.y}; stopping horizontal search.`);
-          return candidate;
+          continue;
         }
+        console.log(`  Found PPV tile using "${matchedTerm}" at y=${location.y}; stopping horizontal search.`);
+        return candidate;
       }
       return undefined;
     };
@@ -450,7 +456,7 @@ export class IOSHomePage extends IOSLandingPage {
 
       const direction = tileCenterX > width / 2 ? 'left' : 'right';
       console.log(`  PPV tile is at x=${Math.round(tileCenterX)}; making short ${direction} swipe to centre it before validation.`);
-      await swipeRail(direction, 'dont-miss-rail-centre');
+      await swipeRail(direction, 'dont-miss-rail-centre', true);
       if (ppvTile) {
         await this.driver.waitUntil(async () => Boolean(await findVisiblePpvTile()), {
           timeout: 1200,
