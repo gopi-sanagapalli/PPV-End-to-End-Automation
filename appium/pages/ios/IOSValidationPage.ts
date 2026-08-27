@@ -891,9 +891,12 @@ export class IOSValidationPage extends IOSBasePage {
           // numeric token would incorrectly require all alternative times in
           // the OCR text at once.
           const dateTerms = expectedValue.split('|')[0].toLowerCase().match(/jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|\b\d{1,2}\b/g) || [];
-          const ocrCorpus = homeSportOcrTexts.join(' ').toLowerCase();
+          const ocrText = homeSportOcrTexts.join(' ');
+          const ocrCorpus = ocrText.toLowerCase();
+          const visibleDate = ocrText.match(/\b\d{1,2}\s+(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}:\d{2}\s*(?:am|pm)?\b/i)?.[0]
+            || ocrText.match(/\b\d{1,2}\s+(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b/i)?.[0];
           isMatch = dateTerms.length > 0 && dateTerms.every((term: string) => ocrCorpus.includes(term.slice(0, 3)) || ocrCorpus.includes(term));
-          actualValue = isMatch ? homeSportOcrTexts.join(' ') : 'Not found';
+          actualValue = visibleDate || (homeSportOcrTexts.length ? ocrText : 'Not found');
         } else if (isHomeSportTile && fieldLower === 'ppv image present') {
           actualValue = homeSportTileFound ? 'Yes' : 'No';
           isMatch = homeSportTileFound && expectedValue.toLowerCase() === 'yes';
