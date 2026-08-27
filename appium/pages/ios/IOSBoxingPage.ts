@@ -78,16 +78,52 @@ export class IOSBoxingPage extends IOSBasePage {
   }
 
   /** Finds only the configured PPV title, then verifies its own date column. */
+  private async sourceHasUpcomingPpvCard(pageSource: string, dateParts: IOSPPVDateParts): Promise<boolean> {
+    const labels: string[] = [];
+    const attrRegex = /(?:label|name|value)="([^"]*)"/g;
+    for (const match of pageSource.matchAll(attrRegex)) {
+      const text = match[1]
+        .replace(/&quot;/g, '"')
+        .replace(/&apos;/g, "'")
+        .replace(/&amp;/g, '&')
+        .trim();
+      if (text) labels.push(text);
+    }
+
+    const titleTerms = this.ppvTitleTerms(this.ppvName);
+    const day = this.normalisePpvMatchText(dateParts.day);
+    const month = this.normalisePpvMatchText(dateParts.monthShort);
+    return labels.some((label, index) => {
+      const cleanLabel = this.normalisePpvMatchText(label);
+      const cleanListLabel = cleanLabel.replace(/\s+list\s+.+$/i, '').trim();
+      if (titleTerms.every(term => cleanListLabel.includes(term))) return true;
+      if (!titleTerms.every(term => cleanLabel.includes(term))) return false;
+      const nearby = labels.slice(Math.max(0, index - 8), Math.min(labels.length, index + 9))
+        .map(text => this.normalisePpvMatchText(text));
+      return nearby.some(text => text.includes(day)) && nearby.some(text => text.includes(month));
+    });
+  }
+
   private async findUpcomingPpvCard(dateParts: IOSPPVDateParts): Promise<any | null> {
-    // A page-source request during an Upcoming-list refresh can block WDA for
-    // several seconds. Query the title directly and keep the existing date
-    // geometry check as the guard against promotional-card matches.
+    const pageSource = await this.driver.getPageSource().catch(() => '');
+    if (!await this.sourceHasUpcomingPpvCard(pageSource, dateParts)) {
+      return null;
+    }
+
+    // Only touch live elements after the current snapshot shows the target
+    // card. Avoid the stale-heavy date-element geometry scan in the scroll
+    // loop; the snapshot has already scoped title + date to the same card.
+    // The list may still be replacing virtualized cells immediately after the
+    // snapshot; allow that replacement to settle before creating a live
+    // element reference.
+    await this.driver.pause(500);
     const escapedName = this.iosPredicateValue(this.ppvName);
     const titleTermVariants = this.ppvTitleTermVariants(this.ppvName).slice(0, 2);
     const titleSelectors = [
-      `-ios predicate string:label CONTAINS[c] '${escapedName}' OR name CONTAINS[c] '${escapedName}'`,
+      `-ios predicate string:label == '${escapedName}' OR name == '${escapedName}' OR label BEGINSWITH[c] '${escapedName}-List:' OR name BEGINSWITH[c] '${escapedName}-List:'`,
+      `-ios predicate string:(label CONTAINS[c] '${escapedName}' OR name CONTAINS[c] '${escapedName}') AND NOT (label BEGINSWITH[c] 'Slide' OR name BEGINSWITH[c] 'Slide')`,
       titleTermVariants.length
-        ? `-ios predicate string:${titleTermVariants
+        ? `-ios predicate string:NOT (label BEGINSWITH[c] 'Slide' OR name BEGINSWITH[c] 'Slide') AND ${titleTermVariants
           .map(variants => `(${variants
             .map(term => `label CONTAINS[c] '${this.iosPredicateValue(term)}' OR name CONTAINS[c] '${this.iosPredicateValue(term)}'`)
             .join(' OR ')})`)
@@ -98,9 +134,7 @@ export class IOSBoxingPage extends IOSBasePage {
       const titleElements = await this.driver.$$(titleSelector).catch(() => []);
       for (const titleElement of titleElements) {
         if (!(await titleElement.isDisplayed().catch(() => false))) continue;
-        const titleLocation = await titleElement.getLocation().catch(() => null);
-        if (!titleLocation) continue;
-        if (await this.isDateBesideTitle(titleLocation, dateParts)) {
+        if (await this.isInViewport(titleElement)) {
           console.log(`  Matched PPV card by title and date: "${this.ppvName}" (${dateParts.day} ${dateParts.monthShort})`);
           return titleElement;
         }
@@ -114,9 +148,9 @@ export class IOSBoxingPage extends IOSBasePage {
     const escapedName = this.iosPredicateValue(this.ppvName);
     const titleTermVariants = this.ppvTitleTermVariants(this.ppvName).slice(0, 2);
     const selectors = [
-      `-ios predicate string:label == '${escapedName}' OR name == '${escapedName}'`,
+      `-ios predicate string:label == '${escapedName}' OR name == '${escapedName}' OR label BEGINSWITH[c] '${escapedName}-List:' OR name BEGINSWITH[c] '${escapedName}-List:'`,
       titleTermVariants.length
-        ? `-ios predicate string:${titleTermVariants
+        ? `-ios predicate string:NOT (label BEGINSWITH[c] 'Slide' OR name BEGINSWITH[c] 'Slide') AND ${titleTermVariants
           .map(variants => `(${variants
             .map(term => `label CONTAINS[c] '${this.iosPredicateValue(term)}' OR name CONTAINS[c] '${this.iosPredicateValue(term)}'`)
             .join(' OR ')})`)
@@ -163,9 +197,9 @@ export class IOSBoxingPage extends IOSBasePage {
     await this.driver.performActions([{
       type: 'pointer', id: 'upcoming-ppv-cta-scroll', parameters: { pointerType: 'touch' },
       actions: [
-        { type: 'pointerMove', duration: 0, x, y: Math.round(height * 0.70) },
+        { type: 'pointerMove', duration: 0, x, y: Math.round(height * 0.72) },
         { type: 'pointerDown', button: 0 },
-        { type: 'pointerMove', duration: 350, x, y: Math.round(height * 0.55) },
+        { type: 'pointerMove', duration: 300, x, y: Math.round(height * 0.46) },
         { type: 'pointerUp', button: 0 },
       ],
     }]);
@@ -182,6 +216,21 @@ export class IOSBoxingPage extends IOSBasePage {
       interval: 250,
       timeoutMsg: `Verified PPV title "${this.ppvName}" was not available after bringing its CTA into view`,
     });
+  }
+
+  private async ensureUpcomingPpvCtaInView(): Promise<boolean> {
+    const dateParts = this.upcomingPpvDateParts;
+    if (!dateParts) return false;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const title = await this.findUpcomingPpvCard(dateParts);
+      const titleLocation = title ? await title.getLocation().catch(() => null) : null;
+      if (title && titleLocation && await this.findBuyNowBelowTitle(titleLocation)) {
+        this.upcomingPpvCard = title;
+        return true;
+      }
+      await this.bringUpcomingPpvCtaIntoView().catch(() => { });
+    }
+    return false;
   }
 
   /**
@@ -479,17 +528,11 @@ export class IOSBoxingPage extends IOSBasePage {
     try {
       console.log(`  Looking for Buy Now button belonging to "${this.ppvName}"...`);
       const dateParts = this.upcomingPpvDateParts;
-      // The target was title/date-verified immediately before validation. Its
-      // native title element remains valid unless the collection refreshed, so
-      // reuse it first instead of repeating the slow full date-column scan.
-      let title = this.upcomingPpvCard;
-      let titleLocation = title
-        ? await title.getLocation().catch(() => null)
-        : null;
-      if (!titleLocation && dateParts) {
-        title = await this.findUpcomingPpvCard(dateParts);
-        titleLocation = title ? await title.getLocation().catch(() => null) : null;
-      }
+      // The Upcoming list virtualizes/rebuilds its cells while validation is
+      // running, so the previously stored title reference may be stale. Query
+      // a fresh title against the current target-card snapshot.
+      let title = dateParts ? await this.findUpcomingPpvCard(dateParts) : null;
+      let titleLocation = title ? await title.getLocation().catch(() => null) : null;
       if (!dateParts || !title || !titleLocation || !(await title.isDisplayed().catch(() => false))) {
         console.log('  No verified Upcoming Fights PPV card is available; refusing generic Buy CTA fallback.');
         return false;
@@ -628,6 +671,14 @@ export class IOSBoxingPage extends IOSBasePage {
     }
     hooks.recordAvailability?.(true, undefined, 'Home of Boxing');
 
+    if (!await this.ensureUpcomingPpvCtaInView()) {
+      const shot = hooks.saveScreenshot
+        ? await hooks.saveScreenshot('./test-results/ios_home_boxing_upcoming_buy_not_in_view.png')
+        : undefined;
+      hooks.recordAvailability?.(false, shot, 'Home of Boxing');
+      await hooks.generateAvailabilityFailureReport?.(`Buy CTA for PPV "${this.ppvName}" was not visible on the verified Home Boxing Upcoming card`);
+      return false;
+    }
     await this.runSurfaceValidation(hooks, 'PPV Tile');
     // The schedule-card Buy now opens DAZN's native paywall. Validate that
     // screen before pressing its external-site CTA; otherwise the handoff
