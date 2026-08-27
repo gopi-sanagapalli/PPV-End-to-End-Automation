@@ -1635,7 +1635,7 @@ export class IOSSafariValidationPage extends IOSBasePage {
           actual = hasLink ? 'Yes' : 'No';
 
         } else if (key === 'more payment methods') {
-          actual = bodyLower.includes('more payment methods') ? 'Yes' : 'No';
+          actual = lines.find(line => /more\s+payment\s+methods/i.test(line)) || 'N/A';
 
         } else if (key === 'secure checkout') {
           actual = /secure checkout|secure payment|ssl/i.test(bodyLower) ? 'Yes' : 'No';
