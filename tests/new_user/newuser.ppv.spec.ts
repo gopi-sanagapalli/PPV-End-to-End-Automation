@@ -481,6 +481,19 @@ async function runFlow(
         await schedule.selectSport(sport);
         scheduleEventCard = await schedule.findEvent(eventData.PPV_NAME);
       } catch (schedErr: any) {
+        if (process.env.PPV_REMOVAL === 'true') {
+          console.log(`✅ [PPV Removal] Category B (${source}): Schedule event not found — confirmed removed/absent as expected.`);
+          results.push({
+            page: 'PPV Removal',
+            field: 'PPV Surfacing Point Removal',
+            expected: 'PPV surfacing point removed from UI',
+            actual: schedErr.message,
+            status: 'PASS',
+          });
+          reachedEndPage = true;
+          await context.close().catch(() => { });
+          return { results, reachedEndPage };
+        }
         console.error(`❌ Schedule: could not find event: ${schedErr.message}`);
         results.push({
           page: 'Schedule',
@@ -492,6 +505,17 @@ async function runFlow(
       }
 
       if (scheduleEventCard) {
+        if (process.env.PPV_REMOVAL === 'true') {
+          results.push({
+            page: 'PPV Removal',
+            field: 'PPV Surfacing Point Removal',
+            expected: 'PPV surfacing point removed from UI',
+            actual: `${eventData.PPV_NAME} found on schedule page`,
+            status: 'FAIL',
+          });
+          throw new Error(`❌ [PPV Removal] ${eventData.PPV_NAME} is still present on schedule page`);
+        }
+
         // Step 2: Scroll card into view FIRST, then validate tile fields from it
         await scheduleEventCard.scrollIntoViewIfNeeded().catch(() => { });
 
@@ -570,7 +594,35 @@ async function runFlow(
         console.log('✅ dev mode enabled — continuing with ultimate flow');
       }
 
-      await searchPage.searchForPPVTileWithUpcomingFallback(eventData.PPV_NAME);
+      try {
+        await searchPage.searchForPPVTileWithUpcomingFallback(eventData.PPV_NAME);
+      } catch (searchErr: any) {
+        if (process.env.PPV_REMOVAL === 'true') {
+          console.log(`✅ [PPV Removal] Category B (${source}): Search PPV tile not found — confirmed removed/absent as expected.`);
+          results.push({
+            page: 'PPV Removal',
+            field: 'PPV Surfacing Point Removal',
+            expected: 'PPV surfacing point removed from UI',
+            actual: searchErr.message,
+            status: 'PASS',
+          });
+          reachedEndPage = true;
+          await context.close().catch(() => { });
+          return { results, reachedEndPage };
+        }
+        throw searchErr;
+      }
+
+      if (process.env.PPV_REMOVAL === 'true') {
+        results.push({
+          page: 'PPV Removal',
+          field: 'PPV Surfacing Point Removal',
+          expected: 'PPV surfacing point removed from UI',
+          actual: `${eventData.PPV_NAME} found on search page`,
+          status: 'FAIL',
+        });
+        throw new Error(`❌ [PPV Removal] ${eventData.PPV_NAME} is still present on search page`);
+      }
 
       console.log('\n📋 Validating Search page tile fields (before tile click)...');
       try {
@@ -699,6 +751,16 @@ async function runFlow(
             return { results, reachedEndPage: true };
           }
           throwLogged(new Error(`❌ PPV container not found via ${source}`));
+        }
+        if (process.env.PPV_REMOVAL === 'true') {
+          results.push({
+            page: 'PPV Removal',
+            field: 'PPV Surfacing Point Removal',
+            expected: 'PPV surfacing point removed from UI',
+            actual: `${eventData.PPV_NAME} container found via ${source}`,
+            status: 'FAIL',
+          });
+          throw new Error(`❌ [PPV Removal] ${eventData.PPV_NAME} is still present via ${source}`);
         }
       }
 
