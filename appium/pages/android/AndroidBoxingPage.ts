@@ -125,6 +125,37 @@ export class AndroidBoxingPage extends AndroidBasePage {
     return false;
   }
 
+  private async keepPpvTitleInValidationView(): Promise<boolean> {
+    const screen = getScreenSize();
+    const cx = Math.round(screen.width / 2);
+    const minY = Math.round(screen.height * 0.25);
+    const maxY = Math.round(screen.height * 0.68);
+
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const ppvEls = await this.findVisiblePpvTitleElements();
+      for (const el of ppvEls) {
+        if (!await el.isDisplayed().catch(() => false)) continue;
+        const loc = await el.getLocation().catch(() => null);
+        if (!loc) continue;
+        if (loc.y >= minY && loc.y <= maxY) {
+          console.log(`  PPV tile is ready for validation at y=${loc.y}.`);
+          return true;
+        }
+        if (loc.y < minY) {
+          console.log(`  PPV tile is high on screen (y=${loc.y}). Pulling it into validation view...`);
+          adbSwipe(cx, Math.round(screen.height * 0.45), cx, Math.round(screen.height * 0.52));
+        } else {
+          console.log(`  PPV tile is low on screen (y=${loc.y}). Bringing it into validation view...`);
+          adbSwipe(cx, Math.round(screen.height * 0.58), cx, Math.round(screen.height * 0.50));
+        }
+        await this.driver.pause(700);
+        break;
+      }
+    }
+
+    return this.isPpvTitleVisible(this.ppvName, 1000);
+  }
+
   async navigateViaSports(): Promise<void> {
     console.log('Navigating to Boxing page via Sports tab...');
     const sportsTapped = await this.tapByText('Sports', 5000) || await this.tapByText('Sport', 4000);
@@ -238,7 +269,7 @@ export class AndroidBoxingPage extends AndroidBasePage {
     return this.clickHomeSportFilter('Boxing');
   }
 
-  async clickUpcomingFightsFilter(): Promise<void> {
+  async clickUpcomingFightsFilter(): Promise<boolean> {
     console.log('  Clicking "Upcoming Fights" filter on boxing page...');
     let clicked = false;
     const selectors = [
@@ -279,9 +310,45 @@ export class AndroidBoxingPage extends AndroidBasePage {
     }
 
     if (!clicked) {
-      console.log('  "Upcoming Fights" filter not found - continuing without it...');
+      console.log('  "Upcoming Fights" filter not found.');
       await this.driver.saveScreenshot('./test-results/android_upcoming_filter_not_found.png');
     }
+    return clicked;
+  }
+
+  private async waitForUpcomingFightsContent(dateParts: AndroidPPVDateParts, previousSource = ''): Promise<boolean> {
+    const targetLabels = [
+      this.ppvName,
+      dateParts.month,
+      dateParts.monthShort,
+      dateParts.day,
+    ].filter(Boolean);
+    let changed = !previousSource;
+    let lastSource = '';
+    let stableCount = 0;
+
+    for (let attempt = 0; attempt < 12; attempt++) {
+      const source = await this.driver.getPageSource().catch(() => '');
+      if (previousSource && source && source !== previousSource) changed = true;
+      stableCount = changed && source && source === lastSource ? stableCount + 1 : 0;
+
+      for (const label of targetLabels) {
+        if (changed && await this.isVisible(label, 300)) {
+          console.log(`  Upcoming Fights content is visible (${label}).`);
+          return true;
+        }
+      }
+      if (stableCount >= 1) {
+        console.log('  Upcoming Fights content changed and is stable.');
+        return true;
+      }
+      lastSource = source;
+      await this.driver.pause(700);
+    }
+
+    await this.driver.saveScreenshot('./test-results/android_upcoming_fights_not_loaded.png');
+    console.log('  Upcoming Fights content did not become visible before scrolling.');
+    return false;
   }
 
   async scrollToUpcomingPPV(dateParts: AndroidPPVDateParts): Promise<boolean> {
@@ -336,26 +403,21 @@ export class AndroidBoxingPage extends AndroidBasePage {
     }
 
     if (ppvFound) {
-      // Check if PPV element is near the bottom of screen (> 55% of screen height)
-      // If so, scroll up so it reaches the middle of the screen before proceeding.
-      const ppvEls = await this.findVisiblePpvTitleElements();
-      for (const el of ppvEls) {
-        if (await el.isDisplayed().catch(() => false)) {
-          const loc = await el.getLocation().catch(() => null);
-          if (loc && loc.y > Math.round(screen.height * 0.55)) {
-            console.log(`  PPV tile is near bottom of screen (y=${loc.y} > ${Math.round(screen.height * 0.55)}). Scrolling up to bring it to middle...`);
-            for (let s = 0; s < 3; s++) {
-              adbSwipe(cx, Math.round(screen.height * 0.65), cx, Math.round(screen.height * 0.40));
-              await this.driver.pause(600);
-              const freshLoc = await el.getLocation().catch(() => null);
-              if (freshLoc && freshLoc.y <= Math.round(screen.height * 0.55)) {
-                console.log(`  PPV tile now centered at y=${freshLoc.y}.`);
-                break;
-              }
-            }
-          }
+      // If PPV is low on screen, use small nudges and re-find the element after each swipe.
+      const targetY = Math.round(screen.height * 0.68);
+      for (let s = 0; s < 3; s++) {
+        const ppvEls = await this.findVisiblePpvTitleElements();
+        const el = ppvEls.find(asyncEl => asyncEl);
+        if (!el || !await el.isDisplayed().catch(() => false)) break;
+        const loc = await el.getLocation().catch(() => null);
+        if (!loc) break;
+        if (loc.y <= targetY) {
+          console.log(`  PPV tile is ready at y=${loc.y}.`);
           break;
         }
+        console.log(`  PPV tile is low on screen (y=${loc.y} > ${targetY}). Nudging upward...`);
+        adbSwipe(cx, Math.round(screen.height * 0.58), cx, Math.round(screen.height * 0.50));
+        await this.driver.pause(800);
       }
       await this.driver.saveScreenshot('./test-results/android_ppv_tile_area.png');
     } else {
@@ -442,8 +504,8 @@ export class AndroidBoxingPage extends AndroidBasePage {
       await this.driver.pause(1500);
     }
 
-    console.log('  Falling back to generic Buy CTA search...');
-    return this.tapBuyCtaWithFallback(['Buy now', 'Buy Now', 'Buy', 'Get PPV']);
+    console.log(`  Buy CTA belonging to "${this.ppvName}" was not found. Not using generic fallback for Upcoming Fights.`);
+    return false;
   }
 
   async openBoxingUpcomingFightsPaywall(hooks: AndroidFlowHooks = {}): Promise<boolean> {
@@ -592,15 +654,36 @@ export class AndroidBoxingPage extends AndroidBasePage {
 
     await this.clickHomeBoxingFilter();
     await this.driver.saveScreenshot('./test-results/android_boxing_page.png');
-    await this.clickUpcomingFightsFilter();
-    await this.driver.pause(2000);
+    const beforeUpcomingSource = await this.driver.getPageSource().catch(() => '');
+    const upcomingClicked = await this.clickUpcomingFightsFilter();
+    if (!upcomingClicked) {
+      const shot = hooks.saveScreenshot
+        ? await hooks.saveScreenshot('./test-results/android_upcoming_filter_not_found.png')
+        : undefined;
+      hooks.recordAvailability?.(false, shot, 'Home of Boxing');
+      await hooks.generateAvailabilityFailureReport?.('Upcoming Fights filter not found on Home Boxing page');
+      return false;
+    }
+    const contentReady = await this.waitForUpcomingFightsContent(dateParts, beforeUpcomingSource);
+    if (!contentReady) {
+      hooks.recordAvailability?.(false, './test-results/android_upcoming_fights_not_loaded.png', 'Home of Boxing');
+      await hooks.generateAvailabilityFailureReport?.('Upcoming Fights content did not load before scrolling');
+      return false;
+    }
     await this.driver.saveScreenshot('./test-results/android_upcoming_fights.png');
 
     const found = await this.scrollToUpcomingPPV(dateParts);
-    if (found) {
-      hooks.recordAvailability?.(true, undefined, 'Home of Boxing');
+    const targetReady = await this.keepPpvTitleInValidationView();
+    if (!found || !targetReady) {
+      const shot = hooks.saveScreenshot
+        ? await hooks.saveScreenshot('./test-results/android_home_boxing_upcoming_ppv_not_found.png')
+        : undefined;
+      hooks.recordAvailability?.(false, shot, 'Home of Boxing');
+      await hooks.generateAvailabilityFailureReport?.(`PPV "${this.ppvName}" not found in Home Boxing Upcoming`);
+      return false;
     }
 
+    hooks.recordAvailability?.(true, undefined, 'Home of Boxing');
     await this.runSurfaceValidation(hooks, 'PPV Tile');
     const buyTapped = await this.tapBuyNowNearPPV();
     if (!buyTapped) {

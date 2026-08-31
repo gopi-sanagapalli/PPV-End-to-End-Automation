@@ -43,6 +43,7 @@ import {
   getChromeUrl as sharedGetChromeUrl,
   getScreenSize as sharedGetScreenSize,
   isVisible as sharedIsVisible,
+  launchAndroidChrome,
   scrollDown as sharedScrollDown,
   scrollToText as sharedScrollToText,
   swipeLeft as sharedSwipeLeft,
@@ -210,18 +211,25 @@ describe('DAZN Android PPV → Web Handoff', () => {
     // Merge mobile overrides
     let mobileRegional = {};
     try {
-      let mobileConfigPath = path.resolve(__dirname, '../../config/events', EVENT_CONFIG);
-      if (!fs.existsSync(mobileConfigPath) && json.eventKey) {
-        mobileConfigPath = path.resolve(__dirname, '../../config/events', `${json.eventKey}.json`);
-      }
-      if (fs.existsSync(mobileConfigPath)) {
+      const mobileConfigName = path.basename(EVENT_CONFIG);
+      const normalizedMobileConfigName = mobileConfigName.toLowerCase().endsWith('.json')
+        ? mobileConfigName
+        : `${mobileConfigName}.json`;
+      const mobileConfigCandidates = [
+        path.resolve(__dirname, '../../config/events', normalizedMobileConfigName),
+        path.resolve(__dirname, '../../config/events', mobileConfigName),
+        path.resolve(__dirname, '../../config/events', EVENT_CONFIG),
+        json.eventKey ? path.resolve(__dirname, '../../config/events', `${json.eventKey}.json`) : '',
+      ].filter(Boolean);
+      const mobileConfigPath = mobileConfigCandidates.find((candidate: string) => fs.existsSync(candidate));
+      if (mobileConfigPath && fs.existsSync(mobileConfigPath)) {
         const mobileJson = JSON.parse(fs.readFileSync(mobileConfigPath, 'utf8'));
         mobileRegional = mobileJson.regions?.[REGION] || {};
         json.regions = json.regions || {};
         json.regions[REGION] = { ...json.regions[REGION], ...mobileRegional };
         console.log(`📱 Merged mobile-specific overrides from ${mobileConfigPath} into config before building eventData`);
       } else {
-        console.warn(`⚠️ Mobile config override file not found: ${EVENT_CONFIG} (nor ${json.eventKey}.json)`);
+        console.warn(`⚠️ Mobile config override file not found: ${normalizedMobileConfigName} (nor ${json.eventKey}.json)`);
       }
     } catch (e: any) {
       console.warn(`⚠️ Failed to load mobile overrides: ${e.message}`);
@@ -611,6 +619,7 @@ describe('DAZN Android PPV → Web Handoff', () => {
     const originalCwd = process.cwd();
     let playwrightBrowser: any = null;
     let context: any = null;
+    let chromeLaunchCleanup: (() => Promise<void>) | null = null;
     const runStart = new Date();
 
     try {
@@ -743,10 +752,6 @@ describe('DAZN Android PPV → Web Handoff', () => {
       }
       console.log(`📱 Connected to device: ${device.model()} (${device.serial()})`);
 
-      console.log('Force-stopping Chrome on device...');
-      await device.shell(`am force-stop ${MOBILE_BROWSER_PACKAGE}`);
-      await sleep(1000);
-
       const regionLocaleMap: Record<string, { locale: string; timezoneId: string }> = {
         GB: { locale: 'en-GB', timezoneId: 'Europe/London' },
         UK: { locale: 'en-GB', timezoneId: 'Europe/London' },
@@ -765,13 +770,16 @@ describe('DAZN Android PPV → Web Handoff', () => {
       const { locale: activeLocale, timezoneId: activeTz } =
         regionLocaleMap[REGION_KEY] ?? { locale: 'en-GB', timezoneId: 'Europe/London' };
 
-      console.log(`Launching Chrome browser on Android device with timezone "${activeTz}" and locale "${activeLocale}"...`);
-      context = await device.launchBrowser({
+      console.log(`Launching Chrome browser on Android device (device timezone "${activeTz}", locale "${activeLocale}")...`);
+      const chromeLaunch = await launchAndroidChrome(device, chromium, {
         viewport: { width: 375, height: 667 },
         timezoneId: activeTz,
         locale: activeLocale,
         args: ['--incognito', '--no-first-run', '--disable-first-run-ui']
       });
+      context = chromeLaunch.context;
+      playwrightBrowser = chromeLaunch.browser;
+      chromeLaunchCleanup = chromeLaunch.cleanup;
 
       await context.addInitScript(() => {
         try {
@@ -808,9 +816,13 @@ describe('DAZN Android PPV → Web Handoff', () => {
       }
       const page = existingPages[0] ?? await context.newPage();
 
-      console.log('Bringing Chrome browser UI to the foreground...');
-      await device.shell(`am start -n ${MOBILE_BROWSER_PACKAGE}/com.google.android.apps.chrome.Main`);
-      await sleep(1500);
+      if (!playwrightBrowser) {
+        console.log('Bringing Chrome browser UI to the foreground...');
+        await device.shell(`am start -n ${MOBILE_BROWSER_PACKAGE}/com.google.android.apps.chrome.Main`);
+        await sleep(1500);
+      } else {
+        console.log('Chrome CDP fallback is already foregrounded in an Incognito tab.');
+      }
 
       page.on('console', (msg: any) => {
         const text = msg.text();
@@ -1134,7 +1146,8 @@ describe('DAZN Android PPV → Web Handoff', () => {
           if (await payment.isPaymentPage()) {
             console.log('✅ Payment page detected');
             const planKey = SOURCE.startsWith('boxing-bundle') ? `${ratePlan} bundle` : ratePlan;
-            const paymentData = getPaymentDataByTierAndPlan(planTier, planKey);
+            const paymentData = getPaymentDataByTierAndPlan(planTier, planKey)
+              .filter((row: any) => String(row.Field || '').trim().toLowerCase() !== 'payment method heading');
             console.log(`📊 Payment rows: ${paymentData.length}`);
             await payment.validate(paymentData, results, eventData, 'newuser');
           }
@@ -1845,7 +1858,8 @@ describe('DAZN Android PPV → Web Handoff', () => {
           const payment = new PaymentPage(page);
           if (await payment.isPaymentPage()) {
             const planKey = SOURCE.startsWith('boxing-bundle') ? `${ratePlan} bundle` : ratePlan;
-            const paymentData = getPaymentDataByTierAndPlan(planTier, planKey);
+            const paymentData = getPaymentDataByTierAndPlan(planTier, planKey)
+              .filter((row: any) => String(row.Field || '').trim().toLowerCase() !== 'payment method heading');
             await payment.validate(paymentData, results, eventData, 'newuser');
           }
         } else {
@@ -1949,6 +1963,9 @@ describe('DAZN Android PPV → Web Handoff', () => {
       }
       if (playwrightBrowser) {
         await playwrightBrowser.close().catch(() => { });
+      }
+      if (chromeLaunchCleanup) {
+        await chromeLaunchCleanup().catch(() => { });
       }
       closeMobileBrowser();
       // 3. Restore original working directory

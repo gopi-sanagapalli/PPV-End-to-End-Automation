@@ -4,7 +4,9 @@ const fs = require('fs');
 const path = require('path');
 
 const [mode, configName, country] = process.argv.slice(2);
-const configPath = path.join('config', 'events', path.basename(configName || ''));
+const baseName = path.basename(configName || '');
+let configPath = path.join('config', 'events', baseName);
+if (!fs.existsSync(configPath)) configPath = path.join('config', 'events', 'completed', baseName);
 if (!mode || !configName || !country) throw new Error('Usage: buildPpvWorkflowMatrix.js <mode> <PPV_CONFIG> <COUNTRY>');
 if (!fs.existsSync(configPath)) throw new Error(`PPV config not found: ${configName}`);
 
@@ -398,7 +400,7 @@ switch (mode) {
       }),
       // home-page-subscribe: freemium only
       ...standardPlans.map((plan, pi) => ({ source: 'home-page-subscribe', profile: signedFreemiumOnly[pi % signedFreemiumOnly.length] })),
-      ...standardPlans.map((plan, pi) => ({ source: 'myaccount', profile: regularProfiles[(pi + 2) % regularProfiles.length], scenario: 'upgrade' })),
+      ...standardPlans.map((plan, pi) => ({ source: 'myaccount', profile: `${pi % 2 === 0 ? 'freemium' : 'frozen'}/${plan}`, scenario: 'upgrade' })),
       // myaccount-subscription-status: freemium/frozen only
       ...standardPlans.map((plan, pi) => ({ source: 'myaccount-subscription-status', profile: signedFreemiumFrozen[pi % signedFreemiumFrozen.length], scenario: 'resubscribe' })),
       { source: 'subscribe-without-pay-per-view', profile: 'freemium/standard_monthly' },

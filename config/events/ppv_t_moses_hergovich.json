@@ -7,7 +7,7 @@
   "HAS_BUNDLE": false,
   "PPV_DEV_MODE": false,
   "DEFAULT_SIGNUP_DEVMODE": false,
-  "HAS_DEFAULT_SIGNUP_PPV": false,
+  "HAS_DEFAULT_SIGNUP_PPV": true,
   "global": {
     "FREE_TRIAL_DAYS": 8,
     "PPV_PROMOTER": "Queensberry Promotions",

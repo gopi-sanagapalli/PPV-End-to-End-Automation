@@ -243,6 +243,10 @@ export function buildEventData(
     base.PPV1_UPSELL_TILE_DATE = base.LANDING_PAGE_PPV_DATE;
   }
 
+  if (!base.BOXING_UPCOMING_DATE) {
+    base.BOXING_UPCOMING_DATE = base.LANDING_PAGE_PPV_DATE || base.PPV_DATE || '';
+  }
+
   // Auto-compute NEXT_PAYMENT_DAYS_OFFSET from OFFER_TYPE if not explicitly set
   if (!base.NEXT_PAYMENT_DAYS_OFFSET) {
     const ot = (base.OFFER_TYPE || '1_month_free').toLowerCase();
