@@ -1,4 +1,4 @@
-import { execSync } from 'child_process';
+import { execFileSync, execSync } from 'child_process';
 import { BannerInteraction } from '../../utils/bannerInteraction';
 import { normalizeAndroidTitle } from '../../utils/androidTitleNormalizer';
 
@@ -23,6 +23,12 @@ export interface AndroidFlowHooks {
 export interface AndroidCopyResult {
   captured: boolean;
   url: string;
+}
+
+export interface AndroidChromeLaunch {
+  context: any;
+  browser: any | null;
+  cleanup: () => Promise<void>;
 }
 
 const MOBILE_BROWSER_PACKAGE = process.env.MOBILE_BROWSER_PACKAGE || 'com.android.chrome';
@@ -63,6 +69,77 @@ export function adbBack(): void {
 export function closeMobileBrowser(): void {
   console.log(`Closing mobile browser (${MOBILE_BROWSER_PACKAGE})...`);
   adb(`shell am force-stop ${MOBILE_BROWSER_PACKAGE}`);
+}
+
+/** Launch Chrome in an Incognito tab and attach through its standard CDP socket. */
+export async function launchAndroidChrome(
+  device: any,
+  chromium: any,
+  _options: Record<string, any>,
+  packageName = MOBILE_BROWSER_PACKAGE,
+): Promise<AndroidChromeLaunch> {
+  if (packageName !== 'com.android.chrome') {
+    throw new Error(`Android Chrome CDP handoff requires com.android.chrome; received "${packageName}".`);
+  }
+
+  let forwardPort = '';
+  const serial = device.serial();
+  try {
+    console.log('Launching Chrome through its standard CDP socket in an Incognito tab...');
+    await device.shell(`am force-stop ${packageName}`);
+    await device.shell(
+      `am start -n ${packageName}/org.chromium.chrome.browser.incognito.IncognitoTabLauncher ` +
+      '-a org.chromium.chrome.browser.incognito.OPEN_PRIVATE_TAB -d about:blank',
+    );
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    forwardPort = execFileSync(
+      ADB,
+      ['-s', serial, 'forward', 'tcp:0', 'localabstract:chrome_devtools_remote'],
+      { encoding: 'utf-8', timeout: 15000 },
+    ).trim();
+    if (!/^\d+$/.test(forwardPort)) {
+      throw new Error(`ADB did not provide a Chrome CDP port: "${forwardPort}"`);
+    }
+
+    let browser: any;
+    let lastError: any;
+    for (let attempt = 0; attempt < 12; attempt++) {
+      try {
+        browser = await chromium.connectOverCDP(`http://127.0.0.1:${forwardPort}`);
+        break;
+      } catch (error) {
+        lastError = error;
+        await new Promise(resolve => setTimeout(resolve, 250));
+      }
+    }
+    if (!browser) {
+      throw new Error(`Could not connect to Chrome CDP: ${lastError?.message || 'unknown error'}`);
+    }
+
+    const context = browser.contexts()[0];
+    if (!context) throw new Error('Chrome CDP connected without a browser context.');
+    return {
+      context,
+      browser,
+      cleanup: async () => {
+        execFileSync(ADB, ['-s', serial, 'forward', '--remove', `tcp:${forwardPort}`], {
+          encoding: 'utf-8',
+          timeout: 15000,
+        });
+      },
+    };
+  } catch (error) {
+    if (forwardPort) {
+      try {
+        execFileSync(ADB, ['-s', serial, 'forward', '--remove', `tcp:${forwardPort}`], {
+          encoding: 'utf-8',
+          timeout: 15000,
+        });
+      } catch {}
+    }
+    throw error;
+  }
 }
 
 export function getChromeUrl(): string {

@@ -228,7 +228,6 @@ export const config = {
       '--log-level', process.env.APPIUM_LOG_LEVEL || 'error'
     ], {
       stdio: process.env.APPIUM_SHOW_LOGS === 'true' ? 'inherit' : 'ignore',
-      shell: true,
       env: { ...process.env, NODE_OPTIONS: '' }
     });
     await waitForAppiumServer();
