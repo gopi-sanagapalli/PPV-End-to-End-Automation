@@ -12,6 +12,97 @@ export function getNowIST(): Date {
   return new Date(utcMs + istOffsetMs);
 }
 
+function getDatePartsInTimeZone(date: Date, timeZone: string): Record<string, string> {
+  const formatter = new Intl.DateTimeFormat('en-GB', {
+    timeZone,
+    weekday: 'long',
+    day: '2-digit',
+    month: 'long',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+  const parts: Record<string, string> = {};
+  for (const part of formatter.formatToParts(date)) parts[part.type] = part.value;
+  return parts;
+}
+
+function ordinal(day: number): string {
+  if (day >= 11 && day <= 13) return 'th';
+  switch (day % 10) {
+    case 1: return 'st';
+    case 2: return 'nd';
+    case 3: return 'rd';
+    default: return 'th';
+  }
+}
+
+export function getIOSISTDateTimeCandidates(utcDate: string, timeZone = 'Asia/Kolkata'): string {
+  if (!utcDate || Number.isNaN(new Date(utcDate).getTime())) return '';
+  const parts = getDatePartsInTimeZone(new Date(utcDate), timeZone);
+  const day = Number(parts.day);
+  const hour24 = Number(parts.hour) === 24 ? 0 : Number(parts.hour);
+  const minute = parts.minute.padStart(2, '0');
+  const time24 = `${String(hour24).padStart(2, '0')}:${minute}`;
+  const ampm = hour24 >= 12 ? 'PM' : 'AM';
+  const hour12 = hour24 % 12 || 12;
+  const time12 = `${hour12}:${minute}${ampm}`;
+  const time12Spaced = `${hour12}:${minute} ${ampm}`;
+  const monthShort = parts.month.slice(0, 3);
+  const weekdayShort = parts.weekday.slice(0, 3);
+  const dayOrdinal = `${day}${ordinal(day)}`;
+  const candidates = new Set<string>();
+
+  for (const time of [time24, time12, time12Spaced, time12.toLowerCase(), time12Spaced.toLowerCase()]) {
+    candidates.add(`${day} ${monthShort.toUpperCase()} ${time.toUpperCase()}`);
+    candidates.add(`${day} ${monthShort} ${time}`);
+    candidates.add(`${dayOrdinal} ${monthShort} at ${time}`);
+    candidates.add(`${weekdayShort} ${dayOrdinal} ${monthShort} at ${time}`);
+    candidates.add(`${parts.weekday} ${dayOrdinal} ${parts.month} at ${time}`);
+    candidates.add(`${weekdayShort} ${day} ${monthShort} at ${time}`);
+    candidates.add(`${parts.weekday} ${day} ${parts.month} at ${time}`);
+    candidates.add(`${parts.weekday} at ${time}`);
+    candidates.add(`${weekdayShort.toUpperCase()} ${day} ${monthShort.toUpperCase()} ${time.toUpperCase()}`);
+  }
+
+  return Array.from(candidates).join('|');
+}
+
+export function getIOSISTDateCandidates(utcDate: string, timeZone = 'Asia/Kolkata'): string {
+  if (!utcDate || Number.isNaN(new Date(utcDate).getTime())) return '';
+  const parts = getDatePartsInTimeZone(new Date(utcDate), timeZone);
+  const day = Number(parts.day);
+  const monthShort = parts.month.slice(0, 3);
+  const weekdayShort = parts.weekday.slice(0, 3);
+  const dayOrdinal = `${day}${ordinal(day)}`;
+  return [
+    `${day} ${monthShort}`,
+    `${monthShort} ${day}`,
+    `${parts.month} ${day}`,
+    `${dayOrdinal} ${monthShort}`,
+    `${weekdayShort} ${dayOrdinal} ${monthShort}`,
+    `${parts.weekday} ${dayOrdinal} ${parts.month}`,
+    `${day} ${monthShort.toUpperCase()}`,
+    `${monthShort.toUpperCase()} ${day}`,
+  ].join('|');
+}
+
+export function getIOSISTScheduleFieldCandidates(utcDate: string, fieldName: string, timeZone = 'Asia/Kolkata'): string {
+  if (!utcDate || Number.isNaN(new Date(utcDate).getTime())) return '';
+  const parts = getDatePartsInTimeZone(new Date(utcDate), timeZone);
+  const key = String(fieldName || '').trim().toLowerCase();
+  const day = Number(parts.day);
+  const hour24 = Number(parts.hour) === 24 ? 0 : Number(parts.hour);
+  const minute = parts.minute.padStart(2, '0');
+  const ampm = hour24 >= 12 ? 'PM' : 'AM';
+  const hour12 = hour24 % 12 || 12;
+  if (key === 'day') return `${parts.weekday.slice(0, 3).toUpperCase()}|${parts.weekday.slice(0, 3)}|${parts.weekday}`;
+  if (key === 'month') return `${parts.month.slice(0, 3).toUpperCase()}|${parts.month.slice(0, 3)}|${parts.month}`;
+  if (key === 'date') return `${day}|${getIOSISTDateCandidates(utcDate, timeZone)}`;
+  if (key === 'time') return `${String(hour24).padStart(2, '0')}:${minute}|${hour12}:${minute}${ampm}|${hour12}:${minute} ${ampm}|${hour12}:${minute}${ampm.toLowerCase()}|${hour12}:${minute} ${ampm.toLowerCase()}`;
+  return getIOSISTDateTimeCandidates(utcDate, timeZone);
+}
+
 /**
  * Returns the current date/time expressed in the timezone of the given DAZN region.
  * Uses Intl.DateTimeFormat so it respects DST automatically (e.g. BST vs GMT for GB).

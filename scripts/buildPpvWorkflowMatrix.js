@@ -161,7 +161,6 @@ if (country === 'CA') {
   liveSources.signed   = ['home-page-banner', 'home-boxing-banner', 'home-boxing-tile', 'schedule', 'search', 'myaccount'];
 }
 let androidNewSources = ['landing-page-banner', 'home-page-banner', 'home-page-dont-miss', 'home-boxing-banner', ...(isBoxing ? ['home-boxing-upcoming'] : []), 'home-boxing-tile', 'schedule', 'search'];
-if (isKickboxing) androidNewSources.push('home-kickboxing-tile');
 let androidExistingSources = androidNewSources.filter(source => source !== 'landing-page-banner');
 const androidProfiles = regularProfiles;
 let detectedDevices = [];
@@ -191,12 +190,6 @@ const assignIosDevices = (entries) => entries.map((entry, index) => ({ ...entry,
 let iosNewSources = [...androidNewSources];
 let iosExistingSources = [...androidExistingSources];
 const iosProfiles = regularProfiles;
-if (isStandalonePPV && sourceConfig.glory) {
-  androidNewSources.push('glory');
-  androidExistingSources.push('glory');
-  iosNewSources.push('glory');
-  iosExistingSources.push('glory');
-}
 
 const filterBanners = (sources) => {
   if (process.env.BANNERS_CONFIGURED === 'false') {

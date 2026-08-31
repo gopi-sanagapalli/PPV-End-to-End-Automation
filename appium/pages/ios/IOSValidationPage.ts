@@ -9,6 +9,9 @@ import { getIOSValidationSheet } from './IOSSurfacingPoint';
 // Timezone-aware date utilities loaded dynamically
 let getDynamicDateTimeBadge: ((template: string, referenceDate?: Date) => string) | undefined;
 let getNowForRegion: ((region?: string) => Date) | undefined;
+let getIOSISTDateTimeCandidates: ((utcDate: string, timeZone?: string) => string) | undefined;
+let getIOSISTDateCandidates: ((utcDate: string, timeZone?: string) => string) | undefined;
+let getIOSISTScheduleFieldCandidates: ((utcDate: string, fieldName: string, timeZone?: string) => string) | undefined;
 try {
   // IOSValidationPage lives at appium/pages/ios, so three parents reach the
   // repository root. Four parents resolved outside the project and silently
@@ -16,6 +19,9 @@ try {
   const dateUtils = require('../../../utils/dateUtils');
   getDynamicDateTimeBadge = dateUtils.getDynamicDateTimeBadge;
   getNowForRegion = dateUtils.getNowForRegion;
+  getIOSISTDateTimeCandidates = dateUtils.getIOSISTDateTimeCandidates;
+  getIOSISTDateCandidates = dateUtils.getIOSISTDateCandidates;
+  getIOSISTScheduleFieldCandidates = dateUtils.getIOSISTScheduleFieldCandidates;
 } catch (e) {
   console.warn('⚠️ Failed to load timezone utilities, date validation will use device timezone');
 }
@@ -49,15 +55,17 @@ export class IOSValidationPage extends IOSBasePage {
 
   /** The native sheet uses the event instant, not the web workbook's copy URL fields. */
   private getExpectedNativeEventDate(eventData: Record<string, any>): string {
-    // Mobile event feeds expose the already-localised schedule time. Prefer
-    // it when available: PPV_UTC_DATE is shared with web and can lag behind a
-    // mobile schedule update for a particular region.
-    const mobileDate = String(eventData.MOBILE_PPV_DATE || '').trim();
-    if (/\b\d{1,2}\s+[a-z]{3}\b/i.test(mobileDate) && /\d{1,2}:\d{2}/.test(mobileDate)) {
-      return mobileDate.toUpperCase();
-    }
     const utcDate = eventData.PPV_UTC_DATE || eventData.global?.PPV_UTC_DATE;
-    if (!utcDate || Number.isNaN(new Date(utcDate).getTime())) return '';
+    if (!utcDate || Number.isNaN(new Date(utcDate).getTime())) {
+      const mobileDate = String(eventData.MOBILE_PPV_DATE || '').trim();
+      return /\b\d{1,2}\s+[a-z]{3}\b/i.test(mobileDate) && /\d{1,2}:\d{2}/.test(mobileDate)
+        ? mobileDate.toUpperCase()
+        : '';
+    }
+
+    const iosTimeZone = String(process.env.IOS_EXPECTED_TIMEZONE || 'Asia/Kolkata');
+    const istExpected = getIOSISTDateTimeCandidates?.(String(utcDate), iosTimeZone);
+    if (istExpected) return istExpected;
 
     const region = String(eventData.REGION || eventData.region || process.env.DAZN_REGION || 'GB').toUpperCase();
     const timeZones: Record<string, string> = {
@@ -73,6 +81,27 @@ export class IOSValidationPage extends IOSBasePage {
     const values: Record<string, string> = {};
     for (const part of parts) values[part.type] = part.value;
     return `${values.day} ${values.month} ${values.hour}:${values.minute} ${values.dayPeriod}`.toUpperCase();
+  }
+
+  private getIOSISTExpectedForField(eventData: Record<string, any>, fieldName: string, currentExpected = ''): string {
+    const utcDate = eventData.PPV_UTC_DATE || eventData.global?.PPV_UTC_DATE;
+    if (!utcDate || Number.isNaN(new Date(utcDate).getTime())) return '';
+    const fieldLower = String(fieldName || '').toLowerCase();
+    const iosTimeZone = String(process.env.IOS_EXPECTED_TIMEZONE || 'Asia/Kolkata');
+    const expectedHasCalendarDate = /\b(?:sun|mon|tue|wed|thu|fri|sat)(?:day)?\b|\b\d{1,2}(?:st|nd|rd|th)?\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i.test(currentExpected);
+    const expectedHasTime = /\b\d{1,2}:\d{2}\s*(?:a\.?m\.?|p\.?m\.?)?\b/i.test(currentExpected);
+    const hasDate = fieldLower.includes('date') || (expectedHasCalendarDate && expectedHasTime);
+    const hasTime = fieldLower.includes('time') || (expectedHasCalendarDate && expectedHasTime);
+    if (hasDate && hasTime) {
+      return getIOSISTDateTimeCandidates?.(String(utcDate), iosTimeZone) || '';
+    }
+    if (hasTime) {
+      return getIOSISTScheduleFieldCandidates?.(String(utcDate), 'time', iosTimeZone) || '';
+    }
+    if (hasDate) {
+      return getIOSISTDateCandidates?.(String(utcDate), iosTimeZone) || '';
+    }
+    return '';
   }
 
   private async ensureNativeAppContext(): Promise<void> {
@@ -420,7 +449,15 @@ export class IOSValidationPage extends IOSBasePage {
     // page source also contains the dimmed screen behind the modal (for
     // example, "22 JUN"), which must never become the PPV date actual.
     const expectedDateTokens = expectedNativeDate.match(/^(\d{1,2})\s+([A-Z]{3})/);
-    let mobileDateText = paywallSnapshot.mobileDateText;
+    const excludeOtherEventTime = (text: string) => !/press conference|weigh.?in|prelims?|inside the ring/i.test(text);
+    const compactEventBadge = texts.find(t =>
+      /^\s*(?:sun|mon|tue|wed|thu|fri|sat)(?:day)?\s+(?:at\s*)?\d{1,2}:\d{2}\s*(?:a\.?m\.?|p\.?m\.?)?\s*$/i.test(t) &&
+      excludeOtherEventTime(t),
+    );
+    let mobileDateText = compactEventBadge || paywallSnapshot.mobileDateText;
+    if (compactEventBadge) {
+      console.log(`💡 Detected compact mobile paywall date badge: "${compactEventBadge}"`);
+    }
     if (expectedDateTokens) {
       const datePattern = new RegExp(`\\b${expectedDateTokens[1]}\\b\\s+${expectedDateTokens[2]}`, 'i');
       const candidates = texts.filter(t => datePattern.test(t));
@@ -441,16 +478,13 @@ export class IOSValidationPage extends IOSBasePage {
         const expectedTimePattern = expTimeMatch
           ? new RegExp(`\\b0?${expectedHour}:${expTimeMatch[2]}\\s*(?:a\\.?m\\.?|p\\.?m\\.?)?\\b`, 'i')
           : null;
-        const excludeOtherEventTime = (text: string) => !/press conference|weigh.?in|prelims?|inside the ring/i.test(text);
         if (expectedTimePattern) {
           const expectedDay = expectedDayMatch?.[1]?.toUpperCase();
           const dayPattern = expectedDay || '(?:sun|mon|tue|wed|thu|fri|sat)';
           const dayTimePattern = new RegExp(`\\b${dayPattern}(?:day)?\\b\\s*(?:at\\s*)?${expectedTimePattern.source}`, 'i');
           const dayTimeText = texts.find(t => dayTimePattern.test(t) && excludeOtherEventTime(t));
           const timeText = texts.find(t => expectedTimePattern.test(t) && excludeOtherEventTime(t));
-          mobileDateText = dayTimeText || (timeText && expectedDay ? `${expectedDay} ${timeText}` : timeText) || paywallSnapshot.mobileDateText;
-        } else {
-          mobileDateText = paywallSnapshot.mobileDateText;
+          mobileDateText = dayTimeText || (timeText && expectedDay ? `${expectedDay} ${timeText}` : timeText) || mobileDateText;
         }
       } else if (expTimeMatch && candidates.length > 1) {
         const expH = parseInt(expTimeMatch[1], 10);
@@ -516,6 +550,9 @@ export class IOSValidationPage extends IOSBasePage {
           expectedValue = String(eventData.PPV_PROMOTER);
         }
 
+        const iosExpected = this.getIOSISTExpectedForField(eventData, fieldName, expectedValue);
+        if (iosExpected) expectedValue = iosExpected;
+
         if (!expectedValue || expectedValue.toUpperCase() === 'N/A') {
           continue;
         }
@@ -562,14 +599,6 @@ export class IOSValidationPage extends IOSBasePage {
             // Formatting differences are fine; a different date or time is
             // not. The previous regex marked every date-shaped value as PASS.
             isMatch = normaliseNativeDate(actualValue) === normaliseNativeDate(expectedValue);
-            if (!isMatch && getDynamicDateTimeBadge) {
-              const region = String(eventData.REGION || eventData.region || process.env.DAZN_REGION || 'GB');
-              const dynamicExpected = getDynamicDateTimeBadge(
-                expectedValue,
-                getNowForRegion ? getNowForRegion(region) : undefined,
-              );
-              isMatch = dynamicExpected.split('|').some(candidate => compare(actualValue, candidate));
-            }
           }
         } else if (fieldName.toLowerCase() === 'event name') {
           const matched = texts.find(text => {
@@ -701,7 +730,7 @@ export class IOSValidationPage extends IOSBasePage {
       ].map(cleanStr).filter(Boolean);
       const titleIndex = texts.findIndex(text => {
         const cleanText = cleanStr(text);
-        const cleanListText = cleanText.replace(/-list:.+$/i, '').trim();
+        const cleanListText = cleanText.replace(/-list:.+$/i, '').replace(/\s+list\s+.+$/i, '').trim();
         return titleCandidates.some(title => cleanText === title || cleanListText === title);
       });
       if (titleIndex < 0) return texts;
@@ -709,7 +738,27 @@ export class IOSValidationPage extends IOSBasePage {
       const isArticleMarker = (text: string) => /,\s*article$/i.test(text.trim()) || /^\d{1,2},\s*article$/i.test(text.trim());
       let start = Math.max(0, titleIndex - 6);
       let end = Math.min(texts.length, titleIndex + 8);
+      // Schedule cards expose a stable `Title-List:<id>` label immediately
+      // before the card metadata. Prefer that boundary over the preceding
+      // article marker, which can belong to the previous card and its time
+      // badge (for example, 5:30AM for the sibling card).
+      const targetListIndex = texts.findIndex((text, index) => {
+        if (index > titleIndex) return false;
+        const cleanText = cleanStr(text);
+        return titleCandidates.some(title => cleanText.startsWith(`${title}-list:`) || cleanText.startsWith(`${title} list `));
+      });
+      if (targetListIndex >= 0) {
+        start = targetListIndex;
+        for (let i = targetListIndex - 1; i >= Math.max(0, targetListIndex - 4); i--) {
+          if (isArticleMarker(texts[i])) break;
+          if (/^\s*\d{1,2}:\d{2}\s*(?:a\.?m\.?|p\.?m\.?)?\s*$/i.test(texts[i])) {
+            start = i;
+            break;
+          }
+        }
+      }
       for (let i = titleIndex; i >= 0; i--) {
+        if (targetListIndex >= 0 && i <= targetListIndex) break;
         if (isArticleMarker(texts[i])) {
           start = i;
           break;
@@ -860,6 +909,17 @@ export class IOSValidationPage extends IOSBasePage {
         try { expectedValue = resolveExp(row, eventData); }
         catch { expectedValue = String(row['Expected'] || ''); }
 
+        const iosExpected = this.getIOSISTExpectedForField(eventData, fieldName, expectedValue);
+        if (iosExpected) {
+          expectedValue = iosExpected;
+        } else if (normalizedSource === 'schedule' && surface === 'PPV Tile' &&
+          ['day', 'month'].includes(fieldLower)) {
+          const utcDate = eventData.PPV_UTC_DATE || eventData.global?.PPV_UTC_DATE;
+          const iosTimeZone = String(process.env.IOS_EXPECTED_TIMEZONE || 'Asia/Kolkata');
+          const iosExpected = getIOSISTScheduleFieldCandidates?.(String(utcDate || ''), fieldLower, iosTimeZone);
+          if (iosExpected) expectedValue = iosExpected;
+        }
+
         if (surface === 'PPV Banner' && source.trim().toLowerCase() === 'landing-page-banner' && fieldName === 'Buy Now CTA') {
           expectedValue = String(eventData.DAZN_REGION || process.env.DAZN_REGION || '').toUpperCase() === 'US'
             ? 'Buy now'
@@ -891,9 +951,12 @@ export class IOSValidationPage extends IOSBasePage {
           // numeric token would incorrectly require all alternative times in
           // the OCR text at once.
           const dateTerms = expectedValue.split('|')[0].toLowerCase().match(/jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|\b\d{1,2}\b/g) || [];
-          const ocrCorpus = homeSportOcrTexts.join(' ').toLowerCase();
+          const ocrText = homeSportOcrTexts.join(' ');
+          const ocrCorpus = ocrText.toLowerCase();
+          const visibleDate = ocrText.match(/\b\d{1,2}\s+(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}:\d{2}\s*(?:am|pm)?\b/i)?.[0]
+            || ocrText.match(/\b\d{1,2}\s+(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b/i)?.[0];
           isMatch = dateTerms.length > 0 && dateTerms.every((term: string) => ocrCorpus.includes(term.slice(0, 3)) || ocrCorpus.includes(term));
-          actualValue = isMatch ? homeSportOcrTexts.join(' ') : 'Not found';
+          actualValue = visibleDate || (homeSportOcrTexts.length ? ocrText : 'Not found');
         } else if (isHomeSportTile && fieldLower === 'ppv image present') {
           actualValue = homeSportTileFound ? 'Yes' : 'No';
           isMatch = homeSportTileFound && expectedValue.toLowerCase() === 'yes';
@@ -951,6 +1014,35 @@ export class IOSValidationPage extends IOSBasePage {
           actualValue = bannerDescription || 'Not found';
           isMatch = Boolean(bannerDescription && compare(actualValue, expectedValue));
         } else if (
+          normalizedSource === 'schedule' &&
+          surface === 'PPV Tile' &&
+          ['promoter', 'ppv promoter', 'ppv promoter on tile'].includes(fieldName.trim().toLowerCase())
+        ) {
+          const nearbyTexts = getTargetTileTexts();
+          const titleCandidates = [
+            titleExpected,
+            eventData.PPV_CARD_TITLE,
+            eventData.PPV_DISPLAY_NAME,
+            eventData.PPV_NAME,
+            eventData.MOBILE_BANNER_TITLE,
+          ].map(cleanStr).filter(Boolean);
+          const titleIndex = nearbyTexts.findIndex(text => {
+            const cleanText = cleanStr(text).replace(/-list:.+$/i, '').trim();
+            return titleCandidates.some(title => cleanText === title);
+          });
+          const candidateTexts = titleIndex >= 0 ? nearbyTexts.slice(titleIndex + 1) : nearbyTexts;
+          const promoterText = candidateTexts.find(text => {
+            const cleanText = cleanStr(text);
+            if (!cleanText || titleCandidates.some(title => cleanText === title || cleanText.includes(title))) return false;
+            if (/^(schedule|today|all sports|coming up|watch live|buy now)$/.test(cleanText)) return false;
+            if (/article|button|options|cellbutton|lock|bell|remind|notification/.test(cleanText)) return false;
+            if (/^\d+$/.test(cleanText) || /\b\d{1,2}:\d{2}\s*(?:am|pm)?\b/i.test(cleanText)) return false;
+            if (/\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/i.test(cleanText)) return false;
+            return cleanText.length >= 3;
+          });
+          actualValue = promoterText || 'Not found';
+          isMatch = Boolean(promoterText && compare(actualValue, expectedValue));
+        } else if (
           fieldName.toLowerCase().includes('present') ||
           fieldName.toLowerCase().includes('section') ||
           fieldName.toLowerCase().includes('icon')
@@ -973,8 +1065,46 @@ export class IOSValidationPage extends IOSBasePage {
                 hasIcon = 'Yes';
               }
             } else if (fieldName.toLowerCase().includes('dots') || fieldName.toLowerCase().includes('more')) {
-              if (pageSource.toLowerCase().includes('more') || pageSource.toLowerCase().includes('dots')) {
+              if (
+                pageSource.toLowerCase().includes('more') ||
+                pageSource.toLowerCase().includes('dots') ||
+                pageSource.toLowerCase().includes('options') ||
+                pageSource.toLowerCase().includes('three_dots') ||
+                pageSource.toLowerCase().includes('optionscellbutton') ||
+                pageSource.includes('…') ||
+                texts.some(t => /more|options|dots|three_dots|…|\.{3}/i.test(t))
+              ) {
                 hasIcon = 'Yes';
+              } else if (normalizedSource === 'schedule' && surface === 'PPV Tile') {
+                const titleGuess = texts.find(text =>
+                  cleanStr(text).includes(cleanStr(titleExpected)) || cleanStr(titleExpected).includes(cleanStr(text)),
+                ) || titleExpected;
+                const titleSelector = `-ios predicate string:(type == "XCUIElementTypeStaticText" OR type == "XCUIElementTypeButton" OR type == "XCUIElementTypeOther") AND (name == "${this.iosPredicateValue(titleGuess)}" OR label == "${this.iosPredicateValue(titleGuess)}" OR value == "${this.iosPredicateValue(titleGuess)}")`;
+                const titleEl = await this.driver.$(titleSelector).catch(() => null);
+                if (titleEl && await titleEl.isDisplayed().catch(() => false)) {
+                  const titleLoc = await titleEl.getLocation().catch(() => null);
+                  const titleSize = await titleEl.getSize().catch(() => null);
+                  if (titleLoc && titleSize) {
+                    const titleMidY = titleLoc.y + (titleSize.height / 2);
+                    const tileButtons = await this.driver.$$('-ios predicate string:type == "XCUIElementTypeButton"').catch(() => []);
+                    const tileOthers = await this.driver.$$('-ios predicate string:type == "XCUIElementTypeOther"').catch(() => []);
+                    const nearbyControls = [...tileButtons, ...tileOthers];
+                    for (const control of nearbyControls) {
+                      if (!(await control.isDisplayed().catch(() => false))) continue;
+                      const loc = await control.getLocation().catch(() => null);
+                      const size = await control.getSize().catch(() => null);
+                      if (!loc || !size || size.width <= 0 || size.height <= 0) continue;
+                      const controlMidY = loc.y + (size.height / 2);
+                      const sameRow = Math.abs(controlMidY - titleMidY) <= Math.max(24, titleSize.height);
+                      const toRight = loc.x > titleLoc.x + (titleSize.width * 0.45);
+                      const compact = size.width <= 90 && size.height <= 90;
+                      if (sameRow && toRight && compact) {
+                        hasIcon = 'Yes';
+                        break;
+                      }
+                    }
+                  }
+                }
               }
             }
             actualValue = hasIcon;
@@ -1025,7 +1155,7 @@ export class IOSValidationPage extends IOSBasePage {
           // The target entry's badge can be emitted separately from its title
           // in the virtualized snapshot. Fall back only to a standalone badge
           // with the configured target time.
-          const [expectedHour, expectedMinute] = expectedValue.split(':');
+          const [expectedHour, expectedMinute] = expectedValue.split('|')[0].split(':');
           const expectedTimePattern = new RegExp(`\\b0?${parseInt(expectedHour, 10)}:${expectedMinute}\\b`);
           const fallbackTime = !time && isPresent
             ? texts.find(text => /^\s*\d{1,2}:\d{2}\s*(?:a\.?m\.?|p\.?m\.?)?\s*$/i.test(text) && expectedTimePattern.test(text))

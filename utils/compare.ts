@@ -265,18 +265,14 @@ export function compare(
 
   // ── Time timezone / format flexibility ──────────────────────────────────
   // Both strings have time: only apply stripped-date comparison when the times
-  // are ≤ 30 minutes apart. This covers same-event times rendered in different
-  // formats (e.g. "20:00" vs "8:00PM", "00:30" vs "12:30AM").
-  //
-  // If times differ by MORE than 30 minutes it is a genuine mismatch
-  // (e.g. expected="25 Jul at 20:00", actual="25 JUL 6:00PM" = 120 min apart)
-  // and must FAIL so the Excel expected value gets corrected.
+  // represent the same minute. Formatting differences are fine (e.g. "20:00"
+  // vs "8:00PM", "00:30" vs "12:30AM"); any actual time difference must fail.
   if (actualHasTime && expectedHasTime) {
     const timeDiff = (aTimeMinutes !== null && eTimeMinutes !== null)
       ? Math.abs(aTimeMinutes - eTimeMinutes)
       : null;
 
-    if (timeDiff !== null && timeDiff <= 30) {
+    if (timeDiff !== null && timeDiff === 0) {
       // Strip time AND the word "at" (connector word) to get clean date portion
       const stripTime = (s: string) => s
         .replace(/\b\d{1,2}:\d{2}\s*(?:am|pm)?\.?\b/gi, '')

@@ -77,6 +77,39 @@ export class IOSSafariValidationPage extends IOSBasePage {
     super(driver);
   }
 
+  private getIOSISTExpectedDateTime(eventData: Record<string, any>): string {
+    const utcDate = eventData.PPV_UTC_DATE || eventData.global?.PPV_UTC_DATE;
+    if (!utcDate) return '';
+    try {
+      const { getIOSISTDateTimeCandidates } = require('../../../utils/dateUtils');
+      return getIOSISTDateTimeCandidates(String(utcDate), String(process.env.IOS_EXPECTED_TIMEZONE || 'Asia/Kolkata')) || '';
+    } catch {
+      return '';
+    }
+  }
+
+  private getIOSISTExpectedForField(eventData: Record<string, any>, fieldName: string, currentExpected = ''): string {
+    const utcDate = eventData.PPV_UTC_DATE || eventData.global?.PPV_UTC_DATE;
+    if (!utcDate || Number.isNaN(new Date(utcDate).getTime())) return '';
+    const fieldLower = String(fieldName || '').toLowerCase();
+    const expectedHasCalendarDate = /\b(?:sun|mon|tue|wed|thu|fri|sat)(?:day)?\b|\b\d{1,2}(?:st|nd|rd|th)?\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i.test(currentExpected);
+    const expectedHasTime = /\b\d{1,2}:\d{2}\s*(?:a\.?m\.?|p\.?m\.?)?\b/i.test(currentExpected);
+    const hasDate = fieldLower.includes('date') || fieldLower === 'ppv date badge' || (expectedHasCalendarDate && expectedHasTime);
+    const hasTime = fieldLower.includes('time') || fieldLower === 'ppv date badge' || (expectedHasCalendarDate && expectedHasTime);
+    const iosTimeZone = String(process.env.IOS_EXPECTED_TIMEZONE || 'Asia/Kolkata');
+    try {
+      const {
+        getIOSISTDateTimeCandidates,
+        getIOSISTDateCandidates,
+        getIOSISTScheduleFieldCandidates,
+      } = require('../../../utils/dateUtils');
+      if (hasDate && hasTime) return getIOSISTDateTimeCandidates(String(utcDate), iosTimeZone) || '';
+      if (hasTime) return getIOSISTScheduleFieldCandidates(String(utcDate), 'time', iosTimeZone) || '';
+      if (hasDate) return getIOSISTDateCandidates(String(utcDate), iosTimeZone) || '';
+    } catch { }
+    return '';
+  }
+
   /** Wait for Safari's asynchronously rendered checkout content to settle. */
   private async waitForSafariPageContentToSettle(pageName: string): Promise<void> {
     let previousText = '';
@@ -982,6 +1015,8 @@ export class IOSSafariValidationPage extends IOSBasePage {
       ) {
         expected = '/month for 12 months';
       }
+      const iosExpected = this.getIOSISTExpectedForField(eventData, field, expected);
+      if (iosExpected) expected = iosExpected;
       // Follow the web validator's applicability semantics. A row whose
       // expected value is N/A (including N/A alternatives) is not an
       // assertion. An unresolved {{TOKEN}} means the sheet does not apply to
@@ -1545,6 +1580,8 @@ export class IOSSafariValidationPage extends IOSBasePage {
         } catch {
           expected = (row['Expected'] || row['Value'] || '').toString().trim();
         }
+        const iosExpected = this.getIOSISTExpectedForField(eventData, field, expected);
+        if (iosExpected) expected = iosExpected;
         const expectedNorm = (expected || '').trim().toUpperCase();
         const isNAOrEmpty = expectedNorm.split('|').map((s: string) => s.trim()).every((s: string) => s === 'N/A' || s === '');
         if (isNAOrEmpty) {
