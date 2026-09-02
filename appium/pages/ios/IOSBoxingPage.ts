@@ -96,15 +96,19 @@ export class IOSBoxingPage extends IOSBasePage {
     return labels.some((label, index) => {
       const cleanLabel = this.normalisePpvMatchText(label);
       const cleanListLabel = cleanLabel.replace(/\s+list\s+.+$/i, '').trim();
-      if (titleTerms.every(term => cleanListLabel.includes(term))) return true;
-      if (!titleTerms.every(term => cleanLabel.includes(term))) return false;
+      if (/^slide\s+\d+\s+of\s+\d+/.test(cleanLabel)) return false;
+      if (!titleTerms.every(term => cleanListLabel.includes(term))) return false;
       const nearby = labels.slice(Math.max(0, index - 8), Math.min(labels.length, index + 9))
         .map(text => this.normalisePpvMatchText(text));
-      return nearby.some(text => text.includes(day)) && nearby.some(text => text.includes(month));
+      const hasDate = nearby.some(text => text.includes(day)) && nearby.some(text => text.includes(month));
+      const hasCardContext = /\blist\b/.test(cleanLabel) || nearby.some(text =>
+        /\b(watch live|buy now|fight card)\b/.test(text),
+      );
+      return hasDate && hasCardContext;
     });
   }
 
-  private async findUpcomingPpvCard(dateParts: IOSPPVDateParts): Promise<any | null> {
+  private async findUpcomingPpvCard(dateParts: IOSPPVDateParts, logMatch = true): Promise<any | null> {
     const pageSource = await this.driver.getPageSource().catch(() => '');
     if (!await this.sourceHasUpcomingPpvCard(pageSource, dateParts)) {
       return null;
@@ -116,7 +120,7 @@ export class IOSBoxingPage extends IOSBasePage {
     // The list may still be replacing virtualized cells immediately after the
     // snapshot; allow that replacement to settle before creating a live
     // element reference.
-    await this.driver.pause(500);
+    await this.driver.pause(100);
     const escapedName = this.iosPredicateValue(this.ppvName);
     const titleTermVariants = this.ppvTitleTermVariants(this.ppvName).slice(0, 2);
     const titleSelectors = [
@@ -135,7 +139,7 @@ export class IOSBoxingPage extends IOSBasePage {
       for (const titleElement of titleElements) {
         if (!(await titleElement.isDisplayed().catch(() => false))) continue;
         if (await this.isInViewport(titleElement)) {
-          console.log(`  Matched PPV card by title and date: "${this.ppvName}" (${dateParts.day} ${dateParts.monthShort})`);
+          if (logMatch) console.log(`  Matched PPV card by title and date: "${this.ppvName}" (${dateParts.day} ${dateParts.monthShort})`);
           return titleElement;
         }
       }
@@ -197,9 +201,9 @@ export class IOSBoxingPage extends IOSBasePage {
     await this.driver.performActions([{
       type: 'pointer', id: 'upcoming-ppv-cta-scroll', parameters: { pointerType: 'touch' },
       actions: [
-        { type: 'pointerMove', duration: 0, x, y: Math.round(height * 0.72) },
+        { type: 'pointerMove', duration: 0, x, y: Math.round(height * 0.64) },
         { type: 'pointerDown', button: 0 },
-        { type: 'pointerMove', duration: 300, x, y: Math.round(height * 0.46) },
+        { type: 'pointerMove', duration: 180, x, y: Math.round(height * 0.54) },
         { type: 'pointerUp', button: 0 },
       ],
     }]);
@@ -222,7 +226,7 @@ export class IOSBoxingPage extends IOSBasePage {
     const dateParts = this.upcomingPpvDateParts;
     if (!dateParts) return false;
     for (let attempt = 0; attempt < 3; attempt++) {
-      const title = await this.findUpcomingPpvCard(dateParts);
+      const title = await this.findUpcomingPpvCard(dateParts, false);
       const titleLocation = title ? await title.getLocation().catch(() => null) : null;
       if (title && titleLocation && await this.findBuyNowBelowTitle(titleLocation)) {
         this.upcomingPpvCard = title;
@@ -509,7 +513,7 @@ export class IOSBoxingPage extends IOSBasePage {
     if (isUltimateUser && isLoginFirst) {
       console.log(`✨ [Ultimate Active User with LOGIN_FIRST=true] Clicking the PPV tile itself for "${this.ppvName}"...`);
       const title = this.upcomingPpvDateParts
-        ? await this.findUpcomingPpvCard(this.upcomingPpvDateParts)
+        ? await this.findUpcomingPpvCard(this.upcomingPpvDateParts, false)
         : null;
       if (!title || !(await title.isDisplayed().catch(() => false))) {
         console.log('  No verified Upcoming Fights PPV card is available; refusing unscoped PPV-tile click.');
@@ -531,7 +535,7 @@ export class IOSBoxingPage extends IOSBasePage {
       // The Upcoming list virtualizes/rebuilds its cells while validation is
       // running, so the previously stored title reference may be stale. Query
       // a fresh title against the current target-card snapshot.
-      let title = dateParts ? await this.findUpcomingPpvCard(dateParts) : null;
+      let title = dateParts ? await this.findUpcomingPpvCard(dateParts, false) : null;
       let titleLocation = title ? await title.getLocation().catch(() => null) : null;
       if (!dateParts || !title || !titleLocation || !(await title.isDisplayed().catch(() => false))) {
         console.log('  No verified Upcoming Fights PPV card is available; refusing generic Buy CTA fallback.');

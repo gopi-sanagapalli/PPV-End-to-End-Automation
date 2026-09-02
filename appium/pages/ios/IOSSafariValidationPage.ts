@@ -92,9 +92,11 @@ export class IOSSafariValidationPage extends IOSBasePage {
     const utcDate = eventData.PPV_UTC_DATE || eventData.global?.PPV_UTC_DATE;
     if (!utcDate || Number.isNaN(new Date(utcDate).getTime())) return '';
     const fieldLower = String(fieldName || '').toLowerCase();
+    const isFlexFutureDate = fieldLower === 'flex future date';
     const expectedHasCalendarDate = /\b(?:sun|mon|tue|wed|thu|fri|sat)(?:day)?\b|\b\d{1,2}(?:st|nd|rd|th)?\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i.test(currentExpected);
     const expectedHasTime = /\b\d{1,2}:\d{2}\s*(?:a\.?m\.?|p\.?m\.?)?\b/i.test(currentExpected);
-    const hasDate = fieldLower.includes('date') || fieldLower === 'ppv date badge' || (expectedHasCalendarDate && expectedHasTime);
+    const hasDate = !isFlexFutureDate &&
+      (fieldLower.includes('date') || fieldLower === 'ppv date badge' || (expectedHasCalendarDate && expectedHasTime));
     const hasTime = fieldLower.includes('time') || fieldLower === 'ppv date badge' || (expectedHasCalendarDate && expectedHasTime);
     const iosTimeZone = String(process.env.IOS_EXPECTED_TIMEZONE || 'Asia/Kolkata');
     try {
@@ -456,7 +458,7 @@ export class IOSSafariValidationPage extends IOSBasePage {
     }
 
     if (fieldLower === 'currency') {
-      const currencyAmount = fullText.match(/(?:\b[A-Z]{3}\s*|[£$€₹]\s?)\d+(?:[.,]\d{2})?/i)?.[0] || '';
+      const currencyAmount = fullText.match(/(?:\b(?:AED|SAR)\s*|R\$\s*|[£$€₹]\s?)\d+(?:[.,]\d{2})?/)?.[0] || '';
       const currencyCode = currencyAmount.match(/^[A-Z]{3}\b/i)?.[0];
       const currencySymbol = currencyAmount.match(/^[£$€₹]/)?.[0];
       const actual = currencyCode || currencySymbol || 'Not found';

@@ -708,3 +708,58 @@ export async function locateIOSPpvTileByImage(
     if (screenshotPath && fs.existsSync(screenshotPath)) fs.unlinkSync(screenshotPath);
   }
 }
+
+export async function getIOSRenderedTextInBounds(
+  driver: WdBrowser,
+  bounds: { x: number; y: number; width: number; height: number },
+): Promise<string[]> {
+  let screenshotPath = '';
+  try {
+    const screen = await driver.getWindowRect();
+    screenshotPath = path.join(os.tmpdir(), `dazn-bounded-ocr-${process.pid}-${Date.now()}.png`);
+    fs.writeFileSync(screenshotPath, Buffer.from(await driver.takeScreenshot(), 'base64'));
+    const swiftVisionScript = `
+      import AppKit
+      import Vision
+
+      guard CommandLine.arguments.count > 1,
+            let image = NSImage(contentsOfFile: CommandLine.arguments[1]),
+            let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+        exit(1)
+      }
+      let request = VNRecognizeTextRequest()
+      request.recognitionLevel = .accurate
+      request.usesLanguageCorrection = true
+      request.recognitionLanguages = ["en-GB"]
+      let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+      try handler.perform([request])
+      let values = (request.results ?? []).compactMap { observation -> [String: Any]? in
+        guard let text = observation.topCandidates(1).first?.string else { return nil }
+        let box = observation.boundingBox
+        return ["text": text, "xPercent": box.midX, "yPercent": 1 - box.midY]
+      }
+      let data = try JSONSerialization.data(withJSONObject: values)
+      print(String(data: data, encoding: .utf8)!)
+    `;
+    const output = execFileSync('/usr/bin/swift', ['-e', swiftVisionScript, screenshotPath], {
+      encoding: 'utf8',
+      timeout: 30000,
+    });
+    const observations = JSON.parse(output) as Array<{ text: string; xPercent: number; yPercent: number }>;
+    const minX = Math.max(0, bounds.x / screen.width);
+    const maxX = Math.min(1, (bounds.x + bounds.width) / screen.width);
+    const minY = Math.max(0, bounds.y / screen.height);
+    const maxY = Math.min(1, (bounds.y + bounds.height) / screen.height);
+    return observations
+      .filter(observation =>
+        observation.xPercent >= minX && observation.xPercent <= maxX &&
+        observation.yPercent >= minY && observation.yPercent <= maxY,
+      )
+      .map(observation => observation.text);
+  } catch (error: any) {
+    console.warn(`  Local OCR bounded-text lookup failed: ${error.message}`);
+    return [];
+  } finally {
+    if (screenshotPath && fs.existsSync(screenshotPath)) fs.unlinkSync(screenshotPath);
+  }
+}
