@@ -1,6 +1,11 @@
 import { AndroidFlowHooks, WdBrowser, adbBack, adbTap } from '../pages/android/AndroidBasePage';
 import { AndroidRailTileMatch, AndroidRailsFetcher } from './androidRailsFetcher';
 import { normalizeAndroidTitle, normalizeAndroidTitleWords } from './androidTitleNormalizer';
+import { execFileSync } from 'child_process';
+import { createHash } from 'crypto';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 
 export interface DynamicPpvTileLocatorResult {
   success: boolean;
@@ -60,6 +65,7 @@ export class DynamicPpvTileLocator {
     });
 
     const forcedRailTitle = (options.forceRailTitle || '').trim();
+    const usesVisualBoxingSearch = Boolean(forcedRailTitle) && pageName.toLowerCase() === 'boxing';
     const cleanRailTitle = (value: string) => value.toLowerCase().replace(/['’]/g, '').replace(/\s+/g, ' ').trim();
     let apiMatch: AndroidRailTileMatch | undefined = forcedRailTitle
       ? railsFetch.matchingTiles.find(match => cleanRailTitle(match.railTitle).includes(cleanRailTitle(forcedRailTitle)))
@@ -98,10 +104,14 @@ export class DynamicPpvTileLocator {
       console.log(`  ✓ Dynamic Tile Index calculated from forced rail API order for ${pageName} page: ${expectedTileIndex}`);
     } else if (forcedRailTitle && !isHomePage) {
       // Non-Home pages (e.g. Boxing) have different rail content than the Home API returns.
-      // The API index is unreliable; prefer UI DOM detection with recovery sequence fallback.
+      // The API index is unreliable; use it only for reporting when image-only cards require visual search.
       const detectedUiIndex = await this.detectTileIndexFromUiDom(railHeaderRect.y, targetPpvTitle, entitlementId);
-      expectedTileIndex = detectedUiIndex !== null ? detectedUiIndex : 0;
-      console.log(`  ✓ Dynamic Tile Index for ${pageName} page (non-Home): ${expectedTileIndex} (UI DOM detection, recovery sequence enabled)`);
+      expectedTileIndex = detectedUiIndex ?? apiMatch?.tileIndex ?? 0;
+      console.log(
+        detectedUiIndex !== null
+          ? `  ✓ Dynamic Tile Index for ${pageName} page (non-Home): ${expectedTileIndex} (UI DOM detection)`
+          : `  ℹ️ No UI tile index is available for the image-only ${pageName} rail; using visual PPV artwork search.`,
+      );
     } else if (apiMatch?.tileIndex !== undefined) {
       expectedTileIndex = apiMatch.tileIndex;
       console.log(`  ✓ Dynamic Tile Index calculated from Rails API response for ${pageName} page: ${expectedTileIndex}`);
@@ -113,7 +123,11 @@ export class DynamicPpvTileLocator {
 
     // Log explicit API Rail Title and API Tile Index right after dynamic resolution
     console.log(`API Rail Title: ${railTitle}`);
-    console.log(`API Tile Index: ${expectedTileIndex}`);
+    console.log(
+      usesVisualBoxingSearch
+        ? `API Tile Index: not used for Boxing image-only rail${apiMatch ? ` (source index: ${apiMatch.tileIndex})` : ''}`
+        : `API Tile Index: ${expectedTileIndex}`,
+    );
 
     // 4. Calculate safe Y tile swipe & tap coordinate (strictly BELOW rail header & ABOVE bottom nav bar)
     const { width, height } = await this.driver.getWindowRect();
@@ -178,9 +192,72 @@ export class DynamicPpvTileLocator {
       }
     }
 
+    if (usesVisualBoxingSearch) {
+      const visualSearch = await this.findPpvArtworkInRail(
+        targetPpvTitle,
+        railHeaderRect.y + railHeaderRect.height,
+        Math.min(height * 0.85, railHeaderRect.y + railHeaderRect.height + height * 0.35),
+        width,
+        height,
+      );
+      if (visualSearch) {
+        await validateTileSurface();
+        console.log(`Opening visually matched PPV tile "${targetPpvTitle}"...`);
+        adbTap(visualSearch.x, visualSearch.y);
+        await this.driver.pause(3000);
+
+        if (await this.validatePaywall(targetPpvTitle, entitlementId)) {
+          console.log('PPV matched.');
+          this.logVerificationSummary({
+            apiRailTitle: railTitle,
+            apiTileIndex: expectedTileIndex,
+            swipesPerformed: visualSearch.swipesPerformed,
+            openedPpvTitle: targetPpvTitle,
+            apiOrderMatchedUiOrder: false,
+          });
+          hooks.recordAvailability?.(true, undefined, `${pageName} Page`);
+          const userStateStr = String(process.env.USER_STATE || '').toLowerCase().trim().replace('-', '_');
+          const isUltimateUser = ['active_ultimate_upfront', 'active_ultimate_apm'].includes(userStateStr);
+          const isLoginFirst = String(process.env.LOGIN_FIRST || '').toLowerCase() === 'true';
+          if (!isUltimateUser || !isLoginFirst) {
+            await hooks.validatePaywall?.().catch(() => { });
+          }
+          return {
+            success: true,
+            apiRailTitle: railTitle,
+            apiTileIndex: expectedTileIndex,
+            swipesPerformed: visualSearch.swipesPerformed,
+            openedPpvTitle: targetPpvTitle,
+            apiOrderMatchedUiOrder: false,
+          };
+        }
+
+        console.log(`The visually matched "${targetPpvTitle}" tile did not open its paywall.`);
+        return {
+          success: false,
+          apiRailTitle: railTitle,
+          apiTileIndex: expectedTileIndex,
+          swipesPerformed: visualSearch.swipesPerformed,
+          openedPpvTitle: '<mismatched>',
+          apiOrderMatchedUiOrder: false,
+          diagnosticDetails: `The visually matched "${targetPpvTitle}" tile did not open the expected paywall.`,
+        };
+      }
+
+      return {
+        success: false,
+        apiRailTitle: railTitle,
+        apiTileIndex: expectedTileIndex,
+        swipesPerformed: 0,
+        openedPpvTitle: '<none>',
+        apiOrderMatchedUiOrder: false,
+        diagnosticDetails: `PPV artwork for "${targetPpvTitle}" was not found in the ${railTitle} rail.`,
+      };
+    }
+
     // 5. Direct Swiping to Expected Tile Index & Neighbor Recovery Sequence
     const searchOrderIndices = forcedRailTitle
-      ? (pageName.toLowerCase() === 'boxing' ? this.generateForcedRailRecoverySequence(expectedTileIndex, apiMatch?.totalTilesInRail) : [expectedTileIndex])
+      ? [expectedTileIndex]
       : this.generateNeighborSearchSequence(expectedTileIndex);
     let totalSwipesPerformed = 0;
     let currentTilePositionOnScreen = 0;
@@ -315,6 +392,106 @@ export class DynamicPpvTileLocator {
     } catch { }
 
     return null;
+  }
+
+  private async findPpvArtworkInRail(
+    targetPpvTitle: string,
+    railTop: number,
+    railBottom: number,
+    screenWidth: number,
+    screenHeight: number,
+  ): Promise<{ x: number; y: number; swipesPerformed: number } | null> {
+    let previousFingerprint = '';
+    let unchangedSwipes = 0;
+
+    for (let attempt = 0; attempt <= 40; attempt++) {
+      const match = await this.findPpvArtworkInCurrentRailView(targetPpvTitle, railTop, railBottom, screenWidth, screenHeight);
+      if (match) return { ...match, swipesPerformed: attempt };
+
+      if (attempt === 40) break;
+      if (match === null) {
+        const screenshot = await this.driver.takeScreenshot();
+        const fingerprint = createHash('sha256').update(screenshot).digest('hex');
+        unchangedSwipes = fingerprint === previousFingerprint ? unchangedSwipes + 1 : 0;
+        previousFingerprint = fingerprint;
+        if (unchangedSwipes >= 2) {
+          console.log(`"${targetPpvTitle}" was not found and the Don't Miss rail stopped moving.`);
+          break;
+        }
+      }
+
+      console.log(`PPV artwork is not in the current card viewport; making short horizontal swipe ${attempt + 1}/40.`);
+      await this.swipeRelativeTileIndex(1, Math.round((railTop + railBottom) / 2), screenWidth);
+    }
+
+    return null;
+  }
+
+  private async findPpvArtworkInCurrentRailView(
+    targetPpvTitle: string,
+    railTop: number,
+    railBottom: number,
+    screenWidth: number,
+    screenHeight: number,
+  ): Promise<{ x: number; y: number } | null> {
+    let screenshotPath = '';
+    try {
+      screenshotPath = path.join(os.tmpdir(), `dazn-android-ppv-ocr-${process.pid}-${Date.now()}.png`);
+      fs.writeFileSync(screenshotPath, Buffer.from(await this.driver.takeScreenshot(), 'base64'));
+      const swiftVisionScript = `
+        import AppKit
+        import Vision
+
+        guard CommandLine.arguments.count > 1,
+              let image = NSImage(contentsOfFile: CommandLine.arguments[1]),
+              let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+          exit(1)
+        }
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.usesLanguageCorrection = true
+        request.recognitionLanguages = ["en-GB"]
+        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+        try handler.perform([request])
+        let values = (request.results ?? []).compactMap { observation -> [String: Any]? in
+          guard let text = observation.topCandidates(1).first?.string else { return nil }
+          let box = observation.boundingBox
+          return ["text": text, "xPercent": box.midX, "yPercent": 1 - box.midY]
+        }
+        let data = try JSONSerialization.data(withJSONObject: values)
+        print(String(data: data, encoding: .utf8)!)
+      `;
+      const output = execFileSync('/usr/bin/swift', ['-e', swiftVisionScript, screenshotPath], {
+        encoding: 'utf8',
+        timeout: 30000,
+      });
+      const observations = JSON.parse(output) as Array<{ text: string; xPercent: number; yPercent: number }>;
+      const targetWords = normalizeAndroidTitleWords(targetPpvTitle)
+        .filter(word => !['vs', 'v', 'the', 'and', 'at', 'on', 'ppv'].includes(word) && word.length > 2);
+      const match = observations
+        .filter(observation => {
+          const y = Math.round(screenHeight * observation.yPercent);
+          return y >= railTop && y <= railBottom;
+        })
+        .map(observation => ({
+          observation,
+          matchedWords: targetWords.filter(word => normalizeAndroidTitle(observation.text, ' ').includes(word)).length,
+        }))
+        .filter(candidate => candidate.matchedWords > 0)
+        .sort((left, right) => right.matchedWords - left.matchedWords)[0]?.observation;
+
+      if (!match) return null;
+      const x = Math.round(screenWidth * match.xPercent);
+      const y = Math.round(screenHeight * match.yPercent);
+      if (x < 0 || x > screenWidth || y < railTop || y > railBottom) return null;
+      console.log(`Local OCR matched PPV artwork text: "${match.text}".`);
+      return { x, y };
+    } catch (error: any) {
+      console.warn(`Local OCR PPV lookup failed: ${error.message}`);
+      return null;
+    } finally {
+      if (screenshotPath && fs.existsSync(screenshotPath)) fs.unlinkSync(screenshotPath);
+    }
   }
 
   /**

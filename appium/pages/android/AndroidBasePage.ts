@@ -71,7 +71,7 @@ export function closeMobileBrowser(): void {
   adb(`shell am force-stop ${MOBILE_BROWSER_PACKAGE}`);
 }
 
-/** Launch Chrome in an Incognito tab and attach through its standard CDP socket. */
+/** Launch a regular Chrome tab and attach through its standard CDP socket. */
 export async function launchAndroidChrome(
   device: any,
   chromium: any,
@@ -85,11 +85,11 @@ export async function launchAndroidChrome(
   let forwardPort = '';
   const serial = device.serial();
   try {
-    console.log('Launching Chrome through its standard CDP socket in an Incognito tab...');
+    console.log('Launching Chrome through its standard CDP socket in a regular tab...');
     await device.shell(`am force-stop ${packageName}`);
     await device.shell(
-      `am start -n ${packageName}/org.chromium.chrome.browser.incognito.IncognitoTabLauncher ` +
-      '-a org.chromium.chrome.browser.incognito.OPEN_PRIVATE_TAB -d about:blank',
+      `am start -n ${packageName}/com.google.android.apps.chrome.Main ` +
+      '-a android.intent.action.VIEW -d about:blank',
     );
     await new Promise(resolve => setTimeout(resolve, 1000));
 
@@ -119,6 +119,16 @@ export async function launchAndroidChrome(
 
     const context = browser.contexts()[0];
     if (!context) throw new Error('Chrome CDP connected without a browser context.');
+    await context.clearCookies();
+    const pages = context.pages();
+    if (pages.length > 0) {
+      const session = await context.newCDPSession(pages[0]);
+      try {
+        await session.send('Network.clearBrowserCache');
+      } finally {
+        await session.detach();
+      }
+    }
     return {
       context,
       browser,

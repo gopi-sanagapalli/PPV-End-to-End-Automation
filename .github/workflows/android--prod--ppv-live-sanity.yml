@@ -87,6 +87,7 @@ jobs:
 
   existing-sign-in-during-flow:
     needs: [prepare, new-user]
+    if: ${{ !cancelled() && needs.prepare.result == 'success' }}
     name: Existing user · Sign in during flow | ${{ matrix.source }} | ${{ matrix.profile }}
     runs-on: [self-hosted, macOS, ARM64, gopi-runners]
     timeout-minutes: 30
@@ -115,6 +116,7 @@ jobs:
 
   existing-already-signed-in:
     needs: [prepare, existing-sign-in-during-flow]
+    if: ${{ !cancelled() && needs.prepare.result == 'success' }}
     name: Existing user · Already signed in | ${{ matrix.source }} | ${{ matrix.profile }}
     runs-on: [self-hosted, macOS, ARM64, gopi-runners]
     timeout-minutes: 30

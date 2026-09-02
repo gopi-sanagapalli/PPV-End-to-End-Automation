@@ -75,10 +75,12 @@ export class GloryPage extends BasePage {
   }
 
   // ─────────────────────────────
-  // FIND AND CLICK "GLORY COLLISION 9" IN "COMING UP" RAIL
+  // FIND AND CLICK CONFIGURED EVENT IN "COMING UP" RAIL
   // ─────────────────────────────
-  async clickGloryCollision9(): Promise<void> {
-    const targetEvent = 'GLORY COLLISION 9';
+  async clickConfiguredEventTile(targetEvent: string): Promise<void> {
+    if (!targetEvent.trim()) {
+      throw new Error('❌ [GloryPage] Configured PPV name is required to locate a Glory tile.');
+    }
     console.log(`🔍 [GloryPage] Searching for "${targetEvent}" in "Coming up" rail...`);
 
     // ── Step 1: Scroll to "Coming up" section ──
@@ -151,6 +153,7 @@ export class GloryPage extends BasePage {
                 if (score >= 100) break;
               }
             }
+
           }
         }
       }
@@ -234,6 +237,71 @@ export class GloryPage extends BasePage {
     } else {
       console.log(`🔍 [GloryPage] Tile click opened modal/popup on same page`);
     }
+  }
+
+  // ─────────────────────────────
+  // FIND CONFIGURED EVENT IN HERO BANNER AND CLICK BUY NOW
+  // ─────────────────────────────
+  async clickConfiguredEventBanner(targetEvent: string): Promise<void> {
+    if (!targetEvent.trim()) {
+      throw new Error('❌ [GloryPage] Configured PPV name is required to locate a Glory banner.');
+    }
+
+    const normalize = (value: string) =>
+      value.toLowerCase()
+        .replace(/\bv(?:s)?\.?\b/g, ' vs ')
+        .replace(/[^a-z0-9]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    const eventWords = normalize(targetEvent)
+      .split(' ')
+      .filter(word => word.length > 2 && !['the', 'and', 'for', 'with', 'from', 'vs'].includes(word));
+    if (!eventWords.length) {
+      throw new Error(`❌ [GloryPage] Configured PPV name has no searchable event words: "${targetEvent}".`);
+    }
+
+    await this.page.evaluate(() => {
+      const stopSwiper = (swiper: any) => {
+        try { swiper?.autoplay?.stop(); } catch { }
+        try { swiper.params.autoplay = false; } catch { }
+      };
+      document.querySelectorAll<HTMLElement>('[class*="swiper" i], [class*="banner" i], [class*="hero" i]')
+        .forEach((element: any) => stopSwiper(element.swiper));
+    }).catch(() => {});
+
+    const banners = this.page.locator(
+      'main [class*="hero-banner" i], main [class*="herobanner" i], ' +
+      'main [class*="banner" i], main [class*="hero" i], main [data-testid*="banner" i]'
+    );
+    const count = await banners.count().catch(() => 0);
+    let banner: any = null;
+
+    for (let index = 0; index < count; index++) {
+      const candidate = banners.nth(index);
+      if (!await candidate.isVisible({ timeout: 1000 }).catch(() => false)) continue;
+      const text = normalize((await candidate.innerText().catch(() => '')) || '');
+      if (eventWords.every(word => text.includes(word))) {
+        banner = candidate;
+        break;
+      }
+    }
+
+    if (!banner) {
+      throw new Error(`❌ [GloryPage] No visible Glory hero banner matched configured event "${targetEvent}".`);
+    }
+
+    const buyNow = banner.locator(
+      'button:has-text("Buy now"), a:has-text("Buy now"), ' +
+      'button:has-text("Buy Now"), a:has-text("Buy Now")'
+    ).first();
+    if (!await buyNow.isVisible({ timeout: 5000 }).catch(() => false)) {
+      throw new Error(`❌ [GloryPage] Matching Glory banner for "${targetEvent}" has no visible Buy Now CTA.`);
+    }
+
+    const urlBeforeClick = this.page.url();
+    await buyNow.click({ force: true, timeout: 10000 });
+    await this.page.waitForURL(url => url.toString() !== urlBeforeClick, { timeout: 15000 }).catch(() => {});
+    console.log(`✅ [GloryPage] Clicked Buy Now in configured banner for "${targetEvent}".`);
   }
 
   // ─────────────────────────────
@@ -326,7 +394,10 @@ export class GloryPage extends BasePage {
       env?: string;
     }
   ): Promise<void> {
-    const ppvName = options?.ppvName || 'GLORY COLLISION 9';
+    const ppvName = options?.ppvName || process.env.PPV_NAME || '';
+    if (!ppvName.trim()) {
+      throw new Error('❌ [GloryPage] Configured PPV name is required to complete the Glory flow.');
+    }
     const planType = options?.planType || 'flex';
     const env = options?.env || process.env.DAZN_ENV || 'stag';
     const results: Array<{ page: string; field: string; expected: string; actual: string; status: string }> = [];
@@ -353,16 +424,16 @@ export class GloryPage extends BasePage {
       });
 
       // ═══════════════════════════════════════
-      // STEP 2: Click GLORY COLLISION 9 tile
+      // STEP 2: Click configured GLORY event tile
       // ═══════════════════════════════════════
       console.log('\n══════════════════════════════════════════════');
-      console.log('STEP 2: Click GLORY COLLISION 9 Tile');
+      console.log(`STEP 2: Click ${ppvName} Tile`);
       console.log('══════════════════════════════════════════════');
 
-      await this.clickGloryCollision9();
+      await this.clickConfiguredEventTile(ppvName);
       results.push({
         page: 'Glory Kickboxing',
-        field: 'GLORY COLLISION 9 Tile Clicked',
+        field: 'Configured GLORY Tile Clicked',
         expected: 'Tile clicked',
         actual: 'Tile clicked',
         status: 'PASS',

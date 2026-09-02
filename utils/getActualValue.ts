@@ -21,7 +21,7 @@ async function getScopedLandingPPVContainer(
   // Also extract the prefix part (e.g. "AEW" from "AEW: Forbidden Door")
   const prefixPart = ppvName.includes(':') ? ppvName.split(':')[0].trim() : '';
 
-  const isTileSource = source.includes('dont-miss') || source.includes('tile') || source.includes('upcoming') || source.includes('rail') || source === 'home-biggest-fights';
+  const isTileSource = source === 'landing' || source.includes('dont-miss') || source.includes('tile') || source.includes('upcoming') || source.includes('rail') || source === 'home-biggest-fights';
   const isBannerSource = source.includes('banner');
 
   // Tile flows open their purchase dialog before the sheet validations run.
@@ -4284,6 +4284,7 @@ export async function getActualValue(
           if (match) return match[0].trim();
         }
       }
+      if (field === 'landing page ppv date' && isLandingOrHome) return 'N/A';
 
       const ppvDate = (eventData?.PPV_DATE || '').trim();
       const ppvName = (eventData?.PPV_NAME || '').toLowerCase();

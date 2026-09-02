@@ -440,6 +440,17 @@ export class AndroidValidationPage extends AndroidBasePage {
     eventData.CURRENT_PAGE = 'Mobile Paywall';
     paywallValidated.value = true;
 
+    const mobileBrowserPackage = process.env.MOBILE_BROWSER_PACKAGE || 'com.android.chrome';
+    const currentPackage = await this.driver.getCurrentPackage().catch(() => '');
+    const pageSourceBeforeValidation = await this.driver.getPageSource().catch(() => '');
+    if (
+      currentPackage === mobileBrowserPackage ||
+      pageSourceBeforeValidation.includes(`package="${mobileBrowserPackage}"`)
+    ) {
+      console.log(`⏭️ Native Mobile Paywall validation skipped: handoff is already open in ${mobileBrowserPackage}.`);
+      return;
+    }
+
     const { texts, pageSource, mobileDateText } = await this.gatherTextsFromPaywall();
 
     const { getMobilePaywallData } = require('../../../utils/excelReader');

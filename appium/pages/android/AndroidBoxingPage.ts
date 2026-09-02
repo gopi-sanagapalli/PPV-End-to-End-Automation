@@ -485,12 +485,6 @@ export class AndroidBoxingPage extends AndroidBasePage {
           }
 
           if (targetBtn) {
-            const btnLoc = await targetBtn.getLocation().catch(() => null);
-            if (btnLoc && btnLoc.y > Math.round(screen.height * 0.72)) {
-              console.warn(`  "Buy now" button is in bottom nav area (y=${btnLoc.y} > ${Math.round(screen.height * 0.72)}). Scrolling up first...`);
-              adbSwipe(cx, Math.round(screen.height * 0.65), cx, Math.round(screen.height * 0.40));
-              await this.driver.pause(800);
-            }
             await targetBtn.click();
             console.log('  Tapped "Buy now" specific to the PPV card');
             return true;
@@ -500,8 +494,7 @@ export class AndroidBoxingPage extends AndroidBasePage {
         console.log(`  PPV-specific Buy now check error: ${e.message}`);
       }
 
-      adbSwipe(cx, Math.round(screen.height * 0.65), cx, Math.round(screen.height * 0.45));
-      await this.driver.pause(1500);
+      await this.driver.pause(500);
     }
 
     console.log(`  Buy CTA belonging to "${this.ppvName}" was not found. Not using generic fallback for Upcoming Fights.`);
