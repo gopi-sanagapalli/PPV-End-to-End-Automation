@@ -428,7 +428,7 @@ for (const stateKey of userStatesToRun) {
     // All non-myaccount sources are skipped automatically.
     const PPV_DEV_MODE = json?.PPV_DEV_MODE === true;
     const isGloryStandalone = String(json?.PPV_TYPE || '').toLowerCase() === 'standalone' &&
-      SOURCE.toLowerCase() === 'glory';
+      ['glory-tile', 'glory-banner'].includes(SOURCE.toLowerCase());
     const MY_ACCOUNT_SOURCES = new Set(['my-account', 'myaccount', 'myaccount-subscription-status']);
     if (PPV_DEV_MODE && !MY_ACCOUNT_SOURCES.has(SOURCE.toLowerCase()) && !isGloryStandalone) {
       const skipReason = `PPV_DEV_MODE is true — only myaccount flows are supported for this event. SOURCE "${SOURCE}" is skipped.`;
@@ -1212,7 +1212,8 @@ for (const stateKey of userStatesToRun) {
         const isSchedule = SOURCE.toLowerCase().includes('schedule');
         const isSearch = SOURCE.toLowerCase().includes('search');
 
-        const isGlory = SOURCE.toLowerCase() === 'glory';
+        const isGloryTile = SOURCE.toLowerCase() === 'glory-tile';
+        const isGloryBanner = SOURCE.toLowerCase() === 'glory-banner';
 
         // ══════════════════════════════════════════════════════════════
         // HOME PAGE POPUP FLOW
@@ -1254,7 +1255,7 @@ for (const stateKey of userStatesToRun) {
             { email: userEmail, password: userPassword },
             baseUrl, results, eventData
           );
-        } else if (isGlory) {
+        } else if (isGloryTile || isGloryBanner) {
           const gloryPage = new GloryPage(page);
           await gloryPage.navigate();
           await setupPage(page, 8000);
@@ -1276,8 +1277,12 @@ for (const stateKey of userStatesToRun) {
             status: isValid ? 'PASS' : 'FAIL',
           });
 
-          await gloryPage.clickGloryCollision9();
-          await gloryPage.clickBuyNowInModal();
+          if (isGloryTile) {
+            await gloryPage.clickConfiguredEventTile(eventData.PPV_NAME);
+            await gloryPage.clickBuyNowInModal();
+          } else {
+            await gloryPage.clickConfiguredEventBanner(eventData.PPV_NAME);
+          }
         } else if (isSchedule) {
           const schedule = new SchedulePage(page);
           await schedule.navigate(baseUrl);
@@ -1950,7 +1955,11 @@ for (const stateKey of userStatesToRun) {
           // For home-biggest-fights: clickBuyNow only clicks the tile, handlePopupModal validates + clicks Buy Now
           // For dont-miss/tile sources: avoid double-clicking modal
           const clickPopup = SOURCE === 'home-biggest-fights' || (!SOURCE.includes('dont-miss') && !SOURCE.includes('tile') && !SOURCE.includes('upcoming'));
-          if (SOURCE.toLowerCase() !== 'glory' && SOURCE !== 'home-page-dazntile' && SOURCE !== 'home-boxing-upcoming') {
+          if (
+            !['glory-tile', 'glory-banner'].includes(SOURCE.toLowerCase()) &&
+            SOURCE !== 'home-page-dazntile' &&
+            SOURCE !== 'home-boxing-upcoming'
+          ) {
             await handlePopupModal(page, results, eventData, SOURCE, clickPopup);
           }
 

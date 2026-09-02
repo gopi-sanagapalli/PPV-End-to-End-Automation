@@ -371,7 +371,8 @@ async function runFlow(
     const isSearch = source.toLowerCase().includes('search');
     const isSchedule = source.toLowerCase().includes('schedule');
 
-    const isGlory = source.toLowerCase() === 'glory';
+    const isGloryTile = source.toLowerCase() === 'glory-tile';
+    const isGloryBanner = source.toLowerCase() === 'glory-banner';
     const shouldValidateTileBeforePopup = new Set(['home-page-dont-miss', 'home-boxing-tile']).has(source.toLowerCase());
 
     // ══════════════════════════════════════════════════════════════
@@ -440,7 +441,7 @@ async function runFlow(
         { email: user.email, password: user.password },
         baseUrl, results, eventData
       );
-    } else if (isGlory) {
+    } else if (isGloryTile || isGloryBanner) {
       const gloryPage = new GloryPage(page);
       await gloryPage.navigate();
       await setupPage(page, 8000);
@@ -456,8 +457,12 @@ async function runFlow(
         status: isValid ? 'PASS' : 'FAIL',
       });
 
-      await gloryPage.clickGloryCollision9();
-      await gloryPage.clickBuyNowInModal();
+      if (isGloryTile) {
+        await gloryPage.clickConfiguredEventTile(eventData.PPV_NAME);
+        await gloryPage.clickBuyNowInModal();
+      } else {
+        await gloryPage.clickConfiguredEventBanner(eventData.PPV_NAME);
+      }
     } else if (isSchedule) {
       const schedule = new SchedulePage(page);
       await schedule.navigate(baseUrl);
@@ -909,7 +914,10 @@ async function runFlow(
 
     if (source !== 'home-page-popup') {
       // Handle generic popup validations and click-through
-      if ((!isHomeSport || source === 'home-page-dont-miss') && source !== 'glory') {
+      if (
+        (!isHomeSport || source === 'home-page-dont-miss') &&
+        !['glory-tile', 'glory-banner'].includes(source)
+      ) {
         await handlePopupModal(page, results, eventData, source, true);
       }
 

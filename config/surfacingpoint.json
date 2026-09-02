@@ -107,8 +107,12 @@
     "defaultSignup": true,
     "noPpvClick": true
   },
-  "glory": {
-    "source": "glory",
+  "glory-tile": {
+    "source": "glory-tile",
+    "endPage": "payment"
+  },
+  "glory-banner": {
+    "source": "glory-banner",
     "endPage": "payment"
   },
   "home-page-popup": {

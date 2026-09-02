@@ -1141,7 +1141,6 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
           viewport: { width: 375, height: 667 },
           timezoneId: activeTz,
           locale: activeLocale,
-          args: ['--incognito', '--no-first-run', '--disable-first-run-ui']
         });
         context = chromeLaunch.context;
         playwrightBrowser = chromeLaunch.browser;
@@ -1187,7 +1186,7 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
           await device.shell(`am start -n ${MOBILE_BROWSER_PACKAGE}/com.google.android.apps.chrome.Main`);
           await sleep(1500);
         } else {
-          console.log('Chrome CDP fallback is already foregrounded in an Incognito tab.');
+          console.log('Chrome CDP handoff is already foregrounded in a regular tab.');
         }
 
         page.on('console', (msg: any) => {
