@@ -12,7 +12,7 @@
   "HAS_DEFAULT_SIGNUP_PPV": false,
   "global": {
     "FREE_TRIAL_DAYS": 8,
-    "PPV_PROMOTER": "",
+    "PPV_PROMOTER": "Ring Magazine",
     "PPV_ENTITLEMENT_ID": "ppv_t_garcia_benn",
     "PPV_DESCRIPTION": "Two of boxing's biggest personalities in a must-see clash as King Ry puts his WBC world title on the line in Las Vegas",
     "PPV_UTC_DATE": "2026-09-13T00:00:00Z",
@@ -54,6 +54,22 @@
       "MOBILE_SCHEDULE_MONTH": "SEP",
       "MOBILE_SCHEDULE_DATE": "13",
       "MOBILE_SCHEDULE_TIME": "1:00AM",
+      "PPV_NAME": "Garcia vs. Benn"
+    },
+    "AE": {
+      "MOBILE_PPV_DATE": "13 SEP 4:00 AM",
+      "MOBILE_BANNER_TITLE": "Garcia vs. Benn",
+      "MOBILE_BANNER_DATE_TIME": "Sun 13th Sep at 04:00",
+      "MOBILE_BANNER_DAY": "Sun",
+      "MOBILE_BANNER_DATE": "13th",
+      "MOBILE_BANNER_MONTH": "September",
+      "MOBILE_BANNER_TIME": "4:00am",
+      "MOBILE_BANNER_DESCRIPTION": "Two of boxing's biggest personalities in a must-see clash as King Ry puts his WBC world title on the line in Las Vegas",
+      "MOBILE_SEARCH_PPV_DATE": "Sun 13th September at 4:00 AM",
+      "MOBILE_SCHEDULE_DAY": "SUN",
+      "MOBILE_SCHEDULE_MONTH": "SEP",
+      "MOBILE_SCHEDULE_DATE": "13",
+      "MOBILE_SCHEDULE_TIME": "4:00AM",
       "PPV_NAME": "Garcia vs. Benn"
     }
   }

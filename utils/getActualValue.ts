@@ -21,7 +21,7 @@ async function getScopedLandingPPVContainer(
   // Also extract the prefix part (e.g. "AEW" from "AEW: Forbidden Door")
   const prefixPart = ppvName.includes(':') ? ppvName.split(':')[0].trim() : '';
 
-  const isTileSource = source === 'landing' || source.includes('dont-miss') || source.includes('tile') || source.includes('upcoming') || source.includes('rail') || source === 'home-biggest-fights';
+  const isTileSource = source.includes('dont-miss') || source.includes('tile') || source.includes('upcoming') || source.includes('rail') || source === 'home-biggest-fights';
   const isBannerSource = source.includes('banner');
 
   // Tile flows open their purchase dialog before the sheet validations run.
@@ -4267,7 +4267,7 @@ export async function getActualValue(
             const ct = (await child.textContent().catch(() => ''))?.trim() || '';
             if (ct.length < 3 || ct.length > 50) continue;
 
-            const hasMonth = /\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|January|February|March|April|May|June|July|August|September|October|November|December)\b/i.test(ct);
+            const hasMonth = /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/i.test(ct);
             const hasDay = /\b\d{1,2}(st|nd|rd|th)?\b/.test(ct);
             const hasTime = /\b\d{1,2}:\d{2}\b/.test(ct);
             const hasDayOfWeek = /\b(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Mon|Tue|Wed|Thu|Fri|Sat|Sun)\b/i.test(ct);
@@ -4279,12 +4279,11 @@ export async function getActualValue(
             }
           }
           const containerText = await container.textContent().catch(() => '');
-          const dateRegex = /(?:today|tomorrow|yesterday|tonight|this\s+(?:morning|afternoon|evening|night))\s+at\s+\d{1,2}:\d{2}(?:\s*[ap]m)?|\b(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*\s+at\s+\d{2}:\d{2}|\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/i;
+          const dateRegex = /(?:today|tomorrow|yesterday|tonight|this\s+(?:morning|afternoon|evening|night))\s+at\s+\d{1,2}:\d{2}(?:\s*[ap]m)?|\b(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*\s+at\s+\d{2}:\d{2}|\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b|\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2}\b/i;
           const match = (containerText || '').match(dateRegex);
           if (match) return match[0].trim();
         }
       }
-      if (field === 'landing page ppv date' && isLandingOrHome) return 'N/A';
 
       const ppvDate = (eventData?.PPV_DATE || '').trim();
       const ppvName = (eventData?.PPV_NAME || '').toLowerCase();

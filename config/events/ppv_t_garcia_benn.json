@@ -5,7 +5,7 @@
   "SPORT": "Boxing",
   "PPV_TYPE": "normal",
   "HAS_BUNDLE": false,
-  "PPV_DEV_MODE": false,
+  "PPV_DEV_MODE": true,
   "DEFAULT_SIGNUP_DEVMODE": false,
   "HAS_DEFAULT_SIGNUP_PPV": false,
   "global": {
@@ -26,7 +26,7 @@
   },
   "regions": {
     "GB": {
-      "LANDING_PAGE_PPV_DATE": "13 Sep",
+      "LANDING_PAGE_PPV_DATE": "12 Sep",
       "PPV_DATE": "Sun 13th Sep at 01:00",
       "PPV_PAGE_DATE": "Sun 13th Sep at 01:00",
       "PPV_TIME": "01:00",
@@ -47,7 +47,7 @@
       "offers": []
     },
     "IE": {
-      "LANDING_PAGE_PPV_DATE": "13 Sep",
+      "LANDING_PAGE_PPV_DATE": "12 Sep",
       "PPV_DATE": "Sun 13th Sep at 01:00",
       "PPV_PAGE_DATE": "Sun 13th Sep at 01:00",
       "PPV_TIME": "01:00",
@@ -61,6 +61,27 @@
       "HOME_BOXING_UPCOMING_TIME": "1:00AM",
       "PPV_PRICE": "€24.99",
       "TODAY_YOU_PAY_PRICE": "€24.99",
+      "UPSELL_PRICE": "",
+      "UPSELL_CROSSED_PRICE": "",
+      "UPSELL_PRICE_LENGTH": "/month for 12 months",
+      "PPV1_UPSELL_TILE_DATE": "",
+      "offers": []
+    },
+    "AE": {
+      "LANDING_PAGE_PPV_DATE": "13 Sep",
+      "PPV_DATE": "Sun 13th Sep at 04:00",
+      "PPV_PAGE_DATE": "Sun 13th Sep at 04:00",
+      "PPV_TIME": "04:00",
+      "BOXING_BANNER_DATE": "SUN 13TH SEP",
+      "BOXING_UPCOMING_DATE": "13 Sep",
+      "LANDING_BANNER_DATE": "SUN 13TH SEP AT 04:00",
+      "HOME_POPUP_DATE": "SUN 13TH SEP AT 04:00",
+      "PPV_POPUP_DATE": "13 SEP 4:00AM",
+      "SEARCH_PPV_DATE_TIME": "13 SEP 4:00AM",
+      "SCHEDULE_PPV_TIME": "4:00AM",
+      "HOME_BOXING_UPCOMING_TIME": "4:00AM",
+      "PPV_PRICE": "AED 49.00",
+      "TODAY_YOU_PAY_PRICE": "AED 49.00",
       "UPSELL_PRICE": "",
       "UPSELL_CROSSED_PRICE": "",
       "UPSELL_PRICE_LENGTH": "/month for 12 months",

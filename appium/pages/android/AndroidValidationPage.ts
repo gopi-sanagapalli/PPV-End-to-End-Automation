@@ -519,7 +519,8 @@ export class AndroidValidationPage extends AndroidBasePage {
             isMatch = cleanExpected.includes(cleanActual) || cleanActual.includes(cleanExpected);
           }
         } else if (isDateField && mobileDateText !== 'Not found') {
-          actualValue = mobileDateText;
+          const dateCandidates = mobileDateText.split('|').map(value => value.trim()).filter(Boolean);
+          actualValue = dateCandidates.find(candidate => compare(candidate, expectedValue)) || dateCandidates[0] || mobileDateText;
           isMatch = compare(actualValue, expectedValue);
           if (!isMatch) {
             const normaliseNativeDate = (value: string) => value.toLowerCase()

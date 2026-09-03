@@ -149,7 +149,9 @@ export class DynamicPpvTileLocator {
     };
 
     // 4.5. Check if target tile text is ALREADY visible on screen under rail
-    const directVisibleTap = await this.findVisibleTileBoundsUnderRail(railHeaderRect.y, targetPpvTitle, entitlementId, width, height);
+    const directVisibleTap = pageName.toLowerCase() === 'home' && forcedRailTitle
+      ? null
+      : await this.findVisibleTileBoundsUnderRail(railHeaderRect.y, targetPpvTitle, entitlementId, width, height);
     if (directVisibleTap) {
       console.log(`🎯 Found target PPV title text under tile directly on screen at x=${directVisibleTap.x}, y=${directVisibleTap.y}`);
       await validateTileSurface();
