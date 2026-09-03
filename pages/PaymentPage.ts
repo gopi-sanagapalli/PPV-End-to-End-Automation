@@ -264,7 +264,7 @@ export class PaymentPage extends BasePage {
       const idx = nextAnnualIdx >= 0 ? nextAnnualIdx : nextIdx;
       if (idx >= 0) {
         const afterText = bodyText.substring(idx, idx + 100);
-        const priceMatch = afterText.match(/(?:[A-Z]{2,3}\s?|[\$£€₹]\s?)\d+(?:\.\d{2})?/);
+        const priceMatch = afterText.match(/(?:(?:[A-Z]{2,3}\s?|[\$£€₹]\s?)\d+(?:\.\d{2})?|\d(?:\d|[^\S\r\n])*(?:,\d{2})?[^\S\r\n]*kr)/);
         if (priceMatch) {
           actualPrice = priceMatch[0].trim();
         }
@@ -1720,7 +1720,7 @@ export class PaymentPage extends BasePage {
     // ── Rate Plan Price ────────────────────────────────────────
     if (fieldLower === 'rate plan price') {
       // Include multi-letter currencies (SAR, AED, R$, etc.) and single-char symbols
-      const priceWithPeriod = bodyText.match(/(?:[A-Z]{2,3}\s?|[\$£€₹]\s?)\d+(?:\.\d{2})?\s*\/\s*(?:month|year)/i);
+      const priceWithPeriod = bodyText.match(/(?:(?:[A-Z]{2,3}\s?|[\$£€₹]\s?)\d+(?:\.\d{2})?|\d(?:\d|[^\S\r\n])*(?:,\d{2})?[^\S\r\n]*kr)\s*\/\s*(?:month|year)/i);
       if (priceWithPeriod) return priceWithPeriod[0].trim();
       return 'N/A';
     }

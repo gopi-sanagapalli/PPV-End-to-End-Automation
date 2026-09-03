@@ -1125,6 +1125,7 @@ async function generateAndroidAvailabilityFailureReport(errorMessage: string): P
           AE: { locale: 'en-AE', timezoneId: 'Asia/Dubai' },
           AU: { locale: 'en-AU', timezoneId: 'Australia/Sydney' },
           BR: { locale: 'pt-BR', timezoneId: 'America/Sao_Paulo' },
+          NO: { locale: 'en-GB', timezoneId: 'Europe/Oslo' },
           DE: { locale: 'de-DE', timezoneId: 'Europe/Berlin' },
           IT: { locale: 'it-IT', timezoneId: 'Europe/Rome' },
           ES: { locale: 'es-ES', timezoneId: 'Europe/Madrid' },

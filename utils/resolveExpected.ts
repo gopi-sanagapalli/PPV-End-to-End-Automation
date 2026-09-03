@@ -207,8 +207,11 @@ export function resolveExpected(
         : baseExpected;
     }
     if (field === 'upsell feature 4') {
-      if (eventData.UPSELL_FEATURE_4) return eventData.UPSELL_FEATURE_4;
       const region = (eventData.DAZN_REGION || process.env.DAZN_REGION || '').toUpperCase();
+      if (region === 'NO') {
+        return 'Highlights from LALIGA, Bundesliga and Saudi Pro League.';
+      }
+      if (eventData.UPSELL_FEATURE_4) return eventData.UPSELL_FEATURE_4;
       if (region === 'US') {
         return 'Exclusive UFEA Champions League and Serie A in Spanish language, plus highlights from LALIGA, Bundesliga and Saudi Pro League.';
       }
@@ -976,7 +979,7 @@ export function resolveExpected(
     }
   }
   if (currencySymbol.toLowerCase() === 'kr') {
-    template = template.replace(/\bkr(\d+(?:[.,]\d+)?)/gi, '$1 kr');
+    template = template.replace(/\bkr(\d[\d\s]*(?:,\d{1,2})?)/gi, '$1 kr');
   }
 
   // Date-only fields — use getDynamicDateBadge (generates candidates with and without time)

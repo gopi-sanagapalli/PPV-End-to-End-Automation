@@ -736,6 +736,7 @@ for (const stateKey of userStatesToRun) {
       AU: { locale: 'en-AU', timezoneId: 'Australia/Sydney' },
       BR: { locale: 'pt-BR', timezoneId: 'America/Sao_Paulo' },
       CA: { locale: 'en-CA', timezoneId: 'America/Toronto' },
+      NO: { locale: 'en-GB', timezoneId: 'Europe/Oslo' },
     };
     const { locale: regionLocale, timezoneId: regionTimezone } =
       regionLocaleMap[REGION] ?? { locale: 'en-GB', timezoneId: 'Europe/London' };

@@ -301,7 +301,8 @@ export function buildEventData(
     if (!val) return '';
     const curr = base.CURRENCY || '';
     if (curr.toLowerCase() === 'kr') {
-      return val.toLowerCase().endsWith(curr.toLowerCase()) ? val : `${val} ${curr}`;
+      const amount = val.replace(/\s*kr$/i, '').trim();
+      return `${formatPriceAmount(Number.NaN, amount)} ${curr}`;
     }
     return val.startsWith(curr) ? val : `${curr}${val}`;
   };
@@ -313,9 +314,16 @@ export function buildEventData(
     const amount = raw.replace(/\bkr\b/gi, '').replace(/\s+/g, '').replace(/[^0-9,.-]/g, '');
     return parseFloat(/,\d{2}$/.test(amount) ? amount.replace(',', '.') : amount.replace(/,/g, ''));
   };
-  const formatPriceAmount = (amount: number) => {
+  const formatPriceAmount = (amount: number, rawAmount?: string) => {
+    if (base.CURRENCY?.toLowerCase() === 'kr') {
+      const raw = String(rawAmount ?? amount).trim();
+      const nok = raw.match(/^(\d[\d\s]*)(?:,(\d{1,2}))?$/);
+      if (!nok) return raw;
+      const whole = nok[1].replace(/\s+/g, '').replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+      return nok[2] ? `${whole},${nok[2].padEnd(2, '0')}` : whole;
+    }
     const formatted = amount % 1 === 0 ? amount.toFixed(0) : amount.toFixed(2);
-    return base.CURRENCY?.toLowerCase() === 'kr' ? formatted.replace('.', ',') : formatted;
+    return formatted;
   };
   const formatSavingsBadge = (amount: string) =>
     base.CURRENCY?.toLowerCase() === 'kr'
@@ -732,7 +740,7 @@ export function buildEventData(
     const upfront = parsePriceAmount(base.ANNUAL_UPFRONT_PRICE);
     if (!isNaN(monthly) && !isNaN(upfront)) {
       const saved = Math.round((monthly * 12 - upfront) * 100) / 100;
-      base.UPFRONT_SAVE_AMOUNT = saved % 1 === 0 ? saved.toFixed(0) : saved.toFixed(2);
+      base.UPFRONT_SAVE_AMOUNT = formatPriceAmount(saved);
     }
   }
 
@@ -740,7 +748,7 @@ export function buildEventData(
     const annualPriceNum = parsePriceAmount(base.ANNUAL_PRICE);
     if (!isNaN(annualPriceNum)) {
       const total = annualPriceNum * 11;
-      base.ANNUAL_TOTAL = total % 1 === 0 ? total.toFixed(0) : total.toFixed(2);
+      base.ANNUAL_TOTAL = formatPriceAmount(total);
     }
   }
 

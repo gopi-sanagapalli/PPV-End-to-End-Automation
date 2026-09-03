@@ -151,6 +151,7 @@ const regionTimezoneMap: Record<string, string> = {
   UAE: 'Asia/Dubai',
   AU: 'Australia/Sydney',
   BR: 'America/Sao_Paulo',
+  NO: 'Europe/Oslo',
   DE: 'Europe/Berlin',
   IT: 'Europe/Rome',
   ES: 'Europe/Madrid',
