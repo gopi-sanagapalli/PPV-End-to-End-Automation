@@ -162,7 +162,12 @@ export class PaymentPage extends BasePage {
         if (rowFlow !== normalizedFlow) continue;
       }
 
-      const expected = resolveExpected(row, eventData);
+      const resolvedExpected = resolveExpected(row, eventData);
+      const expected = fieldLower === 'dazn tier' &&
+        resolvedExpected === 'DAZN Standard' &&
+        eventData.DAZN_TIER === 'DAZN'
+        ? eventData.DAZN_TIER
+        : resolvedExpected;
 
       // Skip validation if expected is 'N/A' or empty
       const expectedNorm = (expected || '').trim().toUpperCase();
@@ -1038,12 +1043,15 @@ export class PaymentPage extends BasePage {
             .replace(/\bv(?:s)?\.?\b/g, ' vs ')
             .replace(/[^a-z0-9]+/g, ' ')
             .trim();
-        const normalizedName = normalize(name);
+        const nameWords = normalize(name).split(' ').filter(word => word.length > 2);
         const pricePattern = /(?:(?<![A-Z])[A-Z]{2,3}\s?|[£$€₹]\s?)\d+(?:\.\d{2})?/;
         const candidates = Array.from(document.querySelectorAll<HTMLElement>('h1, h2, h3, h4, p, span, div'))
           .filter(element =>
             element.children.length === 0 &&
-            normalize(element.innerText || element.textContent) === normalizedName
+            element.getBoundingClientRect().width > 0 &&
+            element.getBoundingClientRect().height > 0 &&
+            nameWords.length > 0 &&
+            nameWords.every(word => normalize(element.innerText || element.textContent).includes(word))
           );
 
         for (const title of candidates) {
@@ -1075,50 +1083,6 @@ export class PaymentPage extends BasePage {
       }, ppvName).catch(() => '');
       if (summaryPrice) return summaryPrice;
 
-      let ppvIndex = -1;
-
-      // Try to find matchup part in the text
-      const parts = ppvName.toLowerCase().split(/[:\-–]/).map(p => p.trim());
-      for (const part of parts) {
-        const idx = lower.indexOf(part);
-        if (idx >= 0) {
-          ppvIndex = idx;
-          break;
-        }
-      }
-      if (ppvIndex === -1) {
-        const words = ppvName.toLowerCase().split(/\s+/).filter(w => w.length > 3);
-        for (const word of words) {
-          const idx = lower.indexOf(word);
-          if (idx >= 0) {
-            ppvIndex = idx;
-            break;
-          }
-        }
-      }
-
-      if (ppvIndex >= 0) {
-        const nearText = bodyText.substring(ppvIndex, ppvIndex + 300);
-        const expectedPrice = eventData.PPV_PRICE || '';
-        if (expectedPrice && nearText.includes(expectedPrice)) {
-          return expectedPrice;
-        }
-        const priceMatch = nearText.match(/[£$€₹]\s?\d+(?:\.\d{2})?/);
-        if (priceMatch) return priceMatch[0].trim();
-      }
-
-      const expectedPrice = eventData.PPV_PRICE || '';
-      if (expectedPrice && lower.includes(expectedPrice.toLowerCase())) {
-        return expectedPrice;
-      }
-
-      const allPrices = bodyText.match(/(?:(?<![A-Z])[A-Z]{2,3}\s?|[\$£€₹]\s?)\d+(?:\.\d{2})?/g) || [];
-      if (allPrices.length > 0) {
-        const sorted = allPrices
-          .map(p => ({ raw: p, val: parseFloat(p.replace(/[^\d.]/g, '')) }))
-          .sort((a, b) => b.val - a.val);
-        return sorted[0].raw.trim();
-      }
       return 'N/A';
     }
 

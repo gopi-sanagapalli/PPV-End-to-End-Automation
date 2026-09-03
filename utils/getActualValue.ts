@@ -646,7 +646,7 @@ export async function getActualValue(
   // codes (for example AED and SAR). Keep this shared predicate generic so a
   // new ISO-code market does not silently resolve every price as N/A.
   const isPriceText = (t: string) =>
-    /^(?:[A-Z]{3}\s*|[£$€₹]\s?)[\d,]+(?:\.\d{2})?$/i.test(t);
+    /^(?:(?:[A-Z]{3}\s*|[£$€₹]\s?)[\d,]+(?:\.\d{2})?|[\d\s]+(?:[.,]\d{2,3})?\s*kr)$/i.test(t);
 
   const isDateText = (t: string) =>
     (/\b(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\b/i.test(t) &&
