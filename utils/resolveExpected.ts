@@ -979,6 +979,7 @@ export function resolveExpected(
     }
   }
   if (currencySymbol.toLowerCase() === 'kr') {
+    template = template.replace(/\bkr((?:\d(?:\d|[^\S\r\n])*\d|\d)(?:,\d{1,2})?)[^\S\r\n]*kr\b/gi, '$1 kr');
     template = template.replace(/\bkr(\d[\d\s]*(?:,\d{1,2})?)/gi, '$1 kr');
   }
 
