@@ -87,6 +87,27 @@
       "UPSELL_PRICE_LENGTH": "/month for 12 months",
       "PPV1_UPSELL_TILE_DATE": "",
       "offers": []
+    },
+    "NO": {
+      "LANDING_PAGE_PPV_DATE": "13 Sep",
+      "PPV_DATE": "Sun 13th Sep at 02:00",
+      "PPV_PAGE_DATE": "Sun 13th Sep at 02:00",
+      "PPV_TIME": "02:00",
+      "BOXING_BANNER_DATE": "SUN 13TH SEP",
+      "BOXING_UPCOMING_DATE": "13 Sep",
+      "LANDING_BANNER_DATE": "SUN 13TH SEP AT 02:00",
+      "HOME_POPUP_DATE": "SUN 13TH SEP AT 02:00",
+      "PPV_POPUP_DATE": "13 SEP 2:00AM",
+      "SEARCH_PPV_DATE_TIME": "13 SEP 2:00AM",
+      "SCHEDULE_PPV_TIME": "2:00AM",
+      "HOME_BOXING_UPCOMING_TIME": "2:00AM",
+      "PPV_PRICE": "129,99 kr",
+      "TODAY_YOU_PAY_PRICE": "129,99 kr",
+      "UPSELL_PRICE": "",
+      "UPSELL_CROSSED_PRICE": "",
+      "UPSELL_PRICE_LENGTH": "/month for 12 months",
+      "PPV1_UPSELL_TILE_DATE": "",
+      "offers": []
     }
   },
   "variants": {

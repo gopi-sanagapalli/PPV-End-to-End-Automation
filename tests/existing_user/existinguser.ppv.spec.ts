@@ -643,7 +643,7 @@ for (const stateKey of userStatesToRun) {
       } else {
         eventData.PLAN_CTA_BUTTON = eventData.PLAN_CTA_BUTTON_STANDARD || `Continue with ${eventData.FREE_TRIAL_DAYS || '7'}-day Free Trial`;
       }
-      eventData.DAZN_TIER = 'DAZN Standard';
+      eventData.DAZN_TIER = eventData.DAZN_TIER || 'DAZN Standard';
     }
 
     if (activeOfferPresent && ratePlan === 'monthly') {

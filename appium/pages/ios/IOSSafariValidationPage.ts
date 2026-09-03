@@ -458,10 +458,10 @@ export class IOSSafariValidationPage extends IOSBasePage {
     }
 
     if (fieldLower === 'currency') {
-      const currencyAmount = fullText.match(/(?:\b(?:AED|SAR)\s*|R\$\s*|[£$€₹]\s?)\d+(?:[.,]\d{2})?/)?.[0] || '';
+      const currencyAmount = fullText.match(/(?:(?:\b(?:AED|SAR)\s*|R\$\s*|[£$€₹]\s?)\d+(?:[.,]\d{2})?|\d[\d\s]*(?:[.,]\d{2,3})?\s*kr)/)?.[0] || '';
       const currencyCode = currencyAmount.match(/^[A-Z]{3}\b/i)?.[0];
       const currencySymbol = currencyAmount.match(/^[£$€₹]/)?.[0];
-      const actual = currencyCode || currencySymbol || 'Not found';
+      const actual = currencyCode || currencySymbol || (/\bkr$/i.test(currencyAmount) ? 'kr' : 'Not found');
       return {
         actual,
         isMatch: actual !== 'Not found' && actual.toLowerCase() === expected.trim().toLowerCase(),
@@ -520,7 +520,7 @@ export class IOSSafariValidationPage extends IOSBasePage {
 
     if (fieldLower === 'rate plan price') {
       if (isUpgradeConfirmation) {
-        const price = confirmationPlanBlock.match(/(?:[A-Z]{3}\s*|[£$€₹]\s?)\d+(?:[.,]\d{2})?/)?.[0]?.trim();
+        const price = confirmationPlanBlock.match(/(?:(?:[A-Z]{3}\s*|[£$€₹]\s?)\d+(?:[.,]\d{2})?|\d[\d\s]*(?:[.,]\d{2,3})?\s*kr)/)?.[0]?.trim();
         const actual = price || 'Not found';
         return { actual, isMatch: actual !== 'Not found' && compareFn(actual, expected) };
       }
@@ -532,7 +532,7 @@ export class IOSSafariValidationPage extends IOSBasePage {
         ? /annual\s*[-–]?\s*pay\s*upfront/i
         : /annual\s*[-–]?\s*pay\s*monthly/i;
       const planIndex = texts.findIndex(text => planRegex.test(text));
-      const pricePattern = /(?:[A-Z]{3}\s*|[£$€₹]\s?)\d+(?:[.,]\d{2})?/;
+      const pricePattern = /(?:(?:[A-Z]{3}\s*|[£$€₹]\s?)\d+(?:[.,]\d{2})?|\d[\d\s]*(?:[.,]\d{2,3})?\s*kr)/;
       const planLines = planIndex >= 0 ? texts.slice(planIndex + 1, planIndex + 5) : [];
       const priceIndex = planLines.findIndex(text => pricePattern.test(text));
       const priceLine = priceIndex >= 0 ? planLines[priceIndex] : undefined;
@@ -583,7 +583,7 @@ export class IOSSafariValidationPage extends IOSBasePage {
       // currency search can incorrectly take the £0 trial or the £15.99 APM
       // renewal price instead of the £24.99 PPV charge shown beside Moses and
       // "Today you pay".
-      const currencyPattern = /(?:\b[A-Z]{3}\s*|[£$€₹]\s?)\d+(?:[.,]\d{2})?/g;
+      const currencyPattern = /(?:(?:\b[A-Z]{3}\s*|[£$€₹]\s?)\d+(?:[.,]\d{2})?|\d[\d\s]*(?:[.,]\d{2,3})?\s*kr)/g;
       const findPriceAfter = (startIndex: number): string => {
         for (let index = startIndex + 1; index < Math.min(texts.length, startIndex + 5); index++) {
           const price = texts[index].match(currencyPattern)?.[0];
@@ -597,9 +597,9 @@ export class IOSSafariValidationPage extends IOSBasePage {
         if (actual) return { actual, isMatch: compareFn(actual, expected) };
       } else {
         // For Ultimate APM, PPV is included → price shown is £0 or 0
-        const expectedClean = expected.replace(/[£$€₹,\s]/g, '');
+        const expectedClean = expected.replace(/[£$€₹,\s]|\bkr\b/gi, '');
         if (expectedClean === '0') {
-          const zeroPrice = texts.find(t => /^[£$€₹]?0(?:\.00)?$/.test(t.trim()));
+          const zeroPrice = texts.find(t => /^(?:[£$€₹]?0(?:\.00)?|0\s*kr)$/.test(t.trim()));
           if (zeroPrice) return { actual: zeroPrice.trim(), isMatch: true };
           const zeroInText = fullText.match(/[£$€₹]0(?:\.00)?/)?.[0];
           if (zeroInText) return { actual: zeroInText.trim(), isMatch: true };
@@ -1626,7 +1626,7 @@ export class IOSSafariValidationPage extends IOSBasePage {
           actual = lines.find(line => ppvWords.length > 0 && ppvWords.every(word => line.toLowerCase().includes(word))) || 'N/A';
 
         } else if (key === 'order summary ppv price') {
-          actual = lines.find(line => /(?:AED\s?|[£$€])\s*\d+(?:[.,]\d{2})?/i.test(line)) || 'N/A';
+          actual = lines.find(line => /(?:(?:AED\s?|[£$€])\s*\d+(?:[.,]\d{2})?|\d[\d\s]*(?:[.,]\d{2,3})?\s*kr)/i.test(line)) || 'N/A';
 
         } else if (key === 'today you pay text') {
           actual = bodyLower.includes('today you pay') ? 'Today you pay' : 'N/A';
@@ -1635,9 +1635,10 @@ export class IOSSafariValidationPage extends IOSBasePage {
           actual = bodyLower.includes('one time payment') ? 'One time payment' : 'N/A';
 
         } else if (key === 'ppv price' || key === 'event price' || key === 'today you pay price') {
-          const todayMatch = fullText.match(/today you pay[^£$€AED\d]*(?:AED\s?|[£$€])\d+\.\d{2}/i);
-          const priceMatch = fullText.match(/(?:AED\s?|[£$€])\d+(?:[.,]\d{2})?/);
-          actual = (todayMatch ? todayMatch[0].match(/(?:AED\s?|[£$€])\d+\.\d{2}/)?.[0] : null)
+          const pricePattern = /(?:(?:AED\s?|[£$€])\s*\d+(?:[.,]\d{2})?|\d[\d\s]*(?:[.,]\d{2,3})?\s*kr)/i;
+          const todayMatch = fullText.match(new RegExp(`today you pay[^£$€AED\\d]*${pricePattern.source}`, 'i'));
+          const priceMatch = fullText.match(pricePattern);
+          actual = (todayMatch ? todayMatch[0].match(pricePattern)?.[0] : null)
             ?? priceMatch?.[0] ?? 'N/A';
 
         } else if (key === 'payment method present') {

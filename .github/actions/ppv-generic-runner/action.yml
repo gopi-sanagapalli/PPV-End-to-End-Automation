@@ -51,19 +51,22 @@ runs:
         reports_root="${PPV_REPORTS_ROOT:-/tmp/ppv-reports}"
         report_dir="${reports_root}/${GITHUB_RUN_ID}/${report_name}"
         mkdir -p "$report_dir"
+        echo "REPORT_NAME=$report_name" >> "$GITHUB_ENV"
+        echo "report_name=$report_name" >> "$GITHUB_OUTPUT"
         found=false
         for source_dir in test-results playwright-report reports; do
           if [ -e "$source_dir" ]; then
-            cp -R "$source_dir" "$report_dir/"
-            found=true
+            if cp -R "$source_dir" "$report_dir/"; then
+              found=true
+            else
+              echo "::warning::Could not fully copy $source_dir for $report_name; uploading the available report files."
+            fi
           fi
         done
         if [ "$found" = false ]; then
           echo "No Playwright report folders found for $report_name"
         fi
         echo "Stored Playwright reports locally at $report_dir"
-        echo "REPORT_NAME=$report_name" >> "$GITHUB_ENV"
-        echo "report_name=$report_name" >> "$GITHUB_OUTPUT"
     - name: Remove trace blobs before artifact upload
       if: ${{ always() }}
       shell: bash

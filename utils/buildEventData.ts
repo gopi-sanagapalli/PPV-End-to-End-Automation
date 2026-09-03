@@ -300,8 +300,27 @@ export function buildEventData(
   const getPriceWithCurrency = (val: string) => {
     if (!val) return '';
     const curr = base.CURRENCY || '';
+    if (curr.toLowerCase() === 'kr') {
+      return val.toLowerCase().endsWith(curr.toLowerCase()) ? val : `${val} ${curr}`;
+    }
     return val.startsWith(curr) ? val : `${curr}${val}`;
   };
+  const parsePriceAmount = (val: string) => {
+    const raw = String(val || '');
+    if (base.CURRENCY?.toLowerCase() !== 'kr') {
+      return parseFloat(raw.replace(/[^0-9.]/g, ''));
+    }
+    const amount = raw.replace(/\bkr\b/gi, '').replace(/\s+/g, '').replace(/[^0-9,.-]/g, '');
+    return parseFloat(/,\d{2}$/.test(amount) ? amount.replace(',', '.') : amount.replace(/,/g, ''));
+  };
+  const formatPriceAmount = (amount: number) => {
+    const formatted = amount % 1 === 0 ? amount.toFixed(0) : amount.toFixed(2);
+    return base.CURRENCY?.toLowerCase() === 'kr' ? formatted.replace('.', ',') : formatted;
+  };
+  const formatSavingsBadge = (amount: string) =>
+    base.CURRENCY?.toLowerCase() === 'kr'
+      ? `SAVE ${amount} ${base.CURRENCY.toUpperCase()} A YEAR`
+      : `SAVE ${getPriceWithCurrency(amount)} A YEAR`;
 
   // Default TODAY_YOU_PAY_PRICE for ultimate tier (as PPV is included in Ultimate)
   if (base.TIER === 'ultimate') {
@@ -460,7 +479,7 @@ export function buildEventData(
       const annualPriceNum = parseFloat(base.ANNUAL_PRICE || '');
       if (!isNaN(flexOfferPriceNum) && !isNaN(flexOrigPriceNum) && !isNaN(annualPriceNum)) {
         const savingsVal = flexOfferPriceNum + (flexOrigPriceNum * 11) - (annualPriceNum * 11);
-        base.ANNUAL_SAVINGS_BADGE = `SAVE ${base.CURRENCY}${savingsVal.toFixed(2).replace('.00', '')} A YEAR`;
+        base.ANNUAL_SAVINGS_BADGE = formatSavingsBadge(savingsVal.toFixed(2).replace('.00', ''));
       }
     } else if (activeOfferType === 'ultimate_offer') {
       base.ANNUAL_PAY_MONTHLY_PRICE = offerPrice;
@@ -709,8 +728,8 @@ export function buildEventData(
     base.ANNUAL_PAY_MONTHLY_PRICE &&
     base.ANNUAL_UPFRONT_PRICE
   ) {
-    const monthly = parseFloat(base.ANNUAL_PAY_MONTHLY_PRICE.replace(/[^0-9.]/g, ''));
-    const upfront = parseFloat(base.ANNUAL_UPFRONT_PRICE.replace(/[^0-9.]/g, ''));
+    const monthly = parsePriceAmount(base.ANNUAL_PAY_MONTHLY_PRICE);
+    const upfront = parsePriceAmount(base.ANNUAL_UPFRONT_PRICE);
     if (!isNaN(monthly) && !isNaN(upfront)) {
       const saved = Math.round((monthly * 12 - upfront) * 100) / 100;
       base.UPFRONT_SAVE_AMOUNT = saved % 1 === 0 ? saved.toFixed(0) : saved.toFixed(2);
@@ -718,7 +737,7 @@ export function buildEventData(
   }
 
   if (!base.ANNUAL_TOTAL && base.ANNUAL_PRICE) {
-    const annualPriceNum = parseFloat(base.ANNUAL_PRICE.replace(/[^0-9.]/g, ''));
+    const annualPriceNum = parsePriceAmount(base.ANNUAL_PRICE);
     if (!isNaN(annualPriceNum)) {
       const total = annualPriceNum * 11;
       base.ANNUAL_TOTAL = total % 1 === 0 ? total.toFixed(0) : total.toFixed(2);
@@ -766,14 +785,14 @@ export function buildEventData(
     // - With free month: (MONTHLY_PRICE * 12) - (ANNUAL_PRICE * 11)
     // - Without free month: (MONTHLY_PRICE - ANNUAL_PRICE) * 12
     // Recalculate for ALL plans since the DAZN Plan page shows both flex and annual options
-    const monthlyNum = parseFloat((base.MONTHLY_PRICE || '').replace(/[^0-9.]/g, ''));
-    const annualNum = parseFloat((base.ANNUAL_PRICE || '').replace(/[^0-9.]/g, ''));
+    const monthlyNum = parsePriceAmount(base.MONTHLY_PRICE);
+    const annualNum = parsePriceAmount(base.ANNUAL_PRICE);
     if (!isNaN(monthlyNum) && !isNaN(annualNum) && monthlyNum > annualNum) {
       const savings = isAnnualFreeMonth
         ? Math.round(((monthlyNum * 12) - (annualNum * 11)) * 100) / 100
         : Math.round((monthlyNum - annualNum) * 12 * 100) / 100;
-      const savingsStr = savings % 1 === 0 ? savings.toFixed(0) : savings.toFixed(2);
-      base.ANNUAL_SAVINGS_BADGE = `SAVE ${base.CURRENCY}${savingsStr} A YEAR`;
+      const savingsStr = formatPriceAmount(savings);
+      base.ANNUAL_SAVINGS_BADGE = formatSavingsBadge(savingsStr);
       console.log(`💡 Recalculated ANNUAL_SAVINGS_BADGE (isAnnualFreeMonth: ${isAnnualFreeMonth}): ${base.ANNUAL_SAVINGS_BADGE}`);
     }
 
@@ -782,12 +801,12 @@ export function buildEventData(
     // - Standard: PPV + plan price (no free month discount)
     const isAnnualPlan = base.RATE_PLAN && base.RATE_PLAN.toLowerCase().includes('annual');
     if (isAnnualPlan && base.TIER !== 'ultimate') {
-      const ppvPriceNum = parseFloat((base.PPV_PRICE || '').replace(/[^0-9.]/g, ''));
-      const planPriceNum = parseFloat((base.ANNUAL_PRICE || base.ANNUAL_PAY_MONTHLY_PRICE || '').replace(/[^0-9.]/g, ''));
+      const ppvPriceNum = parsePriceAmount(base.PPV_PRICE);
+      const planPriceNum = parsePriceAmount(base.ANNUAL_PRICE || base.ANNUAL_PAY_MONTHLY_PRICE);
       if (!isNaN(ppvPriceNum) && !isNaN(planPriceNum)) {
         const totalPay = Math.round((ppvPriceNum + planPriceNum) * 100) / 100;
-        const totalPayStr = totalPay % 1 === 0 ? totalPay.toFixed(0) : totalPay.toFixed(2);
-        base.TODAY_YOU_PAY_PRICE = `${base.CURRENCY}${totalPayStr}`;
+        const totalPayStr = formatPriceAmount(totalPay);
+        base.TODAY_YOU_PAY_PRICE = getPriceWithCurrency(totalPayStr);
         console.log(`💡 Recalculated TODAY_YOU_PAY_PRICE for standard annual: ${base.TODAY_YOU_PAY_PRICE}`);
       }
     }
@@ -811,9 +830,7 @@ export function buildEventData(
   if (!base.LAST_NAME) base.LAST_NAME = 'UAT';
 
   if (!base.NEXT_PAYMENT_PRICE) {
-    base.NEXT_PAYMENT_PRICE = base.CURRENCY
-      ? `${base.CURRENCY}${base.MONTHLY_PRICE}`
-      : base.MONTHLY_PRICE;
+    base.NEXT_PAYMENT_PRICE = getPriceWithCurrency(base.MONTHLY_PRICE);
   }
 
   // Dynamically resolve UPSELL_PRICE and UPSELL_ORIGINAL_PRICE from ultimate_apm plan + event overrides
@@ -870,45 +887,27 @@ export function buildEventData(
     base.TODAY_YOU_PAY_PRICE = base.OFFER_EFFECTIVE_PPV_PRICE;
   }
 
-  if (base.PPV_PRICE && !base.PPV_PRICE.startsWith(base.CURRENCY)) {
-    base.PPV_PRICE_DISPLAY = `${base.CURRENCY}${base.PPV_PRICE}`;
-  } else {
-    base.PPV_PRICE_DISPLAY = base.PPV_PRICE;
-  }
+  base.PPV_PRICE_DISPLAY = getPriceWithCurrency(base.PPV_PRICE);
 
-  if (base.UPSELL_PRICE && !base.UPSELL_PRICE.startsWith(base.CURRENCY)) {
-    base.UPSELL_PRICE_DISPLAY = `${base.CURRENCY}${base.UPSELL_PRICE}`;
-  } else {
-    base.UPSELL_PRICE_DISPLAY = base.UPSELL_PRICE;
-  }
+  base.UPSELL_PRICE_DISPLAY = getPriceWithCurrency(base.UPSELL_PRICE);
 
-  base.UPSELL_SUB_TEXT = `Then ${base.CURRENCY}${base.ANNUAL_PRICE} /month for ${base.ANNUAL_MONTHS} months.`;
-  base.TRIAL_MONTHLY_TEXT = `${base.CURRENCY}${base.MONTHLY_PRICE}`;
+  base.UPSELL_SUB_TEXT = `Then ${getPriceWithCurrency(base.ANNUAL_PRICE)} /month for ${base.ANNUAL_MONTHS} months.`;
+  base.TRIAL_MONTHLY_TEXT = getPriceWithCurrency(base.MONTHLY_PRICE);
 
   if (base.ANNUAL_PAY_MONTHLY_PRICE) {
-    if (!base.ANNUAL_PAY_MONTHLY_PRICE.startsWith(base.CURRENCY)) {
-      base.ANNUAL_PAY_MONTHLY_PRICE_DISPLAY = `${base.CURRENCY}${base.ANNUAL_PAY_MONTHLY_PRICE}`;
-    } else {
-      base.ANNUAL_PAY_MONTHLY_PRICE_DISPLAY = base.ANNUAL_PAY_MONTHLY_PRICE;
-    }
+    base.ANNUAL_PAY_MONTHLY_PRICE_DISPLAY = getPriceWithCurrency(base.ANNUAL_PAY_MONTHLY_PRICE);
   }
 
   if (base.ANNUAL_UPFRONT_PRICE) {
-    if (!base.ANNUAL_UPFRONT_PRICE.startsWith(base.CURRENCY)) {
-      base.ANNUAL_UPFRONT_PRICE_DISPLAY = `${base.CURRENCY}${base.ANNUAL_UPFRONT_PRICE}`;
-    } else {
-      base.ANNUAL_UPFRONT_PRICE_DISPLAY = base.ANNUAL_UPFRONT_PRICE;
-    }
+    base.ANNUAL_UPFRONT_PRICE_DISPLAY = getPriceWithCurrency(base.ANNUAL_UPFRONT_PRICE);
   }
 
   if (base.UPFRONT_SAVE_AMOUNT) {
     const savedVal = parseFloat(base.UPFRONT_SAVE_AMOUNT);
     if (!isNaN(savedVal) && savedVal <= 0) {
       base.UPFRONT_SAVE_AMOUNT_DISPLAY = 'N/A';
-    } else if (!base.UPFRONT_SAVE_AMOUNT.startsWith(base.CURRENCY)) {
-      base.UPFRONT_SAVE_AMOUNT_DISPLAY = `${base.CURRENCY}${base.UPFRONT_SAVE_AMOUNT}`;
     } else {
-      base.UPFRONT_SAVE_AMOUNT_DISPLAY = base.UPFRONT_SAVE_AMOUNT;
+      base.UPFRONT_SAVE_AMOUNT_DISPLAY = getPriceWithCurrency(base.UPFRONT_SAVE_AMOUNT);
     }
   }
 
@@ -924,7 +923,7 @@ export function buildEventData(
 
   if (base.ANNUAL_TOTAL) {
     if (!base.ANNUAL_TOTAL.startsWith(base.CURRENCY)) {
-      base.ANNUAL_TOTAL_DISPLAY = `${base.CURRENCY}${base.ANNUAL_TOTAL}`;
+      base.ANNUAL_TOTAL_DISPLAY = getPriceWithCurrency(base.ANNUAL_TOTAL);
     } else {
       base.ANNUAL_TOTAL_DISPLAY = base.ANNUAL_TOTAL;
     }
@@ -999,7 +998,8 @@ export function buildEventData(
     for (const key of priceKeysToPrepend) {
       if (base[key] && typeof base[key] === 'string' && base[key] !== 'N/A' && base[key] !== '') {
         const val = base[key].trim();
-        if (!val.startsWith(currencySymbol)) {
+        const isSuffixCurrency = currencySymbol.toLowerCase() === 'kr';
+        if (!(isSuffixCurrency ? val.toLowerCase().endsWith(currencySymbol.toLowerCase()) : val.startsWith(currencySymbol))) {
           // Guard: skip if the value already carries this currency prefix.
           // Needed for multi-letter codes like AED, SAR, R$ where the raw
           // value in DaznPlan.json may already include the symbol (e.g. "SAR 55.99").
@@ -1008,9 +1008,13 @@ export function buildEventData(
           if (valUpper.startsWith(symUpper)) {
             continue;
           }
-          // Single-char symbols (£, $, €) join without space; multi-char (SAR, AED) with space.
-          const sep = currencySymbol.length === 1 ? '' : ' ';
-          base[key] = `${currencySymbol}${sep}${val}`;
+          // Norwegian kr is rendered after the amount; other currencies remain prefixes.
+          if (currencySymbol.toLowerCase() === 'kr') {
+            base[key] = `${val} ${currencySymbol}`;
+          } else {
+            const sep = currencySymbol.length === 1 ? '' : ' ';
+            base[key] = `${currencySymbol}${sep}${val}`;
+          }
         }
       }
     }

@@ -71,7 +71,20 @@ runs:
         if [ -d downloaded-job-artifacts ]; then
           find downloaded-job-artifacts -mindepth 1 -maxdepth 1 -type d | while read -r dl_job_dir; do
             job_name="$(basename "$dl_job_dir")"
-            if [ ! -d "$report_dir/job-artifacts/$job_name" ]; then
+            if [[ "$job_name" == *workflow-summary* ]]; then
+              prior_artifacts="${dl_job_dir}/job-artifacts"
+              if [ -d "$prior_artifacts" ]; then
+                echo "Merging prior-attempt job artifacts from downloaded summary: $dl_job_dir"
+                find "$prior_artifacts" -mindepth 1 -maxdepth 1 -type d | while read -r prior_job_dir; do
+                  prior_job_name="$(basename "$prior_job_dir")"
+                  if [ ! -d "$report_dir/job-artifacts/$prior_job_name" ]; then
+                    cp -R "$prior_job_dir" "$report_dir/job-artifacts/"
+                  fi
+                done
+              else
+                echo "::warning::Downloaded workflow summary has no job-artifacts directory: $dl_job_dir"
+              fi
+            elif [ ! -d "$report_dir/job-artifacts/$job_name" ]; then
               cp -R "$dl_job_dir" "$report_dir/job-artifacts/"
             fi
           done

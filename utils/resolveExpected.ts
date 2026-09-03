@@ -33,6 +33,9 @@ function withCurrency(value: string | undefined, currency: string | undefined): 
   const raw = String(value || '').trim();
   if (!raw) return '';
   const curr = String(currency || '').trim();
+  if (curr.toLowerCase() === 'kr') {
+    return /\bkr$/i.test(raw) ? raw : `${raw} ${curr}`;
+  }
   if (!curr || raw.startsWith(curr) || /^[A-Z]{3}\s/i.test(raw) || /^[£$€₹]/.test(raw)) {
     return raw;
   }

@@ -18,7 +18,7 @@ export function compare(
     s.normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
       .replace(/[\u200B-\u200D\uFEFF\u200E\u200F\u00A0]/g, '')
-      .replace(/[£$€₹]|AED\s?/g, '')
+      .replace(/[£$€₹]|\b(?:AED|kr)\s?/g, '')
       .replace(/a\.\s*m\./gi, 'am')
       .replace(/p\.\s*m\./gi, 'pm')
       .replace(/'/gi, "'")
@@ -88,11 +88,15 @@ export function compare(
 
   // ── Price comparison ───────────────────────────────────────────
   const normPrice = (s: string) =>
-    s.replace(/[£$€₹,\s]|AED\s?/g, '').trim();
+    s.replace(/[£$€₹\s]|\b(?:AED|kr)\s?/g, '').trim();
   const aPrice = normPrice(actual);
   const ePrice = normPrice(expected);
   if (aPrice && ePrice && aPrice === ePrice) return true;
-  if (/^\d+(?:\.\d+)?$/.test(aPrice) && /^\d+(?:\.\d+)?$/.test(ePrice) && Number(aPrice) === Number(ePrice)) {
+  const parseNumericPrice = (value: string) =>
+    /^\d+(?:[.,]\d+)?$/.test(value) ? Number(value.replace(',', '.')) : null;
+  const actualNumericPrice = parseNumericPrice(aPrice);
+  const expectedNumericPrice = parseNumericPrice(ePrice);
+  if (actualNumericPrice !== null && expectedNumericPrice !== null && actualNumericPrice === expectedNumericPrice) {
     return true;
   }
 
