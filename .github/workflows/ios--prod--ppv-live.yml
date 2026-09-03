@@ -18,7 +18,7 @@ on:
         required: true
         type: choice
         default: GB
-        options: [GB, IE, US, AU, BR, AE, SA, NO]
+        options: [GB, IE, US, AU, BR, AE, SA, "NO"]
       BANNERS_CONFIGURED:
         description: "Banners Configured/Available"
         required: true

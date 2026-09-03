@@ -221,7 +221,7 @@ export class PPVPage {
 
     if (fieldLower === 'ppv price') {
       const expectedPrice = eventData.PPV_PRICE || '';
-      const pricePattern = /(?:AED\s?|[\$£€₹]\s?)\d+(?:[\.,]\d{2})?/;
+      const pricePattern = /(?:(?:AED\s?|[\$£€₹]\s?)\d+(?:[\.,]\d{2})?|\d[\d\s]*(?:[.,]\d{2,3})?\s*kr)/i;
       const lines = bodyText.split('\n').map(l => l.trim()).filter(Boolean);
 
       if (expectedPrice) {
@@ -931,4 +931,3 @@ export class PPVPage {
     });
   }
 }
-

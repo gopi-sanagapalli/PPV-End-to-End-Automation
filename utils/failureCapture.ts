@@ -104,7 +104,7 @@ async function findTodayYouPayPriceTarget(page: any): Promise<any | null> {
       const style = window.getComputedStyle(el);
       return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
     };
-    const isPrice = (value: string) => /^(?:AED\s?|[£$€₹])\s*\d+(?:[.,]\d{2})?$/.test(clean(value));
+    const isPrice = (value: string) => /^(?:(?:AED\s?|[£$€₹])\s*\d+(?:[.,]\d{2})?|\d[\d\s]*(?:[.,]\d{2,3})?\s*kr)$/.test(clean(value));
 
     document.querySelectorAll(`[${marker}]`).forEach(node => node.removeAttribute(marker));
     const labels = Array.from(document.querySelectorAll<HTMLElement>('h1,h2,h3,h4,p,span,strong,b,div'))
@@ -278,7 +278,7 @@ async function findPpvTitleTarget(page: any, field: string, candidates: string[]
       const parentText = clean((node.parentElement?.innerText || node.parentElement?.textContent || '')).toLowerCase();
       const grandText = clean((node.parentElement?.parentElement?.innerText || node.parentElement?.parentElement?.textContent || '')).toLowerCase();
       const surroundingText = `${parentText} ${grandText}`;
-      const nearPpvDetails = /(?:AED\s?|[£$€₹]\s?)\d|\/fight|\b(?:sun|mon|tue|wed|thu|fri|sat)day?\b|\b\d{1,2}:\d{2}\b/i.test(surroundingText);
+      const nearPpvDetails = /(?:AED\s?|[£$€₹]\s?)\d|\d[\d\s]*(?:[.,]\d{2,3})?\s*kr|\/fight|\b(?:sun|mon|tue|wed|thu|fri|sat)day?\b|\b\d{1,2}:\d{2}\b/i.test(surroundingText);
       const nearCardCopy = surroundingText.includes('just the fight') || surroundingText.includes('pay-per-view');
 
       let score = 100;

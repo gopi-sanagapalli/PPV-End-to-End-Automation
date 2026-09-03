@@ -301,6 +301,7 @@ async function runFlow(
     SA: { locale: 'en-SA', timezoneId: 'Asia/Riyadh' },
     AU: { locale: 'en-AU', timezoneId: 'Australia/Sydney' },
     BR: { locale: 'pt-BR', timezoneId: 'America/Sao_Paulo' },
+    NO: { locale: 'en-GB', timezoneId: 'Europe/Oslo' },
   };
   const { locale, timezoneId } = regionContext[regionUpper] ?? regionContext.GB;
   // CI stays at its validated desktop viewport. In a headed local run, use the

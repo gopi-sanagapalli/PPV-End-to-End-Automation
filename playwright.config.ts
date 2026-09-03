@@ -10,6 +10,7 @@ const regionLocaleMap: Record<string, { locale: string; timezoneId: string }> = 
   SA: { locale: 'en-SA', timezoneId: 'Asia/Riyadh' },
   AU: { locale: 'en-AU', timezoneId: 'Australia/Sydney' },
   BR: { locale: 'pt-BR', timezoneId: 'America/Sao_Paulo' },
+  NO: { locale: 'en-GB', timezoneId: 'Europe/Oslo' },
 };
 const { locale: regionLocale, timezoneId: regionTimezone } =
   regionLocaleMap[REGION] ?? { locale: 'en-GB', timezoneId: 'Europe/London' };

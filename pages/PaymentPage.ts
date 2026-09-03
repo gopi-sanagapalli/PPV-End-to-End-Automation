@@ -264,7 +264,7 @@ export class PaymentPage extends BasePage {
       const idx = nextAnnualIdx >= 0 ? nextAnnualIdx : nextIdx;
       if (idx >= 0) {
         const afterText = bodyText.substring(idx, idx + 100);
-        const priceMatch = afterText.match(/(?:[A-Z]{2,3}\s?|[\$£€₹]\s?)\d+(?:\.\d{2})?/);
+        const priceMatch = afterText.match(/(?:(?:[A-Z]{2,3}\s?|[\$£€₹]\s?)\d+(?:\.\d{2})?|\d(?:\d|[^\S\r\n])*(?:,\d{2})?[^\S\r\n]*kr)/);
         if (priceMatch) {
           actualPrice = priceMatch[0].trim();
         }
@@ -596,11 +596,11 @@ export class PaymentPage extends BasePage {
     let actualPPVPrice = 'N/A';
     if (ppvIdx >= 0) {
       const nearText = bodyText.substring(ppvIdx, ppvIdx + 300);
-      const priceMatch = nearText.match(/(?:AED\s?|[\$£€₹]\s?)0(?:\.00)?/);
+      const priceMatch = nearText.match(/(?:(?:AED\s?|[\$£€₹]\s?)0(?:\.00)?|0\s*kr)/i);
       if (priceMatch) actualPPVPrice = priceMatch[0].trim();
     }
     const currency = eventData.CURRENCY || '£';
-    const expectedPPVPrice = `${currency}0`;
+    const expectedPPVPrice = currency.toLowerCase() === 'kr' ? `0 ${currency}` : `${currency}0`;
     const ppvPriceStatus = (actualPPVPrice !== 'N/A' && /0/.test(actualPPVPrice)) ? 'PASS' : 'FAIL';
     console.log(`  ${ppvPriceStatus === 'PASS' ? '✅' : '❌'} [Ultimate Switch - PPV Price] expected="${expectedPPVPrice}" actual="${actualPPVPrice}"`);
     results.push({
@@ -636,7 +636,7 @@ export class PaymentPage extends BasePage {
     const todaySplit = bodyText.split(/today\s+you\s+pay/i);
     let actualTodayPrice = 'N/A';
     if (todaySplit.length > 1) {
-      const prices = todaySplit[1].match(/(?:AED\s?|[\$£€₹]\s?)\d+(?:\.\d{2})?/g) || [];
+      const prices = todaySplit[1].match(/(?:(?:AED\s?|[\$£€₹]\s?)\d+(?:[.,]\d{2})?|\d[\d\s]*(?:[.,]\d{2,3})?\s*kr)/gi) || [];
       if (prices[0]) actualTodayPrice = prices[0].trim();
     }
     const expectedUltimatePrice = eventData.TODAY_YOU_PAY_ULTIMATE_APM || eventData.ULTIMATE_ANNUAL_PAY_MONTHLY_PRICE || '';
@@ -1044,7 +1044,7 @@ export class PaymentPage extends BasePage {
             .replace(/[^a-z0-9]+/g, ' ')
             .trim();
         const nameWords = normalize(name).split(' ').filter(word => word.length > 2);
-        const pricePattern = /(?:(?<![A-Z])[A-Z]{2,3}\s?|[£$€₹]\s?)\d+(?:\.\d{2})?/;
+        const pricePattern = /(?:(?:(?<![A-Z])[A-Z]{2,3}\s?|[£$€₹]\s?)\d+(?:[.,]\d{2})?|\d[\d\s]*(?:[.,]\d{2,3})?\s*kr)/i;
         const candidates = Array.from(document.querySelectorAll<HTMLElement>('h1, h2, h3, h4, p, span, div'))
           .filter(element =>
             element.children.length === 0 &&
@@ -1083,13 +1083,35 @@ export class PaymentPage extends BasePage {
       }, ppvName).catch(() => '');
       if (summaryPrice) return summaryPrice;
 
+      const pricePattern = /(?:(?:[A-Z]{2,3}\s?|[£$€₹]\s?)\d+(?:[.,]\d{2})?|\d[\d\s]*(?:[.,]\d{2,3})?\s*kr)/i;
+      const ppvNameWords = ppvName
+        .toLowerCase()
+        .split(/[^a-z0-9]+/)
+        .filter(word => word.length > 2);
+      const summaryLines = bodyText
+        .split('\n')
+        .map(line => line.trim())
+        .filter(Boolean);
+      const summaryLineIndex = summaryLines.findIndex(line => {
+          const lowerLine = line.toLowerCase();
+          return ppvNameWords.length > 0 &&
+            ppvNameWords.every(word => lowerLine.includes(word));
+        });
+      const linePrice = summaryLineIndex >= 0
+        ? summaryLines
+          .slice(summaryLineIndex, summaryLineIndex + 3)
+          .map(line => line.match(pricePattern)?.[0])
+          .find(Boolean)
+        : '';
+      if (linePrice) return linePrice.trim();
+
       return 'N/A';
     }
 
     // ── First Month Free Price ─────────────────────────────────
     if (fieldLower === 'first month free price') {
       // Match zero-price for any supported currency (£0, $0, AED 0, SAR 0, etc.)
-      const zeroMatch = bodyText.match(/(?:[A-Z]{2,3}\s?|[\$£€₹]\s?)0(?!\.\d*[1-9])/);
+      const zeroMatch = bodyText.match(/(?:(?:[A-Z]{2,3}\s?|[\$£€₹]\s?)0(?!\.\d*[1-9])|0\s*kr)/i);
       if (zeroMatch) return zeroMatch[0].trim();
       return 'N/A';
     }
@@ -1110,7 +1132,7 @@ export class PaymentPage extends BasePage {
     // ── N Days Free Badge ──────────────────────────────────────
     if (/\d+[-\s]?days?\s+free/i.test(fieldLower)) {
       if (fieldLower.includes('price')) {
-        const match = bodyText.match(/(?:AED\s?|[\$£€₹]\s?)0/);
+        const match = bodyText.match(/(?:(?:AED\s?|[\$£€₹]\s?)0|0\s*kr)/i);
         return match ? match[0].trim() : 'N/A';
       }
       const lines = bodyText.split('\n').map(l => l.trim());
@@ -1164,7 +1186,7 @@ export class PaymentPage extends BasePage {
         const priceElements = allElements.filter(el => {
           if (el.children.length > 0) return false;
           const text = cleanText(el.textContent || '');
-          return /^(?:[A-Z]{2,3}\s?|[£$€₹]\s?)\d+(?:\.\d{2})?$/.test(text);
+          return /^(?:(?:[A-Z]{2,3}\s?|[£$€₹]\s?)\d+(?:[.,]\d{2})?|\d[\d\s]*(?:[.,]\d{2,3})?\s*kr)$/.test(text);
         });
 
         let todayEl: HTMLElement | null = null;
@@ -1224,7 +1246,7 @@ export class PaymentPage extends BasePage {
       const todaySplit = bodyText.split(/today\s+you\s+pay/i);
       if (todaySplit.length > 1) {
         const afterToday = todaySplit[1];
-        const prices = afterToday.match(/(?:[A-Z]{2,3}\s?|[\$£€₹]\s?)\d+(?:\.\d{2})?/g) || [];
+        const prices = afterToday.match(/(?:(?:[A-Z]{2,3}\s?|[\$£€₹]\s?)\d+(?:[.,]\d{2})?|\d[\d\s]*(?:[.,]\d{2,3})?\s*kr)/g) || [];
         const origPrice = eventData.ANNUAL_PAY_MONTHLY_ORIGINAL_PRICE || eventData.UPSELL_ORIGINAL_PRICE || '';
         const cleanOrig = origPrice.replace(/[^\d.]/g, '');
         const filteredPrices = [];
@@ -1698,7 +1720,7 @@ export class PaymentPage extends BasePage {
     // ── Rate Plan Price ────────────────────────────────────────
     if (fieldLower === 'rate plan price') {
       // Include multi-letter currencies (SAR, AED, R$, etc.) and single-char symbols
-      const priceWithPeriod = bodyText.match(/(?:[A-Z]{2,3}\s?|[\$£€₹]\s?)\d+(?:\.\d{2})?\s*\/\s*(?:month|year)/i);
+      const priceWithPeriod = bodyText.match(/(?:(?:[A-Z]{2,3}\s?|[\$£€₹]\s?)\d+(?:\.\d{2})?|\d(?:\d|[^\S\r\n])*(?:,\d{2})?[^\S\r\n]*kr)\s*\/\s*(?:month|year)/i);
       if (priceWithPeriod) return priceWithPeriod[0].trim();
       return 'N/A';
     }

@@ -230,7 +230,7 @@ export class MyAccountPage {
         const statusCount = (text.match(/\b(?:buy now|purchased|included)\b/gi) || []).length;
         if (buyNowCount > 1 || statusCount > 1) continue;
 
-        const hasPrice = /(?:AED\s?|[£$€₹]\s?)\d+(?:[,.]\d{2})?/i.test(text);
+        const hasPrice = /(?:(?:AED\s?|[£$€₹]\s?)\d+(?:[,.]\d{2})?|\d[\d\s]*(?:[.,]\d{2,3})?\s*kr)/i.test(text);
         const hasDate = /\b(?:mon|monday|tue|tuesday|wed|wednesday|thu|thursday|fri|friday|sat|saturday|sun|sunday)\b/i.test(text) &&
           (/\bat\b/i.test(text) || /\b\d{1,2}:\d{2}\b/.test(text) || /\b\d{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]{3,9}\b/.test(text));
         const hasCta = /\b(?:buy now|purchased|included)\b/i.test(text) ||
@@ -802,7 +802,7 @@ export class MyAccountPage {
       if (
         text &&
         text.length <= 120 &&
-        !/\b\d{1,2}:\d{2}\b|(?:AED\s?|[£$€₹]\s?)\d|buy now/i.test(text) &&
+        !/\b\d{1,2}:\d{2}\b|(?:AED\s?|[£$€₹]\s?)\d|\d[\d\s]*(?:[.,]\d{2,3})?\s*kr|buy now/i.test(text) &&
         this.isEventTitleText(text, ppvName)
       ) {
         return text;
@@ -849,14 +849,14 @@ export class MyAccountPage {
   async getPPVPrice(ppvName: string): Promise<string> {
     const row = await this.findPPVRow(ppvName);
     if (!row) return 'N/A';
-    const pricePattern = /(AED\s?|[£$€₹]\s?)[\d,.]+/;
+    const pricePattern = /(?:(?:AED\s?|[£$€₹]\s?)[\d,.]+|[\d\s]+(?:[.,]\d{2,3})?\s*kr)/i;
     const rowText = (await row.textContent().catch(() => ''))?.trim() || '';
     const rowPrice = rowText.match(pricePattern);
     if (rowPrice) return rowPrice[0].trim();
 
     const el = row
       .locator('span, p, div')
-      .filter({ hasText: /(AED\s?|[£$€₹]\s?)[\d,.]+/ })
+      .filter({ hasText: /(?:(?:AED\s?|[£$€₹]\s?)[\d,.]+|[\d\s]+(?:[.,]\d{2,3})?\s*kr)/i })
       .first();
     const text = (await el.textContent().catch(() => 'N/A'))?.trim() || 'N/A';
     if (text === 'N/A') return 'N/A';
