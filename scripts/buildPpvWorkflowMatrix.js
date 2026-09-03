@@ -252,8 +252,10 @@ switch (mode) {
       { source: 'myaccount', profile: 'active_standard_monthly/standard_monthly' },
       { source: 'myaccount', profile: 'active_standard_monthly/ultimate_apm' },
       { source: 'myaccount', profile: 'active_standard_monthly/ultimate_upfront' },
-      { source: 'myaccount', profile: 'active_standard_apm/standard_apm' },
-      { source: 'myaccount', profile: 'active_standard_apm/ultimate_apm' },
+      ...(standardPlans.includes('standard_apm') ? [
+        { source: 'myaccount', profile: 'active_standard_apm/standard_apm' },
+        { source: 'myaccount', profile: 'active_standard_apm/ultimate_apm' },
+      ] : []),
       { source: 'myaccount', profile: 'active_ultimate_apm/ultimate_apm' },
       { source: 'myaccount', profile: 'active_ultimate_upfront/ultimate_upfront' },
     ];

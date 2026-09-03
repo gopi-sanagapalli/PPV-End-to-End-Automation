@@ -92,6 +92,9 @@ export function compare(
   const aPrice = normPrice(actual);
   const ePrice = normPrice(expected);
   if (aPrice && ePrice && aPrice === ePrice) return true;
+  if (/^\d+(?:\.\d+)?$/.test(aPrice) && /^\d+(?:\.\d+)?$/.test(ePrice) && Number(aPrice) === Number(ePrice)) {
+    return true;
+  }
 
   // ── Price length/unit comparison (e.g., "/ month" vs "/month") ──
   if (e.replace(/\s+/g, '') === a.replace(/\s+/g, '') && (e.startsWith('/') || e.startsWith('per'))) {

@@ -391,6 +391,14 @@
           }
         }
       },
+      "AE": {
+        "environments": {
+          "prod": {
+            "USER_EMAIL": "aeultimateapm@yopmail.com",
+            "USER_PASSWORD": "Dazn@123"
+          }
+        }
+      },
       "CA": {
         "environments": {
           "prod": {
@@ -457,6 +465,14 @@
         "environments": {
           "prod": {
             "USER_EMAIL": "saultimateupfrontppv@yopmail.com",
+            "USER_PASSWORD": "Dazn@123"
+          }
+        }
+      },
+      "AE": {
+        "environments": {
+          "prod": {
+            "USER_EMAIL": "aeultimateupfront@yopmail.com",
             "USER_PASSWORD": "Dazn@123"
           }
         }
