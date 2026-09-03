@@ -241,7 +241,7 @@ export class PPVUpsellPaymentPage extends BasePage {
 
         // ── Order Summary PPV Price (price beside the PPV name) ──
       } else if (key === 'order summary ppv price') {
-        const pricePattern = /(?:AED\s?|[£$€₹])\s*\d+(?:[.,]\d{2})?/i;
+        const pricePattern = /(?:(?:AED\s?|[£$€₹])\s*\d+(?:[.,]\d{2})?|\d[\d\s]*(?:[.,]\d{2,3})?\s*kr)/i;
         const summaryPrice = await this.page.evaluate(({ ppvName, pricePatternSource }) => {
           const cleanText = (value: string | null | undefined) => String(value || '').replace(/\s+/g, ' ').trim();
           const pricePattern = new RegExp(pricePatternSource, 'i');
@@ -280,12 +280,13 @@ export class PPVUpsellPaymentPage extends BasePage {
 
         // ── Today You Pay Price ──
       } else if (key === 'today you pay price' || key.includes('today you pay') || key.includes('total price')) {
-        const todayMatch = bodyText.match(/today you pay[^£$€AED]*(?:AED\s?|[£$€])\d+\.\d{2}/i);
-        actual = todayMatch ? todayMatch[0].match(/(?:AED\s?|[£$€])\d+\.\d{2}/)?.[0] || 'N/A' : 'N/A';
+        const pricePattern = /(?:(?:AED\s?|[£$€])\d+(?:[.,]\d{2})?|\d[\d\s]*(?:[.,]\d{2,3})?\s*kr)/i;
+        const todayMatch = bodyText.match(new RegExp(`today you pay[^£$€AED\\d]*${pricePattern.source}`, 'i'));
+        actual = todayMatch ? todayMatch[0].match(pricePattern)?.[0] || 'N/A' : 'N/A';
 
         // ── PPV Price / Event Price (in the order summary line) ──
       } else if (key === 'ppv price' || key === 'event price') {
-        const priceMatch = bodyText.match(/(?:AED\s?|[£$€])\d+\.\d{2}/);
+        const priceMatch = bodyText.match(/(?:(?:AED\s?|[£$€])\d+(?:[.,]\d{2})?|\d[\d\s]*(?:[.,]\d{2,3})?\s*kr)/i);
         actual = priceMatch ? priceMatch[0] : 'N/A';
 
         // ── Payment Type (One time payment) ──

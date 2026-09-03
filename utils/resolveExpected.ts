@@ -975,6 +975,9 @@ export function resolveExpected(
       }
     }
   }
+  if (currencySymbol.toLowerCase() === 'kr') {
+    template = template.replace(/\bkr(\d+(?:[.,]\d+)?)/gi, '$1 kr');
+  }
 
   // Date-only fields — use getDynamicDateBadge (generates candidates with and without time)
   const dateOnlyFields = [

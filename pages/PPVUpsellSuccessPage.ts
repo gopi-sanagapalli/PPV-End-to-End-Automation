@@ -126,7 +126,7 @@ export class PPVUpsellSuccessPage extends BasePage {
         actual = (await buyBtn.textContent().catch(() => ''))?.trim() || 'N/A';
 
       } else if (key.includes('upsell price') || key === 'ppv price') {
-        const priceMatch = bodyText.match(/(?:[A-Z]{3}\s*|[£$€₹]\s?)\d+(?:\.\d{2})?/);
+        const priceMatch = bodyText.match(/(?:(?:[A-Z]{3}\s*|[£$€₹]\s?)\d+(?:[.,]\d{2})?|\d[\d\s]*(?:[.,]\d{2,3})?\s*kr)/);
         actual = priceMatch ? priceMatch[0] : 'N/A';
 
       } else if (key.includes('no thanks')) {

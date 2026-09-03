@@ -71,6 +71,14 @@
           }
         }
       },
+      "NO": {
+        "environments": {
+          "prod": {
+            "USER_EMAIL": "nofreemium@yopmail.com",
+            "USER_PASSWORD": "Dazn@123"
+          }
+        }
+      },
       "CA": {
         "environments": {
           "prod": {
@@ -153,6 +161,14 @@
         "environments": {
           "prod": {
             "USER_EMAIL": "safrozenppv@yopmail.com",
+            "USER_PASSWORD": "Dazn@123"
+          }
+        }
+      },
+      "NO": {
+        "environments": {
+          "prod": {
+            "USER_EMAIL": "nofrozen@yopmail.com",
             "USER_PASSWORD": "Dazn@123"
           }
         }
@@ -247,6 +263,14 @@
           }
         }
       },
+      "NO": {
+        "environments": {
+          "prod": {
+            "USER_EMAIL": "noactivemon@yopmail.com",
+            "USER_PASSWORD": "Dazn@123"
+          }
+        }
+      },
       "CA": {
         "environments": {
           "prod": {
@@ -321,6 +345,14 @@
           }
         }
       },
+      "NO": {
+        "environments": {
+          "prod": {
+            "USER_EMAIL": "noactiveapm@yopmail.com",
+            "USER_PASSWORD": "Dazn@123"
+          }
+        }
+      },
       "CA": {
         "environments": {
           "prod": {
@@ -387,6 +419,14 @@
         "environments": {
           "prod": {
             "USER_EMAIL": "saultimatemonthlyppv@yopmail.com",
+            "USER_PASSWORD": "Dazn@123"
+          }
+        }
+      },
+      "NO": {
+        "environments": {
+          "prod": {
+            "USER_EMAIL": "noultimateapm@yopmail.com",
             "USER_PASSWORD": "Dazn@123"
           }
         }
@@ -465,6 +505,14 @@
         "environments": {
           "prod": {
             "USER_EMAIL": "saultimateupfrontppv@yopmail.com",
+            "USER_PASSWORD": "Dazn@123"
+          }
+        }
+      },
+      "NO": {
+        "environments": {
+          "prod": {
+            "USER_EMAIL": "noultimateupfront@yopmail.com",
             "USER_PASSWORD": "Dazn@123"
           }
         }
