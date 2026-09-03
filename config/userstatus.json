@@ -239,6 +239,14 @@
           }
         }
       },
+      "AE": {
+        "environments": {
+          "prod": {
+            "USER_EMAIL": "uae.graciappv@t.dazn.com",
+            "USER_PASSWORD": "Dazn@123"
+          }
+        }
+      },
       "CA": {
         "environments": {
           "prod": {
