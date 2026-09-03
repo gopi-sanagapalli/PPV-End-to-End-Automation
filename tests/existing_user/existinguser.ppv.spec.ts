@@ -2401,14 +2401,24 @@ for (const stateKey of userStatesToRun) {
         const isCanadaRegion = (process.env.DAZN_REGION || '').toUpperCase() === 'CA';
         const canadaPlan = (process.env.CANADA_PLAN || '').toLowerCase();
         const isCanadaDaznPlus = isCanadaRegion && canadaPlan.includes('dazn+');
+        const daznPlans = JSON.parse(
+          fs.readFileSync(path.resolve(process.cwd(), 'config/DaznPlan.json'), 'utf-8')
+        ) as Record<string, { regions?: Record<string, unknown> }>;
+        const standardPlansForRegion = Object.keys(daznPlans).filter(plan =>
+          plan.startsWith('standard_') && daznPlans[plan].regions?.[REGION]
+        );
+        const hasOnlyStandardMonthlyPlan =
+          standardPlansForRegion.length === 1 &&
+          standardPlansForRegion[0] === 'standard_monthly';
+        const standardSubscriptionTitle = isCanadaRegion
+          ? (isCanadaDaznPlus ? 'DAZN+ Standard' : 'DAZN')
+          : (hasOnlyStandardMonthlyPlan ? 'DAZN' : 'DAZN Standard');
 
         if (userStateKey === 'freemium' || userStateKey === 'frozen') {
           eventData.DAZN_TIER = 'DAZN Free';
           eventData['DAZN_TIER'] = 'DAZN Free';
         } else if (userStateKey.startsWith('active_standard')) {
-          // CA: "DAZN+ Standard" for DAZN+ plans, plain "DAZN" for standard DAZN plans
-          const caTier = isCanadaDaznPlus ? 'DAZN+ Standard' : (isCanadaRegion ? 'DAZN' : 'DAZN Standard');
-          eventData.DAZN_TIER = isCanadaRegion ? caTier : 'DAZN Standard';
+          eventData.DAZN_TIER = standardSubscriptionTitle;
           eventData['DAZN_TIER'] = eventData.DAZN_TIER;
         } else if (userStateKey.startsWith('active_ultimate')) {
           // CA: "DAZN+ Ultimate" for DAZN+ plans, "DAZN Ultimate" for standard DAZN plans
@@ -2424,15 +2434,15 @@ for (const stateKey of userStatesToRun) {
 
         // Verify user state before PPV validations/actions. If it does not match,
         // fail immediately with clear logging.
-        const caStandardSub = isCanadaDaznPlus ? 'DAZN+ Standard' : (isCanadaRegion ? 'DAZN' : 'DAZN Standard');
+        const caStandardSub = standardSubscriptionTitle;
         const caUltimateSub = isCanadaDaznPlus ? 'DAZN+ Ultimate' : 'DAZN Ultimate';
 
         const expectedUserStates: Record<string, { subscription: string; status: string; label: string }> = {
           freemium: { subscription: 'DAZN Free', status: 'Upgrade now', label: 'freemium' },
           frozen: { subscription: 'DAZN Free', status: 'Resubscribe', label: 'frozen' },
-          active_standard: { subscription: isCanadaRegion ? caStandardSub : 'DAZN Standard', status: 'Manage subscription', label: 'active standard' },
-          active_standard_monthly: { subscription: isCanadaRegion ? caStandardSub : 'DAZN Standard', status: 'Manage subscription', label: 'active standard monthly' },
-          active_standard_apm: { subscription: isCanadaRegion ? caStandardSub : 'DAZN Standard', status: 'Manage subscription', label: 'active standard APM' },
+          active_standard: { subscription: caStandardSub, status: 'Manage subscription', label: 'active standard' },
+          active_standard_monthly: { subscription: caStandardSub, status: 'Manage subscription', label: 'active standard monthly' },
+          active_standard_apm: { subscription: caStandardSub, status: 'Manage subscription', label: 'active standard APM' },
           active_ultimate: { subscription: isCanadaRegion ? caUltimateSub : 'DAZN Ultimate', status: 'Manage subscription', label: 'active ultimate' },
           active_ultimate_apm: { subscription: isCanadaRegion ? caUltimateSub : 'DAZN Ultimate', status: 'Manage subscription', label: 'active ultimate APM' },
           active_ultimate_upfront: { subscription: isCanadaRegion ? caUltimateSub : 'DAZN Ultimate', status: 'Manage subscription', label: 'active ultimate upfront' }
