@@ -1111,7 +1111,7 @@ export class PaymentPage extends BasePage {
     // ── First Month Free Price ─────────────────────────────────
     if (fieldLower === 'first month free price') {
       // Match zero-price for any supported currency (£0, $0, AED 0, SAR 0, etc.)
-      const zeroMatch = bodyText.match(/(?:(?:[A-Z]{2,3}\s?|[\$£€₹]\s?)0(?!\.\d*[1-9])|0\s*kr)/i);
+      const zeroMatch = bodyText.match(/(?:(?:(?:AED|SAR)\s?|[\$£€₹]\s?)0(?!\.\d*[1-9])|0\s*kr)/i);
       if (zeroMatch) return zeroMatch[0].trim();
       return 'N/A';
     }
