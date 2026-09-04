@@ -1,0 +1,109 @@
+{
+  "eventKey": "till_romero",
+  "PPV_NAME": "Till vs. Romero",
+  "PPV_DISPLAY_NAME": "Till vs. Romero",
+  "SPORT": "Boxing",
+  "PPV_TYPE": "normal",
+  "HAS_BUNDLE": false,
+  "PPV_DEV_MODE": true,
+  "DEFAULT_SIGNUP_DEVMODE": false,
+  "HAS_DEFAULT_SIGNUP_PPV": false,
+  "global": {
+    "FREE_TRIAL_DAYS": 8,
+    "PPV_PROMOTER": "",
+    "PPV_ENTITLEMENT_ID": "ppv_t_till_romero",
+    "PPV_DESCRIPTION": "",
+    "PPV_UTC_DATE": "2026-09-26T15:00:00Z",
+    "PPV_LOCATION": "",
+    "BOXING_BANNER_SUBTITLE": "",
+    "PPV_CARD_TITLE": "Till vs. Romero",
+    "PPV_CARD_DESCRIPTION": "",
+    "BANNER_DESCRIPTION": "",
+    "HOME_POPUP_DESCRIPTION": ""
+  },
+  "regions": {
+    "GB": {
+      "LANDING_PAGE_PPV_DATE": "26 Sep",
+      "PPV_DATE": "Sat 26th Sep at 16:00",
+      "PPV_PAGE_DATE": "Sat 26th Sep at 16:00",
+      "PPV_TIME": "16:00",
+      "BOXING_BANNER_DATE": "SAT 26TH SEP",
+      "BOXING_UPCOMING_DATE": "26 Sep",
+      "LANDING_BANNER_DATE": "SAT 26TH SEP AT 16:00",
+      "HOME_POPUP_DATE": "SAT 26TH SEP AT 16:00",
+      "PPV_POPUP_DATE": "26 SEP 4:00PM",
+      "SEARCH_PPV_DATE_TIME": "26 SEP 4:00PM",
+      "SCHEDULE_PPV_TIME": "4:00PM",
+      "HOME_BOXING_UPCOMING_TIME": "4:00PM",
+      "PPV_PRICE": "£24.99",
+      "TODAY_YOU_PAY_PRICE": "£24.99",
+      "UPSELL_PRICE": "",
+      "UPSELL_CROSSED_PRICE": "",
+      "UPSELL_PRICE_LENGTH": "/month for 12 months",
+      "PPV1_UPSELL_TILE_DATE": "",
+      "offers": []
+    },
+    "US": {
+      "LANDING_PAGE_PPV_DATE": "26 Sep",
+      "PPV_DATE": "Sat 26th Sep at 11:00",
+      "PPV_PAGE_DATE": "Sat 26th Sep at 11:00",
+      "PPV_TIME": "11:00",
+      "BOXING_BANNER_DATE": "SAT 26TH SEP",
+      "BOXING_UPCOMING_DATE": "26 Sep",
+      "LANDING_BANNER_DATE": "SAT 26TH SEP AT 11:00",
+      "HOME_POPUP_DATE": "SAT 26TH SEP AT 11:00",
+      "PPV_POPUP_DATE": "26 SEP 11:00AM",
+      "SEARCH_PPV_DATE_TIME": "26 SEP 11:00AM",
+      "SCHEDULE_PPV_TIME": "11:00AM",
+      "HOME_BOXING_UPCOMING_TIME": "11:00AM",
+      "PPV_PRICE": "$24.99",
+      "TODAY_YOU_PAY_PRICE": "$24.99",
+      "UPSELL_PRICE": "",
+      "UPSELL_CROSSED_PRICE": "",
+      "UPSELL_PRICE_LENGTH": "/month for 12 months",
+      "PPV1_UPSELL_TILE_DATE": "",
+      "offers": []
+    },
+    "AE": {
+      "LANDING_PAGE_PPV_DATE": "26 Sep",
+      "PPV_DATE": "Sat 26th Sep at 19:00",
+      "PPV_PAGE_DATE": "Sat 26th Sep at 19:00",
+      "PPV_TIME": "19:00",
+      "BOXING_BANNER_DATE": "SAT 26TH SEP",
+      "BOXING_UPCOMING_DATE": "26 Sep",
+      "LANDING_BANNER_DATE": "SAT 26TH SEP AT 19:00",
+      "HOME_POPUP_DATE": "SAT 26TH SEP AT 19:00",
+      "PPV_POPUP_DATE": "26 SEP 7:00PM",
+      "SEARCH_PPV_DATE_TIME": "26 SEP 7:00PM",
+      "SCHEDULE_PPV_TIME": "7:00PM",
+      "HOME_BOXING_UPCOMING_TIME": "7:00PM",
+      "PPV_PRICE": "AED 91.99",
+      "TODAY_YOU_PAY_PRICE": "AED 91.99",
+      "UPSELL_PRICE": "",
+      "UPSELL_CROSSED_PRICE": "",
+      "UPSELL_PRICE_LENGTH": "/month for 12 months",
+      "PPV1_UPSELL_TILE_DATE": "",
+      "offers": []
+    }
+  },
+  "variants": {
+    "variant1": {
+      "detection": "to watch your pay-per-view",
+      "ppvSelector": "input[type='radio']",
+      "ctaText": "Continue with pay-per-view"
+    },
+    "variant2": {
+      "detection": "choose your subscription",
+      "ppvSelector": "input[type='checkbox']",
+      "ctaText": "Continue with PPV"
+    }
+  },
+  "pages": {
+    "ppv": {
+      "detection": "to watch your pay-per-view"
+    },
+    "plan": {
+      "detection": "choose a plan that's right for you"
+    }
+  }
+}
