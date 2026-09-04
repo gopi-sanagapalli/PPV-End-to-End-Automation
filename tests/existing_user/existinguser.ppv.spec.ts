@@ -66,7 +66,7 @@ import {
   executeCanadaSubscriptionFlow,
   executeCanadaPPVAddonPurchaseFlow,
 } from '../../utils/testHelpers';
-import { findNoPpvLink, handleNoPpvClick } from '../../utils/flowHelpers';
+import { findNoPpvLink, handleNoPpvClick, isConfiguredPpvAbsenceError, isConfiguredPpvVisible } from '../../utils/flowHelpers';
 import { AuthenticationManager } from '../../auth/AuthenticationManager';
 
 
@@ -1691,8 +1691,30 @@ for (const stateKey of userStatesToRun) {
           // knows which CTA to find (e.g. home-page-dazntile or home-page-get-started).
           const containerSource = srcResolvedSource;
           let container: any;
+          const removalCtaOnlySources = new Set([
+            'home-page-dazntile',
+            'boxing-standard-subscription',
+            'boxing-ultimate-subscription',
+            'boxing-join-the-club',
+          ]);
           if (shouldValidateTileBeforePopup) {
             eventData.__RETURN_TILE_BEFORE_POPUP = 'true';
+          }
+
+          if (process.env.PPV_REMOVAL === 'true' && removalCtaOnlySources.has(SOURCE)) {
+            if (!await isConfiguredPpvVisible(page, eventData.PPV_NAME)) {
+              console.log(`✅ [PPV Removal - Existing User] ${SOURCE}: configured PPV is absent from the source.`);
+              results.push({
+                page: 'PPV Removal',
+                field: 'PPV Surfacing Point Removal',
+                expected: 'PPV surfacing point removed from UI',
+                actual: 'Configured PPV is absent from the source',
+                status: 'PASS',
+              });
+              await closeContext().catch(() => { });
+              return;
+            }
+            throw new Error(`❌ [PPV Removal - Existing User] ${eventData.PPV_NAME} is still present via ${SOURCE}`);
           }
 
           const isBoxingSubscriptionSource =
@@ -1719,7 +1741,27 @@ for (const stateKey of userStatesToRun) {
             // home-page-dazntile is a DAZN entitlement tile flow. The tile click
             // happens inside HomePage.findPPVContainer(), then a subscription
             // modal must be confirmed before the signup route is evaluated.
-            await landing.findPPVContainer(eventData, containerSource);
+            try {
+              await landing.findPPVContainer(eventData, containerSource);
+            } catch (error) {
+              if (process.env.PPV_REMOVAL !== 'true' || !isConfiguredPpvAbsenceError(error, eventData.PPV_NAME)) {
+                throw error;
+              }
+              console.log(`✅ [PPV Removal - Existing User] ${SOURCE}: configured PPV is absent from the DAZN tile source.`);
+              results.push({
+                page: 'PPV Removal',
+                field: 'PPV Surfacing Point Removal',
+                expected: 'PPV surfacing point removed from UI',
+                actual: error instanceof Error ? error.message : String(error),
+                status: 'PASS',
+              });
+              await closeContext().catch(() => { });
+              return;
+            }
+
+            if (process.env.PPV_REMOVAL === 'true') {
+              throw new Error(`❌ [PPV Removal - Existing User] ${eventData.PPV_NAME} is still present via ${SOURCE}`);
+            }
 
             if (eventData._railsInterceptor) {
               await (eventData._railsInterceptor as RailsInterceptor).stopIntercepting();
@@ -1743,7 +1785,23 @@ for (const stateKey of userStatesToRun) {
             await subscribeCta.click({ force: true });
             console.log('✅ [DAZN Tile] Subscription modal Subscribe CTA clicked');
           } else {
-            container = await landing.findPPVContainer(eventData, containerSource);
+            try {
+              container = await landing.findPPVContainer(eventData, containerSource);
+            } catch (error) {
+              if (process.env.PPV_REMOVAL !== 'true' || !isConfiguredPpvAbsenceError(error, eventData.PPV_NAME)) {
+                throw error;
+              }
+              console.log(`✅ [PPV Removal - Existing User] ${SOURCE}: configured PPV is absent from the source.`);
+              results.push({
+                page: 'PPV Removal',
+                field: 'PPV Surfacing Point Removal',
+                expected: 'PPV surfacing point removed from UI',
+                actual: error instanceof Error ? error.message : String(error),
+                status: 'PASS',
+              });
+              await closeContext().catch(() => { });
+              return;
+            }
 
             // Stop intercepting after findPPVContainer completes
             if (eventData._railsInterceptor) {
