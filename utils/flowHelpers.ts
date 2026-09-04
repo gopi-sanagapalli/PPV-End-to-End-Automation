@@ -1,5 +1,53 @@
 import { Page } from '@playwright/test';
 
+export function isConfiguredPpvAbsenceError(error: unknown, ppvName: string): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  const ppvWords = ppvName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .split(/\s+/)
+    .filter(word => word.length > 2);
+  const normalizedMessage = message.toLowerCase().replace(/[^a-z0-9]+/g, ' ');
+
+  return ppvWords.some(word => normalizedMessage.includes(word)) &&
+    /\b(?:absent|missing|not configured|not found|could not find|no matching)\b/i.test(message);
+}
+
+export async function isConfiguredPpvVisible(page: Page, ppvName: string): Promise<boolean> {
+  const ppvWords = ppvName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .split(/\s+/)
+    .filter(word => word.length > 2);
+
+  if (ppvWords.length === 0) {
+    throw new Error('Cannot check PPV removal without a configured PPV name.');
+  }
+
+  const includesPpv = (value: string): boolean => {
+    const normalized = value.toLowerCase().replace(/[^a-z0-9]+/g, ' ');
+    return ppvWords.every(word => normalized.includes(word));
+  };
+
+  const bodyText = await page.locator('body').innerText({ timeout: 5000 });
+  if (includesPpv(bodyText)) return true;
+
+  const accessibleText = await page.locator('[alt], [aria-label], [title]').evaluateAll(elements =>
+    elements
+      .filter((element: Element) => {
+        const htmlElement = element as HTMLElement;
+        return htmlElement.offsetWidth > 0 && htmlElement.offsetHeight > 0;
+      })
+      .map(element => [
+        element.getAttribute('alt'),
+        element.getAttribute('aria-label'),
+        element.getAttribute('title'),
+      ].filter(Boolean).join(' '))
+  );
+
+  return accessibleText.some(includesPpv);
+}
+
 // ═══════════════════════════════════════════════════════════════
 // PAGE TYPE DETECTION (fixed for plan loop)
 // ═══════════════════════════════════════════════════════════════

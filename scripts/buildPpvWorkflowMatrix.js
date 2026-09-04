@@ -416,12 +416,24 @@ switch (mode) {
   }
   case 'removal-new': {
     const sources = applicable(liveSources.new, true);
-    matrix = sources.map((source) => ({ source, plan: standardPlans[0] }));
+    matrix = sources.map((source) => {
+      const plans = standardPlans.filter((plan) => !ultimateOnly.has(source) || plan.startsWith('ultimate_'));
+      if (plans.length === 0) {
+        throw new Error(`No Ultimate plan is configured for removal source "${source}" in ${country}.`);
+      }
+      return { source, plan: plans[0] };
+    });
     break;
   }
   case 'removal-signed': {
     const sources = applicable(liveSources.signed, true);
-    matrix = sources.map((source) => ({ source, profile: `freemium/${standardPlans[0]}` }));
+    matrix = sources.map((source) => {
+      const profiles = regularProfiles.filter((profile) => !ultimateOnly.has(source) || validUltimateProfiles.has(profile));
+      if (profiles.length === 0) {
+        throw new Error(`No Ultimate-compatible profile is configured for removal source "${source}" in ${country}.`);
+      }
+      return { source, profile: profiles[0] };
+    });
     break;
   }
   default: throw new Error(`Unsupported matrix mode: ${mode}`);

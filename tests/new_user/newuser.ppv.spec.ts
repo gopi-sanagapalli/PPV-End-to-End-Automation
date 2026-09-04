@@ -39,7 +39,7 @@ import { validateVariant, validateCtaAfterUltimateSelection } from '../../flows/
 import { captureFailures } from '../../utils/failureCapture';
 import { parseCanadaCommand } from '../../utils/configLoader';
 import { buildEventData } from '../../utils/buildEventData';
-import { detectPageType, handleNoPpvClick } from '../../utils/flowHelpers';
+import { detectPageType, handleNoPpvClick, isConfiguredPpvAbsenceError, isConfiguredPpvVisible } from '../../utils/flowHelpers';
 import { displayResultsTable } from '../../utils/resultsDisplay';
 import { writeResults } from '../../utils/excelWriter';
 import { generateReports } from '../../utils/reportGenerator';
@@ -704,14 +704,57 @@ async function runFlow(
 
       // ── Step 2: Resolve the configured source ──────────
       let container: any;
+      const removalCtaOnlySources = new Set([
+        'home-page-dazntile',
+        'home-page-get-started',
+        'boxing-standard-subscription',
+        'boxing-ultimate-subscription',
+        'boxing-join-the-club',
+      ]);
       if (shouldValidateTileBeforePopup) {
         eventData.__RETURN_TILE_BEFORE_POPUP = 'true';
+      }
+
+      if (process.env.PPV_REMOVAL === 'true' && removalCtaOnlySources.has(source)) {
+        if (!await isConfiguredPpvVisible(page, eventData.PPV_NAME)) {
+          console.log(`✅ [PPV Removal] ${source}: configured PPV is absent from the source.`);
+          results.push({
+            page: 'PPV Removal',
+            field: 'PPV Surfacing Point Removal',
+            expected: 'PPV surfacing point removed from UI',
+            actual: 'Configured PPV is absent from the source',
+            status: 'PASS',
+          });
+          await context.close().catch(() => { });
+          return { results, reachedEndPage: true };
+        }
+        throw new Error(`❌ [PPV Removal] ${eventData.PPV_NAME} is still present via ${source}`);
       }
 
       if (source === 'home-page-dazntile') {
         // This source is not a PPV-container flow. HomePage finds and clicks
         // the DAZN tile from the captured rails response by entitlement.
-        await landing.findPPVContainer(eventData, source);
+        try {
+          await landing.findPPVContainer(eventData, source);
+        } catch (error) {
+          if (process.env.PPV_REMOVAL !== 'true' || !isConfiguredPpvAbsenceError(error, eventData.PPV_NAME)) {
+            throw error;
+          }
+          console.log(`✅ [PPV Removal] ${source}: configured PPV is absent from the DAZN tile source.`);
+          results.push({
+            page: 'PPV Removal',
+            field: 'PPV Surfacing Point Removal',
+            expected: 'PPV surfacing point removed from UI',
+            actual: error instanceof Error ? error.message : String(error),
+            status: 'PASS',
+          });
+          await context.close().catch(() => { });
+          return { results, reachedEndPage: true };
+        }
+
+        if (process.env.PPV_REMOVAL === 'true') {
+          throw new Error(`❌ [PPV Removal] ${eventData.PPV_NAME} is still present via ${source}`);
+        }
 
         if (eventData._railsInterceptor) {
           await (eventData._railsInterceptor as RailsInterceptor).stopIntercepting();
@@ -735,7 +778,23 @@ async function runFlow(
         await subscribeCta.click({ force: true });
         console.log('✅ [DAZN Tile] Subscription modal Subscribe CTA clicked');
       } else {
-        container = await landing.findPPVContainer(eventData, source);
+        try {
+          container = await landing.findPPVContainer(eventData, source);
+        } catch (error) {
+          if (process.env.PPV_REMOVAL !== 'true' || !isConfiguredPpvAbsenceError(error, eventData.PPV_NAME)) {
+            throw error;
+          }
+          console.log(`✅ [PPV Removal] ${source}: configured PPV is absent from the source.`);
+          results.push({
+            page: 'PPV Removal',
+            field: 'PPV Surfacing Point Removal',
+            expected: 'PPV surfacing point removed from UI',
+            actual: error instanceof Error ? error.message : String(error),
+            status: 'PASS',
+          });
+          await context.close().catch(() => { });
+          return { results, reachedEndPage: true };
+        }
 
         // Stop intercepting after findPPVContainer completes
         if (eventData._railsInterceptor) {
