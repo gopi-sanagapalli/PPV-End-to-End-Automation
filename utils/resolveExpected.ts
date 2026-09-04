@@ -208,7 +208,7 @@ export function resolveExpected(
     }
     if (field === 'upsell feature 4') {
       const region = (eventData.DAZN_REGION || process.env.DAZN_REGION || '').toUpperCase();
-      if (region === 'NO') {
+      if (region === 'NO' || region === 'AE') {
         return 'Highlights from LALIGA, Bundesliga and Saudi Pro League.';
       }
       if (eventData.UPSELL_FEATURE_4) return eventData.UPSELL_FEATURE_4;
