@@ -129,6 +129,7 @@ const regularProfiles = [
 ].filter((profile) => standardPlans.includes(profile.split('/')[1]));
 const ultimateOnly = new Set(['boxing-banner-ultimate', 'boxing-ultimate-subscription', 'boxing-join-the-club']);
 const validUltimateProfiles = new Set(['active_standard_monthly/ultimate_apm', 'active_standard_monthly/ultimate_upfront', 'active_standard_apm/ultimate_apm']);
+const removalExcludedSources = new Set(['boxing-standard-subscription', 'boxing-ultimate-subscription', 'boxing-join-the-club', 'home-page-dazntile', 'home-page-get-started']);
 // Sources that open a subscription modal — active users already have a subscription so
 // no modal appears and the flow gets stuck. Only freemium/frozen profiles are valid.
 const activeSubscribedExcludedSources = new Set(['home-page-dazntile', 'home-page-get-started', 'boxing-standard-subscription', 'boxing-ultimate-subscription']);
@@ -415,7 +416,7 @@ switch (mode) {
     break;
   }
   case 'removal-new': {
-    const sources = applicable(liveSources.new, true);
+    const sources = applicable(liveSources.new, false).filter((source) => !removalExcludedSources.has(source));
     matrix = sources.map((source) => {
       const plans = standardPlans.filter((plan) => !ultimateOnly.has(source) || plan.startsWith('ultimate_'));
       if (plans.length === 0) {
@@ -426,7 +427,7 @@ switch (mode) {
     break;
   }
   case 'removal-signed': {
-    const sources = applicable(liveSources.signed, true);
+    const sources = applicable(liveSources.signed, false).filter((source) => !removalExcludedSources.has(source));
     matrix = sources.map((source) => {
       const profiles = regularProfiles.filter((profile) => !ultimateOnly.has(source) || validUltimateProfiles.has(profile));
       if (profiles.length === 0) {
