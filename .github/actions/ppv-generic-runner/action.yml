@@ -10,7 +10,7 @@ runs:
       shell: bash
       run: rm -rf test-results playwright-report reports
     - shell: bash
-      run: npm ci
+      run: npm ci --prefer-offline --no-audit
     - shell: bash
       run: npx playwright install chromium
     - if: ${{ env.PROFILE != '' }}

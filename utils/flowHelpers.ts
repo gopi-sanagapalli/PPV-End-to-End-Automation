@@ -10,7 +10,7 @@ export function isConfiguredPpvAbsenceError(error: unknown, ppvName: string): bo
   const normalizedMessage = message.toLowerCase().replace(/[^a-z0-9]+/g, ' ');
 
   return ppvWords.some(word => normalizedMessage.includes(word)) &&
-    /\b(?:absent|missing|not configured|not found|could not find|no matching)\b/i.test(message);
+    /\b(?:absent|missing|not configured|not found|could not find|no matching|no competition tile found)\b/i.test(message);
 }
 
 export async function isConfiguredPpvVisible(page: Page, ppvName: string): Promise<boolean> {
